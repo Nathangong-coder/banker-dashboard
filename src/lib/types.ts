@@ -165,7 +165,7 @@ export interface Prospect {
   title: string;
   snippet: string;
   linkedin: string;
-  source: "google" | "apollo";
+  source: "google" | "apollo" | "linkedin";
   verdict?: "match" | "maybe" | "no";
   score?: number;
   position?: string;
@@ -193,7 +193,7 @@ export interface SheetSnapshot {
   cells: Record<string, { v: string; link?: string }>; // key "r:c" (1-based)
 }
 
-export type VaultService = "apollo" | "hunter" | "serper" | "ai";
+export type VaultService = "apollo" | "hunter" | "serper" | "brave" | "ai";
 
 export type AiProvider = "anthropic" | "openai" | "google" | "deepseek" | "glm" | "gateway" | "custom";
 

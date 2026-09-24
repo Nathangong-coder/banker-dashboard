@@ -18,7 +18,7 @@ import type {
   WorkbookMeta,
 } from "./types";
 import type { ContactTable, Patches } from "./workbook";
-import { DEFAULT_SETTINGS, DEFAULT_TEMPLATES } from "./defaults";
+import { DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_QUERIES_V1 } from "./defaults";
 import type { TargetBank } from "./banks";
 
 const idbStorage: StateStorage = {
@@ -261,7 +261,7 @@ export const useStore = create<State>()(
     }),
     {
       name: "banker-dashboard",
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -304,10 +304,16 @@ function migrateState(p: Record<string, unknown>, version: number) {
       apollo: entry(k.apollo),
       hunter: entry(k.hunter),
       serper: entry(k.serper),
+      brave: [],
       ai: entry(k.ai, { provider: aiProvider }),
     };
     settings.ai = { provider: aiProvider, model: aiProvider === "anthropic" || aiProvider === "gateway" ? k.aiModel || "claude-sonnet-5" : "" };
     for (const f of ["apollo", "hunter", "serper", "ai", "aiModel"]) delete k[f];
+  }
+  if (version < 3 && p?.settings) {
+    // v2 default search queries were long enough to hit Google's 32-word limit; swap them if untouched.
+    const prospect = (p.settings as { prospect?: { queries?: string[] } }).prospect;
+    if (prospect && JSON.stringify(prospect.queries) === JSON.stringify(LEGACY_QUERIES_V1)) prospect.queries = [...DEFAULT_QUERIES];
   }
   return p;
 }

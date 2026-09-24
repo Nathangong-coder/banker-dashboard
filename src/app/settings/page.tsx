@@ -149,7 +149,7 @@ export default function SettingsPage() {
       exportedAt: new Date().toISOString(),
       settings: withKeys
         ? st.settings
-        : { ...st.settings, vault: { apollo: [], hunter: [], serper: [], ai: [] }, keys: { ...st.settings.keys, twilioToken: "", whatsappApiKey: "" } },
+        : { ...st.settings, vault: { apollo: [], hunter: [], serper: [], brave: [], ai: [] }, keys: { ...st.settings.keys, twilioToken: "", whatsappApiKey: "" } },
       contacts: st.contacts,
       templates: st.templates,
       banks: st.banks,
@@ -228,6 +228,14 @@ export default function SettingsPage() {
             how={<><A href="https://serper.dev">serper.dev</A> · 2,500 free searches. Testing a key uses 1 search.</>}
           >
             <KeyVault service="serper" placeholder="Serper API key" />
+          </KeyRow>
+          <KeyRow
+            title="Brave Search (backup)"
+            ok={hasKey(settings, "brave")}
+            used="Same LinkedIn-profile search as Serper, used when Serper has no key or fails."
+            how={<><A href="https://api-dashboard.search.brave.com/app/keys">api-dashboard.search.brave.com</A>: pick the free plan, then create an API key. Testing uses 1 query.</>}
+          >
+            <KeyVault service="brave" placeholder="Brave Search API key" />
           </KeyRow>
           <KeyRow
             title="AI model"

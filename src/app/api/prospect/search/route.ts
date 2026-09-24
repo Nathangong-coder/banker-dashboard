@@ -31,29 +31,78 @@ async function serperSearch(key: string, q: string, num: number): Promise<Organi
     body: JSON.stringify({ q, num }),
   });
   if ([401, 402, 403, 429].includes(res.status))
-    throw new HttpError(res.status, `Serper: ${res.status === 429 ? "rate limited or out of credits" : "invalid API key"}`);
-  if (!res.ok) throw new HttpError(502, `Serper: ${(await res.text()).slice(0, 200)}`);
+    throw new HttpError(res.status, `Serper: ${res.status === 429 ? "rate limited or out of credits" : res.status === 402 ? "out of credits" : "invalid API key"}`);
+  if (!res.ok) throw new HttpError(502, `Serper (${res.status}): ${(await res.text()).slice(0, 200)}`);
   const j = (await res.json()) as { organic?: Organic[] };
   return j.organic ?? [];
+}
+
+async function braveSearch(key: string, q: string, num: number): Promise<Organic[]> {
+  const out: Organic[] = [];
+  // Brave returns at most 20 per page; page with offset for more.
+  for (let offset = 0; out.length < num && offset <= 2; offset++) {
+    const u = new URL("https://api.search.brave.com/res/v1/web/search");
+    u.searchParams.set("q", q);
+    u.searchParams.set("count", String(Math.min(20, num)));
+    u.searchParams.set("offset", String(offset));
+    u.searchParams.set("extra_snippets", "true");
+    const res = await fetch(u, { headers: { "X-Subscription-Token": key, Accept: "application/json" } });
+    if (!res.ok) {
+      const body = await res.text();
+      // Brave reports a bad key as 422 SUBSCRIPTION_TOKEN_INVALID; treat it like 401 so the next key is tried.
+      const badKey = [401, 403].includes(res.status) || /SUBSCRIPTION_TOKEN_INVALID/.test(body);
+      if (badKey) throw new HttpError(401, "Brave: invalid API key");
+      if ([402, 429].includes(res.status)) throw new HttpError(res.status, "Brave: rate limited or out of credits");
+      const detail = body.match(/"detail":"([^"]+)"/)?.[1] ?? body.slice(0, 200);
+      throw new HttpError(502, `Brave (${res.status}): ${detail}`);
+    }
+    const j = (await res.json()) as { web?: { results?: { title?: string; url?: string; description?: string; extra_snippets?: string[] }[] }; query?: { more_results_available?: boolean } };
+    const page = j.web?.results ?? [];
+    out.push(...page.map((r) => ({ title: r.title, link: r.url, snippet: [r.description, ...(r.extra_snippets ?? [])].filter(Boolean).join(" … ").replace(/<\/?strong>/g, "") })));
+    if (!j.query?.more_results_available || page.length === 0) break;
+    await new Promise((r) => setTimeout(r, 1100)); // free plan: 1 request/second
+  }
+  return out;
+}
+
+/** Serper first; if it has no keys or every Serper key fails, fall back to Brave. */
+async function webSearch(serperKeys: string[], braveKeys: string[], q: string, num: number, warnings: string[]) {
+  if (serperKeys.length) {
+    try {
+      return await withFallback(serperKeys, "Serper", (k) => serperSearch(k, q, num));
+    } catch (e) {
+      if (!braveKeys.length) throw e;
+      const msg = `${(e as Error).message}. Using Brave instead.`;
+      if (!warnings.includes(msg)) warnings.push(msg);
+    }
+  }
+  return withFallback(braveKeys, "Brave", (k) => braveSearch(k, q, num));
 }
 
 export async function POST(req: Request) {
   try {
     const serperKeys = keysFrom(req, "serper");
+    const braveKeys = keysFrom(req, "brave");
     const apolloKeys = keysFrom(req, "apollo");
     const { bank, queries, perQuery, apollo } = Body.parse(await req.json());
-    if (!serperKeys.length && !(apollo?.enabled && apolloKeys.length))
-      throw new HttpError(400, "Add a Serper (Google search) key, or enable Apollo search with an Apollo key.");
+    if (!serperKeys.length && !braveKeys.length && !(apollo?.enabled && apolloKeys.length))
+      throw new HttpError(400, "Add a Serper or Brave Search key, or enable Apollo search with an Apollo key.");
 
     const out = new Map<string, Prospect>();
     const warnings: string[] = [];
 
-    if (serperKeys.length) {
-      const lists = await Promise.all(
-        queries.map((q) =>
-          withFallback(serperKeys, "Serper", (k) => serperSearch(k, q.replaceAll("{bank}", bank.name), perQuery)),
-        ),
-      );
+    if (serperKeys.length || braveKeys.length) {
+      // Sequential: Brave's free plan allows 1 request/second, and errors are clearer per query.
+      const lists: Organic[][] = [];
+      for (const q of queries) {
+        const query = q.replaceAll("{bank}", bank.name);
+        try {
+          lists.push(await webSearch(serperKeys, braveKeys, query, perQuery, warnings));
+        } catch (e) {
+          if (lists.length === 0 && q === queries[queries.length - 1]) throw e;
+          warnings.push(`A query failed: ${(e as Error).message}`);
+        }
+      }
       for (const r of lists.flat()) {
         const link = r.link ?? "";
         const m = link.match(/linkedin\.com\/in\/([^/?#]+)/i);

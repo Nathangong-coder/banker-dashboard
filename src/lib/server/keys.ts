@@ -2,7 +2,7 @@ import "server-only";
 import { HttpError } from "./http";
 
 /** Read the ordered key list the client sent for a service (JSON array header). */
-export function keysFrom(req: Request, service: "apollo" | "hunter" | "serper"): string[] {
+export function keysFrom(req: Request, service: "apollo" | "hunter" | "serper" | "brave"): string[] {
   const raw = req.headers.get(`x-${service}-keys`);
   if (!raw) return [];
   try {

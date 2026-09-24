@@ -9,7 +9,7 @@ import { aiHeader, usableKeys } from "./keys";
  */
 export async function callApi<T>(path: string, body: unknown, s: Settings): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  for (const svc of ["apollo", "hunter", "serper"] as const) {
+  for (const svc of ["apollo", "hunter", "serper", "brave"] as const) {
     const keys = usableKeys(s, svc).map((k) => k.value);
     if (keys.length) headers[`x-${svc}-keys`] = JSON.stringify(keys);
   }

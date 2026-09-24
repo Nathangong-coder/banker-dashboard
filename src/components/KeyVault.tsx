@@ -89,7 +89,7 @@ function EntryRow({
 const moveTop = <T,>(arr: T[], i: number) => [arr[i], ...arr.filter((_, j) => j !== i)];
 
 /** Multiple keys for one data service. A key is only stored after it passes a live test. */
-export function KeyVault({ service, placeholder }: { service: "apollo" | "hunter" | "serper"; placeholder: string }) {
+export function KeyVault({ service, placeholder }: { service: "apollo" | "hunter" | "serper" | "brave"; placeholder: string }) {
   const { list, save } = useVault(service);
   const [value, setValue] = useState("");
   const [label, setLabel] = useState("");

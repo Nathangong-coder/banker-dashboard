@@ -25,7 +25,7 @@ Everything is set in **Settings & keys** in the app. Each service shows *connect
 | Service | Needed for | Cost |
 |---|---|---|
 | **Apollo** (or Hunter) | Enrich contact info: finds missing emails | Apollo free plan includes some credits · Hunter 25 free/month |
-| **Serper** | Find people: Google search of LinkedIn profiles | 2,500 free searches |
+| **Serper** or **Brave Search** | Find people: web search of public LinkedIn profiles (Brave is the automatic backup) | Serper: 2,500 free searches · Brave: free plan |
 | **AI**: Claude, GPT, Gemini, DeepSeek, GLM… | AI screening, auto-assigning templates, writing personalized lines, organizing imported templates | Pay per use, usually cents per batch (Gemini has a free tier) |
 | **Google OAuth Client ID** (no secret needed) | Creating Gmail drafts and syncing sent mail and replies | Free |
 | ntfy topic · WhatsApp (CallMeBot) · Twilio | Phone reminders (all optional) | ntfy and CallMeBot free · Twilio paid |
@@ -118,6 +118,21 @@ Common errors:
 
 Scopes: `gmail.compose` (create drafts) and `gmail.readonly` (sync sent mail and replies). The app never sends email itself; drafts wait for you in Gmail.
 Official walkthrough: [Gmail API JavaScript quickstart](https://developers.google.com/workspace/gmail/api/quickstart/js).
+
+## Finding people on LinkedIn
+
+Two ways, and you can use both:
+
+1. **Search APIs (Serper, or Brave as a backup)** look up public LinkedIn profiles through a web search for each bank, and AI screens them. The default
+   queries are kept under Google's 32-word limit, because longer queries get silently cut off. The query editor warns you if one gets too long.
+2. **"Send to Coverage" bookmark.** On Find people, drag the button to your bookmarks bar. Then run a normal LinkedIn People search using LinkedIn's
+   filters (Current company, School, Locations), scroll so the results load, and click the bookmark. The profiles on screen open in Find people and
+   get AI-screened. The bank is guessed from each headline, or taken from the AI's "current employer". Clicking it on a single profile captures much more
+   detail (education, past roles).
+
+**Why there's no automatic LinkedIn scraper:** LinkedIn's User Agreement (§8.2) bans bots and scrapers, and it restricts accounts that load pages in an
+automated pattern, especially from cloud servers (which is where this app runs). The bookmark only reads the page you already have open, never
+loads LinkedIn pages itself, and runs only when you click it. That makes it about as risky as copy-pasting.
 
 ## Bank coverage
 

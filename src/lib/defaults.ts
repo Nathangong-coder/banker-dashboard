@@ -10,11 +10,24 @@ export const DEFAULT_CRITERIA = `Include a person ONLY if ALL THREE groups are s
 
 If the profile snippet is missing information needed to confirm a group, answer "maybe" rather than "no" unless another group clearly fails.`;
 
+/** Kept well under Google's 32-word query limit (longer queries get silently truncated). */
 export const DEFAULT_QUERIES = [
+  `site:linkedin.com/in "{bank}" "investment banking" (technology OR TMT) (UCLA OR Berkeley OR UCSD OR UCI OR "UC Davis" OR UCSB)`,
+  `site:linkedin.com/in "{bank}" "investment banking" generalist "New York" (UCLA OR Berkeley OR UCSD OR "University of California")`,
+  `site:linkedin.com/in "{bank}" "investment banking" ("University of Washington" OR Seattle OR Bellevue)`,
+];
+
+/** v1 defaults, replaced automatically by the store migration if the user never edited them. */
+export const LEGACY_QUERIES_V1 = [
   `site:linkedin.com/in "{bank}" "investment banking" ("technology" OR "TMT" OR "tech") ("UCLA" OR "Berkeley" OR "UC San Diego" OR "UC Irvine" OR "UC Davis" OR "UC Santa Barbara" OR "University of California")`,
   `site:linkedin.com/in "{bank}" "investment banking" "generalist" "New York" ("UCLA" OR "Berkeley" OR "UC San Diego" OR "UC Irvine" OR "UC Davis" OR "University of California")`,
   `site:linkedin.com/in "{bank}" "investment banking" ("University of Washington" OR "Seattle" OR "Bellevue" OR "Washington State")`,
 ];
+
+/** Rough Google word count ("site:x", quoted phrases' words, and OR all count). */
+export function queryWordCount(q: string, bank = "Perella Weinberg Partners") {
+  return q.replaceAll("{bank}", bank).split(/[\s()"]+/).filter(Boolean).length;
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   profile: {
@@ -44,7 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
     whatsappPhone: "",
     whatsappApiKey: "",
   },
-  vault: { apollo: [], hunter: [], serper: [], ai: [] },
+  vault: { apollo: [], hunter: [], serper: [], brave: [], ai: [] },
   ai: { provider: "anthropic", model: "claude-sonnet-5" },
   followUp: {
     firstAfterDays: 7,

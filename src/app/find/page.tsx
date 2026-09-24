@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ExternalLink, Filter, Plus, Search, Sparkles, X } from "lucide-react";
+import { Bookmark, ExternalLink, Filter, Plus, Search, Sparkles, UserSearch, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { addProspects, enrichContacts } from "@/lib/actions";
@@ -11,6 +11,9 @@ import type { Prospect } from "@/lib/types";
 import { chunk, cn, guessDomain, linkedinSlug } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, PageHeader, Progress, Textarea, toast } from "@/components/ui";
 import { aiReady, hasKey } from "@/lib/keys";
+import { DEFAULT_QUERIES, queryWordCount } from "@/lib/defaults";
+import { bookmarkletHref, guessBank, linkedinSearchUrl, parseCapture } from "@/lib/linkedinCapture";
+import { canonBank } from "@/lib/banks";
 
 type Verdict = {
   id: string;
@@ -24,6 +27,7 @@ type Verdict = {
   location: string;
   region: "SF" | "NY" | "Other";
   reasons: string;
+  employer?: string;
 };
 
 export default function FindPage() {
@@ -52,10 +56,23 @@ function FindInner() {
   const [autoScreen, setAutoScreen] = useState(true);
   const [showQueries, setShowQueries] = useState(false);
   const [phase, setPhase] = useState<null | { label: string; done: number; total: number }>(null);
-  const [tab, setTab] = useState<"match" | "maybe" | "no" | "all">("match");
+  // Arriving from the LinkedIn bookmarklet without AI → show everything, since nothing will be screened.
+  const [tab, setTab] = useState<"match" | "maybe" | "no" | "all">(() =>
+    typeof window !== "undefined" && window.location.hash.startsWith("#li=") && !aiReady(useStore.getState().settings) ? "all" : "match",
+  );
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [toSheet, setToSheet] = useState(true);
   const [thenEnrich, setThenEnrich] = useState(true);
+  const targets = useStore((s) => s.targets);
+  const bankUniverse = useMemo(
+    () => [...new Map([...contacts.map((c) => c.bank), ...targets.map((t) => t.name)].map((n) => [canonBank(n), n])).values()],
+    [contacts, targets],
+  );
+  const bookmarkRef = useRef<HTMLAnchorElement>(null);
+  // React refuses javascript: URLs in JSX, so the bookmarklet href is set directly on the element.
+  useEffect(() => {
+    bookmarkRef.current?.setAttribute("href", bookmarkletHref(window.location.origin));
+  }, []);
 
   const existing = useMemo(() => {
     const slugs = new Set(contacts.map((c) => linkedinSlug(c.linkedin)).filter(Boolean));
@@ -98,6 +115,7 @@ function FindInner() {
             location: v.location,
             region: v.region,
             reasons: v.reasons,
+            bank: p.bank === "Unknown" && v.employer ? (guessBank(v.employer, bankUniverse) ?? v.employer) : p.bank,
           });
         }
       } catch (e) {
@@ -112,10 +130,32 @@ function FindInner() {
     return [...byId.values()];
   };
 
+  // Profiles sent from LinkedIn by the "Send to Coverage" bookmarklet arrive in the URL hash.
+  const importedHash = useRef(false);
+  useEffect(() => {
+    if (importedHash.current || !window.location.hash.startsWith("#li=")) return;
+    importedHash.current = true;
+    const incoming = parseCapture(window.location.hash, bankUniverse, banks.length === 1 ? banks[0] : undefined);
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    const current = useStore.getState().prospects;
+    const fresh = incoming.filter((p) => !existing(p) && !current.some((x) => x.id === p.id));
+    if (!fresh.length) {
+      toast.info(incoming.length ? "Everyone on that LinkedIn page is already in your contacts or results." : "Couldn't read any profiles from that page.");
+      return;
+    }
+    const list = [...fresh, ...current];
+    setProspects(list);
+    toast.ok(`Imported ${fresh.length} profile${fresh.length > 1 ? "s" : ""} from LinkedIn${autoScreen && aiReady(settings) ? ". Screening with AI…" : ""}.`);
+    // Start screening after this effect (the hash import is an external event, not a render).
+    if (autoScreen && aiReady(settings)) setTimeout(() => void screen(list), 0);
+    // Runs once on arrival; later state changes must not re-import.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const run = async () => {
     if (!banks.length) return toast.err("Pick at least one bank.");
-    if (!hasKey(settings, "serper") && !(useApollo && hasKey(settings, "apollo")))
-      return toast.err("Add a Serper key (Google search) in Settings, or turn on Apollo search.");
+    if (!hasKey(settings, "serper") && !hasKey(settings, "brave") && !(useApollo && hasKey(settings, "apollo")))
+      return toast.err("Add a Serper or Brave Search key in Settings, or use the LinkedIn button below.");
     const found = new Map<string, Prospect>(prospects.map((p) => [p.id, p]));
     setPhase({ label: "Searching", done: 0, total: banks.length });
     let i = 0;
@@ -183,6 +223,44 @@ function FindInner() {
       <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
         <div className="space-y-6">
           <Card>
+            <CardHeader title="From LinkedIn" sub="Capture the people you’re looking at" right={<UserSearch className="size-4 text-[#0a66c2]" />} />
+            <div className="space-y-3 p-4 text-[12.5px] text-ink-2">
+              <ol className="list-decimal space-y-1.5 pl-4">
+                <li>
+                  Drag this button to your bookmarks bar (once):{" "}
+                  <a
+                    ref={bookmarkRef}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toast.info("Drag it to your bookmarks bar, then click it while on a LinkedIn search or profile page.");
+                    }}
+                    className="ml-1 inline-flex cursor-grab items-center gap-1 rounded-md bg-[#0a66c2] px-2 py-1 text-[12px] font-medium text-white"
+                  >
+                    <Bookmark className="size-3" /> Send to Coverage
+                  </a>
+                </li>
+                <li>
+                  On LinkedIn, search People and use the filters (<b>Current company</b>, <b>School</b>, <b>Locations</b>).
+                  {banks.length > 0 && (
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      {banks.slice(0, 8).map((b) => (
+                        <a key={b} href={linkedinSearchUrl(b)} target="_blank" rel="noreferrer" className="rounded-full border border-line-2 px-2 py-0.5 text-[11.5px] hover:border-[#0a66c2] hover:text-[#0a66c2]">
+                          Search {b} ↗
+                        </a>
+                      ))}
+                    </span>
+                  )}
+                </li>
+                <li>Scroll so the results load, then click the bookmark. The people on screen show up here and get AI-screened.</li>
+              </ol>
+              <p className="text-[11.5px] text-muted">
+                It only reads the page you’re viewing and never loads LinkedIn pages on its own, so it’s about as risky as copy-pasting. Works on search
+                results and on single profiles (profiles give the AI more to go on: schools, past roles).
+              </p>
+            </div>
+          </Card>
+
+          <Card>
             <CardHeader title="1 · Banks" sub="Where to look" />
             <div className="space-y-3 p-4">
               <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
@@ -236,7 +314,11 @@ function FindInner() {
               {showQueries && (
                 <div className="space-y-2">
                   <p className="text-[11.5px] text-muted">
-                    <code>{"{bank}"}</code> is replaced with each bank name. Each query costs one Serper credit per bank.
+                    <code>{"{bank}"}</code> is replaced with each bank name. Each query costs one search credit per bank. Keep queries under ~30 words:
+                    Google silently ignores everything past 32.{" "}
+                    <button className="text-navy underline" onClick={() => setSettings((s) => ({ ...s, prospect: { ...s.prospect, queries: [...DEFAULT_QUERIES] } }))}>
+                      Reset to defaults
+                    </button>
                   </p>
                   {settings.prospect.queries.map((q, i) => (
                     <div key={i} className="flex gap-1.5">
@@ -251,6 +333,7 @@ function FindInner() {
                           }))
                         }
                       />
+                      {queryWordCount(q) > 30 && <span className="self-start pt-1 text-[11px] whitespace-nowrap text-red">{queryWordCount(q)} words</span>}
                       <button
                         aria-label="Remove query"
                         className="self-start p-1 text-muted hover:text-red"
@@ -301,9 +384,9 @@ function FindInner() {
                   )}
                 </div>
               )}
-              {(!hasKey(settings, "serper") || !aiReady(settings)) && (
+              {((!hasKey(settings, "serper") && !hasKey(settings, "brave")) || !aiReady(settings)) && (
                 <p className="text-[12px] text-amber">
-                  Needs {[!hasKey(settings, "serper") && "a Serper key", !aiReady(settings) && "an AI key + model"].filter(Boolean).join(" and ")} ·{" "}
+                  Needs {[!hasKey(settings, "serper") && !hasKey(settings, "brave") && "a Serper or Brave key", !aiReady(settings) && "an AI key + model"].filter(Boolean).join(" and ")} ·{" "}
                   <Link href="/settings" className="underline">
                     Settings
                   </Link>
@@ -382,6 +465,7 @@ function FindInner() {
                               <ExternalLink className="size-3" />
                             </a>
                           )}
+                          {p.source === "linkedin" && <Badge tone="blue">LinkedIn</Badge>}
                         </div>
                         <div className="text-[12px] text-muted">
                           {p.bank} · {p.position || p.title || "—"}

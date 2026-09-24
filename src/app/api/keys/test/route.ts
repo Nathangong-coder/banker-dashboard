@@ -13,6 +13,7 @@ const Body = z.discriminatedUnion("service", [
   z.object({ service: z.literal("apollo"), key: z.string().min(8) }),
   z.object({ service: z.literal("hunter"), key: z.string().min(8) }),
   z.object({ service: z.literal("serper"), key: z.string().min(8) }),
+  z.object({ service: z.literal("brave"), key: z.string().min(8) }),
   z.object({
     service: z.literal("ai"),
     key: z.string().min(8),
@@ -48,9 +49,9 @@ async function getJson(url: string, init?: RequestInit) {
 }
 
 function errText(json: Record<string, unknown> | null, text: string) {
-  const e = json?.error as { message?: string } | string | undefined;
+  const e = json?.error as { message?: string; detail?: string } | string | undefined;
   const hunter = (json?.errors as { details?: string }[] | undefined)?.[0]?.details;
-  return (typeof e === "string" ? e : e?.message) ?? hunter ?? (json?.message as string) ?? text.slice(0, 160);
+  return (typeof e === "string" ? e : (e?.message ?? e?.detail)) ?? hunter ?? (json?.message as string) ?? text.slice(0, 160);
 }
 
 const firstLine = (m: string) => m.split(/\r?\n/)[0].slice(0, 200);
@@ -155,6 +156,13 @@ export async function POST(req: Request) {
           body: JSON.stringify({ q: "investment banking analyst", num: 10 }),
         });
         result = res.ok ? ok("Key works (used 1 search credit to check)") : bad(`Serper rejected this key: ${errText(json, text)}`);
+        break;
+      }
+      case "brave": {
+        const { res, json, text } = await getJson("https://api.search.brave.com/res/v1/web/search?q=investment%20banking%20analyst&count=1", {
+          headers: { "X-Subscription-Token": b.key, Accept: "application/json" },
+        });
+        result = res.ok ? ok("Key works (used 1 query to check)") : bad(`Brave rejected this key: ${errText(json, text)}`);
         break;
       }
       case "ai": {

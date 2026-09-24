@@ -90,6 +90,17 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   unknown caps → flagged `[[AI: …]]`) → optional `api/templates/organize` AI pass, whose edits are **discarded unless `sameWording` holds** →
   review modal (`components/TemplateImport.tsx`) → upsert by template name. Google Doc links: `api/templates/gdoc` (docs.google.com only).
 
+## Finding people (`app/api/prospect/search`, `src/lib/linkedinCapture.ts`)
+
+- Web search: `webSearch` tries the Serper keys, then falls back to Brave (`x-brave-keys`; free plan = 1 req/s, so queries run sequentially).
+  Brave reports a bad key as **422 SUBSCRIPTION_TOKEN_INVALID**, which is mapped to 401 so key fallback works. Keep default queries ≤ ~30 words
+  (`queryWordCount`), since Google truncates at 32. Store v3 migration swaps the old too-long defaults if untouched (`LEGACY_QUERIES_V1`).
+- **LinkedIn policy decision:** no server-side or automated LinkedIn scraping (ToS §8.2 + account-ban risk from datacenter IPs). The owner
+  asked for scraping; the agreed alternative is the user-clicked bookmarklet (`bookmarkletHref`), which reads only the current LinkedIn page's
+  DOM and opens `/find#li=<json>`. `parseCapture` treats the payload as untrusted (caps sizes, sanitizes the slug). The bank comes from
+  `guessBank` over known banks, else the AI filter's `employer`. React blocks `javascript:` hrefs in JSX, so the href is set via ref.
+  The LinkedIn DOM changes often: the script keys on `a[href*="/in/"]` + nearest `li`, not on class names.
+
 ## Bank coverage (`src/lib/coverage.ts`, `src/lib/banks.ts`, `app/coverage`)
 
 - `buildCoverage` merges banks by `canonBank()` (aliases + stop-words; test new aliases against the owner's names) from: contacts →

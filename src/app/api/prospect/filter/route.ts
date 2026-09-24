@@ -32,6 +32,7 @@ const Verdict = z.object({
   location: z.string().describe("Current city/state if visible, else empty"),
   region: z.enum(["SF", "NY", "Other"]).describe("SF = California, NY = New York"),
   reasons: z.string().describe("One short sentence citing the evidence for each criteria group"),
+  employer: z.string().describe("Current employer as written in the snippet (e.g. 'Goldman Sachs'), empty if unclear"),
 });
 
 export async function POST(req: Request) {
