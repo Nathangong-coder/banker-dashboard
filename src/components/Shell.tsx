@@ -8,6 +8,7 @@ import { blobs, useStore } from "@/lib/store";
 import { nextAction } from "@/lib/followups";
 import { cn } from "@/lib/util";
 import { Toaster } from "./ui";
+import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
@@ -53,7 +54,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const contacts = useStore((s) => s.contacts);
   const banks = useStore((s) => s.banks);
   const fu = useStore((s) => s.settings.followUp);
-  const keys = useStore((s) => s.settings.keys);
+  const settings = useStore((s) => s.settings);
   const due = useMemo(
     () =>
       contacts.filter((c) => {
@@ -63,7 +64,12 @@ export function Shell({ children }: { children: ReactNode }) {
     [contacts, banks, fu],
   );
   useDailyNudge(ready ? due : 0);
-  const keyCount = [keys.apollo || keys.hunter, keys.serper, keys.ai, keys.googleClientId].filter(Boolean).length;
+  const keyCount = [
+    hasKey(settings, "apollo") || hasKey(settings, "hunter"),
+    hasKey(settings, "serper"),
+    aiReady(settings),
+    !!googleClientId(settings),
+  ].filter(Boolean).length;
 
   return (
     <div className="flex min-h-screen">

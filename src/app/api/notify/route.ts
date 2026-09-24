@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { HttpError, errorResponse } from "@/lib/server/ai";
+import { HttpError, assertPublicHttps, errorResponse } from "@/lib/server/http";
 
 const Body = z.object({
   channel: z.enum(["ntfy", "twilio", "whatsapp"]),
@@ -42,6 +42,7 @@ export async function POST(req: Request) {
 
     if (b.channel === "ntfy") {
       if (!b.ntfy) throw new HttpError(400, "Set an ntfy topic in Settings.");
+      assertPublicHttps(b.ntfy.server, "ntfy server");
       const headers: Record<string, string> = { Title: b.title, Tags: "bell" };
       // ntfy.sh supports delayed delivery up to 3 days out.
       if (at && at.getTime() > Date.now() + 60_000) headers.At = String(Math.floor(at.getTime() / 1000));

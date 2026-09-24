@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { HttpError, errorResponse } from "@/lib/server/ai";
+import { HttpError, errorResponse } from "@/lib/server/http";
+import { keysFrom, withFallback } from "@/lib/server/keys";
 import { bulkMatch, searchPeople } from "@/lib/server/apollo";
 import type { Prospect } from "@/lib/types";
 
@@ -29,7 +30,8 @@ async function serperSearch(key: string, q: string, num: number): Promise<Organi
     headers: { "X-API-KEY": key, "Content-Type": "application/json" },
     body: JSON.stringify({ q, num }),
   });
-  if (res.status === 401 || res.status === 403) throw new HttpError(401, "Serper: invalid API key");
+  if ([401, 402, 403, 429].includes(res.status))
+    throw new HttpError(res.status, `Serper: ${res.status === 429 ? "rate limited or out of credits" : "invalid API key"}`);
   if (!res.ok) throw new HttpError(502, `Serper: ${(await res.text()).slice(0, 200)}`);
   const j = (await res.json()) as { organic?: Organic[] };
   return j.organic ?? [];
@@ -37,18 +39,20 @@ async function serperSearch(key: string, q: string, num: number): Promise<Organi
 
 export async function POST(req: Request) {
   try {
-    const serperKey = req.headers.get("x-serper-key")?.trim();
-    const apolloKey = req.headers.get("x-apollo-key")?.trim();
+    const serperKeys = keysFrom(req, "serper");
+    const apolloKeys = keysFrom(req, "apollo");
     const { bank, queries, perQuery, apollo } = Body.parse(await req.json());
-    if (!serperKey && !(apollo?.enabled && apolloKey))
+    if (!serperKeys.length && !(apollo?.enabled && apolloKeys.length))
       throw new HttpError(400, "Add a Serper (Google search) key, or enable Apollo search with an Apollo key.");
 
     const out = new Map<string, Prospect>();
     const warnings: string[] = [];
 
-    if (serperKey) {
+    if (serperKeys.length) {
       const lists = await Promise.all(
-        queries.map((q) => serperSearch(serperKey, q.replaceAll("{bank}", bank.name), perQuery)),
+        queries.map((q) =>
+          withFallback(serperKeys, "Serper", (k) => serperSearch(k, q.replaceAll("{bank}", bank.name), perQuery)),
+        ),
       );
       for (const r of lists.flat()) {
         const link = r.link ?? "";
@@ -70,22 +74,21 @@ export async function POST(req: Request) {
       }
     }
 
-    if (apollo?.enabled && apolloKey) {
+    if (apollo?.enabled && apolloKeys.length) {
       try {
-        const people = await searchPeople(apolloKey, {
+        const people = await withFallback(apolloKeys, "Apollo", (k) =>
+          searchPeople(k, {
           domain: bank.domain,
           keywords: bank.domain ? "investment banking" : `${bank.name} investment banking`,
           titles: ["investment banking analyst", "investment banking associate", "vice president investment banking"],
           locations: ["California, US", "New York, US"],
           perPage: Math.min(apollo.maxPeople, 25),
-        });
+          }),
+        );
         const ids = people.slice(0, apollo.maxPeople).map((p) => p.id);
         for (let i = 0; i < ids.length; i += 10) {
-          const matches = await bulkMatch(
-            apolloKey,
-            ids.slice(i, i + 10).map((id) => ({ id })),
-            false,
-          );
+          const batch = ids.slice(i, i + 10).map((id) => ({ id }));
+          const matches = await withFallback(apolloKeys, "Apollo", (k) => bulkMatch(k, batch, false));
           for (const p of matches) {
             if (!p) continue;
             const slug = p.linkedin_url?.match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase() ?? `apollo_${p.id}`;

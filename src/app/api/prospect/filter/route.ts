@@ -1,6 +1,6 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { errorResponse, modelFromRequest } from "@/lib/server/ai";
+import { errorResponse, withAi } from "@/lib/server/ai";
 
 export const maxDuration = 120;
 
@@ -36,10 +36,10 @@ const Verdict = z.object({
 
 export async function POST(req: Request) {
   try {
-    const model = modelFromRequest(req);
     const { criteria, candidates } = Body.parse(await req.json());
 
-    const { output } = await generateText({
+    const { output } = await withAi(req, (model) =>
+      generateText({
       model,
       output: Output.object({ schema: z.object({ results: z.array(Verdict) }) }),
       system:
@@ -47,7 +47,8 @@ export async function POST(req: Request) {
         "Judge only from the evidence given; never invent schools, groups or locations. " +
         "Return exactly one result per candidate, using the candidate's id.",
       prompt: `CRITERIA\n${criteria}\n\nCANDIDATES (JSON)\n${JSON.stringify(candidates, null, 1)}`,
-    });
+      }),
+    );
 
     return Response.json({ results: output.results });
   } catch (e) {

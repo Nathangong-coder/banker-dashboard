@@ -9,6 +9,7 @@ import { addProspects, enrichContacts } from "@/lib/actions";
 import type { Prospect } from "@/lib/types";
 import { chunk, cn, guessDomain, linkedinSlug } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, PageHeader, Progress, Textarea, toast } from "@/components/ui";
+import { aiReady, hasKey } from "@/lib/keys";
 
 type Verdict = {
   id: string;
@@ -53,7 +54,7 @@ export default function FindPage() {
   }, [contacts]);
 
   const screen = async (list: Prospect[]) => {
-    if (!settings.keys.ai) {
+    if (!aiReady(settings)) {
       toast.err("Add an AI key in Settings to screen candidates.");
       return list;
     }
@@ -103,7 +104,7 @@ export default function FindPage() {
 
   const run = async () => {
     if (!banks.length) return toast.err("Pick at least one bank.");
-    if (!settings.keys.serper && !(useApollo && settings.keys.apollo))
+    if (!hasKey(settings, "serper") && !(useApollo && hasKey(settings, "apollo")))
       return toast.err("Add a Serper key (Google search) in Settings, or turn on Apollo search.");
     const found = new Map<string, Prospect>(prospects.map((p) => [p.id, p]));
     setPhase({ label: "Searching", done: 0, total: banks.length });
@@ -131,7 +132,7 @@ export default function FindPage() {
     setProspects(list);
     setPhase(null);
     toast.ok(`${list.length} candidates collected (people already in your sheet are skipped).`);
-    if (autoScreen && settings.keys.ai) list = await screen(list);
+    if (autoScreen && aiReady(settings)) list = await screen(list);
   };
 
   const shown = prospects
@@ -151,7 +152,7 @@ export default function FindPage() {
     setProspects(prospects.filter((p) => !sel.has(p.id)));
     setSel(new Set());
     toast.ok(`Added ${added.length} contact${added.length === 1 ? "" : "s"}${toSheet && hasBook ? " to your spreadsheet (save to write them)" : ""}.`);
-    if (thenEnrich && (settings.keys.apollo || settings.keys.hunter) && added.length) {
+    if (thenEnrich && (hasKey(settings, "apollo") || hasKey(settings, "hunter")) && added.length) {
       setPhase({ label: "Finding emails", done: 0, total: added.length });
       const r = await enrichContacts(
         added.map((c) => c.id),
@@ -290,9 +291,9 @@ export default function FindPage() {
                   )}
                 </div>
               )}
-              {(!settings.keys.serper || !settings.keys.ai) && (
+              {(!hasKey(settings, "serper") || !aiReady(settings)) && (
                 <p className="text-[12px] text-amber">
-                  Needs {[!settings.keys.serper && "a Serper key", !settings.keys.ai && "an AI key"].filter(Boolean).join(" and ")} ·{" "}
+                  Needs {[!hasKey(settings, "serper") && "a Serper key", !aiReady(settings) && "an AI key + model"].filter(Boolean).join(" and ")} ·{" "}
                   <Link href="/settings" className="underline">
                     Settings
                   </Link>

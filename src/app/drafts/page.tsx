@@ -13,6 +13,7 @@ import { overCap } from "@/lib/followups";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { TemplateEditor } from "@/components/TemplateEditor";
+import { aiReady, googleClientId } from "@/lib/keys";
 
 async function parseTemplateFile(f: File): Promise<Template> {
   let text: string;
@@ -59,7 +60,7 @@ export default function DraftsPage() {
   const assign = async () => {
     if (!chosen.length) return toast.err("Select contacts first.");
     if (!initialTemplates.length) return toast.err("Add a template first.");
-    if (!settings.keys.ai) {
+    if (!aiReady(settings)) {
       s.updateContacts(chosen.map((c) => ({ id: c.id, patch: { templateId: ruleAssign(c, templates)?.id } })));
       toast.info("Assigned with simple keyword rules. Add an AI key for smarter matching.");
       return;
@@ -109,7 +110,7 @@ export default function DraftsPage() {
         let body = fillPlaceholders(t.body, c, settings);
         if (settings.profile.signature && !body.includes(settings.profile.signature)) body += `\n${settings.profile.signature}`;
         const needsAi = hasAiSlots(subject + body) || missingPlaceholders(subject + body).length > 0;
-        if (needsAi && settings.keys.ai) {
+        if (needsAi && aiReady(settings)) {
           try {
             const r = await callApi<{ subject: string; body: string }>(
               "/api/draft",
@@ -144,7 +145,7 @@ export default function DraftsPage() {
     const skipped = chosen.length - list.length;
     if (!list.length) return toast.err("None of the selected contacts have both a draft and an email.");
     try {
-      await connectGmail(settings.keys.googleClientId);
+      await connectGmail(googleClientId(settings));
     } catch (e) {
       return toast.err((e as Error).message);
     }
@@ -157,7 +158,7 @@ export default function DraftsPage() {
       async (c) => {
         const t = templates.find((x) => x.id === c.templateId);
         try {
-          const r = await createDraft(settings.keys.googleClientId, {
+          const r = await createDraft(googleClientId(settings), {
             to: c.email,
             subject: c.draft!.subject,
             body: c.draft!.body,
@@ -277,10 +278,10 @@ export default function DraftsPage() {
             </div>
           </Card>
 
-          {(profileMissing || !settings.keys.googleClientId) && (
+          {(profileMissing || !googleClientId(settings)) && (
             <Card className="border-amber/30 bg-amber-soft/40 p-4 text-[12.5px] text-ink-2">
               {profileMissing && <p>Your profile (name, school, year) fills the {"{{my_*}}"} placeholders.</p>}
-              {!settings.keys.googleClientId && <p className="mt-1">Gmail drafts need a Google OAuth Client ID.</p>}
+              {!googleClientId(settings) && <p className="mt-1">Gmail drafts need a Google OAuth Client ID.</p>}
               <Link href="/settings" className="mt-2 inline-block font-medium text-navy underline">
                 Open settings
               </Link>

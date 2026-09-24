@@ -8,15 +8,21 @@
     "start": "next start",
     "lint": "eslint",
     "check:workbook": "tsx scripts/check-workbook.mts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:templates": "tsx scripts/check-templates.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.62",
+    "@ai-sdk/deepseek": "^3.0.52",
     "@ai-sdk/gateway": "^4.0.91",
+    "@ai-sdk/google": "^4.0.80",
+    "@ai-sdk/openai": "^4.0.75",
+    "@ai-sdk/openai-compatible": "^3.0.55",
     "ai": "^7.0.113",
     "clsx": "^2.1.1",
     "exceljs": "^4.4.0",
     "idb-keyval": "^6.3.0",
+    "jszip": "^3.10.2",
     "lucide-react": "^1.48.0",
     "mammoth": "^1.12.3",
     "next": "16.3.6",

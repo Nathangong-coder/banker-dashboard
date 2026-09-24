@@ -1,6 +1,6 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { errorResponse, modelFromRequest } from "@/lib/server/ai";
+import { errorResponse, withAi } from "@/lib/server/ai";
 
 export const maxDuration = 120;
 
@@ -33,11 +33,11 @@ const Body = z.discriminatedUnion("mode", [
 
 export async function POST(req: Request) {
   try {
-    const model = modelFromRequest(req);
     const input = Body.parse(await req.json());
 
     if (input.mode === "assign") {
-      const { output } = await generateText({
+      const { output } = await withAi(req, (model) =>
+        generateText({
         model,
         output: Output.object({
           schema: z.object({
@@ -49,11 +49,13 @@ export async function POST(req: Request) {
           "rule and the contact's facts (school, notes, location, role). Notes are the sender's private shorthand, " +
           "e.g. 'Berkley kid -> UC connect email' means use the UC template. Return one assignment per contact.",
         prompt: `TEMPLATES\n${JSON.stringify(input.templates)}\n\nCONTACTS\n${JSON.stringify(input.contacts)}`,
-      });
+        }),
+      );
       return Response.json(output);
     }
 
-    const { output } = await generateText({
+    const { output } = await withAi(req, (model) =>
+      generateText({
       model,
       output: Output.object({ schema: z.object({ subject: z.string(), body: z.string() }) }),
       system:
@@ -65,7 +67,8 @@ export async function POST(req: Request) {
       prompt:
         `CONTACT FACTS\n${JSON.stringify(input.contact)}\n\nSENDER\n${JSON.stringify(input.sender)}\n\n` +
         `DRAFT SUBJECT\n${input.subject}\n\nDRAFT BODY\n${input.body}`,
-    });
+      }),
+    );
     return Response.json(output);
   } catch (e) {
     return errorResponse(e);

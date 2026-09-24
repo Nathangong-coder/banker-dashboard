@@ -5,7 +5,10 @@ import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { Settings } from "@/lib/types";
 import { download } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, PageHeader, Select, Textarea, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, PageHeader, Textarea, toast } from "@/components/ui";
+import { AiVault, KeyVault, testKey } from "@/components/KeyVault";
+import { aiReady, hasKey } from "@/lib/keys";
+import { connectGmail } from "@/lib/gmail";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
@@ -48,6 +51,87 @@ const A = ({ href, children }: { href: string; children: ReactNode }) => (
   </a>
 );
 
+
+type TestResult = { ok: boolean; note: string };
+
+async function sendTest(body: Record<string, unknown>): Promise<TestResult> {
+  const res = await fetch("/api/notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "Coverage connected ✅", message: "Test from your networking dashboard. Reminders will arrive here.", ...body }),
+  });
+  const j = await res.json().catch(() => ({}));
+  return res.ok ? { ok: true, note: "Test message sent. Check your phone." } : { ok: false, note: j.error ?? `HTTP ${res.status}` };
+}
+
+/** Draft fields that are only committed to settings after `test` passes. */
+function TestedFields<K extends string>({
+  saved,
+  summary,
+  initial,
+  fields,
+  test,
+  onSave,
+  onClear,
+  actionLabel = "Test & save",
+}: {
+  saved: boolean;
+  summary?: ReactNode;
+  initial: Record<K, string>;
+  fields: { key: K; placeholder: string; secret?: boolean }[];
+  test: (d: Record<K, string>) => Promise<TestResult>;
+  onSave: (d: Record<K, string>) => void;
+  onClear: () => void;
+  actionLabel?: string;
+}) {
+  const [editing, setEditing] = useState(!saved);
+  const [draft, setDraft] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<TestResult | null>(null);
+
+  if (saved && !editing)
+    return (
+      <div className="flex items-center gap-2 text-[12.5px]">
+        <Badge tone="green">verified</Badge>
+        <span className="flex-1 truncate text-ink-2">{summary}</span>
+        <Button size="sm" variant="ghost" onClick={() => { setDraft(initial); setEditing(true); setMsg(null); }}>Change</Button>
+        <Button size="sm" variant="ghost" onClick={onClear}>Remove</Button>
+      </div>
+    );
+
+  const run = async () => {
+    const d = Object.fromEntries(Object.entries(draft).map(([k, v]) => [k, String(v ?? "").trim()])) as Record<K, string>;
+    setBusy(true);
+    const r = await test(d);
+    setBusy(false);
+    setMsg(r);
+    if (r.ok) {
+      onSave(d);
+      setEditing(false);
+      toast.ok(r.note);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className={fields.length > 2 ? "grid grid-cols-2 gap-1.5" : "space-y-1.5"}>
+        {fields.map((f) =>
+          f.secret ? (
+            <Secret key={f.key} value={draft[f.key] ?? ""} placeholder={f.placeholder} onChange={(v) => setDraft({ ...draft, [f.key]: v })} />
+          ) : (
+            <Input key={f.key} className="text-[12.5px]" value={draft[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })} />
+          ),
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="primary" loading={busy} onClick={run}>{actionLabel}</Button>
+        {saved && <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>}
+        {msg && !msg.ok && <span className="text-[12px] text-red">{msg.note}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { settings, setSettings, clearAll, replaceAll } = useStore();
   const importRef = useRef<HTMLInputElement>(null);
@@ -64,7 +148,9 @@ export default function SettingsPage() {
     const data = {
       version: 1,
       exportedAt: new Date().toISOString(),
-      settings: withKeys ? st.settings : { ...st.settings, keys: { ...st.settings.keys, apollo: "", hunter: "", serper: "", ai: "", twilioToken: "", whatsappApiKey: "" } },
+      settings: withKeys
+        ? st.settings
+        : { ...st.settings, vault: { apollo: [], hunter: [], serper: [], ai: [] }, keys: { ...st.settings.keys, twilioToken: "", whatsappApiKey: "" } },
       contacts: st.contacts,
       templates: st.templates,
       banks: st.banks,
@@ -101,14 +187,17 @@ export default function SettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Data & AI services" />
+          <CardHeader
+            title="Data & AI services"
+            sub="Every key is tested live before it's saved. Add several per service and they'll be used in order, falling through when one is rejected or out of credits."
+          />
           <KeyRow
             title="Apollo"
-            ok={!!k.apollo}
+            ok={hasKey(settings, "apollo")}
             used="Enrich contact info (finds emails from LinkedIn + name). Optional second source for Find people."
-            how={<>Apollo → Settings → Integrations → API → create a <b>master</b> key. <A href="https://app.apollo.io/#/settings/integrations/api">Open Apollo</A></>}
+            how={<>Apollo → Settings → Integrations → API → create a <b>master</b> key (search needs master; email lookups work with any). <A href="https://app.apollo.io/#/settings/integrations/api">Open Apollo</A></>}
           >
-            <Secret value={k.apollo} onChange={(v) => setK({ apollo: v })} placeholder="Apollo API key" />
+            <KeyVault service="apollo" placeholder="Apollo API key" />
             <label className="flex items-center gap-2 text-[12px] text-ink-2">
               <Checkbox
                 checked={settings.enrich.revealPersonalEmails}
@@ -119,32 +208,27 @@ export default function SettingsPage() {
           </KeyRow>
           <KeyRow
             title="Hunter.io (optional)"
-            ok={!!k.hunter}
+            ok={hasKey(settings, "hunter")}
             used="Backup email finder for anyone Apollo can’t match."
-            how={<><A href="https://hunter.io/api-keys">hunter.io/api-keys</A> · 25 free searches/month</>}
+            how={<><A href="https://hunter.io/api-keys">hunter.io/api-keys</A> · 25 free searches/month. Testing is free.</>}
           >
-            <Secret value={k.hunter} onChange={(v) => setK({ hunter: v })} placeholder="Hunter API key" />
+            <KeyVault service="hunter" placeholder="Hunter API key" />
           </KeyRow>
           <KeyRow
             title="Serper (Google search)"
-            ok={!!k.serper}
+            ok={hasKey(settings, "serper")}
             used="Find people: searches Google for public LinkedIn profiles (name, headline, school, location). This app never logs in to or scrapes LinkedIn itself."
-            how={<><A href="https://serper.dev">serper.dev</A> · 2,500 free searches</>}
+            how={<><A href="https://serper.dev">serper.dev</A> · 2,500 free searches. Testing a key uses 1 search.</>}
           >
-            <Secret value={k.serper} onChange={(v) => setK({ serper: v })} placeholder="Serper API key" />
+            <KeyVault service="serper" placeholder="Serper API key" />
           </KeyRow>
           <KeyRow
-            title="AI (Claude)"
-            ok={!!k.ai}
+            title="AI model"
+            ok={aiReady(settings)}
             used="Screens prospects against your criteria, auto-assigns templates, writes the personalized lines."
-            how={<>An Anthropic key (<code>sk-ant-…</code>) from <A href="https://console.anthropic.com/settings/keys">console.anthropic.com</A>, or a Vercel AI Gateway key.</>}
+            how={<>Claude, GPT, Gemini, DeepSeek, GLM, anything OpenAI-compatible, or a Vercel AI Gateway key (one key, every model). Model lists are pulled from your key.</>}
           >
-            <Secret value={k.ai} onChange={(v) => setK({ ai: v })} placeholder="sk-ant-… or AI Gateway key" />
-            <Select className="w-full" value={k.aiModel} onChange={(e) => setK({ aiModel: e.target.value })} aria-label="Model">
-              <option value="claude-sonnet-5">Claude Sonnet 5 (recommended)</option>
-              <option value="claude-haiku-4-5">Claude Haiku 4.5 (cheapest)</option>
-              <option value="claude-opus-5-5">Claude Opus 5.5 (best writing)</option>
-            </Select>
+            <AiVault />
           </KeyRow>
           <KeyRow
             title="Gmail"
@@ -158,39 +242,33 @@ export default function SettingsPage() {
               </>
             }
           >
-            <Input className="num text-[12.5px]" value={k.googleClientId} onChange={(e) => setK({ googleClientId: e.target.value.trim() })} placeholder="xxxx.apps.googleusercontent.com" />
+            <TestedFields
+              saved={!!k.googleClientId}
+              summary={k.googleClientId && <span className="num">{k.googleClientId.slice(0, 18)}…</span>}
+              initial={{ googleClientId: k.googleClientId }}
+              fields={[{ key: "googleClientId", placeholder: "xxxx.apps.googleusercontent.com" }]}
+              actionLabel="Sign in to test & save"
+              test={async (d) => {
+                if (!/^[\w-]+\.apps\.googleusercontent\.com$/.test(d.googleClientId)) return { ok: false, note: "That doesn't look like an OAuth client ID (…apps.googleusercontent.com)." };
+                try {
+                  await connectGmail(d.googleClientId);
+                  return { ok: true, note: "Gmail connected" };
+                } catch (e) {
+                  return { ok: false, note: `Google sign-in failed: ${(e as Error).message}. Check the authorized JavaScript origin is ${origin}.` };
+                }
+              }}
+              onSave={(d) => setK(d)}
+              onClear={() => setK({ googleClientId: "" })}
+            />
           </KeyRow>
         </Card>
 
         <Card id="alerts">
-          <CardHeader title="Reminders & alerts" />
-          <KeyRow
-            title="ntfy push"
-            ok={!!k.ntfyTopic}
-            used="Push notifications to your phone. Free, no account needed."
-            how={<>Install ntfy (<A href="https://ntfy.sh">ntfy.sh</A>) on your phone and subscribe to a long random topic name. Anyone who knows the topic can read it.</>}
-          >
-            <Input value={k.ntfyTopic} placeholder="e.g. coverage-7f3k29xq" onChange={(e) => setK({ ntfyTopic: e.target.value.trim() })} />
-            <Input value={k.ntfyServer} placeholder="https://ntfy.sh" onChange={(e) => setK({ ntfyServer: e.target.value.trim() })} />
-          </KeyRow>
-          <KeyRow
-            title="Twilio SMS"
-            ok={!!(k.twilioSid && k.twilioToken && k.twilioTo)}
-            used="Text message digests of who to follow up with."
-            how={<><A href="https://console.twilio.com">console.twilio.com</A> · a Messaging Service SID lets you schedule texts ahead of time.</>}
-          >
-            <div className="grid grid-cols-2 gap-2">
-              <Secret value={k.twilioSid} onChange={(v) => setK({ twilioSid: v })} placeholder="Account SID" />
-              <Secret value={k.twilioToken} onChange={(v) => setK({ twilioToken: v })} placeholder="Auth token" />
-              <Input value={k.twilioFrom} placeholder="From +1…" onChange={(e) => setK({ twilioFrom: e.target.value.trim() })} />
-              <Input value={k.twilioMessagingServiceSid} placeholder="Messaging Service SID (MG…)" onChange={(e) => setK({ twilioMessagingServiceSid: e.target.value.trim() })} />
-              <Input className="col-span-2" value={k.twilioTo} placeholder="Your phone +1…" onChange={(e) => setK({ twilioTo: e.target.value.trim() })} />
-            </div>
-          </KeyRow>
+          <CardHeader title="Reminders & alerts" sub="Each one sends a real test message before it's saved." />
           <KeyRow
             title="WhatsApp (CallMeBot)"
             ok={!!(k.whatsappPhone && k.whatsappApiKey)}
-            used="Free WhatsApp messages to yourself with today's follow-up list. Send-now only, no scheduling."
+            used="Free “what’s due today” pings to your own WhatsApp."
             how={
               <>
                 On your phone, save <b>+34 694 23 41 84</b> as a contact and WhatsApp it:{" "}
@@ -199,8 +277,68 @@ export default function SettingsPage() {
               </>
             }
           >
-            <Input value={k.whatsappPhone} placeholder="Your WhatsApp number, e.g. +14255550123" onChange={(e) => setK({ whatsappPhone: e.target.value.trim() })} />
-            <Secret value={k.whatsappApiKey} onChange={(v) => setK({ whatsappApiKey: v })} placeholder="CallMeBot API key" />
+            <TestedFields
+              saved={!!(k.whatsappPhone && k.whatsappApiKey)}
+              summary={k.whatsappPhone}
+              initial={{ whatsappPhone: k.whatsappPhone, whatsappApiKey: k.whatsappApiKey }}
+              fields={[
+                { key: "whatsappPhone", placeholder: "Your WhatsApp number, e.g. +14255550123" },
+                { key: "whatsappApiKey", placeholder: "CallMeBot API key", secret: true },
+              ]}
+              test={(d) => sendTest({ channel: "whatsapp", whatsapp: { phone: d.whatsappPhone, apiKey: d.whatsappApiKey } })}
+              onSave={(d) => setK(d)}
+              onClear={() => setK({ whatsappPhone: "", whatsappApiKey: "" })}
+            />
+          </KeyRow>
+          <KeyRow
+            title="ntfy push"
+            ok={!!k.ntfyTopic}
+            used="Free push notifications to your phone. No account needed."
+            how={<>Install ntfy (<A href="https://ntfy.sh">ntfy.sh</A>) on your phone and subscribe to a long random topic name. Anyone who knows the topic can read it.</>}
+          >
+            <TestedFields
+              saved={!!k.ntfyTopic}
+              summary={k.ntfyTopic}
+              initial={{ ntfyTopic: k.ntfyTopic, ntfyServer: k.ntfyServer || "https://ntfy.sh" }}
+              fields={[
+                { key: "ntfyTopic", placeholder: "e.g. coverage-7f3k29xq" },
+                { key: "ntfyServer", placeholder: "https://ntfy.sh" },
+              ]}
+              test={(d) => sendTest({ channel: "ntfy", ntfy: { server: d.ntfyServer || "https://ntfy.sh", topic: d.ntfyTopic } })}
+              onSave={(d) => setK(d)}
+              onClear={() => setK({ ntfyTopic: "" })}
+            />
+          </KeyRow>
+          <KeyRow
+            title="Twilio SMS"
+            ok={!!(k.twilioSid && k.twilioToken && k.twilioTo)}
+            used="Text messages (paid). See the README for setup."
+            how={<><A href="https://console.twilio.com">console.twilio.com</A>. Credentials are checked against your Twilio account (free), then a test text is sent.</>}
+          >
+            <TestedFields
+              saved={!!(k.twilioSid && k.twilioToken && k.twilioTo)}
+              summary={k.twilioTo && `texts ${k.twilioTo}`}
+              initial={{ twilioSid: k.twilioSid, twilioToken: k.twilioToken, twilioFrom: k.twilioFrom, twilioMessagingServiceSid: k.twilioMessagingServiceSid, twilioTo: k.twilioTo }}
+              fields={[
+                { key: "twilioSid", placeholder: "Account SID (AC…)", secret: true },
+                { key: "twilioToken", placeholder: "Auth token", secret: true },
+                { key: "twilioFrom", placeholder: "From number +1…" },
+                { key: "twilioMessagingServiceSid", placeholder: "Messaging Service SID (MG…, optional)" },
+                { key: "twilioTo", placeholder: "Your phone +1…" },
+              ]}
+              test={async (d) => {
+                const acct = await testKey({ service: "twilio", sid: d.twilioSid, token: d.twilioToken });
+                if (!acct.ok) return acct;
+                if (!d.twilioTo || (!d.twilioFrom && !d.twilioMessagingServiceSid)) return { ok: false, note: "Add your phone number and a From number (or Messaging Service SID)." };
+                const sms = await sendTest({
+                  channel: "twilio",
+                  twilio: { sid: d.twilioSid, token: d.twilioToken, from: d.twilioFrom || undefined, messagingServiceSid: d.twilioMessagingServiceSid || undefined, to: d.twilioTo },
+                });
+                return sms.ok ? { ok: true, note: `${acct.note}. Test text sent.` } : sms;
+              }}
+              onSave={(d) => setK(d)}
+              onClear={() => setK({ twilioSid: "", twilioToken: "", twilioFrom: "", twilioMessagingServiceSid: "", twilioTo: "" })}
+            />
           </KeyRow>
         </Card>
 
@@ -238,7 +376,7 @@ export default function SettingsPage() {
                     templates: d.templates ?? useStore.getState().templates,
                     banks: d.banks ?? {},
                     prospects: d.prospects ?? [],
-                    settings: { ...useStore.getState().settings, ...d.settings, keys: { ...useStore.getState().settings.keys, ...Object.fromEntries(Object.entries(d.settings?.keys ?? {}).filter(([, v]) => v)) } },
+                    settings: mergeImportedSettings(useStore.getState().settings, d.settings),
                   });
                   toast.ok(`Restored ${d.contacts.length} contacts.`);
                 } catch (err) {
@@ -263,4 +401,16 @@ export default function SettingsPage() {
       </div>
     </>
   );
+}
+
+/** Restore a backup without wiping keys the backup doesn't contain (backups are usually exported without keys). */
+function mergeImportedSettings(cur: Settings, incoming?: Partial<Settings>): Settings {
+  if (!incoming) return cur;
+  const vault = { ...cur.vault };
+  for (const svc of Object.keys(vault) as (keyof Settings["vault"])[]) {
+    const extra = (incoming.vault?.[svc] ?? []).filter((e) => !vault[svc].some((x) => x.value === e.value));
+    vault[svc] = [...vault[svc], ...extra];
+  }
+  const keys = { ...cur.keys, ...Object.fromEntries(Object.entries(incoming.keys ?? {}).filter(([, v]) => v)) };
+  return { ...cur, ...incoming, keys, vault, ai: incoming.ai && vault.ai.some((k) => k.provider === incoming.ai!.provider) ? incoming.ai : cur.ai };
 }

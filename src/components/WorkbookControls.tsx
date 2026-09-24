@@ -62,8 +62,12 @@ export function SaveButtons() {
   const run = async (mode: "in-place" | "download") => {
     setBusy(mode);
     try {
-      const name = await saveWorkbook(mode);
-      toast.ok(mode === "in-place" ? `Saved changes to ${name}` : `Downloaded ${name}`);
+      const { name, rebased } = await saveWorkbook(mode);
+      toast.ok(
+        mode === "in-place"
+          ? `Saved changes to ${name}${rebased ? ". The file had been edited outside the app, so your Excel edits were kept and the dashboard changes were applied on top." : ""}`
+          : `Downloaded ${name}`,
+      );
     } catch (e) {
       toast.err((e as Error).message);
     } finally {

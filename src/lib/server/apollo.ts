@@ -1,5 +1,5 @@
 import "server-only";
-import { HttpError } from "./ai";
+import { HttpError } from "./http";
 
 const BASE = "https://api.apollo.io/api/v1";
 
@@ -34,7 +34,7 @@ async function apollo<T>(key: string, path: string, init: RequestInit & { query?
     try {
       msg = JSON.parse(text).error ?? JSON.parse(text).message ?? msg;
     } catch {}
-    throw new HttpError(res.status === 401 || res.status === 403 ? 401 : 502, `Apollo: ${msg}`);
+    throw new HttpError([401, 402, 403, 422, 429].includes(res.status) ? res.status : 502, `Apollo: ${msg}`);
   }
   return JSON.parse(text) as T;
 }

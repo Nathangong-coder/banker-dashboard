@@ -4,6 +4,8 @@ import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import type {
+  AiProvider,
+  ApiKeyEntry,
   BankMeta,
   Contact,
   HistoryEvent,
@@ -243,8 +245,9 @@ export const useStore = create<State>()(
     }),
     {
       name: "banker-dashboard",
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => idbStorage),
+      migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       partialize: ({ snapshots, ...rest }) => rest,
       merge: (persisted, current) => {
@@ -270,3 +273,24 @@ function deepMerge(base: object, over: object): object {
 }
 
 export { transition };
+
+/** v1 stored one key per service as flat strings; v2 keeps an ordered list per service plus an AI provider/model. */
+function migrateState(p: Record<string, unknown>, version: number) {
+  if (version < 2 && p?.settings) {
+    const settings = p.settings as { keys?: Record<string, string>; vault?: unknown; ai?: unknown };
+    const k = settings.keys ?? {};
+    const at = new Date().toISOString();
+    const entry = (value: string, extra: Partial<ApiKeyEntry> = {}): ApiKeyEntry[] =>
+      value ? [{ id: `k_${Math.random().toString(36).slice(2, 9)}`, value, addedAt: at, note: "Carried over; re-test in Settings", ...extra }] : [];
+    const aiProvider: AiProvider = k.ai?.startsWith("sk-ant-") ? "anthropic" : "gateway";
+    settings.vault = {
+      apollo: entry(k.apollo),
+      hunter: entry(k.hunter),
+      serper: entry(k.serper),
+      ai: entry(k.ai, { provider: aiProvider }),
+    };
+    settings.ai = { provider: aiProvider, model: k.aiModel || "claude-sonnet-5" };
+    for (const f of ["apollo", "hunter", "serper", "ai", "aiModel"]) delete k[f];
+  }
+  return p;
+}

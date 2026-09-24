@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { bulkMatch, usableEmail, type MatchDetail } from "@/lib/server/apollo";
-import { HttpError, errorResponse } from "@/lib/server/ai";
+import { HttpError, errorResponse } from "@/lib/server/http";
+import { keysFrom, withFallback } from "@/lib/server/keys";
 
 const Body = z.object({
   revealPersonal: z.boolean().default(false),
@@ -38,6 +39,7 @@ async function hunterFind(key: string, c: z.infer<typeof Body>["contacts"][numbe
   if (domain) q.set("domain", domain);
   else q.set("company", c.bank);
   const res = await fetch(`https://api.hunter.io/v2/email-finder?${q}`);
+  if ([401, 402, 403, 429].includes(res.status)) throw new HttpError(res.status, `Hunter: ${(await res.text()).slice(0, 160)}`);
   if (!res.ok) return null;
   const j = (await res.json()) as { data?: { email?: string; score?: number } };
   return j.data?.email ? { email: j.data.email, score: j.data.score } : null;
@@ -45,14 +47,14 @@ async function hunterFind(key: string, c: z.infer<typeof Body>["contacts"][numbe
 
 export async function POST(req: Request) {
   try {
-    const apolloKey = req.headers.get("x-apollo-key")?.trim();
-    const hunterKey = req.headers.get("x-hunter-key")?.trim();
-    if (!apolloKey && !hunterKey) throw new HttpError(400, "Add an Apollo (or Hunter) API key in Settings.");
+    const apolloKeys = keysFrom(req, "apollo");
+    const hunterKeys = keysFrom(req, "hunter");
+    if (!apolloKeys.length && !hunterKeys.length) throw new HttpError(400, "Add an Apollo (or Hunter) API key in Settings.");
     const { contacts, revealPersonal } = Body.parse(await req.json());
 
     const results: EnrichResult[] = contacts.map((c) => ({ id: c.id, email: null, source: null }));
 
-    if (apolloKey) {
+    if (apolloKeys.length) {
       const details: MatchDetail[] = contacts.map((c) => ({
         first_name: c.firstName || undefined,
         last_name: c.lastName || undefined,
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
         domain: c.domain,
         linkedin_url: c.linkedin?.match(/linkedin\.com\/in\//) ? c.linkedin.split("?")[0] : undefined,
       }));
-      const matches = await bulkMatch(apolloKey, details, revealPersonal);
+      const matches = await withFallback(apolloKeys, "Apollo", (k) => bulkMatch(k, details, revealPersonal));
       matches.forEach((p, i) => {
         if (!p) return;
         const r = results[i];
@@ -78,13 +80,13 @@ export async function POST(req: Request) {
       });
     }
 
-    if (hunterKey) {
+    if (hunterKeys.length) {
       await Promise.all(
         results.map(async (r, i) => {
           if (r.email) return;
           const c = contacts[i];
           if (!c.firstName || !c.lastName) return;
-          const found = await hunterFind(hunterKey, c, r.domain ?? c.domain);
+          const found = await withFallback(hunterKeys, "Hunter", (k) => hunterFind(k, c, r.domain ?? c.domain));
           if (found) {
             r.email = found.email;
             r.source = "hunter";

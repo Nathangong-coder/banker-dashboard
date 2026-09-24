@@ -9,12 +9,13 @@ import { connectGmail, createDraft, syncContact } from "@/lib/gmail";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
 import { digestText, upcomingDigests } from "@/lib/reminders";
-import { fillPlaceholders, hasAiSlots, AI_SLOT } from "@/lib/template";
+import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import type { BankStatus, Contact, Region } from "@/lib/types";
 import { addDays, cn, download, fmtDate, pool, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Empty, Field, Input, PageHeader, Progress, Select, StatusBadge, toast } from "@/components/ui";
 import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
+import { aiReady, googleClientId } from "@/lib/keys";
 
 type Tab = "due" | "bankers" | "banks" | "reminders";
 
@@ -28,7 +29,7 @@ export default function FollowupsPage() {
     const list = s.contacts.filter((c) => c.email && c.status !== "ignored");
     if (!list.length) return toast.info("No contacts with emails to check.");
     try {
-      await connectGmail(s.settings.keys.googleClientId);
+      await connectGmail(googleClientId(s.settings));
     } catch (e) {
       return toast.err((e as Error).message);
     }
@@ -39,7 +40,7 @@ export default function FollowupsPage() {
       3,
       async (c) => {
         try {
-          const r = await syncContact(s.settings.keys.googleClientId, c.email);
+          const r = await syncContact(googleClientId(s.settings), c.email);
           if (!r.sentCount && !r.repliedAt) return;
           const patch: Partial<Contact> = {};
           if (r.firstSentAt) {
@@ -123,14 +124,15 @@ function useActions() {
   const now = () => new Date().toISOString();
 
   const followUpDraft = async (c: Contact) => {
-    const t = s.templates.find((x) => x.kind === "follow_up");
+    const t = followUpTemplate(c, s.templates);
     if (!t) return toast.err("Create a follow-up template on the Drafts page first.");
     if (!c.email) return toast.err(`${c.name} has no email yet.`);
     let subject = fillPlaceholders(t.subject, c, s.settings);
-    if (/^Re:\s*$/.test(subject)) subject = `Following up — ${s.settings.profile.school || "networking"}`;
+    // In-thread replies keep the original subject; without one, fall back to a neutral subject.
+    if (/\{\{\s*original_subject\s*\}\}/.test(subject)) subject = c.threadId ? "Re:" : `Following up: ${s.settings.profile.school || "networking"}`;
     let body = fillPlaceholders(t.body, c, s.settings);
-    if (hasAiSlots(body)) {
-      if (s.settings.keys.ai) {
+    if (hasAiSlots(body) || missingPlaceholders(body).length) {
+      if (aiReady(s.settings)) {
         try {
           const r = await callApi<{ subject: string; body: string }>(
             "/api/draft",
@@ -149,14 +151,14 @@ function useActions() {
         }
       } else body = body.replace(new RegExp(AI_SLOT.source, "g"), "");
     }
-    if (!s.settings.keys.googleClientId) {
+    if (!googleClientId(s.settings)) {
       window.location.href = `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       return;
     }
     try {
-      await connectGmail(s.settings.keys.googleClientId);
+      await connectGmail(googleClientId(s.settings));
       const resume = t.attachResume ? await blobs.resume() : undefined;
-      await createDraft(s.settings.keys.googleClientId, {
+      await createDraft(googleClientId(s.settings), {
         to: c.email,
         subject,
         body,

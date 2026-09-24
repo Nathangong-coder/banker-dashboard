@@ -11,6 +11,7 @@ import { SaveButtons, UploadButton, WorkbookEmpty } from "@/components/WorkbookC
 import { SheetGrid } from "@/components/SheetGrid";
 import { ContactsTable } from "@/components/ContactsTable";
 import { cn } from "@/lib/util";
+import { hasKey } from "@/lib/keys";
 
 export default function SheetPage() {
   return (
@@ -27,7 +28,7 @@ function SheetInner() {
   const meta = useStore((s) => s.workbook);
   const contacts = useStore((s) => s.contacts);
   const snapshots = useStore((s) => s.snapshots);
-  const keys = useStore((s) => s.settings.keys);
+  const settings = useStore((s) => s.settings);
   const [sheet, setSheet] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -50,7 +51,7 @@ function SheetInner() {
   const missing = scope.filter((c) => !c.email && (c.linkedin || c.lastName));
 
   const runEnrich = async () => {
-    if (!keys.apollo && !keys.hunter) {
+    if (!hasKey(settings, "apollo") && !hasKey(settings, "hunter")) {
       toast.err("Add an Apollo or Hunter API key in Settings first.");
       return;
     }
