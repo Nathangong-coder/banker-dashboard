@@ -467,7 +467,7 @@ function Reminders() {
   const digests = useMemo(() => upcomingDigests(contacts, banks, settings.followUp, 35), [contacts, banks, settings.followUp]);
   const todayDigest = digests[0]?.date === new Date().toLocaleDateString("en-CA") ? digests[0] : undefined;
 
-  const send = async (channel: "ntfy" | "twilio", message: string, at?: Date, title = "Follow-ups due") =>
+  const send = async (channel: "ntfy" | "twilio" | "whatsapp", message: string, at?: Date, title = "Follow-ups due") =>
     callApi(
       "/api/notify",
       {
@@ -479,6 +479,7 @@ function Reminders() {
         twilio: k.twilioSid
           ? { sid: k.twilioSid, token: k.twilioToken, from: k.twilioFrom || undefined, messagingServiceSid: k.twilioMessagingServiceSid || undefined, to: k.twilioTo }
           : undefined,
+        whatsapp: k.whatsappPhone && k.whatsappApiKey ? { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } : undefined,
       },
       settings,
     );
@@ -505,7 +506,7 @@ function Reminders() {
     if (n) toast.ok(`Scheduled ${n} daily reminder${n > 1 ? "s" : ""} via ${channel === "ntfy" ? "push" : "SMS"}.`);
   };
 
-  const test = async (channel: "ntfy" | "twilio") => {
+  const test = async (channel: "ntfy" | "twilio" | "whatsapp") => {
     setBusy(`test-${channel}`);
     try {
       await send(channel, todayDigest ? digestText(todayDigest) : "Test from your networking dashboard ✔", undefined, "Coverage test");
@@ -538,6 +539,7 @@ function Reminders() {
 
   const ntfyReady = !!k.ntfyTopic;
   const twilioReady = !!(k.twilioSid && k.twilioToken && k.twilioTo && (k.twilioFrom || k.twilioMessagingServiceSid));
+  const whatsappReady = !!(k.whatsappPhone && k.whatsappApiKey);
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -609,6 +611,23 @@ function Reminders() {
               </>
             ) : (
               <SetupHint text="Add your Twilio Account SID, auth token, a From number or Messaging Service, and your phone number in Settings." />
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="WhatsApp (CallMeBot)"
+            sub="Free. Sends today's list to your own WhatsApp right now. It can't schedule, so pair it with ntfy or the calendar."
+            right={<MessageSquare className="size-4 text-muted" />}
+          />
+          <div className="flex flex-wrap items-center gap-2 p-4">
+            {whatsappReady ? (
+              <Button size="sm" loading={busy === "test-whatsapp"} onClick={() => test("whatsapp")}>
+                WhatsApp me today’s list
+              </Button>
+            ) : (
+              <SetupHint text="Message +34 694 23 41 84 on WhatsApp: “I allow callmebot to send me messages”, then paste the API key it replies with into Settings." />
             )}
           </div>
         </Card>

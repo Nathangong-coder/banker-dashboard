@@ -30,7 +30,8 @@ never be committed** (`*.xlsx`, `*.pdf` are ignored).
     Apollo search returns obfuscated last names and no LinkedIn, so a match call (which costs credits) is needed to reveal them.
   - `api/prospect/filter`: AI screens candidates against the user's criteria text (structured output).
   - `api/draft`: `mode: "assign"` picks a template per contact; `mode: "fill"` rewrites `[[AI: …]]` slots.
-  - `api/notify`: ntfy push (optional `At` delay, max 3 days on ntfy.sh) or Twilio SMS (`ScheduleType=fixed` needs a MessagingServiceSid).
+  - `api/notify`: ntfy push (optional `At` delay, max 3 days on ntfy.sh), Twilio SMS (`ScheduleType=fixed` needs a MessagingServiceSid),
+    or WhatsApp via CallMeBot (`GET api.callmebot.com/whatsapp.php`; self-only, send-now, no scheduling, free for personal use).
 - **AI:** AI SDK 7 (`generateText` + `Output.object`; `generateObject` is gone). `src/lib/server/ai.ts` picks the provider from the key:
   `sk-ant-…` uses `@ai-sdk/anthropic`, anything else is treated as a Vercel AI Gateway key. The model id comes from `x-ai-model` (default `claude-sonnet-5`).
 - **Gmail is 100% browser-side** (`src/lib/gmail.ts`): Google Identity Services token client (scopes `gmail.compose` + `gmail.readonly`),
@@ -63,7 +64,7 @@ never be committed** (`*.xlsx`, `*.pdf` are ignored).
 - **Live cap:** the owner keeps at most **2 live people per bank** (`followUp.livePerBank`). "Live" = drafted/sent/followed_up with no
   reply. The Bank board shows `x/2 live` and suggests the next `new` contact when a slot opens. Drafts warn (but don't block) when over the cap.
 - Reminders (`src/lib/reminders.ts`): one digest per day at 9am. Channels are browser Notification (only while the app is open), ntfy,
-  Twilio, and .ics export. There is **no server cron**, because the server has no data. A true server-side scheduler would need a DB.
+  Twilio, WhatsApp (CallMeBot, send-now), and .ics export. There is **no server cron**, because the server has no data. A true server-side scheduler would need a DB.
 
 ## Conventions
 

@@ -42,6 +42,8 @@ export const DEFAULT_SETTINGS: Settings = {
     twilioFrom: "",
     twilioMessagingServiceSid: "",
     twilioTo: "",
+    whatsappPhone: "",
+    whatsappApiKey: "",
   },
   followUp: {
     firstAfterDays: 7,

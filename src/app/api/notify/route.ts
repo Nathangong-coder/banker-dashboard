@@ -2,7 +2,7 @@ import { z } from "zod";
 import { HttpError, errorResponse } from "@/lib/server/ai";
 
 const Body = z.object({
-  channel: z.enum(["ntfy", "twilio"]),
+  channel: z.enum(["ntfy", "twilio", "whatsapp"]),
   title: z.string().max(200).default("Follow-up reminder"),
   message: z.string().min(1).max(1500),
   /** ISO time to deliver; omitted = now. */
@@ -17,12 +17,28 @@ const Body = z.object({
       to: z.string().min(5),
     })
     .optional(),
+  whatsapp: z.object({ phone: z.string().min(8), apiKey: z.string().min(3) }).optional(),
 });
 
 export async function POST(req: Request) {
   try {
     const b = Body.parse(await req.json());
     const at = b.at ? new Date(b.at) : undefined;
+
+    if (b.channel === "whatsapp") {
+      // CallMeBot: free WhatsApp messages to your own number. Send-now only (no scheduling).
+      if (!b.whatsapp) throw new HttpError(400, "Set your WhatsApp number and CallMeBot API key in Settings.");
+      const q = new URLSearchParams({
+        phone: b.whatsapp.phone.replace(/[^\d+]/g, ""),
+        text: `*${b.title}*\n${b.message}`.slice(0, 1500),
+        apikey: b.whatsapp.apiKey,
+      });
+      const res = await fetch(`https://api.callmebot.com/whatsapp.php?${q}`);
+      const text = await res.text();
+      if (!res.ok || /invalid|error|not (?:allowed|activated)/i.test(text))
+        throw new HttpError(502, `CallMeBot: ${text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)}`);
+      return Response.json({ ok: true });
+    }
 
     if (b.channel === "ntfy") {
       if (!b.ntfy) throw new HttpError(400, "Set an ntfy topic in Settings.");

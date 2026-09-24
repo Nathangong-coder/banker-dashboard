@@ -124,6 +124,8 @@ export interface Settings {
     twilioFrom: string;
     twilioMessagingServiceSid: string;
     twilioTo: string;
+    whatsappPhone: string;
+    whatsappApiKey: string;
   };
   followUp: {
     firstAfterDays: number;

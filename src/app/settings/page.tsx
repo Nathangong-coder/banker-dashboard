@@ -64,7 +64,7 @@ export default function SettingsPage() {
     const data = {
       version: 1,
       exportedAt: new Date().toISOString(),
-      settings: withKeys ? st.settings : { ...st.settings, keys: { ...st.settings.keys, apollo: "", hunter: "", serper: "", ai: "", twilioToken: "" } },
+      settings: withKeys ? st.settings : { ...st.settings, keys: { ...st.settings.keys, apollo: "", hunter: "", serper: "", ai: "", twilioToken: "", whatsappApiKey: "" } },
       contacts: st.contacts,
       templates: st.templates,
       banks: st.banks,
@@ -186,6 +186,21 @@ export default function SettingsPage() {
               <Input value={k.twilioMessagingServiceSid} placeholder="Messaging Service SID (MG…)" onChange={(e) => setK({ twilioMessagingServiceSid: e.target.value.trim() })} />
               <Input className="col-span-2" value={k.twilioTo} placeholder="Your phone +1…" onChange={(e) => setK({ twilioTo: e.target.value.trim() })} />
             </div>
+          </KeyRow>
+          <KeyRow
+            title="WhatsApp (CallMeBot)"
+            ok={!!(k.whatsappPhone && k.whatsappApiKey)}
+            used="Free WhatsApp messages to yourself with today's follow-up list. Send-now only, no scheduling."
+            how={
+              <>
+                On your phone, save <b>+34 694 23 41 84</b> as a contact and WhatsApp it:{" "}
+                <i>I allow callmebot to send me messages</i>. It replies with your API key within about 2 minutes. If nothing arrives, try again after 24h.{" "}
+                <A href="https://www.callmebot.com/blog/free-api-whatsapp-messages/">Instructions</A>
+              </>
+            }
+          >
+            <Input value={k.whatsappPhone} placeholder="Your WhatsApp number, e.g. +14255550123" onChange={(e) => setK({ whatsappPhone: e.target.value.trim() })} />
+            <Secret value={k.whatsappApiKey} onChange={(v) => setK({ whatsappApiKey: v })} placeholder="CallMeBot API key" />
           </KeyRow>
         </Card>
 
