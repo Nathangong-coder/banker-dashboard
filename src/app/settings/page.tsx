@@ -3,9 +3,9 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useStore } from "@/lib/store";
-import type { Settings } from "@/lib/types";
+import { EMAIL_FONTS, type EmailFont, type Settings } from "@/lib/types";
 import { download } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, PageHeader, Textarea, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, PageHeader, Select, Textarea, toast } from "@/components/ui";
 import { AiVault, KeyVault, testKey } from "@/components/KeyVault";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 import { GmailSetup } from "@/components/GmailSetup";
@@ -186,12 +186,27 @@ export default function SettingsPage() {
                 <Textarea rows={2} value={p.pitch} placeholder="Through my software development internship and starting my own tech startup, I've developed a strong interest in the tech sector." onChange={(e) => setP({ pitch: e.target.value })} />
               </Field>
             </div>
+            <Field label="Email font" hint="Used for drafts created in Gmail">
+              <Select
+                className="w-full"
+                value={settings.emailStyle.font}
+                onChange={(e) => setSettings((st) => ({ ...st, emailStyle: { font: e.target.value as EmailFont } }))}
+                style={{ fontFamily: EMAIL_FONTS[settings.emailStyle.font].css }}
+              >
+                {(Object.keys(EMAIL_FONTS) as EmailFont[]).map((f) => (
+                  <option key={f} value={f} style={{ fontFamily: EMAIL_FONTS[f].css }}>
+                    {EMAIL_FONTS[f].label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             <div className="md:col-span-2">
               <Field
                 label="Custom signature line (optional)"
                 hint={
                   <>
-                    Added under your name. Leave empty to use{" "}
+                    Added under your name. The word “LinkedIn” links to your LinkedIn URL automatically, and phone numbers stay plain text.
+                    Leave empty to use{" "}
                     <span className="text-ink-2">
                       {p.email || "your email"} | <span className="text-blue underline">LinkedIn</span>
                     </span>{" "}

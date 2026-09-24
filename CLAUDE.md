@@ -78,6 +78,9 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (only when the next line looks like a name).
 - `withSignature` appends `email | [LinkedIn](url)` under the name (or the custom signature from Settings). `[label](url)` is the one
   markup the app understands: an `<a>` in HTML, "label: url" in plain text. Emails and bare URLs are auto-linked (blue in Gmail).
+  In a custom signature the bare word "LinkedIn" is linked to the profile URL, and a leading name that duplicates the sign-off is dropped.
+  Phone numbers are deliberately NOT links: `unlinkPhones` puts `&zwnj;` between digit groups to defeat Gmail/Apple data detectors.
+  The HTML wrapper gets `font-family` from `settings.emailStyle.font` (`EMAIL_FONTS`, Gmail's own stacks; default Garamond).
 
 ## AI model chain (`lib/keys.ts#modelChain`, `lib/server/ai.ts#withAi`)
 

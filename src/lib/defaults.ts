@@ -74,6 +74,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enrich: {
     revealPersonalEmails: false,
   },
+  emailStyle: { font: "garamond" },
 };
 
 /*

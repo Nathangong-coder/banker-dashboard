@@ -158,7 +158,14 @@ Gmail token without a click, so fully background sync with the tab closed needs 
 
 - Emails are created in Gmail with the same formatting as Gmail's own editor: full-width lines and single blank lines between paragraphs.
   Your signature line (`you@school.edu | LinkedIn`) is added under your name, with the email and **LinkedIn** as blue, clickable links.
-  Set your email and LinkedIn URL in Settings → profile, or write a custom line (`[LinkedIn](https://…)` makes a named link).
+  Set your email and LinkedIn URL in Settings → profile, or write a custom line: the word "LinkedIn" in it links to your profile, and phone
+  numbers stay plain text (not clickable). Drafts use **Garamond** by default (Settings → Email font).
+
+## Working with Claude Code on this repo
+
+Messages you send while Claude is mid-task get handed over as soon as its current step finishes. To make a request wait until the
+whole task is done, send it as `/later <request>` (a project command in `.claude/commands/later.md`). Slash commands are held until the turn ends.
+
 - **Backup models:** if your main AI model hits a rate or daily limit (e.g. Gemini's free tier), the app automatically moves to the next
   model: other models from the same provider first (each has its own quota), then your other providers. You'll see a notice when it
   switches. Settings → AI shows the order, and you can customize it.

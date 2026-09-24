@@ -159,6 +159,8 @@ export interface Settings {
   enrich: {
     revealPersonalEmails: boolean;
   };
+  /** How drafts look in Gmail. */
+  emailStyle: { font: EmailFont };
 }
 
 export interface Prospect {
@@ -225,3 +227,15 @@ export interface ApiKeyEntry {
   baseURL?: string;
   models?: string[];
 }
+
+/** Font choices matching Gmail's own font menu (same CSS stacks Gmail writes). */
+export const EMAIL_FONTS = {
+  garamond: { label: "Garamond", css: "garamond,\"times new roman\",serif" },
+  sans: { label: "Sans Serif (Gmail default)", css: "arial,sans-serif" },
+  serif: { label: "Serif (Times)", css: "\"times new roman\",serif" },
+  georgia: { label: "Georgia", css: "georgia,serif" },
+  verdana: { label: "Verdana", css: "verdana,sans-serif" },
+  trebuchet: { label: "Trebuchet", css: "\"trebuchet ms\",sans-serif" },
+  tahoma: { label: "Tahoma", css: "tahoma,sans-serif" },
+} as const;
+export type EmailFont = keyof typeof EMAIL_FONTS;

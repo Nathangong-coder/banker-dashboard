@@ -8,7 +8,7 @@ import { blobs, useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { connectGmail, createDraft } from "@/lib/gmail";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT } from "@/lib/template";
-import type { Contact, Template } from "@/lib/types";
+import { EMAIL_FONTS, type Contact, type Template } from "@/lib/types";
 import { chunk, cn, pool, uid } from "@/lib/util";
 import { overCap } from "@/lib/followups";
 import { bodyToPlain, normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
@@ -162,6 +162,7 @@ function DraftsInner() {
             subject: c.draft!.subject,
             body: c.draft!.body,
             attachment: t?.attachResume && resume ? resume : undefined,
+            font: EMAIL_FONTS[settings.emailStyle.font]?.css,
           });
           ok++;
           const st = useStore.getState();

@@ -116,6 +116,8 @@ export interface DraftInput {
   attachment?: { name: string; type: string; data: ArrayBuffer };
   threadId?: string;
   inReplyTo?: string;
+  /** CSS font-family stack for the HTML part. */
+  font?: string;
 }
 
 /**
@@ -142,7 +144,7 @@ export function buildMime(d: DraftInput): string {
     `--${alt}`,
     part("text/plain", bodyToPlain(body).replace(/\n/g, "\r\n")),
     `--${alt}`,
-    part("text/html", bodyToHtml(body)),
+    part("text/html", bodyToHtml(body, d.font)),
     `--${alt}--`,
   ].join("\r\n");
   if (!d.attachment) return [...headers, alternative].join("\r\n");

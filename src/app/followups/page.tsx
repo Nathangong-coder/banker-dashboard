@@ -11,7 +11,7 @@ import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
 import { digestText, upcomingDigests } from "@/lib/reminders";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
-import type { BankStatus, Contact, Region } from "@/lib/types";
+import { EMAIL_FONTS, type BankStatus, type Contact, type Region } from "@/lib/types";
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Empty, Field, Input, PageHeader, Progress, Select, StatusBadge, toast } from "@/components/ui";
 import { ContactModal } from "@/components/ContactModal";
@@ -136,6 +136,7 @@ function useActions() {
         threadId: c.threadId,
         inReplyTo: c.lastMessageId,
         attachment: resume,
+        font: EMAIL_FONTS[s.settings.emailStyle.font]?.css,
       });
       toast.ok(`Follow-up draft for ${c.name} is in Gmail${c.threadId ? " (same thread)" : ""}. Mark it followed up once it's sent.`);
     } catch (e) {
