@@ -3,6 +3,7 @@
 import type { Workbook, CellValue } from "exceljs";
 import type { CellRef, Contact, ContactField, Region, SheetSnapshot, Status } from "./types";
 import { contactId, splitName } from "./util";
+import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
 
 const MAX_ROWS = 1500;
 const MAX_COLS = 40;
@@ -23,6 +24,8 @@ export interface ParsedWorkbook {
   snapshots: SheetSnapshot[];
   tables: ContactTable[];
   contacts: Contact[];
+  /** Firms listed on overview/target-list tabs (used to spot banks with zero contacts). */
+  targets: TargetBank[];
 }
 
 async function loadExcel() {
@@ -146,6 +149,7 @@ export async function parseWorkbook(buffer: ArrayBuffer): Promise<ParsedWorkbook
 function parseLoaded(wb: Workbook): ParsedWorkbook {
   const snapshots: SheetSnapshot[] = [];
   const tables: ContactTable[] = [];
+  const targets: TargetBank[] = [];
   const contacts: Contact[] = [];
 
   wb.eachSheet((ws) => {
@@ -172,6 +176,7 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
       });
     });
     snapshots.push({ name: ws.name, rows: maxR, cols: maxC, cells });
+    targets.push(...extractTargets(ws.name, cells, rowText, maxR));
 
     const title = cells["1:1"]?.v ?? "";
     const bank = sheetBankName(ws.name, title);
@@ -250,7 +255,15 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
     });
   });
 
-  return { snapshots, tables, contacts: dedupe(contacts) };
+  // One entry per firm; the first tier seen wins.
+  const seen = new Map<string, TargetBank>();
+  for (const t of targets) {
+    const k = canonBank(t.name);
+    const prev = seen.get(k);
+    if (!prev) seen.set(k, t);
+    else if (!prev.tier && t.tier) prev.tier = t.tier;
+  }
+  return { snapshots, tables, contacts: dedupe(contacts), targets: [...seen.values()] };
 }
 
 /** Same person may appear in both the "Conversation" and "Contact Information" tables. */
@@ -377,4 +390,64 @@ export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches): Prom
     }
   }
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+}
+
+const TARGET_NAME_HEADERS = new Set(["institution name", "institution", "bank", "bank name", "firm", "firm name", "company", "company name", "target"]);
+const TARGET_TYPE_HEADERS = new Set(["institution type", "type", "tier", "category", "bank type", "firm type"]);
+const CATEGORY_HEADER = /bank|bracket|boutique|middle market|equity|fund|firms|trading|asset management/i;
+
+/**
+ * Target lists come in two shapes:
+ *  - rows: a header with "Institution Name" (+ optional "Institution Type" / "#") and one firm per row;
+ *  - columns: a header row of categories ("Investment Banks (Bulge Bracket)", "Private Equity Firms", …) with firms listed below.
+ * Only IB / PE categories are kept from column lists so VC/hedge-fund lists don't flood the "cold" bucket.
+ */
+function extractTargets(sheet: string, cells: SheetSnapshot["cells"], rowText: Map<number, Map<number, string>>, maxR: number): TargetBank[] {
+  const out: TargetBank[] = [];
+  const get = (r: number, c: number) => (cells[`${r}:${c}`]?.v ?? "").trim();
+  const rows = [...rowText.keys()].sort((a, b) => a - b);
+
+  for (const r of rows) {
+    const row = rowText.get(r)!;
+    if (matchHeaders(row)) continue; // contact tables are handled elsewhere
+    const entries = [...row.entries()];
+    const nameCol = entries.find(([, t]) => TARGET_NAME_HEADERS.has(norm(t)))?.[0];
+
+    if (nameCol) {
+      const typeCol = entries.find(([, t]) => TARGET_TYPE_HEADERS.has(norm(t)))?.[0];
+      const numCol = entries.find(([, t]) => norm(t) === "#")?.[0];
+      let blanks = 0;
+      for (let rr = r + 1; rr <= maxR && blanks < 3; rr++) {
+        const raw = get(rr, nameCol);
+        if (!raw) {
+          blanks++;
+          continue;
+        }
+        blanks = 0;
+        const type = typeCol ? get(rr, typeCol) : "";
+        const numbered = numCol ? /^\d+$/.test(get(rr, numCol)) : true;
+        // Keep banks / buy-side firms; skip helper rows and unrelated types.
+        const typed = !typeCol || (!!type && isNaN(Number(type)) && /bank|bracket|boutique|market|equity|credit|advis|capital|fund/i.test(type));
+        if (!numbered || !typed) continue;
+        const name = cleanBankName(raw);
+        if (name.length >= 2) out.push({ name, tier: normalizeTier(type), source: sheet });
+      }
+      continue;
+    }
+
+    const cats = entries.filter(([, t]) => CATEGORY_HEADER.test(t));
+    if (cats.length >= 3) {
+      for (const [c, header] of cats) {
+        const tier = normalizeTier(header);
+        if (!tier || !DEFAULT_TIERS.includes(tier)) continue;
+        for (let rr = r + 1; rr <= maxR; rr++) {
+          const raw = get(rr, c);
+          if (!raw) break;
+          const name = cleanBankName(raw);
+          if (name.length >= 2) out.push({ name, tier, source: sheet });
+        }
+      }
+    }
+  }
+  return out;
 }

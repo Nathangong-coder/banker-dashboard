@@ -150,7 +150,7 @@ function SheetInner() {
           contacts={contacts}
         />
       ) : (
-        <ContactsTable selected={selected} onSelected={setSelected} initialFilter={params.get("filter") ?? undefined} />
+        <ContactsTable selected={selected} onSelected={setSelected} initialFilter={params.get("filter") ?? undefined} initialBank={params.get("bank") ?? undefined} />
       )}
     </>
   );

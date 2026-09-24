@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import type { ContactTable, Patches } from "./workbook";
 import { DEFAULT_SETTINGS, DEFAULT_TEMPLATES } from "./defaults";
+import type { TargetBank } from "./banks";
 
 const idbStorage: StateStorage = {
   getItem: async (k) => (await idbGet<string>(k)) ?? null,
@@ -55,6 +56,11 @@ interface State {
   scheduled: Record<string, string>;
   snapshots: SheetSnapshot[]; // not persisted via JSON (see partialize)
   resumeName?: string;
+  /** Firms found on target-list tabs of the workbook. */
+  targets: TargetBank[];
+  /** Coverage page: banks the user hid, added by hand, and whether to include the starter IB list. */
+  coverage: { hidden: string[]; added: TargetBank[]; includeStarter: boolean };
+  lastGmailSync?: string;
 
   setSettings: (fn: (s: Settings) => Settings) => void;
   importWorkbook: (args: {
@@ -62,6 +68,7 @@ interface State {
     contacts: Contact[];
     tables: ContactTable[];
     snapshots: SheetSnapshot[];
+    targets?: TargetBank[];
   }) => { added: number; updated: number };
   setSnapshots: (s: SheetSnapshot[]) => void;
   updateContact: (id: string, patch: Partial<Contact>, event?: HistoryEvent) => void;
@@ -76,6 +83,8 @@ interface State {
   setProspects: (p: Prospect[]) => void;
   markScheduled: (key: string, at: string) => void;
   setResumeName: (n?: string) => void;
+  setCoverage: (fn: (c: State["coverage"]) => State["coverage"]) => void;
+  setLastGmailSync: (at: string) => void;
   clearAll: () => void;
   replaceAll: (data: Partial<State>) => void;
 }
@@ -111,10 +120,12 @@ export const useStore = create<State>()(
       prospects: [],
       scheduled: {},
       snapshots: [],
+      targets: [],
+      coverage: { hidden: [], added: [], includeStarter: false },
 
       setSettings: (fn) => set({ settings: fn(get().settings) }),
 
-      importWorkbook: ({ meta, contacts, tables, snapshots }) => {
+      importWorkbook: ({ meta, contacts, tables, snapshots, targets }) => {
         const existing = new Map(get().contacts.map((c) => [c.id, c]));
         // People added from the dashboard and already written into the file come back as sheet rows.
         const byRef = new Map(
@@ -162,7 +173,7 @@ export const useStore = create<State>()(
           banks[k] ??= { key: k, name: c.bank, region: c.region, status: "active" };
         }
         blobs.setSnapshots(snapshots);
-        set({ contacts: [...merged, ...kept], tables, snapshots, workbook: meta, banks, patches: {} });
+        set({ contacts: [...merged, ...kept], tables, snapshots, workbook: meta, banks, patches: {}, targets: targets ?? get().targets });
         return { added, updated };
       },
 
@@ -223,6 +234,9 @@ export const useStore = create<State>()(
 
       setResumeName: (resumeName) => set({ resumeName }),
 
+      setCoverage: (fn) => set({ coverage: fn(get().coverage) }),
+      setLastGmailSync: (lastGmailSync) => set({ lastGmailSync }),
+
       clearAll: () => {
         blobs.setResume(undefined);
         blobs.setFileHandle(undefined);
@@ -238,6 +252,8 @@ export const useStore = create<State>()(
           snapshots: [],
           workbook: undefined,
           resumeName: undefined,
+          targets: [],
+          lastGmailSync: undefined,
         });
       },
 

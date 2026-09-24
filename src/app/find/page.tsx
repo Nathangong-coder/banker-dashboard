@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ExternalLink, Filter, Plus, Search, Sparkles, X } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -26,6 +27,15 @@ type Verdict = {
 };
 
 export default function FindPage() {
+  return (
+    <Suspense>
+      <FindInner />
+    </Suspense>
+  );
+}
+
+function FindInner() {
+  const params = useSearchParams();
   const settings = useStore((s) => s.settings);
   const setSettings = useStore((s) => s.setSettings);
   const contacts = useStore((s) => s.contacts);
@@ -35,7 +45,7 @@ export default function FindPage() {
   const hasBook = useStore((s) => !!s.workbook);
 
   const knownBanks = useMemo(() => [...new Set(contacts.map((c) => c.bank))].sort(), [contacts]);
-  const [banks, setBanks] = useState<string[]>([]);
+  const [banks, setBanks] = useState<string[]>(() => (params.get("banks") ?? "").split("|").map((b) => b.trim()).filter(Boolean));
   const [custom, setCustom] = useState("");
   const [useApollo, setUseApollo] = useState(false);
   const [apolloMax, setApolloMax] = useState(10);

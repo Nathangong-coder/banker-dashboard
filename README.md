@@ -5,7 +5,8 @@ A dashboard that handles the repetitive parts of investment banking recruiting:
 1. **Enrich contact info.** Upload your recruiting .xlsx, view it as a spreadsheet, and fill in blank emails from each person's LinkedIn URL and name (Apollo, with Hunter as a fallback). Write the results back into the same file.
 2. **Find people.** Google-search public LinkedIn profiles for each bank (via Serper). AI screens each profile against your criteria: Tech IB or NY Generalist, not Healthcare, UC grad or from Washington State, and based in CA or NY. Add matches to the right bank tab.
 3. **Email drafts.** Select contacts, auto-assign templates (AI or keyword rules), have AI fill the personal `[[AI: …]]` lines, and create Gmail drafts with your resume attached.
-4. **Follow-ups.** Track each banker and each bank, split by SF and NY. Sync Sent mail and replies from Gmail, draft in-thread follow-ups, and get reminders by browser notification, phone push (ntfy), SMS (Twilio), or calendar (.ics).
+4. **Bank coverage.** Every bank you could recruit at, sorted into *reached out*, *have contacts but haven't emailed*, and *cold* (no contacts yet), with a progress bar, this week's email count, and one-click next steps ("Draft emails", "Find people").
+5. **Follow-ups.** Track each banker and each bank, split by SF and NY. Sync Sent mail and replies from Gmail, draft in-thread follow-ups, and get reminders by browser notification, phone push (ntfy), SMS (Twilio), or calendar (.ics).
 
 ## How data is handled
 
@@ -117,6 +118,26 @@ Common errors:
 
 Scopes: `gmail.compose` (create drafts) and `gmail.readonly` (sync sent mail and replies). The app never sends email itself; drafts wait for you in Gmail.
 Official walkthrough: [Gmail API JavaScript quickstart](https://developers.google.com/workspace/gmail/api/quickstart/js).
+
+## Bank coverage
+
+The bank list is built from your contacts, every bank tab (even empty ones), and any list of firms in the spreadsheet. That means a
+tab with an "Institution Name" column (plus an optional "Institution Type"), or a tab with one category per column like
+"Investment Banks (Bulge Bracket)". Only IB and PE categories are used from those. Name variants are merged (JPMorgan = JP Morgan,
+Jeffries = Jefferies, FinTech Partners = FT Partners…). Hide banks you're not recruiting for, add any by hand, or switch on a
+standard IB target list. A bank is **reached** once any email to someone there has gone out. It's **gone quiet** when it was reached, nobody
+replied, and nothing's been sent in 3+ weeks.
+
+## Gmail sync
+
+Once Gmail is connected (one click per browser session; the sidebar shows **Connect Gmail sync**), the app reads your Sent mail and
+inbox every 20 minutes while it's open:
+- the **real date** of each first email, how many **follow-ups** went out (counted up to the first reply), and whether they **replied**;
+- for contacts whose email is **missing**, it searches Sent mail by their name. If the recipient's name or address matches, the email
+  is filled in (marked *gmail* as the source), along with the dates.
+
+Statuses only move forward (it never un-does a "replied" or lowers a follow-up count you set). Google doesn't let a web page get a
+Gmail token without a click, so fully background sync with the tab closed needs a server-side setup (see [TODO.md](TODO.md)).
 
 ## Email templates
 

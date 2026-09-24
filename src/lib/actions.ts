@@ -25,6 +25,7 @@ export async function importFile(file: File, handle?: FileSystemFileHandle, opts
     contacts: parsed.contacts,
     tables: parsed.tables,
     snapshots: parsed.snapshots,
+    targets: parsed.targets,
   });
   if (opts.keepManualEdits) useStore.setState({ patches: manual });
   return r;
@@ -79,6 +80,7 @@ export async function saveWorkbook(mode: "in-place" | "download") {
   useStore.setState({
     snapshots: parsed.snapshots,
     tables: parsed.tables,
+    targets: parsed.targets,
     patches: {},
     workbook: { ...cur, sheetNames: parsed.snapshots.map((x) => x.name), lastModified },
   });

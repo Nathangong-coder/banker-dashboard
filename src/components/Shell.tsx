@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BellRing, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2 } from "lucide-react";
+import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2 } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { nextAction } from "@/lib/followups";
 import { cn } from "@/lib/util";
 import { Toaster } from "./ui";
+import { GmailSyncWidget } from "./GmailSyncWidget";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
+  { href: "/coverage", label: "Bank coverage", icon: Building2 },
   { href: "/sheet", label: "Spreadsheet", icon: Sheet },
   { href: "/find", label: "Find people", icon: Search },
   { href: "/drafts", label: "Email drafts", icon: Mail },
@@ -99,6 +101,7 @@ export function Shell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+        {ready && <GmailSyncWidget />}
         <Link href="/settings" className="mx-2.5 mb-4 flex items-center gap-2 rounded-md border border-white/10 px-3 py-2.5 text-[12px] hover:bg-white/5">
           <KeyRound className="size-3.5 text-brass" />
           <span>{keyCount}/4 services connected</span>

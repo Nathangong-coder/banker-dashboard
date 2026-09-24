@@ -90,6 +90,25 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   unknown caps → flagged `[[AI: …]]`) → optional `api/templates/organize` AI pass, whose edits are **discarded unless `sameWording` holds** →
   review modal (`components/TemplateImport.tsx`) → upsert by template name. Google Doc links: `api/templates/gdoc` (docs.google.com only).
 
+## Bank coverage (`src/lib/coverage.ts`, `src/lib/banks.ts`, `app/coverage`)
+
+- `buildCoverage` merges banks by `canonBank()` (aliases + stop-words; test new aliases against the owner's names) from: contacts →
+  bank tabs (`tables`, even with 0 contacts) → `targets` (target-list tabs, parsed by `workbook.ts#extractTargets`) → `coverage.added`
+  → optional `STARTER_TARGETS`. Buckets: reached (any `sentAt` or sent/replied status) / ready (active contacts, none reached) / cold / hidden.
+- Target lists: row style (header "Institution Name" [+ "Institution Type", "#"]; rows need a numeric # and a bank/PE-ish type) or
+  column style (≥3 category headers; only `DEFAULT_TIERS` kept). `cleanBankName` strips "(MS) & MS NY)" noise.
+- Workbooks imported before this existed get `targets` backfilled by re-parsing the stored blob on the coverage page.
+- Deep links: `/find?banks=A|B` (pipe-separated), `/drafts?bank=Name`, `/sheet?view=contacts&filter=noemail&bank=Name`.
+
+## Gmail sync (`src/lib/gmailSync.ts`, `components/GmailSyncWidget.tsx`)
+
+- `syncAllWithGmail({interactive})` is single-flight. Contacts with an email → `gmail.ts#syncContact` (first sent, follow-ups counted
+  up to the first reply, reply date, thread/Message-ID for in-thread follow-ups). Contacts without one → `findEmailByName` (Sent-mail
+  search by name, accepted only if `addressMatches` the display name or mailbox), throttled by `gmailCheckedAt` (12h).
+- `patchFrom` only moves status/follow-up counts forward. Non-interactive runs never open Google's popup; the widget re-syncs every
+  20 min once a token exists this session (`onGmailConnected`). Token model = one click per session. True background sync needs the
+  server-side refresh-token flow (client secret + DB), tracked in TODO.md with the 9am ping.
+
 ## Follow-up logic (`src/lib/followups.ts`)
 
 - `nextAction(contact)`: `new` → reach out; `drafted` → send; `sent`/`followed_up` → follow-up #n after `firstAfterDays`/`nextAfterDays`

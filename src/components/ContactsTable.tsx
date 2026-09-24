@@ -73,13 +73,15 @@ export function ContactsTable({
   selected,
   onSelected,
   initialFilter,
+  initialBank,
 }: {
   selected: Set<string>;
   onSelected: (s: Set<string>) => void;
   initialFilter?: string;
+  initialBank?: string;
 }) {
   const contacts = useStore((s) => s.contacts);
-  const [f, setF] = useState<Filters>({ q: "", bank: "", region: "", status: "", email: initialFilter === "noemail" ? "noemail" : "" });
+  const [f, setF] = useState<Filters>({ q: "", bank: initialBank ?? "", region: "", status: "", email: initialFilter === "noemail" ? "noemail" : "" });
   const [open, setOpen] = useState<Contact | null>(null);
   const rows = useContactFilter(contacts, f);
   const allSel = rows.length > 0 && rows.every((r) => selected.has(r.id));

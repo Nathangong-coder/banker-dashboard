@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, FileUp, Mail, Paperclip, Pencil, Plus, Send, Sparkles, Wand2 } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
@@ -18,9 +19,18 @@ import { DEFAULT_TEMPLATES } from "@/lib/defaults";
 import { aiReady, googleClientId } from "@/lib/keys";
 
 export default function DraftsPage() {
+  return (
+    <Suspense>
+      <DraftsInner />
+    </Suspense>
+  );
+}
+
+function DraftsInner() {
+  const params = useSearchParams();
   const s = useStore();
   const { settings, templates, contacts } = s;
-  const [f, setF] = useState<Filters>({ q: "", bank: "", region: "", status: "new", email: "" });
+  const [f, setF] = useState<Filters>(() => ({ q: "", bank: params.get("bank") ?? "", region: "", status: "new", email: "" }));
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Template | null>(null);
   const [preview, setPreview] = useState<Contact | null>(null);

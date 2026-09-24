@@ -54,7 +54,7 @@ export interface Contact {
   location: string;
   position: string;
   email: string;
-  emailSource?: "sheet" | "apollo" | "hunter" | "manual";
+  emailSource?: "sheet" | "apollo" | "hunter" | "manual" | "gmail";
   emailStatus?: string;
   linkedin: string;
   comment: string;
@@ -73,6 +73,8 @@ export interface Contact {
   threadId?: string;
   lastMessageId?: string;
   snoozeUntil?: string;
+  /** Last time Gmail was searched for this person (throttles name lookups). */
+  gmailCheckedAt?: string;
   history: HistoryEvent[];
 }
 

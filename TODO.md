@@ -23,7 +23,12 @@ browser must push a small due-list snapshot to server storage, and a cron job re
 5. UI: Settings → WhatsApp → toggle "Daily 9am ping" (shows last sent time). Keep "WhatsApp me today's list" as manual.
 6. Privacy note in the UI: what gets stored server-side, plus a "Delete my ping data" button.
 
-## 2. Smaller follow-ups
+## 2. Background Gmail sync with the tab closed
+Today sync needs one click per browser session (Google token model). To sync from a cron: switch to the OAuth **code** flow with
+offline access, store the refresh token server-side (encrypted), and use the **client secret** there (never in the browser). This
+shares its storage and cron with item 1, so build them together.
+
+## 3. Smaller follow-ups
 - Template editor: expose the `step` field for follow-up templates (import sets it; manual editing can't yet).
 - Rate-limit `/api/keys/test` (it can be used as a key-checking oracle; low risk, but cheap to add).
 - Browser click-through test of all pages with real keys (never done in-session: the browser tool was denied).

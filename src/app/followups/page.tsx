@@ -5,13 +5,14 @@ import Link from "next/link";
 import { Bell, CalendarPlus, Check, Clock, MailPlus, MessageSquare, RefreshCw, Smartphone, UserX } from "lucide-react";
 import { blobs, bankKey, useStore } from "@/lib/store";
 import { liveByBank, nextAction, nextUp, rollupBanks, type BankRollup } from "@/lib/followups";
-import { connectGmail, createDraft, syncContact } from "@/lib/gmail";
+import { connectGmail, createDraft } from "@/lib/gmail";
+import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
 import { digestText, upcomingDigests } from "@/lib/reminders";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import type { BankStatus, Contact, Region } from "@/lib/types";
-import { addDays, cn, download, fmtDate, pool, relDays } from "@/lib/util";
+import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Empty, Field, Input, PageHeader, Progress, Select, StatusBadge, toast } from "@/components/ui";
 import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
@@ -26,48 +27,16 @@ export default function FollowupsPage() {
   const s = useStore();
 
   const runSync = async () => {
-    const list = s.contacts.filter((c) => c.email && c.status !== "ignored");
-    if (!list.length) return toast.info("No contacts with emails to check.");
+    setSync({ done: 0, total: 1 });
     try {
       await connectGmail(googleClientId(s.settings));
+      const r = await syncAllWithGmail({ interactive: true, onProgress: (done, total) => setSync({ done, total }) });
+      toast.ok(describeSync(r));
     } catch (e) {
-      return toast.err((e as Error).message);
+      toast.err((e as Error).message);
+    } finally {
+      setSync(null);
     }
-    setSync({ done: 0, total: list.length });
-    let changed = 0;
-    await pool(
-      list,
-      3,
-      async (c) => {
-        try {
-          const r = await syncContact(googleClientId(s.settings), c.email);
-          if (!r.sentCount && !r.repliedAt) return;
-          const patch: Partial<Contact> = {};
-          if (r.firstSentAt) {
-            patch.sentAt = r.firstSentAt;
-            patch.lastTouchAt = r.lastSentAt;
-            patch.followUps = Math.max(c.followUps, r.sentCount - 1);
-            patch.threadId = r.threadId;
-            patch.lastMessageId = r.lastMessageId;
-            if (!c.draft && r.subject) patch.draft = { subject: r.subject, body: "", createdAt: r.firstSentAt };
-            if (["new", "drafted"].includes(c.status)) patch.status = r.sentCount > 1 ? "followed_up" : "sent";
-            if (c.status === "sent" && r.sentCount > 1) patch.status = "followed_up";
-          }
-          const repliedAfterOutreach = r.repliedAt && (!r.firstSentAt || r.repliedAt > r.firstSentAt);
-          if (repliedAfterOutreach) {
-            patch.repliedAt = r.repliedAt;
-            if (!["call_scheduled", "done"].includes(c.status)) patch.status = "replied";
-          }
-          changed++;
-          useStore.getState().updateContact(c.id, patch, { at: new Date().toISOString(), type: "note", note: "Synced from Gmail" });
-        } catch (e) {
-          if (/expired/.test((e as Error).message)) throw e;
-        }
-      },
-      (done) => setSync({ done, total: list.length }),
-    ).catch((e) => toast.err((e as Error).message));
-    setSync(null);
-    toast.ok(`Gmail sync done. ${changed} contact${changed === 1 ? "" : "s"} updated from Sent mail and replies.`);
   };
 
   return (
@@ -107,7 +76,7 @@ export default function FollowupsPage() {
         ))}
       </div>
 
-      {tab === "due" && <DueList onOpen={setOpen} />}
+      {tab === "due" && <DueList onOpen={setOpen} onSync={runSync} syncing={!!sync} />}
       {tab === "bankers" && <BankerTable onOpen={setOpen} />}
       {tab === "banks" && <BankBoard onOpen={setOpen} />}
       {tab === "reminders" && <Reminders />}
@@ -183,7 +152,7 @@ function useActions() {
   };
 }
 
-function DueList({ onOpen }: { onOpen: (c: Contact) => void }) {
+function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; onSync: () => void; syncing: boolean }) {
   const { contacts, banks, settings } = useStore();
   const act = useActions();
   const [busy, setBusy] = useState<string | null>(null);
@@ -204,8 +173,21 @@ function DueList({ onOpen }: { onOpen: (c: Contact) => void }) {
       </Card>
     );
 
+  const unknown = due.filter(({ a }) => a.unknownDate).length;
+
   return (
     <div className="space-y-6">
+      {unknown > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber/30 bg-amber-soft/50 px-4 py-3 text-[13px]">
+          <span className="flex-1">
+            <b>{unknown}</b> contact{unknown > 1 ? "s are" : " is"} marked sent without a date. Gmail can fill in when you actually emailed them,
+            how many follow-ups went out, and whether they replied.
+          </span>
+          <Button size="sm" variant="primary" loading={syncing} onClick={onSync}>
+            Fill in from Gmail
+          </Button>
+        </div>
+      )}
       <Card>
         <CardHeader title={`Due now · ${due.length}`} sub="Overdue first" />
         {due.length === 0 ? (

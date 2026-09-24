@@ -27,6 +27,15 @@ declare global {
 }
 
 let token: { value: string; exp: number; clientId: string } | null = null;
+const listeners = new Set<() => void>();
+
+/** Fires whenever a fresh Gmail token is obtained (used to kick off background sync). */
+export function onGmailConnected(fn: () => void) {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
 
 function loadGis(): Promise<void> {
   if (window.google?.accounts) return Promise.resolve();
@@ -61,6 +70,7 @@ export async function connectGmail(clientId: string, opts: { force?: boolean } =
           return reject(new Error(`access_denied: please tick both Gmail permissions (missing ${missing.map((m) => m.split("/").pop()).join(", ")}).`));
         token = { value: r.access_token, exp: Date.now() + ((r.expires_in ?? 3600) - 60) * 1000, clientId };
         resolve(token.value);
+        setTimeout(() => listeners.forEach((l) => l()), 0);
       },
       error_callback: (e) => reject(new Error(e.type === "popup_closed" ? "popup_closed" : (e.message ?? e.type))),
     });
@@ -171,6 +181,8 @@ async function getMeta(clientId: string, id: string) {
 
 export interface SyncResult {
   sentCount: number;
+  /** Emails sent before their first reply (1 = first email only, 2 = one follow-up, …). */
+  outreachCount: number;
   firstSentAt?: string;
   lastSentAt?: string;
   threadId?: string;
@@ -179,28 +191,83 @@ export interface SyncResult {
   repliedAt?: string;
 }
 
-/** Look at Sent mail and inbox to learn when we emailed someone and whether they wrote back. */
+const header = (m: MsgMeta, n: string) => m.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value;
+const when = (m: MsgMeta) => Number(m.internalDate);
+
+/**
+ * When we emailed someone and whether they wrote back. Follow-ups are counted only up to their first
+ * reply, so back-and-forth scheduling emails don't inflate "follow-ups sent".
+ */
 export async function syncContact(clientId: string, email: string): Promise<SyncResult> {
   const [sent, replies] = await Promise.all([
-    listMessages(clientId, `in:sent to:${email}`, 10),
-    listMessages(clientId, `from:${email}`, 1),
+    listMessages(clientId, `in:sent to:${email}`, 15),
+    listMessages(clientId, `from:${email}`, 5),
   ]);
-  const out: SyncResult = { sentCount: sent.length };
-  if (sent.length) {
-    const metas = await Promise.all(sent.map((m) => getMeta(clientId, m.id)));
-    metas.sort((a, b) => Number(a.internalDate) - Number(b.internalDate));
-    const first = metas[0];
-    const last = metas[metas.length - 1];
-    const h = (m: MsgMeta, n: string) => m.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value;
-    out.firstSentAt = new Date(Number(first.internalDate)).toISOString();
-    out.lastSentAt = new Date(Number(last.internalDate)).toISOString();
-    out.threadId = last.threadId;
-    out.lastMessageId = h(last, "Message-ID");
-    out.subject = h(first, "Subject");
+  const out: SyncResult = { sentCount: sent.length, outreachCount: 0 };
+  const sentMeta = (await Promise.all(sent.map((m) => getMeta(clientId, m.id)))).sort((a, b) => when(a) - when(b));
+  if (!sentMeta.length) {
+    if (replies.length) out.repliedAt = new Date(when(await getMeta(clientId, replies[0].id))).toISOString();
+    return out;
   }
-  if (replies.length) {
-    const m = await getMeta(clientId, replies[0].id);
-    out.repliedAt = new Date(Number(m.internalDate)).toISOString();
-  }
+  const first = sentMeta[0];
+  const replyMeta = (await Promise.all(replies.map((m) => getMeta(clientId, m.id)))).filter((m) => when(m) > when(first)).sort((a, b) => when(a) - when(b));
+  const firstReply = replyMeta[0];
+  const outreach = firstReply ? sentMeta.filter((m) => when(m) < when(firstReply)) : sentMeta;
+  const last = outreach[outreach.length - 1] ?? first;
+  out.outreachCount = outreach.length;
+  out.firstSentAt = new Date(when(first)).toISOString();
+  out.lastSentAt = new Date(when(last)).toISOString();
+  out.threadId = last.threadId;
+  out.lastMessageId = header(last, "Message-ID");
+  out.subject = header(first, "Subject");
+  if (firstReply) out.repliedAt = new Date(when(firstReply)).toISOString();
   return out;
+}
+
+const normName = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Parse a To/Cc header into [{ name, email }]. */
+export function parseAddresses(h: string): { name: string; email: string }[] {
+  const out: { name: string; email: string }[] = [];
+  const re = /(?:"([^"]*)"\s*|([^"<,]*?)\s*)<([^<>\s]+@[^<>\s]+)>|([^\s,<>"]+@[^\s,<>"]+)/g;
+  for (const m of h.matchAll(re)) out.push({ name: (m[1] ?? m[2] ?? "").trim(), email: (m[3] ?? m[4]).toLowerCase() });
+  return out;
+}
+
+/** Does this address plausibly belong to First Last? Display-name match, or first/last in the mailbox name. */
+export function addressMatches(a: { name: string; email: string }, first: string, last: string) {
+  const f = normName(first);
+  const l = normName(last);
+  if (!f || !l) return false;
+  const dn = ` ${normName(a.name)} `;
+  if (dn.includes(` ${f} `) && dn.includes(` ${l} `)) return true;
+  const local = a.email.split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
+  const fl = f.replace(/ /g, "");
+  const ll = l.replace(/ /g, "");
+  return local.includes(ll) && (local.includes(fl) || local.startsWith(fl[0]) || local.endsWith(fl[0]));
+}
+
+/**
+ * Find the address we emailed a person at, by searching Sent mail for their name. Only returns an
+ * address whose display name or mailbox matches the person, so a wrong "missing" fill is unlikely.
+ */
+export async function findEmailByName(clientId: string, first: string, last: string): Promise<string | null> {
+  if (!first || !last) return null;
+  for (const q of [`in:sent to:"${first} ${last}"`, `in:sent "${first} ${last}"`, `in:sent to:${last}`]) {
+    const msgs = await listMessages(clientId, q, 5);
+    for (const m of msgs) {
+      const meta = await gapi<MsgMeta>(clientId, `/messages/${m.id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc`);
+      const addrs = [header(meta, "To"), header(meta, "Cc")].filter(Boolean).flatMap((h) => parseAddresses(h!));
+      const hit = addrs.find((a) => addressMatches(a, first, last));
+      if (hit) return hit.email;
+    }
+  }
+  return null;
 }

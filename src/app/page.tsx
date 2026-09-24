@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { ArrowRight, BellRing, Mail, Search, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { nextAction, rollupBanks } from "@/lib/followups";
+import { buildCoverage } from "@/lib/coverage";
 import { STATUS_LABEL, type Status } from "@/lib/types";
 import { fmtDate, relDays } from "@/lib/util";
 import { Badge, Card, CardHeader, PageHeader, Stat, StatusBadge } from "@/components/ui";
@@ -39,6 +40,13 @@ export default function Overview() {
   }, [contacts, banks, fu]);
 
   const rollups = useMemo(() => rollupBanks(contacts, banks, fu), [contacts, banks, fu]);
+  const tables = useStore((s) => s.tables);
+  const targets = useStore((s) => s.targets);
+  const coverage = useStore((s) => s.coverage);
+  const cov = useMemo(() => {
+    const rows = buildCoverage({ contacts, tables, targets, coverage, banks, followUp: fu }).filter((r) => r.bucket !== "hidden");
+    return { total: rows.length, reached: rows.filter((r) => r.bucket === "reached").length, cold: rows.filter((r) => r.bucket === "cold").length };
+  }, [contacts, tables, targets, coverage, banks, fu]);
 
   if (!meta && contacts.length === 0) {
     return (
@@ -68,7 +76,15 @@ export default function Overview() {
       />
 
       <Card className="mb-6 grid grid-cols-2 divide-line md:grid-cols-5 md:divide-x">
-        <Stat label="Contacts" value={contacts.length} sub={`${rollups.length} bank desks`} />
+        <Stat
+          label="Banks reached"
+          value={`${cov.reached}/${cov.total}`}
+          sub={
+            <Link href="/coverage" className="underline decoration-line-2 underline-offset-2 hover:text-ink">
+              {cov.cold} cold · see coverage →
+            </Link>
+          }
+        />
         <Stat label="Missing email" value={stats.noEmail} sub={<Link href="/sheet?view=contacts&filter=noemail" className="underline decoration-line-2 underline-offset-2 hover:text-ink">Enrich these →</Link>} />
         <Stat label="Reached out" value={stats.reached} />
         <Stat label="Response rate" value={stats.reached ? `${Math.round((stats.replied / stats.reached) * 100)}%` : "—"} sub={`${stats.replied} replied`} tone="green" />
