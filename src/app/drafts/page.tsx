@@ -11,6 +11,7 @@ import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT 
 import type { Contact, Template } from "@/lib/types";
 import { chunk, cn, pool, uid } from "@/lib/util";
 import { overCap } from "@/lib/followups";
+import { normalizeBody, normalizeSubject } from "@/lib/emailFormat";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { TemplateEditor } from "@/components/TemplateEditor";
@@ -114,7 +115,7 @@ function DraftsInner() {
         } else if (needsAi) {
           body = body.replace(new RegExp(AI_SLOT.source, "g"), "").replace(/\n{3,}/g, "\n\n");
         }
-        s.updateContact(c.id, { templateId: t.id, draft: { subject, body, createdAt: new Date().toISOString() } });
+        s.updateContact(c.id, { templateId: t.id, draft: { subject: normalizeSubject(subject), body: normalizeBody(body), createdAt: new Date().toISOString() } });
       },
       (done) => setPhase({ label: "Writing drafts", done, total: list.length }),
     );
@@ -414,7 +415,7 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
   const [subject, setSubject] = useState(c.draft!.subject);
   const [body, setBody] = useState(c.draft!.body);
   const mailto = useMemo(
-    () => `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
+    () => `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(normalizeBody(body))}`,
     [c.email, subject, body],
   );
   const save = () => update(c.id, { draft: { ...c.draft!, subject, body } });

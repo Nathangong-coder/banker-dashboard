@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       system:
         "You finalize cold networking emails from a college student to investment bankers. " +
         "The draft contains [[AI: instruction]] slots: replace each slot with text following its instruction. " +
-        "Leave all other wording exactly as written (keep line breaks). Any leftover {{placeholder}} you cannot fill " +
+        "Leave all other wording exactly as written, keeping the same line breaks: exactly one blank line between paragraphs, no blank line between the sign-off and the name, no indentation. Any leftover {{placeholder}} you cannot fill " +
         "from the facts should be removed gracefully. Use ONLY the facts provided — never invent shared schools, " +
         "mutual connections, deals or groups. Keep the tone concise, warm and professional; avoid em dashes and flattery.",
       prompt:

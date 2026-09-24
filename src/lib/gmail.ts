@@ -5,6 +5,8 @@
  * access token, and we call the Gmail REST API directly (it supports CORS).
  */
 
+import { bodyToHtml, normalizeBody, normalizeSubject } from "./emailFormat";
+
 const SCOPES = "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
@@ -116,36 +118,49 @@ export interface DraftInput {
   inReplyTo?: string;
 }
 
+/**
+ * RFC 2822 message for a Gmail draft: multipart/alternative (plain text + Gmail-style HTML so lines use
+ * the full width), wrapped in multipart/mixed when there's an attachment. Every draft goes through here,
+ * so the body is normalized here too.
+ */
 export function buildMime(d: DraftInput): string {
-  const boundary = `bd_${Math.random().toString(36).slice(2)}`;
+  const id = Math.random().toString(36).slice(2);
+  const alt = `alt_${id}`;
+  const mixed = `mix_${id}`;
+  const body = normalizeBody(d.body);
   const headers = [
     `To: ${d.to}`,
-    `Subject: =?UTF-8?B?${b64Text(d.subject)}?=`,
+    `Subject: =?UTF-8?B?${b64Text(normalizeSubject(d.subject))}?=`,
     "MIME-Version: 1.0",
     ...(d.inReplyTo ? [`In-Reply-To: ${d.inReplyTo}`, `References: ${d.inReplyTo}`] : []),
   ];
-  const textPart = [
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: base64",
+  const part = (type: string, content: string) =>
+    [`Content-Type: ${type}; charset="UTF-8"`, "Content-Transfer-Encoding: base64", "", wrap76(b64Text(content))].join("\r\n");
+  const alternative = [
+    `Content-Type: multipart/alternative; boundary="${alt}"`,
     "",
-    wrap76(b64Text(d.body)),
+    `--${alt}`,
+    part("text/plain", body.replace(/\n/g, "\r\n")),
+    `--${alt}`,
+    part("text/html", bodyToHtml(body)),
+    `--${alt}--`,
   ].join("\r\n");
-  if (!d.attachment) return [...headers, textPart].join("\r\n");
+  if (!d.attachment) return [...headers, alternative].join("\r\n");
   const a = d.attachment;
   const safeName = a.name.replace(/["\r\n]/g, "");
   return [
     ...headers,
-    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    `Content-Type: multipart/mixed; boundary="${mixed}"`,
     "",
-    `--${boundary}`,
-    textPart,
-    `--${boundary}`,
+    `--${mixed}`,
+    alternative,
+    `--${mixed}`,
     `Content-Type: ${a.type || "application/octet-stream"}; name="${safeName}"`,
     `Content-Disposition: attachment; filename="${safeName}"`,
     "Content-Transfer-Encoding: base64",
     "",
     wrap76(b64Bytes(new Uint8Array(a.data))),
-    `--${boundary}--`,
+    `--${mixed}--`,
   ].join("\r\n");
 }
 
