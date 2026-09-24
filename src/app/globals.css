@@ -1,26 +1,106 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #f5f4ef;
+  --panel: #ffffff;
+  --ink: #111a28;
+  --ink-2: #3c4657;
+  --muted: #6b7280;
+  --line: #e3e1d8;
+  --line-2: #d4d1c4;
+  --navy: #13233f;
+  --brass: #b3862f;
+  --brass-soft: #f5ecd8;
+  --green: #1f7a4d;
+  --green-soft: #e3f2e9;
+  --red: #b4372f;
+  --red-soft: #f9e5e3;
+  --blue: #2553a8;
+  --blue-soft: #e5edfb;
+  --amber: #a15c07;
+  --amber-soft: #fcefd9;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-navy: var(--navy);
+  --color-brass: var(--brass);
+  --color-brass-soft: var(--brass-soft);
+  --color-green: var(--green);
+  --color-green-soft: var(--green-soft);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-blue: var(--blue);
+  --color-blue-soft: var(--blue-soft);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+  --font-serif: var(--font-serif-display);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-plex-sans), system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.num {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Spreadsheet grid */
+.grid-sheet {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+}
+.grid-sheet td,
+.grid-sheet th {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 0 6px;
+  height: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+.grid-sheet thead th {
+  position: sticky;
+  top: 0;
+  background: #efede5;
+  z-index: 2;
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 11px;
+}
+.grid-sheet tbody th {
+  position: sticky;
+  left: 0;
+  background: #efede5;
+  z-index: 1;
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+::selection {
+  background: var(--brass-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
