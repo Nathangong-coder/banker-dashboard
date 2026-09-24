@@ -1,6 +1,6 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { errorResponse, withAi } from "@/lib/server/ai";
+import { aiJson, errorResponse, withAi } from "@/lib/server/ai";
 
 export const maxDuration = 120;
 
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       }),
     );
 
-    return Response.json({ results: output.results });
+    return aiJson(req, { results: output.results });
   } catch (e) {
     return errorResponse(e);
   }

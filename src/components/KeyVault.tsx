@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { ArrowUp, CheckCircle2, Plus, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { mask, modelOptions, pickDefaultModel } from "@/lib/keys";
+import { mask, modelChain, modelOptions, pickDefaultModel, type ModelRef } from "@/lib/keys";
 import { AI_PROVIDERS, type AiProvider, type ApiKeyEntry, type VaultService } from "@/lib/types";
 import type { KeyTestResult } from "@/app/api/keys/test/route";
 import { cn, fmtDate, uid } from "@/lib/util";
@@ -296,7 +296,94 @@ export function AiVault() {
             Active: <b>{AI_PROVIDERS[aiSel.provider].label}</b> · <span className="num">{aiSel.model}</span>. A model is only switched to after it answers a test prompt.
           </p>
         )}
+        {providersWithKeys.includes(aiSel.provider) && <BackupModels />}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Backup chain shown under the model picker. Automatic by default (other models from the same provider,
+ * then other providers you have keys for); "Customize" freezes it into an editable list.
+ */
+function BackupModels() {
+  const settings = useStore((s) => s.settings);
+  const setSettings = useStore((s) => s.setSettings);
+  const auto = settings.ai.fallbacks === undefined;
+  const chain = modelChain(settings).slice(1);
+  const providers = [...new Set(settings.vault.ai.filter((k) => k.ok !== false).map((k) => k.provider!))];
+  const [prov, setProv] = useState<AiProvider>(settings.ai.provider);
+  const [model, setModel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const setFallbacks = (f: ModelRef[] | undefined) => setSettings((s) => ({ ...s, ai: { ...s.ai, fallbacks: f } }));
+
+  const add = async () => {
+    const m = model.trim();
+    const key = settings.vault.ai.find((k) => k.provider === prov && k.ok !== false);
+    if (!m || !key) return;
+    setBusy(true);
+    const r = await testKey({ service: "ai", provider: prov, key: key.value, baseURL: key.baseURL, model: m });
+    setBusy(false);
+    if (!r.ok) return toast.err(r.note);
+    setFallbacks([...chain, { provider: prov, model: m }]);
+    setModel("");
+  };
+
+  return (
+    <div className="mt-3 border-t border-line pt-2.5">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="text-[12px] font-medium text-ink-2">Backup models</span>
+        <span className="text-[11.5px] text-muted">used in order when a model hits its daily/rate limit</span>
+        <div className="flex-1" />
+        <button className="text-[11.5px] text-navy hover:underline" onClick={() => setFallbacks(auto ? chain : undefined)}>
+          {auto ? "Customize" : "Back to automatic"}
+        </button>
+      </div>
+      {chain.length === 0 ? (
+        <p className="text-[12px] text-amber">No backups yet. Add another key (a different provider, or one that lists more models) so drafting keeps working when this model runs out.</p>
+      ) : (
+        <ol className="space-y-1">
+          {chain.map((m, i) => (
+            <li key={`${m.provider}/${m.model}`} className="flex items-center gap-2 text-[12px]">
+              <span className="num w-4 text-muted">{i + 1}.</span>
+              <span className="num">{m.model}</span>
+              <span className="text-muted">· {AI_PROVIDERS[m.provider].label}</span>
+              {!auto && (
+                <span className="ml-auto flex gap-0.5">
+                  {i > 0 && (
+                    <button aria-label="Move up" className="rounded p-0.5 text-muted hover:text-ink" onClick={() => setFallbacks(moveTop(chain, i))}>
+                      <ArrowUp className="size-3" />
+                    </button>
+                  )}
+                  <button aria-label="Remove backup" className="rounded p-0.5 text-muted hover:text-red" onClick={() => setFallbacks(chain.filter((_, j) => j !== i))}>
+                    <Trash2 className="size-3" />
+                  </button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+      {!auto && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <Select className="h-8 text-[12px]" value={prov} onChange={(e) => setProv(e.target.value as AiProvider)} aria-label="Backup provider">
+            {providers.map((p) => (
+              <option key={p} value={p}>
+                {AI_PROVIDERS[p].label}
+              </option>
+            ))}
+          </Select>
+          <Input className="h-8 w-48 text-[12px]" list="backup-models" placeholder="model id" value={model} onChange={(e) => setModel(e.target.value)} />
+          <datalist id="backup-models">
+            {modelOptions(settings, prov).map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+          <Button size="sm" loading={busy} disabled={!model.trim()} onClick={add}>
+            Test & add
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

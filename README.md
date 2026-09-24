@@ -154,6 +154,17 @@ inbox every 20 minutes while it's open:
 Statuses only move forward (it never un-does a "replied" or lowers a follow-up count you set). Google doesn't let a web page get a
 Gmail token without a click, so fully background sync with the tab closed needs a server-side setup (see [TODO.md](TODO.md)).
 
+## Signatures, formatting and backup models
+
+- Emails are created in Gmail with the same formatting as Gmail's own editor: full-width lines and single blank lines between paragraphs.
+  Your signature line (`you@school.edu | LinkedIn`) is added under your name, with the email and **LinkedIn** as blue, clickable links.
+  Set your email and LinkedIn URL in Settings → profile, or write a custom line (`[LinkedIn](https://…)` makes a named link).
+- **Backup models:** if your main AI model hits a rate or daily limit (e.g. Gemini's free tier), the app automatically moves to the next
+  model: other models from the same provider first (each has its own quota), then your other providers. You'll see a notice when it
+  switches. Settings → AI shows the order, and you can customize it.
+- **Drafting with context:** the Drafts page has a collapsible **At this firm** panel. It shows who you've already emailed or talked to at
+  the banks you've selected (dates, follow-ups, replies, notes, your 2-live-per-bank limit) and can show those rows spreadsheet-style.
+
 ## Email templates
 
 The app ships with 14 ready-to-use templates adapted from a real IB networking playbook:

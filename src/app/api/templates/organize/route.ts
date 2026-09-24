@@ -1,6 +1,6 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { errorResponse, withAi } from "@/lib/server/ai";
+import { aiJson, errorResponse, withAi } from "@/lib/server/ai";
 
 export const maxDuration = 120;
 
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
         prompt: `ALLOWED PLACEHOLDERS\n${placeholders.map((p) => `{{${p}}}`).join(", ")}\n\nTEMPLATES\n${JSON.stringify(candidates, null, 1)}`,
       }),
     );
-    return Response.json(output);
+    return aiJson(req, output);
   } catch (e) {
     return errorResponse(e);
   }

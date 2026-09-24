@@ -16,6 +16,8 @@ export async function callApi<T>(path: string, body: unknown, s: Settings): Prom
   const ai = aiHeader(s);
   if (ai) headers["x-ai"] = ai;
   const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
+  const fallback = res.headers.get("x-ai-fallback");
+  if (fallback && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("ai-fallback", { detail: fallback }));
   const j = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
   if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
   return j as T;

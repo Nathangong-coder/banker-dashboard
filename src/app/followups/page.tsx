@@ -17,7 +17,7 @@ import { Badge, Button, Card, CardHeader, Empty, Field, Input, PageHeader, Progr
 import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
-import { normalizeBody } from "@/lib/emailFormat";
+import { bodyToPlain, withSignature } from "@/lib/emailFormat";
 
 type Tab = "due" | "bankers" | "banks" | "reminders";
 
@@ -121,8 +121,9 @@ function useActions() {
         }
       } else body = body.replace(new RegExp(AI_SLOT.source, "g"), "");
     }
+    body = withSignature(body, s.settings.profile);
     if (!googleClientId(s.settings)) {
-      window.location.href = `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(normalizeBody(body))}`;
+      window.location.href = `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyToPlain(body))}`;
       return;
     }
     try {

@@ -175,8 +175,9 @@ export default function SettingsPage() {
             <Field label="Class year"><Input value={p.year} placeholder="sophomore" onChange={(e) => setP({ year: e.target.value })} /></Field>
             <Field label="Major" hint="As it reads in “I’m a ___ student”"><Input value={p.major} placeholder="economics & applied mathematics" onChange={(e) => setP({ major: e.target.value })} /></Field>
             <Field label="Hometown"><Input value={p.hometown} placeholder="Seattle, WA" onChange={(e) => setP({ hometown: e.target.value })} /></Field>
+            <Field label="Email (for signature)"><Input value={p.email} placeholder="you@g.ucla.edu" onChange={(e) => setP({ email: e.target.value.trim() })} /></Field>
             <Field label="Phone"><Input value={p.phone} onChange={(e) => setP({ phone: e.target.value })} /></Field>
-            <Field label="LinkedIn"><Input value={p.linkedin} onChange={(e) => setP({ linkedin: e.target.value })} /></Field>
+            <Field label="LinkedIn URL" hint="Linked as “LinkedIn” in your signature"><Input value={p.linkedin} placeholder="https://www.linkedin.com/in/you" onChange={(e) => setP({ linkedin: e.target.value.trim() })} /></Field>
             <Field label="School nickname" hint="“Fellow Bruin…”"><Input value={p.schoolNickname} placeholder="Bruin" onChange={(e) => setP({ schoolNickname: e.target.value })} /></Field>
             <Field label="School city" hint="“…went to college in LA”"><Input value={p.schoolCity} placeholder="LA" onChange={(e) => setP({ schoolCity: e.target.value })} /></Field>
             <Field label="Club"><Input value={p.club} placeholder="e.g. Bruin Finance Society" onChange={(e) => setP({ club: e.target.value })} /></Field>
@@ -186,7 +187,18 @@ export default function SettingsPage() {
               </Field>
             </div>
             <div className="md:col-span-2">
-              <Field label="Signature (appended if not already in the template)">
+              <Field
+                label="Custom signature line (optional)"
+                hint={
+                  <>
+                    Added under your name. Leave empty to use{" "}
+                    <span className="text-ink-2">
+                      {p.email || "your email"} | <span className="text-blue underline">LinkedIn</span>
+                    </span>{" "}
+                    automatically. Write links as <code>[LinkedIn](https://…)</code>.
+                  </>
+                }
+              >
                 <Textarea rows={2} value={p.signature} onChange={(e) => setP({ signature: e.target.value })} />
               </Field>
             </div>

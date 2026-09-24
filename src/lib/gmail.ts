@@ -5,7 +5,7 @@
  * access token, and we call the Gmail REST API directly (it supports CORS).
  */
 
-import { bodyToHtml, normalizeBody, normalizeSubject } from "./emailFormat";
+import { bodyToHtml, bodyToPlain, normalizeSubject } from "./emailFormat";
 
 const SCOPES = "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -127,7 +127,7 @@ export function buildMime(d: DraftInput): string {
   const id = Math.random().toString(36).slice(2);
   const alt = `alt_${id}`;
   const mixed = `mix_${id}`;
-  const body = normalizeBody(d.body);
+  const body = d.body;
   const headers = [
     `To: ${d.to}`,
     `Subject: =?UTF-8?B?${b64Text(normalizeSubject(d.subject))}?=`,
@@ -140,7 +140,7 @@ export function buildMime(d: DraftInput): string {
     `Content-Type: multipart/alternative; boundary="${alt}"`,
     "",
     `--${alt}`,
-    part("text/plain", body.replace(/\n/g, "\r\n")),
+    part("text/plain", bodyToPlain(body).replace(/\n/g, "\r\n")),
     `--${alt}`,
     part("text/html", bodyToHtml(body)),
     `--${alt}--`,

@@ -1,6 +1,6 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { errorResponse, withAi } from "@/lib/server/ai";
+import { aiJson, errorResponse, withAi } from "@/lib/server/ai";
 
 export const maxDuration = 120;
 
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
         prompt: `TEMPLATES\n${JSON.stringify(input.templates)}\n\nCONTACTS\n${JSON.stringify(input.contacts)}`,
         }),
       );
-      return Response.json(output);
+      return aiJson(req, output);
     }
 
     const { output } = await withAi(req, (model) =>
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
         `DRAFT SUBJECT\n${input.subject}\n\nDRAFT BODY\n${input.body}`,
       }),
     );
-    return Response.json(output);
+    return aiJson(req, output);
   } catch (e) {
     return errorResponse(e);
   }

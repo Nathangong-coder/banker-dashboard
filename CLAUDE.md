@@ -71,6 +71,22 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
   from the dashboard that were already saved into the file) so workflow state (status, dates, drafts) survives a re-import.
 
+## Email formatting & signature (`src/lib/emailFormat.ts`)
+
+- Drafts are multipart/alternative. The HTML part is Gmail-native (`<div>` per line, `<div><br></div>` between paragraphs); text/plain alone
+  gets hard-wrapped by Gmail at ~78 chars. `normalizeBody` removes indents and doubled blank lines, and glues the sign-off to the name
+  (only when the next line looks like a name).
+- `withSignature` appends `email | [LinkedIn](url)` under the name (or the custom signature from Settings). `[label](url)` is the one
+  markup the app understands: an `<a>` in HTML, "label: url" in plain text. Emails and bare URLs are auto-linked (blue in Gmail).
+
+## AI model chain (`lib/keys.ts#modelChain`, `lib/server/ai.ts#withAi`)
+
+- `x-ai` = `{chain: [{provider, model, keys[], baseURL}]}` (primary first). The server tries each model's keys, and on rate/quota/
+  missing-model errors (`shouldTryNextModel`) moves to the next model. `aiJson` sets an `x-ai-fallback` response header, which `callApi`
+  turns into an `ai-fallback` window event, and Shell toasts it once per model.
+- `settings.ai.fallbacks` undefined = automatic (`autoFallbacks`: up to 3 other text models from the same provider, since Gemini quotas
+  are per model, then each other provider's default). "Customize" in Settings freezes it into an editable, tested list.
+
 ## Saving to the local .xlsx (`src/lib/files.ts`, `actions.ts#saveWorkbook`)
 
 - The File System Access API (Chrome/Edge) keeps a handle in IndexedDB. After a reload, `ensureWritePermission` re-prompts.
@@ -119,6 +135,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - `patchFrom` only moves status/follow-up counts forward. Non-interactive runs never open Google's popup; the widget re-syncs every
   20 min once a token exists this session (`onGmailConnected`). Token model = one click per session. True background sync needs the
   server-side refresh-token flow (client secret + DB), tracked in TODO.md with the 9am ping.
+
+## Drafts ↔ coverage (`components/FirmContext.tsx`)
+
+- `FirmPanel` (collapsible right column on /drafts, xl screens; open/closed state in localStorage) shows `FirmSummary` for the banks
+  of the selected contacts (or the bank filter): who has already been contacted and when, the live-cap warning, the not-yet list, and
+  optional sheet rows. The draft preview modal shows a compact `FirmSummary`. Rows in the drafts table show "N already contacted here".
 
 ## Follow-up logic (`src/lib/followups.ts`)
 

@@ -137,7 +137,12 @@ export interface Settings {
   /** Services that accept several keys. Order = priority; the next key is tried when one is invalid or out of credits. */
   vault: Record<VaultService, ApiKeyEntry[]>;
   /** Which AI provider/model to use for screening + drafting. */
-  ai: { provider: AiProvider; model: string };
+  ai: {
+    provider: AiProvider;
+    model: string;
+    /** Backup models tried in order when the primary hits a rate/quota limit. undefined = pick automatically. */
+    fallbacks?: { provider: AiProvider; model: string }[];
+  };
   followUp: {
     firstAfterDays: number;
     nextAfterDays: number;

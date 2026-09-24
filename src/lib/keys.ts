@@ -18,20 +18,28 @@ export function aiReady(s: Settings) {
   return aiKeysFor(s).length > 0 && !!s.ai.model;
 }
 
-/** Header payload for the server: all usable keys for the selected provider (tried in order). */
+/** Header payload for the server: the model chain, each with all usable keys for its provider (tried in order). */
 export function aiHeader(s: Settings) {
-  const keys = aiKeysFor(s);
-  if (!keys.length) return undefined;
-  return JSON.stringify({
-    provider: s.ai.provider,
-    model: s.ai.model,
-    keys: keys.map((k) => k.value),
-    baseURL: keys[0].baseURL || AI_PROVIDERS[s.ai.provider].defaultBaseURL,
+  const chain = modelChain(s).map((m) => {
+    const keys = aiKeysFor(s, m.provider);
+    return { provider: m.provider, model: m.model, keys: keys.map((k) => k.value), baseURL: keys[0]?.baseURL || AI_PROVIDERS[m.provider].defaultBaseURL };
   });
+  return chain.length ? JSON.stringify({ chain }) : undefined;
 }
 
 export function mask(v: string) {
   return v.length <= 8 ? "••••" : `${v.slice(0, 4)}…${v.slice(-4)}`;
+}
+
+const NOT_TEXT = /(tts|audio|image|embed|vision|realtime|search|transcribe|instruct|computer-use|robotics|live|native-audio|001$)/i;
+const version = (m: string) => Number(m.match(/(\d+(?:\.\d+)?)/)?.[1] ?? 0);
+const tier = (m: string) => (/-mini|haiku|small/.test(m) ? 1 : /opus|-pro\b|large|max/.test(m) ? 2 : 0);
+
+/** Text-chat models, best-first: newest version, then balanced tier (flash/sonnet/chat) before mini and pro. */
+export function rankModels(models: string[], opts: { allowPreview?: boolean } = {}): string[] {
+  const text = models.filter((m) => !NOT_TEXT.test(m));
+  const stable = opts.allowPreview ? text : text.filter((m) => !/(preview|exp|thinking|lite|nano)/i.test(m));
+  return [...(stable.length ? stable : text.length ? text : models)].sort((a, b) => version(b) - version(a) || tier(a) - tier(b) || a.length - b.length);
 }
 
 /**
@@ -40,10 +48,37 @@ export function mask(v: string) {
  */
 export function pickDefaultModel(models: string[], suggested: string[] = []): string | undefined {
   if (suggested.length) return suggested[0];
-  const usable = models.filter((m) => !/(preview|exp|tts|audio|image|embed|vision|realtime|search|transcribe|instruct|thinking|lite|nano|001$)/i.test(m));
-  const version = (m: string) => Number(m.match(/(\d+(?:\.\d+)?)/)?.[1] ?? 0);
-  const tier = (m: string) => (/-mini|haiku|small/.test(m) ? 1 : /opus|-pro\b|large|max/.test(m) ? 2 : 0);
-  return [...(usable.length ? usable : models)].sort((a, b) => version(b) - version(a) || tier(a) - tier(b) || a.length - b.length)[0];
+  return rankModels(models)[0];
+}
+
+export type ModelRef = { provider: AiProvider; model: string };
+
+/**
+ * Automatic backups: up to 3 other models from the same provider (separate per-model quotas, which is
+ * what matters on Gemini's free tier; lite/preview models allowed here), then the top model of every
+ * other provider the user has a key for.
+ */
+export function autoFallbacks(s: Settings): ModelRef[] {
+  const out: ModelRef[] = [];
+  const same = rankModels(modelOptions(s, s.ai.provider), { allowPreview: true }).filter((m) => m !== s.ai.model);
+  for (const m of same.slice(0, 3)) out.push({ provider: s.ai.provider, model: m });
+  const others = [...new Set(usableKeys(s, "ai").map((k) => k.provider!))].filter((p) => p !== s.ai.provider);
+  for (const p of others) {
+    const m = pickDefaultModel(modelOptions(s, p), AI_PROVIDERS[p].suggested);
+    if (m) out.push({ provider: p, model: m });
+  }
+  return out;
+}
+
+export function modelChain(s: Settings): ModelRef[] {
+  const backups = s.ai.fallbacks ?? autoFallbacks(s);
+  const seen = new Set<string>();
+  return [{ provider: s.ai.provider, model: s.ai.model }, ...backups].filter((m) => {
+    const k = `${m.provider}/${m.model}`;
+    if (!m.model || seen.has(k) || !aiKeysFor(s, m.provider).length) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 /** Every model the user's keys unlocked for a provider, plus a few known-good suggestions. */

@@ -7,7 +7,7 @@ import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRou
 import { blobs, useStore } from "@/lib/store";
 import { nextAction } from "@/lib/followups";
 import { cn } from "@/lib/util";
-import { Toaster } from "./ui";
+import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 
@@ -66,6 +66,18 @@ export function Shell({ children }: { children: ReactNode }) {
     [contacts, banks, fu],
   );
   useDailyNudge(ready ? due : 0);
+  // The server switched to a backup model (primary hit a rate/quota limit): say so once per model.
+  useEffect(() => {
+    const seen = new Set<string>();
+    const on = (e: Event) => {
+      const m = (e as CustomEvent<string>).detail;
+      if (seen.has(m)) return;
+      seen.add(m);
+      toast.info(`Your main AI model hit its limit, so a backup (${m}) is being used.`);
+    };
+    window.addEventListener("ai-fallback", on);
+    return () => window.removeEventListener("ai-fallback", on);
+  }, []);
   const keyCount = [
     hasKey(settings, "apollo") || hasKey(settings, "hunter"),
     hasKey(settings, "serper"),

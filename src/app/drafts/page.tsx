@@ -11,11 +11,12 @@ import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT 
 import type { Contact, Template } from "@/lib/types";
 import { chunk, cn, pool, uid } from "@/lib/util";
 import { overCap } from "@/lib/followups";
-import { normalizeBody, normalizeSubject } from "@/lib/emailFormat";
+import { bodyToPlain, normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { TemplateEditor } from "@/components/TemplateEditor";
 import { TemplateImport } from "@/components/TemplateImport";
+import { FirmPanel, FirmSummary, useFirmRows } from "@/components/FirmContext";
 import { DEFAULT_TEMPLATES } from "@/lib/defaults";
 import { aiReady, googleClientId } from "@/lib/keys";
 
@@ -42,6 +43,16 @@ function DraftsInner() {
   const rows = useContactFilter(contacts, f);
   const chosen = contacts.filter((c) => sel.has(c.id));
   const initialTemplates = templates.filter((t) => t.kind === "initial");
+  const contextBanks = useMemo(() => {
+    const fromSel = [...new Set(chosen.map((c) => c.bank))];
+    return (fromSel.length ? fromSel : f.bank ? [f.bank] : []).slice(0, 6);
+  }, [chosen, f.bank]);
+  // Per-bank count of people already emailed, for the "N already contacted here" chip on each row.
+  const reachedByBank = useMemo(() => {
+    const m = new Map<string, Contact[]>();
+    for (const c of contacts) if (c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status)) m.set(c.bank, [...(m.get(c.bank) ?? []), c]);
+    return m;
+  }, [contacts]);
   const missingStarters = DEFAULT_TEMPLATES.filter((d) => !templates.some((t) => t.id === d.id || t.name.toLowerCase() === d.name.toLowerCase()));
   const profileMissing = !settings.profile.name || !settings.profile.school;
 
@@ -96,7 +107,7 @@ function DraftsInner() {
         const t = templates.find((x) => x.id === c.templateId) ?? ruleAssign(c, templates)!;
         let subject = fillPlaceholders(t.subject, c, settings);
         let body = fillPlaceholders(t.body, c, settings);
-        if (settings.profile.signature && !body.includes(settings.profile.signature)) body += `\n${settings.profile.signature}`;
+        body = withSignature(body, settings.profile);
         const needsAi = hasAiSlots(subject + body) || missingPlaceholders(subject + body).length > 0;
         if (needsAi && aiReady(settings)) {
           try {
@@ -181,7 +192,7 @@ function DraftsInner() {
         sub="Select contacts, assign each a template, have AI fill in the personal lines, and create Gmail drafts with your resume attached. Nothing sends until you hit send in Gmail."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)_auto]">
         <div className="space-y-6">
           <Card>
             <CardHeader
@@ -339,6 +350,15 @@ function DraftsInner() {
                         <div className="text-[12px] text-muted">
                           {c.bank} · {c.email || <span className="text-red/80">no email</span>}
                         </div>
+                        {(() => {
+                          const others = (reachedByBank.get(c.bank) ?? []).filter((o) => o.id !== c.id);
+                          return others.length ? (
+                            <div className="mt-0.5 text-[11.5px] text-amber" title={others.map((o) => `${o.name} (${o.status.replace("_", " ")})`).join("\n")}>
+                              {others.length} already contacted here: {others.slice(0, 2).map((o) => o.firstName || o.name).join(", ")}
+                              {others.length > 2 ? "…" : ""}
+                            </div>
+                          ) : null;
+                        })()}
                       </td>
                       <td className="px-2 py-2">
                         <Select
@@ -378,6 +398,10 @@ function DraftsInner() {
             </div>
           )}
         </Card>
+
+        <div className="hidden xl:block">
+          <FirmPanel banks={contextBanks} highlight={sel} />
+        </div>
       </div>
 
       <TemplateImport open={importOpen} onClose={() => setImportOpen(false)} />
@@ -413,15 +437,21 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
   const update = useStore((s) => s.updateContact);
   const setStatus = useStore((s) => s.setStatus);
   const [subject, setSubject] = useState(c.draft!.subject);
+  const firm = useFirmRows([c.bank])[0];
   const [body, setBody] = useState(c.draft!.body);
   const mailto = useMemo(
-    () => `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(normalizeBody(body))}`,
+    () => `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyToPlain(body))}`,
     [c.email, subject, body],
   );
   const save = () => update(c.id, { draft: { ...c.draft!, subject, body } });
   return (
     <div className="space-y-3">
       <div className="text-[12.5px] text-muted">To: {c.email || "no email yet"}</div>
+      {firm && (
+        <div className="rounded-md border border-line bg-[#fbfaf6] p-3">
+          <FirmSummary r={firm} highlight={new Set([c.id])} compact />
+        </div>
+      )}
       <Field label="Subject">
         <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
       </Field>
