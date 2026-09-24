@@ -17,7 +17,7 @@ declare global {
           initTokenClient: (cfg: {
             client_id: string;
             scope: string;
-            callback: (r: { access_token?: string; expires_in?: number; error?: string }) => void;
+            callback: (r: { access_token?: string; expires_in?: number; scope?: string; error?: string }) => void;
             error_callback?: (e: { type: string; message?: string }) => void;
           }) => TokenClient;
         };
@@ -26,7 +26,7 @@ declare global {
   }
 }
 
-let token: { value: string; exp: number } | null = null;
+let token: { value: string; exp: number; clientId: string } | null = null;
 
 function loadGis(): Promise<void> {
   if (window.google?.accounts) return Promise.resolve();
@@ -40,13 +40,13 @@ function loadGis(): Promise<void> {
   });
 }
 
-export function gmailConnected() {
-  return !!token && token.exp > Date.now();
+export function gmailConnected(clientId?: string) {
+  return !!token && token.exp > Date.now() && (!clientId || token.clientId === clientId);
 }
 
-export async function connectGmail(clientId: string): Promise<string> {
-  if (gmailConnected()) return token!.value;
-  if (!clientId) throw new Error("Add a Google OAuth Client ID in Settings to connect Gmail.");
+export async function connectGmail(clientId: string, opts: { force?: boolean } = {}): Promise<string> {
+  if (!opts.force && gmailConnected(clientId)) return token!.value;
+  if (!clientId) throw new Error("Connect Gmail in Settings first (it needs a Google OAuth Client ID).");
   await loadGis();
   return new Promise((resolve, reject) => {
     const client = window.google!.accounts.oauth2.initTokenClient({
@@ -54,13 +54,24 @@ export async function connectGmail(clientId: string): Promise<string> {
       scope: SCOPES,
       callback: (r) => {
         if (r.error || !r.access_token) return reject(new Error(r.error ?? "Google sign-in failed"));
-        token = { value: r.access_token, exp: Date.now() + ((r.expires_in ?? 3600) - 60) * 1000 };
+        // Google lets people untick individual permissions; both are required.
+        const granted = (r.scope ?? "").split(" ");
+        const missing = SCOPES.split(" ").filter((sc) => !granted.includes(sc));
+        if (missing.length)
+          return reject(new Error(`access_denied: please tick both Gmail permissions (missing ${missing.map((m) => m.split("/").pop()).join(", ")}).`));
+        token = { value: r.access_token, exp: Date.now() + ((r.expires_in ?? 3600) - 60) * 1000, clientId };
         resolve(token.value);
       },
-      error_callback: (e) => reject(new Error(e.message ?? e.type)),
+      error_callback: (e) => reject(new Error(e.type === "popup_closed" ? "popup_closed" : (e.message ?? e.type))),
     });
     client.requestAccessToken();
   });
+}
+
+/** The signed-in Gmail address (also proves the Gmail API is enabled for the project). */
+export async function gmailProfile(clientId: string) {
+  const p = await gapi<{ emailAddress: string }>(clientId, "/profile");
+  return p.emailAddress;
 }
 
 async function gapi<T>(clientId: string, path: string, init?: RequestInit): Promise<T> {
@@ -111,6 +122,7 @@ export function buildMime(d: DraftInput): string {
   ].join("\r\n");
   if (!d.attachment) return [...headers, textPart].join("\r\n");
   const a = d.attachment;
+  const safeName = a.name.replace(/["\r\n]/g, "");
   return [
     ...headers,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
@@ -118,8 +130,8 @@ export function buildMime(d: DraftInput): string {
     `--${boundary}`,
     textPart,
     `--${boundary}`,
-    `Content-Type: ${a.type || "application/octet-stream"}; name="${a.name}"`,
-    `Content-Disposition: attachment; filename="${a.name}"`,
+    `Content-Type: ${a.type || "application/octet-stream"}; name="${safeName}"`,
+    `Content-Disposition: attachment; filename="${safeName}"`,
     "Content-Transfer-Encoding: base64",
     "",
     wrap76(b64Bytes(new Uint8Array(a.data))),

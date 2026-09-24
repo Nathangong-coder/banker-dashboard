@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { ArrowUp, CheckCircle2, Plus, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { mask, modelOptions } from "@/lib/keys";
+import { mask, modelOptions, pickDefaultModel } from "@/lib/keys";
 import { AI_PROVIDERS, type AiProvider, type ApiKeyEntry, type VaultService } from "@/lib/types";
 import type { KeyTestResult } from "@/app/api/keys/test/route";
 import { cn, fmtDate, uid } from "@/lib/util";
@@ -174,8 +174,9 @@ export function AiVault() {
     toast.ok(`${meta.label} key verified.`);
     // First key for a provider with no active model yet → auto-select a sensible default.
     if (!list.some((k) => k.provider === aiSel.provider)) {
-      const first = meta.suggested[0] ?? r.models?.[0];
+      const first = pickDefaultModel(r.models ?? [], meta.suggested);
       if (first) await chooseModel(provider, first, entry);
+      else toast.info("Pick a model below (type its id if the list is empty).");
     }
   };
 
@@ -259,7 +260,8 @@ export function AiVault() {
               value={providersWithKeys.includes(aiSel.provider) ? aiSel.provider : ""}
               onChange={(e) => {
                 const p = e.target.value as AiProvider;
-                const first = modelOptions(useStore.getState().settings, p)[0];
+                const s2 = useStore.getState().settings;
+                const first = pickDefaultModel(modelOptions(s2, p), AI_PROVIDERS[p].suggested);
                 if (first) chooseModel(p, first);
               }}
               aria-label="Active provider"

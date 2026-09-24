@@ -12,19 +12,28 @@ npm run dev                                   # localhost:3000
 npm run build                                 # must pass before pushing (Vercel runs this)
 npm run typecheck && npm run lint
 npm run check:workbook -- "path/to/file.xlsx" # parser + write-back round-trip on a real workbook (no browser needed)
+npm run check:templates -- "file.docx" ["Sender Name"]  # template-doc importer output (PROFILE='{"school":"UCLA",...}' to generalize)
 ```
 
-There is no unit test suite. `check:workbook` is the regression check for the spreadsheet logic, the riskiest part of the app.
+There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
+Open work is tracked in **TODO.md**. The next big item is the real 9am WhatsApp ping (Vercel Cron + storage).
 The owner's real workbook (`IB Recruiting - Master Spreadsheet vF.xlsx`) sits in the repo root locally but is **git-ignored and must
-never be committed** (`*.xlsx`, `*.pdf` are ignored).
+never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for `Follow up Templates.docx` (the owner's template source; commit it only if asked).
+`.env` holds the owner's Google CLIENT_ID/CLIENT_SECRET. The secret is **not used anywhere and must never be exposed**. `.env.local` sets
+`NEXT_PUBLIC_GOOGLE_CLIENT_ID` (not secret) as the deployment's default Gmail client.
 
 ## Architecture: where things live
 
 - **All user data is client-side.** A Zustand store (`src/lib/store.ts`) is persisted to IndexedDB via `idb-keyval`. Large blobs (the
   original workbook ArrayBuffer, parsed sheet snapshots, the resume, the File System Access handle) are stored under separate
   `blob:*` keys through the `blobs` helper, not inside the JSON-persisted state. There is no database and no auth.
-- **Bring your own keys.** API keys live in `settings.keys` (browser only). `src/lib/api.ts#callApi` attaches them as `x-*-key` headers.
-  The server routes in `src/app/api/*` are **stateless proxies** that must never log or store keys.
+- **Bring your own keys, several per service.** `settings.vault.{apollo,hunter,serper,ai}` are ordered `ApiKeyEntry[]` lists.
+  Every key is live-tested by `api/keys/test` **before** it's stored (`components/KeyVault.tsx`); single-value connections
+  (Gmail, WhatsApp, ntfy, Twilio) are also saved only after a successful test. `lib/api.ts#callApi` sends all usable keys as
+  JSON-array headers (`x-apollo-keys`, …) plus `x-ai` = `{provider, model, keys[], baseURL}`. On the server,
+  `lib/server/keys.ts#withFallback` tries keys in order and falls through only on key problems (401/402/403/429/credits/quota).
+  Server routes are **stateless proxies** that must never log or store keys. User-supplied base URLs go through
+  `assertPublicHttps` (SSRF guard).
   - `api/enrich`: Apollo `people/bulk_match` (≤10 per call), then Hunter email-finder as a fallback.
   - `api/prospect/search`: Serper (Google search of `site:linkedin.com/in`), plus optional Apollo `mixed_people/api_search` → `bulk_match` by id.
     Apollo search returns obfuscated last names and no LinkedIn, so a match call (which costs credits) is needed to reveal them.
@@ -32,9 +41,15 @@ never be committed** (`*.xlsx`, `*.pdf` are ignored).
   - `api/draft`: `mode: "assign"` picks a template per contact; `mode: "fill"` rewrites `[[AI: …]]` slots.
   - `api/notify`: ntfy push (optional `At` delay, max 3 days on ntfy.sh), Twilio SMS (`ScheduleType=fixed` needs a MessagingServiceSid),
     or WhatsApp via CallMeBot (`GET api.callmebot.com/whatsapp.php`; self-only, send-now, no scheduling, free for personal use).
-- **AI:** AI SDK 7 (`generateText` + `Output.object`; `generateObject` is gone). `src/lib/server/ai.ts` picks the provider from the key:
-  `sk-ant-…` uses `@ai-sdk/anthropic`, anything else is treated as a Vercel AI Gateway key. The model id comes from `x-ai-model` (default `claude-sonnet-5`).
-- **Gmail is 100% browser-side** (`src/lib/gmail.ts`): Google Identity Services token client (scopes `gmail.compose` + `gmail.readonly`),
+- **AI:** AI SDK 7 (`generateText` + `Output.object`; `generateObject` is gone). `lib/server/ai.ts#makeModel` supports anthropic,
+  openai, google (Gemini), deepseek, glm (Z.ai via openai-compatible; China base `open.bigmodel.cn/api/paas/v4`), gateway, and custom
+  OpenAI-compatible. Routes call `withAi(req, model => generateText(...))`. The provider is chosen explicitly in Settings, **never guessed from the key**:
+  a Gemini key once got routed to the Gateway ("Unauthenticated… AI_GATEWAY_API_KEY"). The v1→v2 store migration guesses once from prefixes.
+  `lib/keys.ts#pickDefaultModel` picks a default from the provider's model list (watch substring traps: "gemini" contains "mini").
+- **Gmail is 100% browser-side** (`src/lib/gmail.ts`): Google Identity Services **token model** popup, which needs only a Client ID and no secret.
+  The Client ID comes from `lib/keys.ts#googleClientId` (user's own, else `NEXT_PUBLIC_GOOGLE_CLIENT_ID`). The Google Cloud client must list the site under
+  *Authorized JavaScript origins* (not redirect URIs). `connectGmail` rejects partial consent. Setup guide + error explainer: `components/GmailSetup.tsx`.
+  Scopes: `gmail.compose` + `gmail.readonly`,
   then direct REST calls. `createDraft` builds MIME by hand (resume attachment, and `threadId`/`In-Reply-To` for follow-ups).
   `syncContact` reads `in:sent to:X` and `from:X` to backfill sentAt / followUps / repliedAt.
 
@@ -55,6 +70,25 @@ never be committed** (`*.xlsx`, `*.pdf` are ignored).
   (confirmed by the owner). A dashboard status is written to the sheet only when it differs from what the sheet already implies.
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
   from the dashboard that were already saved into the file) so workflow state (status, dates, drafts) survives a re-import.
+
+## Saving to the local .xlsx (`src/lib/files.ts`, `actions.ts#saveWorkbook`)
+
+- The File System Access API (Chrome/Edge) keeps a handle in IndexedDB. After a reload, `ensureWritePermission` re-prompts.
+- `readHandle` retries `NotReadableError` ("state cached in an interface object … changed since it was read from disk"),
+  which OneDrive or Excel cause by touching the file mid-read. `friendlyFileError` maps DOMExceptions to fixes (close Excel, "Always keep on this device").
+- Before an in-place save, if `file.lastModified` differs from `workbook.lastModified`, the disk version is re-imported as the new
+  baseline (manual cell edits are kept) and dashboard patches are re-applied, so edits made in Excel aren't clobbered.
+
+## Templates (`src/lib/template.ts`, `src/lib/templateImport.ts`, `src/lib/defaults.ts`)
+
+- Placeholders `{{…}}` (list in `PLACEHOLDERS`). **Empty values are left visible** so the AI or the user fills them; `a/an {{x}}` gets the right
+  article. `[[AI: instruction]]` slots are written per contact by `api/draft` (fill mode). Follow-ups use `step` (1, 2) via `followUpTemplate`.
+- `DEFAULT_TEMPLATES` = 14 templates adapted verbatim from the owner's "Follow up Templates.docx", with sender details turned into `{{my_*}}`
+  (profile fields: pitch, club, schoolNickname, schoolCity). Existing users get them via Drafts → "Add N starter templates".
+- Import: `docxToBlocks` (jszip + regex over `word/document.xml`; Google Docs tabs export as `Title` paragraphs, and all-bold lines are sub-sections)
+  → `parseTemplateBlocks` (greeting line = email start, the line above = subject, ALL-CAPS blanks → placeholders, NAME resolved by position,
+  unknown caps → flagged `[[AI: …]]`) → optional `api/templates/organize` AI pass, whose edits are **discarded unless `sameWording` holds** →
+  review modal (`components/TemplateImport.tsx`) → upsert by template name. Google Doc links: `api/templates/gdoc` (docs.google.com only).
 
 ## Follow-up logic (`src/lib/followups.ts`)
 
@@ -77,7 +111,9 @@ never be committed** (`*.xlsx`, `*.pdf` are ignored).
 ## Status / known gaps (as of 2026-09-24)
 
 - Built and `npm run build` passes. The parser was verified on the owner's workbook (106 contacts, round-trip OK).
-- **Not yet click-tested in a browser**, and no live calls have been made to Apollo/Serper/Anthropic/Gmail with real keys.
+- **Not yet click-tested in a browser** (the browser tool was denied in-session). No live calls have been made with *real* keys.
+  Every provider's key test *was* exercised with fake keys: each rejects cleanly, multi-key fallback reports "All N … keys failed", and the SSRF guard blocks private IPs.
+  The owner's Google Client ID was confirmed to exist (auth endpoint answered `redirect_uri_mismatch`, not `invalid_client`).
   Things most likely to need fixes on first real use:
   - Apollo response field names (`matches`, `email_status`, placeholder `email_not_unlocked@…`).
   - Gmail OAuth origin setup.

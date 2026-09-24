@@ -17,12 +17,16 @@ Trade-off: data lives in a single browser. Use **Settings → Export backup** to
 
 Everything is set in **Settings & keys** in the app. Each service shows *connected* or *not set*, what it's for, and a link to get the key. The sidebar counts the four core services, and each feature tells you when a key it needs is missing.
 
+- **Every key is tested live before it's saved.** Model lists and account endpoints are free to call. The one exception is Serper, which spends 1 search on the test. A bad key shows the provider's error and isn't stored.
+- **Several keys per service.** Keys are tried top to bottom. If one is invalid, rate-limited or out of credits, the next is used automatically. Use the ↑ button to set the primary.
+- **Any AI provider:** Anthropic (Claude), OpenAI, Google Gemini, DeepSeek, GLM (Z.ai, or mainland `open.bigmodel.cn`), any OpenAI-compatible API, or a Vercel AI Gateway key. The model list comes from your key, and a model is switched to only after it answers a test prompt.
+
 | Service | Needed for | Cost |
 |---|---|---|
 | **Apollo** (or Hunter) | Enrich contact info: finds missing emails | Apollo free plan includes some credits · Hunter 25 free/month |
 | **Serper** | Find people: Google search of LinkedIn profiles | 2,500 free searches |
-| **Claude** (Anthropic key or Vercel AI Gateway key) | AI screening, auto-assigning templates, writing personalized lines | Pay per use, usually cents per batch |
-| **Google OAuth Client ID** | Creating Gmail drafts and syncing sent mail and replies | Free |
+| **AI**: Claude, GPT, Gemini, DeepSeek, GLM… | AI screening, auto-assigning templates, writing personalized lines, organizing imported templates | Pay per use, usually cents per batch (Gemini has a free tier) |
+| **Google OAuth Client ID** (no secret needed) | Creating Gmail drafts and syncing sent mail and replies | Free |
 | ntfy topic · WhatsApp (CallMeBot) · Twilio | Phone reminders (all optional) | ntfy and CallMeBot free · Twilio paid |
 
 Without keys you can still upload your sheet, view and edit it, track statuses and follow-ups, fill templates (placeholders only, no AI), open drafts in your mail app, and export follow-ups to your calendar.
@@ -51,7 +55,7 @@ Follow-ups are due 7 days after your last email (Follow-up #1, then #2). After 2
 2. It replies with an API key within about 2 minutes. If nothing arrives, try again after 24h.
 3. Put your WhatsApp number (with country code, e.g. `+14255550123`) and the key into Settings, then click **WhatsApp me today's list**.
 
-This only messages *your own* number and can't schedule, so use it as an on-demand "what's due today" ping.
+This only messages *your own* number and can't schedule, so for now it's an on-demand "what's due today" ping. An automatic 9am ping is planned; see [TODO.md](TODO.md).
 
 ### Twilio SMS (paid, schedulable)
 1. Sign up at [twilio.com](https://www.twilio.com). A trial account can text only your own verified number, which is all this needs.
@@ -64,7 +68,7 @@ This only messages *your own* number and can't schedule, so use it as an on-dema
 For US numbers, Twilio may require **A2P 10DLC registration** (a short form, a few days) before texts deliver reliably. Toll-free numbers need toll-free verification instead.
 
 ### Why not fully automatic daily texts?
-All data lives in your browser, so the server doesn't know who's due, and a server cron job has nothing to send. Scheduling ahead (ntfy, Twilio, calendar) covers this. Real server-side daily sends would need a database, which could be added later.
+All data lives in your browser, so the server doesn't know who's due, and a server cron job has nothing to send. Scheduling ahead (ntfy, Twilio, calendar) covers this. Real server-side daily sends need a small database plus a Vercel Cron job. That's planned; see [TODO.md](TODO.md).
 
 ## Run locally
 
@@ -72,6 +76,7 @@ All data lives in your browser, so the server doesn't know who's due, and a serv
 npm install
 npm run dev   # http://localhost:3000
 npm run check:workbook -- "your file.xlsx"   # verify the parser against a real workbook
+npm run check:templates -- "templates.docx"  # preview how a templates doc will be imported
 ```
 
 ## Deploy to Vercel
@@ -86,16 +91,58 @@ vercel        # first deploy, links the project
 vercel --prod
 ```
 
-No environment variables are required.
+No environment variables are required. Optional: `NEXT_PUBLIC_GOOGLE_CLIENT_ID` sets a default Gmail Client ID for everyone using your deployment, so each user only has to be added as a test user. Put it in `.env.local` for local dev. It is not a secret.
 
-### Gmail setup (one time per deployment)
+### Gmail setup (one time, ~10 minutes)
 
-1. In Google Cloud Console, create a project and enable the **Gmail API**.
-2. Configure the OAuth consent screen as External, in Testing mode, and add each user's Gmail address as a test user.
-3. Under Credentials, create an OAuth client ID of type **Web application**. Add your Vercel URL (and `http://localhost:3000`) as authorized JavaScript origins.
-4. Paste the client ID into Settings.
+**You only need the Client ID. You don't need the Client secret.** The app signs in with Google's popup in the browser
+([token model](https://developers.google.com/identity/oauth2/web/guides/use-token-model)), which uses only the Client ID. A secret
+must never be put in a web page, so keep it private or delete it. The same steps are in the app under **Settings → Gmail → step-by-step setup**,
+along with a **Test Gmail connection** button that tells you which step is wrong.
 
-Scopes used: `gmail.compose` (create drafts) and `gmail.readonly` (sync sent mail and replies). While the app is unverified by Google, it is limited to 100 test users.
+1. **Create a project:** [console.cloud.google.com/projectcreate](https://console.cloud.google.com/projectcreate).
+2. **Enable the Gmail API:** [Gmail API → Enable](https://console.cloud.google.com/apis/library/gmail.googleapis.com).
+3. **Consent screen:** [Google Auth Platform](https://console.cloud.google.com/auth/overview) → Get started. Enter an app name and your email, choose audience **External**.
+   Then go to **Audience → Test users** and add every Gmail address that will use the app. Leave the app in **Testing**; no Google verification is needed for up to 100 test users.
+4. **Client ID:** [Clients](https://console.cloud.google.com/auth/clients) → Create client → **Web application**.
+   - **Authorized JavaScript origins:** your site, e.g. `https://your-app.vercel.app`, and `http://localhost:3000` for local dev. No trailing slash.
+   - **Authorized redirect URIs:** leave empty (the popup flow doesn't use them).
+5. Copy the Client ID (ends in `.apps.googleusercontent.com`) into **Settings → Gmail**, or set `NEXT_PUBLIC_GOOGLE_CLIENT_ID` in Vercel.
+6. Click **Test Gmail connection**. Google will warn that the app "hasn't been verified". That's expected for your own test app: click **Continue** and tick **both** Gmail permissions.
+
+Common errors:
+- **`Error 400: origin_mismatch`:** the exact site URL isn't in *Authorized JavaScript origins*. Changes take a few minutes to apply.
+- **`Access blocked` / `access_denied`:** your Gmail isn't listed under *Test users*.
+- **"Gmail API has not been used in project…":** step 2 was skipped.
+
+Scopes: `gmail.compose` (create drafts) and `gmail.readonly` (sync sent mail and replies). The app never sends email itself; drafts wait for you in Gmail.
+Official walkthrough: [Gmail API JavaScript quickstart](https://developers.google.com/workspace/gmail/api/quickstart/js).
+
+## Email templates
+
+The app ships with 14 ready-to-use templates adapted from a real IB networking playbook:
+- Standard, and VP/MD-and-above.
+- Same-school, business-school, club, UC and same-city alums, plus USC.
+- Hometown, and hometown high school.
+- Non-target school, and same major.
+- Two follow-ups.
+
+Fill in your profile in Settings (name, school, school nickname and city, major, club, hometown, and a one-line background) and they're ready.
+"Auto-assign" picks the right template for each contact from your notes and their school/title.
+
+**Import your own:** Drafts → Templates → **Import doc** takes a Word .docx, a Google Doc (download as .docx, or paste a link to a doc shared as
+"anyone with the link"), or .txt/.md. It works best when:
+- each template is its own tab, heading or bold title;
+- the subject line sits just above "Hi NAME,";
+- blanks are written in ALL CAPS (NAME, FIRM, POSITION, SCHOOL, HOMETOWN, CLUB, CITY, X HIGH SCHOOL…);
+- instructions to yourself are in [brackets].
+
+NAME is resolved by position: in the greeting it's the contact, after "My name is" or as the sign-off it's you.
+
+**Is the import 100% accurate?** Not guaranteed, which is why nothing is saved until you review it. The rule-based parser handles documents structured like
+the above very reliably. Every substitution is listed and highlighted, and unfamiliar ALL-CAPS words are flagged. The optional AI pass only names templates and
+resolves flagged blanks. If it changes any of your wording, its edits are thrown out automatically. For a one-time import, a two-minute skim of the review
+screen gets you to 100%.
 
 ## Spreadsheet format
 
@@ -106,6 +153,10 @@ Status values: "Sent" means emailed. "Pending" means queued and not sent yet. Ea
 Write-back only changes: emails found, status changes (e.g. "Sent", "Followed up (1x)", "Replied"), and new people added into blank numbered rows of the right bank tab, or into a new `Prospects` tab. Everything else in the workbook is left as is.
 
 ## Notes and limits
+
+- **Saving back to your .xlsx** works in Chrome and Edge (File System Access API). If the file lives in OneDrive, right-click it and choose **Always keep on this device**, and close it in Excel before saving.
+  If the file changed on disk since you imported it (Excel autosave, OneDrive sync), the app re-reads it first and applies its changes on top, so your Excel edits aren't lost.
+  "*An operation that depends on state cached in an interface object…*" means OneDrive or Excel touched the file mid-read. The app now retries automatically; if it persists, close Excel and wait for OneDrive to finish syncing.
 
 - Find people never logs in to LinkedIn or scrapes it. It only reads public Google search snippets, so a school or hometown sometimes can't be confirmed. Those people land under **Maybe** for you to review.
 - Apollo's search endpoint hides last names. Enabling Apollo in Find people spends credits to reveal each person.

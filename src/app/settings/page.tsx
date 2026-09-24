@@ -7,8 +7,8 @@ import type { Settings } from "@/lib/types";
 import { download } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, PageHeader, Textarea, toast } from "@/components/ui";
 import { AiVault, KeyVault, testKey } from "@/components/KeyVault";
-import { aiReady, hasKey } from "@/lib/keys";
-import { connectGmail } from "@/lib/gmail";
+import { aiReady, googleClientId, hasKey } from "@/lib/keys";
+import { GmailSetup } from "@/components/GmailSetup";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
@@ -141,7 +141,6 @@ export default function SettingsPage() {
   const setP = (patch: Partial<Settings["profile"]>) => setSettings((s) => ({ ...s, profile: { ...s.profile, ...patch } }));
   const setK = (patch: Partial<Settings["keys"]>) => setSettings((s) => ({ ...s, keys: { ...s.keys, ...patch } }));
   const setFu = (patch: Partial<Settings["followUp"]>) => setSettings((s) => ({ ...s, followUp: { ...s.followUp, ...patch } }));
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const exportBackup = (withKeys: boolean) => {
     const st = useStore.getState();
@@ -174,10 +173,18 @@ export default function SettingsPage() {
             <Field label="Full name"><Input value={p.name} onChange={(e) => setP({ name: e.target.value })} /></Field>
             <Field label="School"><Input value={p.school} placeholder="UCLA" onChange={(e) => setP({ school: e.target.value })} /></Field>
             <Field label="Class year"><Input value={p.year} placeholder="sophomore" onChange={(e) => setP({ year: e.target.value })} /></Field>
-            <Field label="Major"><Input value={p.major} onChange={(e) => setP({ major: e.target.value })} /></Field>
+            <Field label="Major" hint="As it reads in “I’m a ___ student”"><Input value={p.major} placeholder="economics & applied mathematics" onChange={(e) => setP({ major: e.target.value })} /></Field>
             <Field label="Hometown"><Input value={p.hometown} placeholder="Seattle, WA" onChange={(e) => setP({ hometown: e.target.value })} /></Field>
             <Field label="Phone"><Input value={p.phone} onChange={(e) => setP({ phone: e.target.value })} /></Field>
             <Field label="LinkedIn"><Input value={p.linkedin} onChange={(e) => setP({ linkedin: e.target.value })} /></Field>
+            <Field label="School nickname" hint="“Fellow Bruin…”"><Input value={p.schoolNickname} placeholder="Bruin" onChange={(e) => setP({ schoolNickname: e.target.value })} /></Field>
+            <Field label="School city" hint="“…went to college in LA”"><Input value={p.schoolCity} placeholder="LA" onChange={(e) => setP({ schoolCity: e.target.value })} /></Field>
+            <Field label="Club"><Input value={p.club} placeholder="e.g. Bruin Finance Society" onChange={(e) => setP({ club: e.target.value })} /></Field>
+            <div className="md:col-span-3">
+              <Field label="Background line ({{my_pitch}})" hint="1–2 sentences used right after your intro in most templates.">
+                <Textarea rows={2} value={p.pitch} placeholder="Through my software development internship and starting my own tech startup, I've developed a strong interest in the tech sector." onChange={(e) => setP({ pitch: e.target.value })} />
+              </Field>
+            </div>
             <div className="md:col-span-2">
               <Field label="Signature (appended if not already in the template)">
                 <Textarea rows={2} value={p.signature} onChange={(e) => setP({ signature: e.target.value })} />
@@ -232,34 +239,11 @@ export default function SettingsPage() {
           </KeyRow>
           <KeyRow
             title="Gmail"
-            ok={!!k.googleClientId}
+            ok={!!googleClientId(settings)}
             used="Creates drafts with your resume attached, and syncs Sent mail and replies to fill in follow-up dates."
-            how={
-              <>
-                Google Cloud Console → APIs & Services: enable the <b>Gmail API</b>, set up the OAuth consent screen (add yourself as a test user),
-                then create an OAuth client ID of type <b>Web application</b> with authorized JavaScript origin <code className="rounded bg-[#efede5] px-1">{origin}</code>.{" "}
-                <A href="https://console.cloud.google.com/apis/credentials">Open console</A>
-              </>
-            }
+            how={<>Needs a Google <b>OAuth Client ID</b> (not the secret). It takes about 10 minutes once; the steps are on the right.</>}
           >
-            <TestedFields
-              saved={!!k.googleClientId}
-              summary={k.googleClientId && <span className="num">{k.googleClientId.slice(0, 18)}…</span>}
-              initial={{ googleClientId: k.googleClientId }}
-              fields={[{ key: "googleClientId", placeholder: "xxxx.apps.googleusercontent.com" }]}
-              actionLabel="Sign in to test & save"
-              test={async (d) => {
-                if (!/^[\w-]+\.apps\.googleusercontent\.com$/.test(d.googleClientId)) return { ok: false, note: "That doesn't look like an OAuth client ID (…apps.googleusercontent.com)." };
-                try {
-                  await connectGmail(d.googleClientId);
-                  return { ok: true, note: "Gmail connected" };
-                } catch (e) {
-                  return { ok: false, note: `Google sign-in failed: ${(e as Error).message}. Check the authorized JavaScript origin is ${origin}.` };
-                }
-              }}
-              onSave={(d) => setK(d)}
-              onClear={() => setK({ googleClientId: "" })}
-            />
+            <GmailSetup />
           </KeyRow>
         </Card>
 

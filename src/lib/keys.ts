@@ -34,6 +34,18 @@ export function mask(v: string) {
   return v.length <= 8 ? "••••" : `${v.slice(0, 4)}…${v.slice(-4)}`;
 }
 
+/**
+ * Sensible default from a provider's model list: skip previews/specialty models, prefer the highest
+ * version number, and within a version prefer the balanced tier (sonnet / flash / chat / non-mini).
+ */
+export function pickDefaultModel(models: string[], suggested: string[] = []): string | undefined {
+  if (suggested.length) return suggested[0];
+  const usable = models.filter((m) => !/(preview|exp|tts|audio|image|embed|vision|realtime|search|transcribe|instruct|thinking|lite|nano|001$)/i.test(m));
+  const version = (m: string) => Number(m.match(/(\d+(?:\.\d+)?)/)?.[1] ?? 0);
+  const tier = (m: string) => (/-mini|haiku|small/.test(m) ? 1 : /opus|-pro\b|large|max/.test(m) ? 2 : 0);
+  return [...(usable.length ? usable : models)].sort((a, b) => version(b) - version(a) || tier(a) - tier(b) || a.length - b.length)[0];
+}
+
 /** Every model the user's keys unlocked for a provider, plus a few known-good suggestions. */
 export function modelOptions(s: Settings, provider: AiProvider) {
   const fromKeys = s.vault.ai.filter((k) => k.provider === provider).flatMap((k) => k.models ?? []);

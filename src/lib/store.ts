@@ -282,14 +282,15 @@ function migrateState(p: Record<string, unknown>, version: number) {
     const at = new Date().toISOString();
     const entry = (value: string, extra: Partial<ApiKeyEntry> = {}): ApiKeyEntry[] =>
       value ? [{ id: `k_${Math.random().toString(36).slice(2, 9)}`, value, addedAt: at, note: "Carried over; re-test in Settings", ...extra }] : [];
-    const aiProvider: AiProvider = k.ai?.startsWith("sk-ant-") ? "anthropic" : "gateway";
+    // Guess the provider from the key's shape (v1 sent every non-Anthropic key to the AI Gateway, which broke Gemini keys).
+    const aiProvider: AiProvider = k.ai?.startsWith("sk-ant-") ? "anthropic" : k.ai?.startsWith("AIza") ? "google" : k.ai?.startsWith("sk-proj-") ? "openai" : "gateway";
     settings.vault = {
       apollo: entry(k.apollo),
       hunter: entry(k.hunter),
       serper: entry(k.serper),
       ai: entry(k.ai, { provider: aiProvider }),
     };
-    settings.ai = { provider: aiProvider, model: k.aiModel || "claude-sonnet-5" };
+    settings.ai = { provider: aiProvider, model: aiProvider === "anthropic" || aiProvider === "gateway" ? k.aiModel || "claude-sonnet-5" : "" };
     for (const f of ["apollo", "hunter", "serper", "ai", "aiModel"]) delete k[f];
   }
   return p;

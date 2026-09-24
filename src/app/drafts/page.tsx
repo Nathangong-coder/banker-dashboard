@@ -13,33 +13,9 @@ import { overCap } from "@/lib/followups";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { TemplateEditor } from "@/components/TemplateEditor";
+import { TemplateImport } from "@/components/TemplateImport";
+import { DEFAULT_TEMPLATES } from "@/lib/defaults";
 import { aiReady, googleClientId } from "@/lib/keys";
-
-async function parseTemplateFile(f: File): Promise<Template> {
-  let text: string;
-  if (/\.docx$/i.test(f.name)) {
-    const mammoth = (await import("mammoth")).default;
-    text = (await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() })).value;
-  } else {
-    text = await f.text();
-  }
-  text = text.replace(/\r\n/g, "\n").trim();
-  let subject = "";
-  const m = text.match(/^subject:\s*(.+)\n+/i);
-  if (m) {
-    subject = m[1].trim();
-    text = text.slice(m[0].length);
-  }
-  return {
-    id: uid("tpl"),
-    name: f.name.replace(/\.(txt|md|docx)$/i, ""),
-    whenToUse: "",
-    subject: subject || "Networking — {{my_school}} student",
-    body: text,
-    attachResume: true,
-    kind: /follow/i.test(f.name) ? "follow_up" : "initial",
-  };
-}
 
 export default function DraftsPage() {
   const s = useStore();
@@ -49,12 +25,13 @@ export default function DraftsPage() {
   const [editing, setEditing] = useState<Template | null>(null);
   const [preview, setPreview] = useState<Contact | null>(null);
   const [phase, setPhase] = useState<null | { label: string; done: number; total: number }>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const resumeRef = useRef<HTMLInputElement>(null);
 
   const rows = useContactFilter(contacts, f);
   const chosen = contacts.filter((c) => sel.has(c.id));
   const initialTemplates = templates.filter((t) => t.kind === "initial");
+  const missingStarters = DEFAULT_TEMPLATES.filter((d) => !templates.some((t) => t.id === d.id || t.name.toLowerCase() === d.name.toLowerCase()));
   const profileMissing = !settings.profile.name || !settings.profile.school;
 
   const assign = async () => {
@@ -200,8 +177,8 @@ export default function DraftsPage() {
               title="Templates"
               right={
                 <>
-                  <Button size="sm" variant="ghost" icon={<FileUp className="size-3.5" />} onClick={() => fileRef.current?.click()}>
-                    Upload
+                  <Button size="sm" variant="ghost" icon={<FileUp className="size-3.5" />} onClick={() => setImportOpen(true)}>
+                    Import doc
                   </Button>
                   <Button
                     size="sm"
@@ -212,26 +189,6 @@ export default function DraftsPage() {
                   </Button>
                 </>
               }
-            />
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".txt,.md,.docx"
-              multiple
-              hidden
-              onChange={async (e) => {
-                const files = [...(e.target.files ?? [])];
-                e.target.value = "";
-                for (const file of files) {
-                  try {
-                    const t = await parseTemplateFile(file);
-                    s.upsertTemplate(t);
-                    setEditing(t);
-                  } catch (err) {
-                    toast.err(`${file.name}: ${(err as Error).message}`);
-                  }
-                }
-              }}
             />
             <ul className="divide-y divide-line">
               {templates.map((t) => (
@@ -251,9 +208,20 @@ export default function DraftsPage() {
                 </li>
               ))}
             </ul>
-            <p className="border-t border-line px-4 py-2.5 text-[11.5px] text-muted">
-              Upload .txt, .md or .docx. If the first line reads “Subject: …” it becomes the subject.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-[11.5px] text-muted">
+              <span>Import a Word / Google Doc with one section per template.</span>
+              {missingStarters.length > 0 && (
+                <button
+                  className="font-medium text-navy hover:underline"
+                  onClick={() => {
+                    missingStarters.forEach((t) => s.upsertTemplate(t));
+                    toast.ok(`Added ${missingStarters.length} starter template${missingStarters.length > 1 ? "s" : ""}.`);
+                  }}
+                >
+                  + Add {missingStarters.length} starter template{missingStarters.length > 1 ? "s" : ""}
+                </button>
+              )}
+            </div>
           </Card>
 
           <Card>
@@ -401,6 +369,7 @@ export default function DraftsPage() {
         </Card>
       </div>
 
+      <TemplateImport open={importOpen} onClose={() => setImportOpen(false)} />
       <TemplateEditor template={editing} onClose={() => setEditing(null)} onSave={s.upsertTemplate} onDelete={templates.some((t) => t.id === editing?.id) ? s.removeTemplate : undefined} />
       <DraftModal contact={preview} onClose={() => setPreview(null)} />
     </>

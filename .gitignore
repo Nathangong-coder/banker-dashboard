@@ -44,3 +44,6 @@ next-env.d.ts
 *.xlsx
 *.xls
 *.pdf
+
+# owner template source doc
+Follow up Templates.docx

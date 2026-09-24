@@ -98,7 +98,10 @@ async function testAi(provider: AiProvider, key: string, baseURL?: string): Prom
     case "gateway":
       try {
         const credits = await createGateway({ apiKey: key }).getCredits();
-        return ok(`Key works · balance ${credits.balance}`);
+        // The gateway's model catalog is public; list the language models so the picker isn't empty.
+        const { json } = await getJson("https://ai-gateway.vercel.sh/v1/models").catch(() => ({ json: null }));
+        const models = ((json?.data as { id: string; type?: string }[]) ?? []).filter((m) => !m.type || m.type === "language").map((m) => m.id);
+        return ok(`Key works · balance $${credits.balance}`, models.length ? models : undefined);
       } catch (e) {
         return bad(`Rejected: ${firstLine((e as Error).message)}`);
       }
