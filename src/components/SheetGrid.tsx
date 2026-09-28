@@ -6,6 +6,7 @@ import type { Patches } from "@/lib/workbook";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/util";
 import { Card } from "./ui";
+import { useLocationTeamOptions } from "./LocationTeam";
 
 const colName = (n: number) => {
   let s = "";
@@ -35,6 +36,8 @@ export function SheetGrid({
   contacts: Contact[];
 }) {
   const setCell = useStore((s) => s.setCell);
+  const tables = useStore((s) => s.tables);
+  const options = useLocationTeamOptions();
   const [limit, setLimit] = useState(PAGE);
   const [editing, setEditing] = useState<string | null>(null);
   const [onlyContacts, setOnlyContacts] = useState(false);
@@ -57,6 +60,16 @@ export function SheetGrid({
     () => new Map(contacts.filter((c) => c.ref?.sheet === active).map((c) => [c.ref!.row, c])),
     [contacts, active],
   );
+
+  // Location / Team cells get a suggestion list while editing (pick one or type a new value).
+  const sheetTables = useMemo(() => tables.filter((t) => t.sheet === active).sort((a, b) => b.headerRow - a.headerRow), [tables, active]);
+  const suggestionsFor = (r: number, c: number) => {
+    const t = sheetTables.find((x) => x.headerRow < r);
+    if (!t) return undefined;
+    if (c === t.cols.location && t.cols.team) return "grid-locations";
+    if (c === t.cols.team) return "grid-teams";
+    return undefined;
+  };
 
   let rows = snap?.rows ?? 0;
   let cols = snap?.cols ?? 0;
@@ -105,6 +118,16 @@ export function SheetGrid({
       </div>
 
       <div className="max-h-[68vh] overflow-auto">
+        <datalist id="grid-locations">
+          {options.locations.map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+        <datalist id="grid-teams">
+          {options.teams.map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
         <table className="grid-sheet">
           <thead>
             <tr>
@@ -133,6 +156,7 @@ export function SheetGrid({
                         <td key={c} className="p-0!">
                           <input
                             autoFocus
+                            list={suggestionsFor(r, c)}
                             defaultValue={cell?.v ?? ""}
                             className="h-[25px] w-full min-w-[160px] border-2 border-navy px-1.5 outline-none"
                             onBlur={(e) => {
@@ -184,7 +208,7 @@ export function SheetGrid({
       <div className="flex gap-4 border-t border-line px-3 py-2 text-[11.5px] text-muted">
         <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-green-soft ring-1 ring-green/30" /> Email found by enrichment</span>
         <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-brass-soft ring-1 ring-brass/30" /> Changed here, not saved yet</span>
-        <span>Double-click a cell to edit it.</span>
+        <span>Double-click a cell to edit it. A name typed into a contact table becomes a contact right away.</span>
       </div>
     </Card>
   );

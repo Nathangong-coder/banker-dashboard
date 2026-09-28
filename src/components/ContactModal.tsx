@@ -5,7 +5,9 @@ import { ExternalLink } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { STATUS_LABEL, type Contact, type Region, type Status } from "@/lib/types";
 import { fmtDate } from "@/lib/util";
-import { withRegionTag } from "@/lib/workbook";
+import { detectRegion } from "@/lib/workbook";
+import { locationForRegion, normLocation, normTeam } from "@/lib/locationTeam";
+import { LocationTeamFields } from "./LocationTeam";
 import { Button, Field, Input, Modal, Select, Textarea } from "./ui";
 
 const toDateInput = (iso?: string) => (iso ? iso.slice(0, 10) : "");
@@ -33,7 +35,8 @@ function Editor({ c, onClose }: { c: Contact; onClose: () => void }) {
       c.id,
       {
         ...d,
-        location: d.region !== c.region ? withRegionTag(d.location, d.region) : d.location,
+        location: d.region !== c.region ? locationForRegion(normLocation(d.location), d.region, detectRegion) : normLocation(d.location),
+        team: d.team?.trim() ? normTeam(d.team) : undefined,
         sentAt: d.sentAt ?? (outreach ? now : undefined),
         lastTouchAt: d.lastTouchAt ?? (outreach ? d.sentAt ?? now : undefined),
         emailSource: d.email !== c.email ? "manual" : d.emailSource,
@@ -65,9 +68,7 @@ function Editor({ c, onClose }: { c: Contact; onClose: () => void }) {
         <Field label="Position">
           <Input value={d.position} onChange={(e) => set("position", e.target.value)} />
         </Field>
-        <Field label="Location / team">
-          <Input value={d.location} onChange={(e) => set("location", e.target.value)} />
-        </Field>
+        <LocationTeamFields location={d.location} team={d.team ?? ""} onLocation={(v) => setD((x) => ({ ...x, location: v, region: detectRegion(v) !== "Other" ? detectRegion(v) : x.region }))} onTeam={(v) => set("team", v)} />
         <Field label="Region">
           <Select className="w-full" value={d.region} onChange={(e) => set("region", e.target.value as Region)}>
             <option value="SF">SF / West Coast</option>

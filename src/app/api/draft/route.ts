@@ -1,6 +1,6 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { aiJson, errorResponse, withAi } from "@/lib/server/ai";
+import { aiJson, aiErrorResponse, withAi } from "@/lib/server/ai";
 
 export const maxDuration = 120;
 
@@ -36,8 +36,9 @@ export async function POST(req: Request) {
     const input = Body.parse(await req.json());
 
     if (input.mode === "assign") {
-      const { output } = await withAi(req, (model) =>
+      const { output } = await withAi(req, (model, opts) =>
         generateText({
+        ...opts,
         model,
         output: Output.object({
           schema: z.object({
@@ -54,8 +55,9 @@ export async function POST(req: Request) {
       return aiJson(req, output);
     }
 
-    const { output } = await withAi(req, (model) =>
+    const { output } = await withAi(req, (model, opts) =>
       generateText({
+      ...opts,
       model,
       output: Output.object({ schema: z.object({ subject: z.string(), body: z.string() }) }),
       system:
@@ -71,6 +73,6 @@ export async function POST(req: Request) {
     );
     return aiJson(req, output);
   } catch (e) {
-    return errorResponse(e);
+    return aiErrorResponse(req, e);
   }
 }

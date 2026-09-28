@@ -75,8 +75,19 @@ export function Shell({ children }: { children: ReactNode }) {
       seen.add(m);
       toast.info(`Your main AI model hit its limit, so a backup (${m}) is being used.`);
     };
+    // A model used up its daily quota on a key: it's skipped (no wasted round trips) until midnight PT.
+    const onSpent = (e: Event) => {
+      const fresh = (e as CustomEvent<string[]>).detail.filter((m) => !seen.has(`spent:${m}`));
+      if (!fresh.length) return;
+      fresh.forEach((m) => seen.add(`spent:${m}`));
+      toast.info(`${fresh.join(", ")} used up today's quota. Skipping straight to your next model until midnight PT.`);
+    };
     window.addEventListener("ai-fallback", on);
-    return () => window.removeEventListener("ai-fallback", on);
+    window.addEventListener("ai-exhausted", onSpent);
+    return () => {
+      window.removeEventListener("ai-fallback", on);
+      window.removeEventListener("ai-exhausted", onSpent);
+    };
   }, []);
   const keyCount = [
     hasKey(settings, "apollo") || hasKey(settings, "hunter"),

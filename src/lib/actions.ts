@@ -1,12 +1,13 @@
 "use client";
 
 import { blobs, useStore } from "./store";
-import { allocateRow, buildWorkbook, contactPatches, mergePatches, parseWorkbook, withRegionTag } from "./workbook";
+import { allocateRow, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseWorkbook, splitLocationTeamPatches } from "./workbook";
+import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
 import { callApi } from "./api";
 import { canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHandle, writeToHandle } from "./files";
 import { chunk, download, guessDomain, splitName, uid } from "./util";
 import type { EnrichResult } from "@/app/api/enrich/route";
-import type { Contact, Prospect } from "./types";
+import type { Contact, Prospect, Region } from "./types";
 
 export async function importFile(file: File, handle?: FileSystemFileHandle, opts: { keepManualEdits?: boolean; buffer?: ArrayBuffer } = {}) {
   const buf = opts.buffer ?? (await readFile(file));
@@ -62,7 +63,9 @@ export async function saveWorkbook(mode: "in-place" | "download") {
   }
   const buf = await blobs.workbook();
   if (!buf) throw new Error("Upload a spreadsheet first.");
-  const out = await buildWorkbook(buf, currentPatches());
+  const now = useStore.getState();
+  const dropdowns = locationTeamDropdowns(now.tables, locationTeamOptions(now.contacts));
+  const out = await buildWorkbook(buf, currentPatches(), dropdowns);
   let name: string;
   const cur = useStore.getState().workbook!;
   if (mode === "in-place") {
@@ -156,7 +159,8 @@ export function addProspects(list: Prospect[], toSheet: boolean) {
       lastName: p.lastName || last,
       bank: p.bank,
       region,
-      location: withRegionTag(p.team ?? "", region),
+      location: locationForRegion("", region, detectRegion),
+      team: p.team ? normTeam(p.team) : undefined,
       position: p.position || p.title,
       email: "",
       linkedin: p.linkedin,
@@ -172,4 +176,68 @@ export function addProspects(list: Prospect[], toSheet: boolean) {
   }
   s.addContacts(contacts);
   return contacts;
+}
+
+export interface NewContact {
+  name: string;
+  bank: string;
+  linkedin: string;
+  email: string;
+  position: string;
+  location: string;
+  team: string;
+  region: Region;
+  comment: string;
+}
+
+/** Add one person by hand from the contacts list; with a workbook loaded they get a row on the bank's tab. */
+export function addManualContact(input: NewContact, toSheet: boolean): Contact {
+  const s = useStore.getState();
+  const name = input.name.trim().replace(/\s+/g, " ");
+  const bank = input.bank.trim();
+  const linkedin = input.linkedin.trim();
+  const email = input.email.trim();
+  if (!name || !bank) throw new Error("Name and bank are required.");
+  if (linkedin && !/linkedin\.com\/in\//i.test(linkedin)) throw new Error("That LinkedIn link should look like linkedin.com/in/…");
+  if (email && !/^\S+@\S+\.\S+$/.test(email)) throw new Error("That email address doesn't look right.");
+  const dup = s.contacts.find(
+    (c) =>
+      (linkedin && c.linkedin.toLowerCase().replace(/\/$/, "") === linkedin.toLowerCase().replace(/\/$/, "")) ||
+      (c.name.toLowerCase() === name.toLowerCase() && c.bank.toLowerCase() === bank.toLowerCase()),
+  );
+  if (dup) throw new Error(`${dup.name} (${dup.bank}) is already in your contacts.`);
+
+  const taken = new Set(s.contacts.filter((c) => c.ref).map((c) => `${c.ref!.sheet}:${c.ref!.row}`));
+  const ref = toSheet && s.workbook ? allocateRow(bank, s.tables, taken) : undefined;
+  const { first, last } = splitName(name);
+  const contact: Contact = {
+    id: uid("c"),
+    name,
+    firstName: first,
+    lastName: last,
+    bank,
+    region: input.region,
+    location: locationForRegion(normLocation(input.location), input.region, detectRegion),
+    team: input.team.trim() ? normTeam(input.team) : undefined,
+    position: input.position.trim(),
+    email,
+    emailSource: email ? "manual" : undefined,
+    linkedin,
+    comment: input.comment.trim(),
+    status: "new",
+    source: "manual",
+    ref,
+    followUps: 0,
+    history: [{ at: new Date().toISOString(), type: "note", note: "Added by hand" }],
+  };
+  s.addContacts([contact]);
+  return contact;
+}
+
+/** Split every combined "Location/Team" column into Location + Team (as unsaved edits you can review in the grid). */
+export function splitLocationTeamColumns() {
+  const s = useStore.getState();
+  const { patches, tables } = splitLocationTeamPatches(s.snapshots, s.tables);
+  if (tables) s.applyCellEdits(patches);
+  return tables;
 }

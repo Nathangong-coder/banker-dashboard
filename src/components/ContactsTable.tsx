@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ExternalLink, Search } from "lucide-react";
+import { ExternalLink, Plus, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { STATUS_LABEL, type Contact, type Status } from "@/lib/types";
 import { cn } from "@/lib/util";
-import { Badge, Card, Checkbox, Empty, Input, Select, StatusBadge } from "./ui";
+import { Badge, Button, Card, Checkbox, Empty, Input, Select, StatusBadge } from "./ui";
 import { ContactModal } from "./ContactModal";
+import { AddContactModal } from "./AddContact";
 
 export interface Filters {
   q: string;
@@ -83,6 +84,7 @@ export function ContactsTable({
   const contacts = useStore((s) => s.contacts);
   const [f, setF] = useState<Filters>({ q: "", bank: initialBank ?? "", region: "", status: "", email: initialFilter === "noemail" ? "noemail" : "" });
   const [open, setOpen] = useState<Contact | null>(null);
+  const [adding, setAdding] = useState(false);
   const rows = useContactFilter(contacts, f);
   const allSel = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
@@ -92,7 +94,14 @@ export function ContactsTable({
         f={f}
         setF={setF}
         contacts={contacts}
-        extra={<span className="text-[12px] text-muted">{selected.size ? `${selected.size} selected · ` : ""}{rows.length} shown</span>}
+        extra={
+          <>
+            <span className="text-[12px] text-muted">{selected.size ? `${selected.size} selected · ` : ""}{rows.length} shown</span>
+            <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setAdding(true)}>
+              Add contact
+            </Button>
+          </>
+        }
       />
       {rows.length === 0 ? (
         <Empty title="No contacts match">Try clearing filters.</Empty>
@@ -170,6 +179,7 @@ export function ContactsTable({
         </div>
       )}
       <ContactModal contact={open} onClose={() => setOpen(null)} />
+      <AddContactModal open={adding} onClose={() => setAdding(false)} defaultBank={f.bank || undefined} />
     </Card>
   );
 }

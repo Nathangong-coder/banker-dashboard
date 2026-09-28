@@ -4,6 +4,7 @@ import type { Workbook, CellValue } from "exceljs";
 import type { CellRef, Contact, ContactField, Region, SheetSnapshot, Status } from "./types";
 import { contactId, splitName } from "./util";
 import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
+import { joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 
 const MAX_ROWS = 1500;
 const MAX_COLS = 40;
@@ -56,7 +57,8 @@ const HEADERS: Record<ContactField | "first" | "last", string[]> = {
   email: ["email", "email address", "e-mail", "work email"],
   linkedin: ["linkedin", "linkedin url", "linkedin profile", "profile url"],
   position: ["position", "title", "role", "job title"],
-  location: ["location/team", "location / team", "location", "team", "city", "office", "group"],
+  location: ["location/team", "location / team", "location", "city", "office"],
+  team: ["team", "group", "coverage group", "industry group", "coverage"],
   status: ["status"],
   comment: ["connection / comment", "connection/comment", "comments", "comment", "notes", "note"],
   company: ["company", "firm", "bank", "institution", "organization", "institution name"],
@@ -125,14 +127,6 @@ function regionFor(sheetIsNY: boolean, location: string, company?: string): Regi
   return company ? "Other" : "SF";
 }
 
-/** Make sure the Location/Team text carries the region so it round-trips through the sheet. */
-export function withRegionTag(location: string, region: Region): string {
-  const loc = location.trim();
-  if (region === "Other" || detectRegion(loc) === region) return loc;
-  const stripped = loc.replace(/^(SF|NY)\s*[·/|,-]\s*/i, "").trim();
-  return stripped ? `${region} · ${stripped}` : region;
-}
-
 function sheetBankName(sheetName: string, title: string): string {
   const m = title.match(/^(.*?)\s+Application Tracker/i);
   const base = (m ? m[1] : sheetName).replace(/\(NY\)/i, "").trim();
@@ -148,13 +142,8 @@ export async function parseWorkbook(buffer: ArrayBuffer): Promise<ParsedWorkbook
 
 function parseLoaded(wb: Workbook): ParsedWorkbook {
   const snapshots: SheetSnapshot[] = [];
-  const tables: ContactTable[] = [];
-  const targets: TargetBank[] = [];
-  const contacts: Contact[] = [];
-
   wb.eachSheet((ws) => {
     const cells: SheetSnapshot["cells"] = {};
-    const rowText = new Map<number, Map<number, string>>();
     let maxR = 0;
     let maxC = 0;
     ws.eachRow({ includeEmpty: false }, (row, r) => {
@@ -169,13 +158,33 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
             : undefined);
         if (!v && !hl) return;
         cells[`${r}:${c}`] = hl ? { v, link: hl } : { v };
-        if (!rowText.has(r)) rowText.set(r, new Map());
-        rowText.get(r)!.set(c, v);
         maxR = Math.max(maxR, r);
         maxC = Math.max(maxC, c);
       });
     });
     snapshots.push({ name: ws.name, rows: maxR, cols: maxC, cells });
+  });
+  return { snapshots, ...parseSnapshots(snapshots) };
+}
+
+/** Find contact tables, contacts and target lists in already-read sheets (also used live on grid edits). */
+export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook, "snapshots"> {
+  const tables: ContactTable[] = [];
+  const targets: TargetBank[] = [];
+  const contacts: Contact[] = [];
+
+  for (const ws of snapshots) {
+    const cells = ws.cells;
+    const rowText = new Map<number, Map<number, string>>();
+    let maxR = 0;
+    // Row-major order, like reading the sheet (header matching takes the leftmost synonym).
+    const entries = Object.entries(cells).map(([addr, cell]) => [...addr.split(":").map(Number), cell.v] as [number, number, string]);
+    entries.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const [r, c, v] of entries) {
+      if (!rowText.has(r)) rowText.set(r, new Map());
+      rowText.get(r)!.set(c, v);
+      maxR = Math.max(maxR, r);
+    }
     targets.push(...extractTargets(ws.name, cells, rowText, maxR));
 
     const title = cells["1:1"]?.v ?? "";
@@ -192,7 +201,7 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
     headerRows.forEach(({ r: hr, h }, i) => {
       const end = i + 1 < headerRows.length ? headerRows[i + 1].r - 1 : maxR + 1;
       const cols: ContactTable["cols"] = {};
-      for (const k of ["name", "email", "linkedin", "position", "location", "status", "comment", "company"] as const) {
+      for (const k of ["name", "email", "linkedin", "position", "location", "team", "status", "comment", "company"] as const) {
         if (h[k] !== undefined) cols[k] = h[k];
       }
       const table: ContactTable = {
@@ -223,7 +232,8 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
         const validEmail = /\S+@\S+\.\S+/.test(email) ? email : "";
         const linkCell = get(r, cols.linkedin);
         const linkedin = (linkCell?.link || linkCell?.v || "").trim();
-        const location = get(r, cols.location)?.v ?? "";
+        const rawLocation = get(r, cols.location)?.v ?? "";
+        const { location, team } = readLocationTeam(rawLocation, cols.team ? (get(r, cols.team)?.v ?? "") : undefined);
         const sheetStatus = get(r, cols.status)?.v;
         const company = get(r, cols.company)?.v;
         const ref: CellRef = { sheet: ws.name, row: r, cols };
@@ -235,8 +245,9 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
           firstName: first,
           lastName: last,
           bank: company || bank,
-          region: regionFor(sheetIsNY, location, company),
+          region: regionFor(sheetIsNY, rawLocation, company),
           location,
+          team,
           position: get(r, cols.position)?.v ?? "",
           email: validEmail,
           emailSource: validEmail ? "sheet" : undefined,
@@ -253,7 +264,7 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
       }
       tables.push(table);
     });
-  });
+  }
 
   // One entry per firm; the first tier seen wins.
   const seen = new Map<string, TargetBank>();
@@ -263,7 +274,7 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
     if (!prev) seen.set(k, t);
     else if (!prev.tier && t.tier) prev.tier = t.tier;
   }
-  return { snapshots, tables, contacts: dedupe(contacts), targets: [...seen.values()] };
+  return { tables, contacts: dedupe(contacts), targets: [...seen.values()] };
 }
 
 /** Same person may appear in both the "Conversation" and "Contact Information" tables. */
@@ -286,6 +297,7 @@ function dedupe(list: Contact[]): Contact[] {
       linkedin: primary.linkedin || other.linkedin,
       position: primary.position || other.position,
       location: primary.location || other.location,
+      team: primary.team || other.team,
       comment: [primary.comment, other.comment].filter(Boolean).join(" · "),
     });
   }
@@ -299,7 +311,8 @@ export const PROSPECT_SHEET = "Prospects";
 export const PROSPECT_HEADERS: [ContactField, string][] = [
   ["name", "Name"],
   ["company", "Bank"],
-  ["location", "Location/Team"],
+  ["location", "Location"],
+  ["team", "Team"],
   ["email", "Email"],
   ["position", "Position"],
   ["linkedin", "LinkedIn"],
@@ -328,8 +341,16 @@ export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]):
     if (c.email) put(sheet, row, cols.email, { v: c.email, link: `mailto:${c.email}` });
     const statusText = STATUS_TO_SHEET[c.status](c);
     if (statusText && c.status !== statusFromSheet(c.sheetStatus)) put(sheet, row, cols.status, { v: statusText });
-    // Location (region tag) and position edits made in the dashboard write back for everyone.
-    if (c.location) put(sheet, row, cols.location, { v: c.location });
+    // Location/team and position edits made in the dashboard write back for everyone. Compared by meaning
+    // ("SF/Tech" already says SF + Tech), so untouched cells aren't rewritten in the new format.
+    const cellAt = (col?: number) => (col ? (snap.get(sheet)?.cells[`${row}:${col}`]?.v ?? "") : "");
+    const onSheet = readLocationTeam(cellAt(cols.location), cols.team ? cellAt(cols.team) : undefined);
+    if (cols.team) {
+      if (c.location && c.location !== onSheet.location) put(sheet, row, cols.location, { v: c.location });
+      if (c.team && c.team !== onSheet.team) put(sheet, row, cols.team, { v: c.team });
+    } else if ((c.location || c.team) && (c.location !== onSheet.location || (c.team ?? "") !== onSheet.team)) {
+      put(sheet, row, cols.location, { v: joinLocationTeam(c.location, c.team) });
+    }
     if (c.position) put(sheet, row, cols.position, { v: c.position });
     const linkCell = cols.linkedin ? snap.get(sheet)?.cells[`${row}:${cols.linkedin}`] : undefined;
     if (c.linkedin && !linkCell) put(sheet, row, cols.linkedin, { v: c.linkedin, link: c.linkedin });
@@ -341,6 +362,81 @@ export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]):
     }
   }
   return out;
+}
+
+/** Sheets as they look with pending cell edits applied (what the grid shows). */
+export function applyPatches(snapshots: SheetSnapshot[], patches: Patches): SheetSnapshot[] {
+  const out = snapshots.map((s) => {
+    const p = patches[s.name];
+    return p ? { ...s, cells: { ...s.cells } } : s;
+  });
+  for (const [name, cells] of Object.entries(patches)) {
+    let snap = out.find((s) => s.name === name);
+    if (!snap) out.push((snap = { name, rows: 0, cols: 0, cells: {} }));
+    for (const [addr, p] of Object.entries(cells)) {
+      const [r, c] = addr.split(":").map(Number);
+      const v = p.v.trim();
+      if (v || p.link) snap.cells[addr] = p.link ? { v, link: p.link } : { v };
+      else delete snap.cells[addr];
+      snap.rows = Math.max(snap.rows, r);
+      snap.cols = Math.max(snap.cols, c);
+    }
+  }
+  return out;
+}
+
+const GRID_FIELDS = ["name", "firstName", "lastName", "bank", "region", "location", "team", "position", "email", "linkedin", "comment", "sheetStatus"] as const;
+
+/**
+ * Carry manual grid edits into contacts: a person typed into a contact table becomes a contact right
+ * away, and edits to an existing row update that person. Only what the edit changed is applied (the
+ * sheet is parsed before and after it), so unsaved dashboard changes like enriched emails survive.
+ */
+export function syncGridEdits(contacts: Contact[], snapshots: SheetSnapshot[], before: Patches, after: Patches) {
+  const prev = new Map(parseSnapshots(applyPatches(snapshots, before)).contacts.map((c) => [c.id, c]));
+  const next = parseSnapshots(applyPatches(snapshots, after));
+  const byId = new Map(contacts.map((c) => [c.id, c]));
+  // Rows already holding someone added from the dashboard (not yet saved into the file).
+  const occupied = new Set(contacts.filter((c) => c.ref && c.source !== "sheet").map((c) => `${c.ref!.sheet}:${c.ref!.row}`));
+  const updates = new Map<string, Partial<Contact>>();
+  const added: Contact[] = [];
+  const nextIds = new Set<string>();
+
+  for (const n of next.contacts) {
+    nextIds.add(n.id);
+    const p = prev.get(n.id);
+    const cur = byId.get(n.id);
+    if (!cur) {
+      if (!p && !(n.ref && occupied.has(`${n.ref.sheet}:${n.ref.row}`))) added.push(n);
+      continue;
+    }
+    const patch: Partial<Contact> = {};
+    for (const f of GRID_FIELDS) {
+      if ((p?.[f] ?? "") !== (n[f] ?? "")) (patch as Record<string, unknown>)[f] = n[f];
+    }
+    if ("email" in patch) patch.emailSource = n.email ? "sheet" : undefined;
+    if ("sheetStatus" in patch) patch.status = n.status;
+    if (JSON.stringify(cur.ref) !== JSON.stringify(n.ref)) patch.ref = n.ref;
+    if (Object.keys(patch).length) updates.set(n.id, patch);
+  }
+
+  // A row whose name was cleared: drop the contact unless the dashboard holds work for it.
+  const removed = new Set(
+    [...prev.keys()].filter((id) => {
+      const c = byId.get(id);
+      return !nextIds.has(id) && c?.source === "sheet" && c.status === "new" && !c.sentAt && !c.draft && (!c.email || c.emailSource === "sheet");
+    }),
+  );
+
+  if (!added.length && !updates.size && !removed.size) return { contacts, tables: next.tables, added };
+  return {
+    contacts: [
+      ...contacts.filter((c) => !removed.has(c.id)).map((c) => (updates.has(c.id) ? { ...c, ...updates.get(c.id) } : c)),
+      ...added,
+    ],
+    tables: next.tables,
+    added,
+  };
 }
 
 export function mergePatches(...all: Patches[]): Patches {
@@ -377,10 +473,88 @@ export function allocateRow(bank: string, tables: ContactTable[], taken: Set<str
   return { sheet: PROSPECT_SHEET, row, cols };
 }
 
-export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches): Promise<ArrayBuffer> {
+/**
+ * Cell edits that split combined "Location/Team" columns in two: the header becomes "Location", the first
+ * empty column of the table (header and every row blank) becomes "Team", and each row's value is split.
+ * Returned as manual patches, so the grid shows them before anything is saved.
+ */
+export function splitLocationTeamPatches(snapshots: SheetSnapshot[], tables: ContactTable[]): { patches: Patches; tables: number } {
+  const patches: Patches = {};
+  let count = 0;
+  for (const t of tables) {
+    const loc = t.cols.location;
+    const snap = snapshots.find((s) => s.name === t.sheet);
+    if (!loc || t.cols.team || !t.cols.name || !snap) continue;
+    const v = (r: number, c: number) => snap.cells[`${r}:${c}`]?.v ?? "";
+    if (!/team/i.test(v(t.headerRow, loc))) continue;
+    const used = new Set([...Object.values(t.cols), t.firstNameCol, t.lastNameCol]);
+    const rows = Array.from({ length: Math.max(t.lastRow - t.headerRow, 0) }, (_, i) => t.headerRow + 1 + i);
+    const free = (c: number) => !used.has(c) && !v(t.headerRow, c) && rows.every((r) => !v(r, c));
+    let teamCol = 0;
+    for (let c = loc + 1; c <= snap.cols + 1 && !teamCol; c++) if (free(c)) teamCol = c;
+    if (!teamCol) continue;
+    const out = (patches[t.sheet] ??= {});
+    out[`${t.headerRow}:${loc}`] = { v: "Location" };
+    out[`${t.headerRow}:${teamCol}`] = { v: "Team" };
+    for (const r of rows) {
+      const raw = v(r, loc);
+      if (!raw) continue;
+      const { location, team } = splitLocationTeam(raw);
+      if (!location && !team) continue;
+      if (location !== raw) out[`${r}:${loc}`] = { v: location };
+      if (team) out[`${r}:${teamCol}`] = { v: team };
+    }
+    count++;
+  }
+  return { patches, tables: count };
+}
+
+/** An in-cell dropdown that still accepts typed values (Excel's error alert is off). */
+export interface Dropdown {
+  sheet: string;
+  col: number;
+  from: number;
+  to: number;
+  values: string[];
+}
+
+/** Location and Team dropdowns for every table that has both columns, down to 30 rows past the last person. */
+export function locationTeamDropdowns(tables: ContactTable[], options: { locations: string[]; teams: string[] }): Dropdown[] {
+  const out: Dropdown[] = [];
+  for (const t of tables) {
+    if (!t.cols.location || !t.cols.team) continue;
+    const nextHeader = tables.filter((o) => o.sheet === t.sheet && o.headerRow > t.headerRow).map((o) => o.headerRow).sort((a, b) => a - b)[0];
+    const to = Math.min(Math.max(t.lastRow, ...t.emptyRows) + 30, (nextHeader ?? Infinity) - 1);
+    out.push({ sheet: t.sheet, col: t.cols.location, from: t.headerRow + 1, to, values: options.locations });
+    out.push({ sheet: t.sheet, col: t.cols.team, from: t.headerRow + 1, to, values: options.teams });
+  }
+  return out;
+}
+
+/** Excel caps an inline list at 255 characters, and commas separate items. */
+function listFormula(values: string[]) {
+  const items: string[] = [];
+  let len = 2;
+  for (const v of values.map((x) => x.replace(/[",]/g, " ").trim()).filter(Boolean)) {
+    if (len + v.length + 1 > 255) break;
+    items.push(v);
+    len += v.length + 1;
+  }
+  return `"${items.join(",")}"`;
+}
+
+export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropdowns: Dropdown[] = []): Promise<ArrayBuffer> {
   const ExcelJS = await loadExcel();
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
+  for (const d of dropdowns) {
+    const ws = wb.getWorksheet(d.sheet);
+    if (!ws) continue;
+    const formulae = [listFormula(d.values)];
+    for (let r = d.from; r <= d.to; r++) {
+      ws.getCell(r, d.col).dataValidation = { type: "list", allowBlank: true, formulae, showErrorMessage: false };
+    }
+  }
   for (const [sheet, cells] of Object.entries(patches)) {
     const ws = wb.getWorksheet(sheet) ?? wb.addWorksheet(sheet);
     for (const [addr, p] of Object.entries(cells)) {

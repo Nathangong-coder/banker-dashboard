@@ -59,13 +59,23 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Email or LinkedIn. Header synonyms are in `HEADERS`. A tab titled "X Application Tracker" makes X the bank.
 - The owner's bank tabs have two tables: a "Conversation" table (row 5) and a "Contact Information" table (row ~18, the one with LinkedIn
   and Status). The same person in both is merged by `dedupe`, which prefers the LinkedIn table as the write-back target.
-- **Region:** SF and NY people share **one bank tab**. The region is read from the `Location/Team` column (`detectRegion`), with legacy
-  `(NY)` tabs as a fallback, and bank tabs otherwise default to SF. When a region changes or a person is added, `withRegionTag` writes e.g.
-  `NY · Technology` into Location/Team so it round-trips. `allocateRow` always prefers the main (non-"(NY)") bank tab.
+- **Region:** SF and NY people share **one bank tab**. The region is read from the Location (or legacy `Location/Team`) text (`detectRegion`),
+  with legacy `(NY)` tabs as a fallback, and bank tabs otherwise default to SF. When the region is changed by hand, `locationForRegion` sets the
+  location to the region code. `allocateRow` always prefers the main (non-"(NY)") bank tab.
+- **Location vs team** (`src/lib/locationTeam.ts`): contacts have separate `location` ("SF", "Menlo Park") and `team` ("Tech", "RX").
+  A combined `Location/Team` cell is read with `splitLocationTeam` and written back as `joinLocationTeam` ("SF · Tech"), compared by meaning
+  so untouched cells are never rewritten. Sheet view's "Split Location/Team" (`splitLocationTeamPatches`) renames the header to Location and
+  uses the table's first empty column (G on the owner's tabs) as Team, as reviewable manual patches. On save, `locationTeamDropdowns` adds
+  Excel list validations with the error alert off (pick or type). Options = defaults + every value in use (`locationTeamOptions`), which is how
+  "self-add" works. Store v4 migration splits old combined `location` values.
 - **Write-back never mutates the original directly.** The grid shows `snapshot + patches`. Patches = `contactPatches(contacts, snapshots)`
   (derived: found emails, status changes, location/position edits, new people in blank numbered rows) merged with manual cell edits
   (`state.patches`). `buildWorkbook(originalBuffer, patches)` produces the file. After a save, the saved file becomes the new baseline
   (`saveWorkbook` re-parses it).
+- **Grid edits are live:** `setCell` runs `syncGridEdits`, which parses the sheets (`parseSnapshots` over `applyPatches(snapshots, patches)`)
+  before and after the edit and applies only the difference to contacts. A name typed into a contact table adds a contact, and later cell edits update it.
+  Clearing the name removes the contact only if the dashboard holds no work for it. The list view's "Add contact" (`components/AddContact.tsx`
+  → `actions.ts#addManualContact`) creates a `source: "manual"` contact in an `allocateRow` slot.
 - **Status mapping** (`statusFromSheet` / `STATUS_TO_SHEET`): "Sent" → `sent`. **"Pending" means queued, not sent yet** → `new`
   (confirmed by the owner). A dashboard status is written to the sheet only when it differs from what the sheet already implies.
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
@@ -84,10 +94,15 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 
 ## AI model chain (`lib/keys.ts#modelChain`, `lib/server/ai.ts#withAi`)
 
-- `x-ai` = `{chain: [{provider, model, keys[], baseURL}]}` (primary first). The server tries each model's keys, and on rate/quota/
-  missing-model errors (`shouldTryNextModel`) moves to the next model. `aiJson` sets an `x-ai-fallback` response header, which `callApi`
+- `x-ai` = `{chain: [{provider, model, keys[], ids[], baseURL}]}` (primary first). The server tries each model's keys, and on rate/quota/
+  missing-model errors (`shouldTryNextModel`) moves to the next model. SDK retries are off (`maxRetries: 0`) except on the last option, so
+  an exhausted model costs one round trip. `aiJson` sets an `x-ai-fallback` response header, which `callApi`
   turns into an `ai-fallback` window event, and Shell toasts it once per model.
-- `settings.ai.fallbacks` undefined = automatic (`autoFallbacks`: up to 3 other text models from the same provider, since Gemini quotas
+- **Quota cooldowns:** on a 429/quota error, `cooldownUntil` picks when to retry that model+key (Gemini "PerDay" → next midnight PT, else the
+  "retry in Ns" hint). The server echoes vault key ids (never keys) in `x-ai-exhausted` (also on errors, via `aiErrorResponse`). `callApi` stores
+  them in `state.aiCooldowns`, and `keys.ts#aiHeader` leaves resting model+keys out of the chain (the full chain if everything is resting).
+  Settings shows "out of quota · back 12:00 AM" badges and a reset link.
+- `settings.ai.fallbacks` undefined = automatic (`autoFallbacks`: up to 5 other text models from the same provider, since Gemini quotas
   are per model, then each other provider's default). "Customize" in Settings freezes it into an editable, tested list.
 
 ## Saving to the local .xlsx (`src/lib/files.ts`, `actions.ts#saveWorkbook`)

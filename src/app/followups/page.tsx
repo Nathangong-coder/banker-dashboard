@@ -108,7 +108,7 @@ function useActions() {
             "/api/draft",
             {
               mode: "fill",
-              contact: { id: c.id, name: c.name, bank: c.bank, position: c.position, location: c.location, region: c.region, school: c.school, comment: c.comment },
+              contact: { id: c.id, name: c.name, bank: c.bank, position: c.position, location: [c.location, c.team].filter(Boolean).join(" · "), region: c.region, school: c.school, comment: c.comment },
               sender: { name: s.settings.profile.name, school: s.settings.profile.school },
               subject,
               body,

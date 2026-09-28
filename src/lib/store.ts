@@ -17,7 +17,8 @@ import type {
   Template,
   WorkbookMeta,
 } from "./types";
-import type { ContactTable, Patches } from "./workbook";
+import { syncGridEdits, type ContactTable, type Patches } from "./workbook";
+import { splitLocationTeam } from "./locationTeam";
 import { DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_QUERIES_V1 } from "./defaults";
 import type { TargetBank } from "./banks";
 
@@ -61,6 +62,8 @@ interface State {
   /** Coverage page: banks the user hid, added by hand, and whether to include the starter IB list. */
   coverage: { hidden: string[]; added: TargetBank[]; includeStarter: boolean };
   lastGmailSync?: string;
+  /** AI model+key pairs out of quota, skipped until the time given (see keys.ts#aiHeader). */
+  aiCooldowns: Record<string, string>;
 
   setSettings: (fn: (s: Settings) => Settings) => void;
   importWorkbook: (args: {
@@ -77,6 +80,8 @@ interface State {
   removeContacts: (ids: string[]) => void;
   setStatus: (ids: string[], status: Status, note?: string) => void;
   setCell: (sheet: string, addr: string, v: string) => void;
+  /** Several manual cell edits at once (same live contact sync as setCell). */
+  applyCellEdits: (edits: Patches) => void;
   upsertTemplate: (t: Template) => void;
   removeTemplate: (id: string) => void;
   upsertBank: (b: BankMeta) => void;
@@ -85,6 +90,8 @@ interface State {
   setResumeName: (n?: string) => void;
   setCoverage: (fn: (c: State["coverage"]) => State["coverage"]) => void;
   setLastGmailSync: (at: string) => void;
+  noteAiCooldowns: (list: { provider: string; model: string; keyId?: string; until: string }[]) => void;
+  clearAiCooldowns: (prefix?: string) => void;
   clearAll: () => void;
   replaceAll: (data: Partial<State>) => void;
 }
@@ -122,6 +129,7 @@ export const useStore = create<State>()(
       snapshots: [],
       targets: [],
       coverage: { hidden: [], added: [], includeStarter: false },
+      aiCooldowns: {},
 
       setSettings: (fn) => set({ settings: fn(get().settings) }),
 
@@ -156,6 +164,7 @@ export const useStore = create<State>()(
             bank: fresh.bank,
             position: fresh.position || prev.position,
             location: fresh.location || prev.location,
+            team: fresh.team || prev.team,
             linkedin: fresh.linkedin || prev.linkedin,
             comment: fresh.comment,
             email: fresh.email || prev.email,
@@ -215,9 +224,20 @@ export const useStore = create<State>()(
         set({ contacts: get().contacts.map((c) => (s.has(c.id) ? transition(c, status, note) : c)) });
       },
 
-      setCell: (sheet, addr, v) => {
-        const patches = { ...get().patches, [sheet]: { ...(get().patches[sheet] ?? {}), [addr]: { v } } };
-        set({ patches });
+      setCell: (sheet, addr, v) => get().applyCellEdits({ [sheet]: { [addr]: { v } } }),
+
+      applyCellEdits: (edits) => {
+        const before = get().patches;
+        const patches = { ...before };
+        for (const [sheet, cells] of Object.entries(edits)) patches[sheet] = { ...(before[sheet] ?? {}), ...cells };
+        // Typing a person into a contact table makes them a contact immediately (no save/re-import needed).
+        const synced = syncGridEdits(get().contacts, get().snapshots, before, patches);
+        const banks = { ...get().banks };
+        for (const c of synced.added) {
+          const k = bankKey(c.bank, c.region);
+          banks[k] ??= { key: k, name: c.bank, region: c.region, status: "active" };
+        }
+        set({ patches, contacts: synced.contacts, tables: get().snapshots.length ? synced.tables : get().tables, banks });
       },
 
       upsertTemplate: (t) => {
@@ -236,6 +256,15 @@ export const useStore = create<State>()(
 
       setCoverage: (fn) => set({ coverage: fn(get().coverage) }),
       setLastGmailSync: (lastGmailSync) => set({ lastGmailSync }),
+      noteAiCooldowns: (list) => {
+        const now = Date.now();
+        // Drop expired entries while we're here so the map doesn't grow forever.
+        const next = Object.fromEntries(Object.entries(get().aiCooldowns).filter(([, until]) => Date.parse(until) > now));
+        for (const x of list) if (x.keyId) next[`${x.provider}/${x.model}#${x.keyId}`] = x.until;
+        set({ aiCooldowns: next });
+      },
+      clearAiCooldowns: (prefix) =>
+        set({ aiCooldowns: prefix ? Object.fromEntries(Object.entries(get().aiCooldowns).filter(([k]) => !k.startsWith(prefix))) : {} }),
 
       clearAll: () => {
         blobs.setResume(undefined);
@@ -261,7 +290,7 @@ export const useStore = create<State>()(
     }),
     {
       name: "banker-dashboard",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -314,6 +343,15 @@ function migrateState(p: Record<string, unknown>, version: number) {
     // v2 default search queries were long enough to hit Google's 32-word limit; swap them if untouched.
     const prospect = (p.settings as { prospect?: { queries?: string[] } }).prospect;
     if (prospect && JSON.stringify(prospect.queries) === JSON.stringify(LEGACY_QUERIES_V1)) prospect.queries = [...DEFAULT_QUERIES];
+  }
+  if (version < 4 && Array.isArray(p?.contacts)) {
+    // Location and team used to share one field ("SF/Tech", "NY · Technology"); split them.
+    p.contacts = (p.contacts as Contact[]).map((c) => {
+      if (c.team || !c.location) return c;
+      const { location, team } = splitLocationTeam(c.location);
+      // Same reading as a combined sheet column, so the next write-back sees no change.
+      return { ...c, location, team: team || undefined };
+    });
   }
   return p;
 }

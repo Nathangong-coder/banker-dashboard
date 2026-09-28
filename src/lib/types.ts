@@ -33,6 +33,7 @@ export type ContactField =
   | "email"
   | "position"
   | "location"
+  | "team"
   | "linkedin"
   | "status"
   | "comment"
@@ -51,7 +52,10 @@ export interface Contact {
   lastName: string;
   bank: string;
   region: Region;
+  /** Office, e.g. "SF", "NY", "Menlo Park" (see locationTeam.ts). */
   location: string;
+  /** Coverage group, e.g. "Tech", "Healthcare", "RX". */
+  team?: string;
   position: string;
   email: string;
   emailSource?: "sheet" | "apollo" | "hunter" | "manual" | "gmail";

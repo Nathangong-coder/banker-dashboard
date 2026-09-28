@@ -2,10 +2,10 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sparkles, Table2, Users } from "lucide-react";
+import { Columns2, Sparkles, Table2, Users } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { enrichContacts } from "@/lib/actions";
-import { contactPatches, mergePatches } from "@/lib/workbook";
+import { enrichContacts, splitLocationTeamColumns } from "@/lib/actions";
+import { contactPatches, mergePatches, splitLocationTeamPatches } from "@/lib/workbook";
 import { Button, PageHeader, Progress, toast } from "@/components/ui";
 import { SaveButtons, UploadButton, WorkbookEmpty } from "@/components/WorkbookControls";
 import { SheetGrid } from "@/components/SheetGrid";
@@ -42,6 +42,13 @@ function SheetInner() {
 
   const extraSheets = Object.keys(patches).filter((n) => !snapshots.some((s) => s.name === n));
   const pendingChanges = Object.values(patches).reduce((n, p) => n + Object.keys(p).length, 0);
+
+  const tables = useStore((s) => s.tables);
+  const combinedTables = useMemo(() => splitLocationTeamPatches(snapshots, tables).tables, [snapshots, tables]);
+  const runSplit = () => {
+    const n = splitLocationTeamColumns();
+    toast.ok(`Split Location/Team on ${n} table${n === 1 ? "" : "s"}. Check the highlighted cells, then save. Saving also adds the dropdowns in Excel.`);
+  };
 
   const scope = useMemo(() => {
     if (view === "contacts" && selected.size) return contacts.filter((c) => selected.has(c.id));
@@ -121,6 +128,11 @@ function SheetInner() {
           ))}
         </div>
         <div className="flex-1" />
+        {view === "grid" && combinedTables > 0 && (
+          <Button icon={<Columns2 className="size-3.5" />} onClick={runSplit} title="Location/Team becomes two columns (Location, and Team in the first empty column), each with a dropdown you can also type into">
+            Split Location/Team ({combinedTables} tables)
+          </Button>
+        )}
         {progress ? (
           <div className="w-72">
             <Progress value={progress.done} max={progress.total} label={`${progress.done}/${progress.total} looked up`} />

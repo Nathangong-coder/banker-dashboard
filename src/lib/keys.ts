@@ -18,12 +18,39 @@ export function aiReady(s: Settings) {
   return aiKeysFor(s).length > 0 && !!s.ai.model;
 }
 
-/** Header payload for the server: the model chain, each with all usable keys for its provider (tried in order). */
-export function aiHeader(s: Settings) {
-  const chain = modelChain(s).map((m) => {
-    const keys = aiKeysFor(s, m.provider);
-    return { provider: m.provider, model: m.model, keys: keys.map((k) => k.value), baseURL: keys[0]?.baseURL || AI_PROVIDERS[m.provider].defaultBaseURL };
-  });
+/** model+key pairs that ran out of quota: `${provider}/${model}#${keyId}` -> ISO time they're usable again. */
+export type AiCooldowns = Record<string, string>;
+export const cooldownKey = (provider: AiProvider, model: string, keyId: string) => `${provider}/${model}#${keyId}`;
+
+export function isResting(cooldowns: AiCooldowns, provider: AiProvider, model: string, keyId: string, now = Date.now()) {
+  const until = cooldowns[cooldownKey(provider, model, keyId)];
+  return !!until && Date.parse(until) > now;
+}
+
+/** How many of a model's keys are out of quota right now, and when the first one comes back. */
+export function restingInfo(s: Settings, cooldowns: AiCooldowns, m: ModelRef) {
+  const keys = aiKeysFor(s, m.provider);
+  const resting = keys.filter((k) => isResting(cooldowns, m.provider, m.model, k.id));
+  const back = resting.map((k) => cooldowns[cooldownKey(m.provider, m.model, k.id)]).sort()[0];
+  return { resting: resting.length, total: keys.length, back };
+}
+
+/**
+ * Header payload for the server: the model chain, each with its usable keys (tried in order). Model+key
+ * pairs that recently ran out of quota are left out so requests go straight to one that still works;
+ * if everything is resting, the full chain is sent anyway (limits sometimes lift early).
+ */
+export function aiHeader(s: Settings, cooldowns: AiCooldowns = {}) {
+  const build = (skipResting: boolean) =>
+    modelChain(s)
+      .map((m) => {
+        const all = aiKeysFor(s, m.provider);
+        const keys = skipResting ? all.filter((k) => !isResting(cooldowns, m.provider, m.model, k.id)) : all;
+        return { provider: m.provider, model: m.model, keys: keys.map((k) => k.value), ids: keys.map((k) => k.id), baseURL: all[0]?.baseURL || AI_PROVIDERS[m.provider].defaultBaseURL };
+      })
+      .filter((m) => m.keys.length);
+  const fresh = build(true);
+  const chain = fresh.length ? fresh : build(false);
   return chain.length ? JSON.stringify({ chain }) : undefined;
 }
 
@@ -54,14 +81,14 @@ export function pickDefaultModel(models: string[], suggested: string[] = []): st
 export type ModelRef = { provider: AiProvider; model: string };
 
 /**
- * Automatic backups: up to 3 other models from the same provider (separate per-model quotas, which is
+ * Automatic backups: up to 5 other models from the same provider (separate per-model quotas, which is
  * what matters on Gemini's free tier; lite/preview models allowed here), then the top model of every
  * other provider the user has a key for.
  */
 export function autoFallbacks(s: Settings): ModelRef[] {
   const out: ModelRef[] = [];
   const same = rankModels(modelOptions(s, s.ai.provider), { allowPreview: true }).filter((m) => m !== s.ai.model);
-  for (const m of same.slice(0, 3)) out.push({ provider: s.ai.provider, model: m });
+  for (const m of same.slice(0, 5)) out.push({ provider: s.ai.provider, model: m });
   const others = [...new Set(usableKeys(s, "ai").map((k) => k.provider!))].filter((p) => p !== s.ai.provider);
   for (const p of others) {
     const m = pickDefaultModel(modelOptions(s, p), AI_PROVIDERS[p].suggested);

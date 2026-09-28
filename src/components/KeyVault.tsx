@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { ArrowUp, CheckCircle2, Plus, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { mask, modelChain, modelOptions, pickDefaultModel, type ModelRef } from "@/lib/keys";
+import { mask, modelChain, modelOptions, pickDefaultModel, restingInfo, type ModelRef } from "@/lib/keys";
 import { AI_PROVIDERS, type AiProvider, type ApiKeyEntry, type VaultService } from "@/lib/types";
 import type { KeyTestResult } from "@/app/api/keys/test/route";
 import { cn, fmtDate, uid } from "@/lib/util";
@@ -309,8 +309,13 @@ export function AiVault() {
 function BackupModels() {
   const settings = useStore((s) => s.settings);
   const setSettings = useStore((s) => s.setSettings);
+  const cooldowns = useStore((s) => s.aiCooldowns);
+  const clearCooldowns = useStore((s) => s.clearAiCooldowns);
   const auto = settings.ai.fallbacks === undefined;
-  const chain = modelChain(settings).slice(1);
+  const full = modelChain(settings);
+  const primary = full[0];
+  const chain = full.slice(1);
+  const anyResting = full.some((m) => restingInfo(settings, cooldowns, m).resting > 0);
   const providers = [...new Set(settings.vault.ai.filter((k) => k.ok !== false).map((k) => k.provider!))];
   const [prov, setProv] = useState<AiProvider>(settings.ai.provider);
   const [model, setModel] = useState("");
@@ -339,6 +344,17 @@ function BackupModels() {
           {auto ? "Customize" : "Back to automatic"}
         </button>
       </div>
+      <p className="mb-1.5 text-[11.5px] text-muted">
+        Each model is tried on every key before moving on. A model+key that runs out of its daily quota is skipped until
+        midnight PT, so requests go straight to one that still works. On Gemini&apos;s free tier, quota is per Google Cloud
+        project, so extra keys only help if they come from different projects.
+      </p>
+      {primary && <Resting m={primary} label="Main model" />}
+      {anyResting && (
+        <button className="mb-1 text-[11.5px] text-navy hover:underline" onClick={() => clearCooldowns()}>
+          Try resting models again now
+        </button>
+      )}
       {chain.length === 0 ? (
         <p className="text-[12px] text-amber">No backups yet. Add another key (a different provider, or one that lists more models) so drafting keeps working when this model runs out.</p>
       ) : (
@@ -348,6 +364,7 @@ function BackupModels() {
               <span className="num w-4 text-muted">{i + 1}.</span>
               <span className="num">{m.model}</span>
               <span className="text-muted">· {AI_PROVIDERS[m.provider].label}</span>
+              <Resting m={m} />
               {!auto && (
                 <span className="ml-auto flex gap-0.5">
                   {i > 0 && (
@@ -385,5 +402,21 @@ function BackupModels() {
         </div>
       )}
     </div>
+  );
+}
+
+/** "Out for today" badge for a model whose keys hit their quota (see keys.ts#aiHeader). */
+function Resting({ m, label }: { m: ModelRef; label?: string }) {
+  const settings = useStore((s) => s.settings);
+  const cooldowns = useStore((s) => s.aiCooldowns);
+  const { resting, total, back } = restingInfo(settings, cooldowns, m);
+  if (!resting) return null;
+  const time = back ? new Date(back).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  const text = `${resting === total ? "out of quota" : `out on ${resting}/${total} keys`}${time ? ` · back ${time}` : ""}`;
+  if (!label) return <Badge tone={resting === total ? "red" : "brass"}>{text}</Badge>;
+  return (
+    <p className="mb-1 text-[12px] text-ink-2">
+      {label} <span className="num">{m.model}</span> <Badge tone={resting === total ? "red" : "brass"}>{text}</Badge>
+    </p>
   );
 }

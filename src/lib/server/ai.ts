@@ -8,7 +8,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { AiProvider } from "@/lib/types";
 import { HttpError, assertPublicHttps, errorResponse } from "./http";
-import { isKeyProblem, withFallback } from "./keys";
+import { isKeyProblem } from "./keys";
 
 export { HttpError, errorResponse };
 
@@ -39,6 +39,8 @@ interface AiSpec {
   provider: AiProvider;
   model: string;
   keys: string[];
+  /** Vault ids for `keys` (same order), echoed back when a key runs out of quota. Not secret. */
+  ids?: string[];
   baseURL?: string;
 }
 
@@ -62,7 +64,7 @@ export function aiChainFromRequest(req: Request): AiSpec[] {
   }
   const chain = Array.isArray(parsed.chain) ? parsed.chain : [parsed as AiSpec];
   if (!chain.length) throw new HttpError(400, "Add an AI key in Settings.");
-  return chain.slice(0, 8).map(validSpec);
+  return chain.slice(0, 12).map(validSpec);
 }
 
 /** Worth trying the next model: rate/quota limits, bad keys, or a model id the provider doesn't know. */
@@ -73,35 +75,96 @@ function shouldTryNextModel(e: unknown) {
   return st === 404 || /model.*(not found|does not exist|not supported|unavailable|deprecated)|resource.?exhausted|overloaded|503/i.test(msg);
 }
 
-/** Which model actually answered, per request (so routes can report a fallback to the UI). */
+/** Next midnight in Pacific time, when Gemini's per-day quotas reset. */
+function nextPacificMidnight(now = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      .formatToParts(now)
+      .map((p) => [p.type, p.value]),
+  );
+  const elapsed = ((Number(parts.hour) % 24) * 3600 + Number(parts.minute) * 60 + Number(parts.second)) * 1000;
+  return new Date(now.getTime() + 86_400_000 - elapsed);
+}
+
+/**
+ * For a rate/quota error, when that model+key is worth trying again: next Pacific midnight for daily
+ * quotas (Gemini's "PerDay" limits), else the provider's "retry in Ns" hint, else a minute.
+ */
+function cooldownUntil(e: unknown): { until: string; daily: boolean } | undefined {
+  const st = (e as { statusCode?: number })?.statusCode ?? (e as { status?: number })?.status;
+  const text = `${e instanceof Error ? e.message : String(e)} ${(e as { responseBody?: string })?.responseBody ?? ""}`;
+  if (st !== 429 && !/quota|resource.?exhausted|rate.?limit|too many requests/i.test(text)) return undefined;
+  if (/per.?day|daily/i.test(text)) return { until: nextPacificMidnight().toISOString(), daily: true };
+  const secs = Number(text.match(/retry(?:Delay"?\s*:\s*"| in )\s*([\d.]+)\s*s/i)?.[1] ?? 60);
+  return { until: new Date(Date.now() + Math.min(Math.max(secs, 20), 3600) * 1000).toISOString(), daily: false };
+}
+
+/** A model+key that ran out, so the browser can skip it until `until`. */
+export interface AiExhausted {
+  provider: AiProvider;
+  model: string;
+  keyId?: string;
+  until: string;
+  daily: boolean;
+}
+
+/** Which model actually answered, and which model+keys ran out, per request (reported back as headers). */
 const used = new WeakMap<Request, string>();
+const exhausted = new WeakMap<Request, AiExhausted[]>();
 
 /**
  * Run an AI call down the model chain: for each model, try every key for its provider; on a limit/quota/
- * missing-model error move to the next model. Other errors (bad prompt, schema) are thrown immediately.
+ * missing-model error move straight on (no SDK retries, except on the very last option). Other errors
+ * (bad prompt, schema) are thrown immediately. Quota hits are reported so the browser skips them next time.
  */
-export async function withAi<T>(req: Request, fn: (model: LanguageModel) => Promise<T>): Promise<T> {
+export async function withAi<T>(req: Request, fn: (model: LanguageModel, opts: { maxRetries: number }) => Promise<T>): Promise<T> {
   const chain = aiChainFromRequest(req);
+  const spent: AiExhausted[] = [];
+  exhausted.set(req, spent);
   const failures: string[] = [];
+  const total = chain.reduce((n, s) => n + s.keys.length, 0);
+  let attempt = 0;
+  let last: unknown;
   for (const [i, spec] of chain.entries()) {
-    try {
-      const out = await withFallback(spec.keys, "AI", (key) => fn(makeModel(spec.provider, key, spec.model, spec.baseURL)));
-      if (i > 0) used.set(req, `${spec.provider}/${spec.model}`);
-      return out;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      failures.push(`${spec.model}: ${msg.split("\n")[0].slice(0, 120)}`);
-      if (!shouldTryNextModel(e) || i === chain.length - 1) {
-        if (chain.length > 1 && shouldTryNextModel(e)) throw new HttpError(429, `Every model in your chain hit a limit or failed. ${failures.join(" · ")}`);
-        throw e;
+    for (const [k, key] of spec.keys.entries()) {
+      attempt++;
+      try {
+        const out = await fn(makeModel(spec.provider, key, spec.model, spec.baseURL), { maxRetries: attempt === total ? 2 : 0 });
+        if (i > 0) used.set(req, `${spec.provider}/${spec.model}`);
+        return out;
+      } catch (e) {
+        last = e;
+        const cool = cooldownUntil(e);
+        if (cool) spent.push({ provider: spec.provider, model: spec.model, keyId: spec.ids?.[k], ...cool });
+        if (isKeyProblem(e)) continue; // this key is out or invalid: next key for the same model
+        if (!shouldTryNextModel(e)) throw e;
+        break; // model-level problem (unknown model, overloaded): skip its other keys
       }
     }
+    const msg = last instanceof Error ? last.message : String(last);
+    failures.push(`${spec.model}: ${msg.split("\n")[0].slice(0, 120)}`);
   }
-  throw new HttpError(500, "No AI model available.");
+  if (total > 1) throw new HttpError(429, `Every model and key in your AI chain hit a limit or failed. ${failures.join(" · ")}`);
+  throw last;
 }
 
-/** Response.json + an `x-ai-fallback` header naming the backup model that answered (if any). */
-export function aiJson(req: Request, data: unknown) {
+function aiHeaders(req: Request) {
+  const h: Record<string, string> = {};
   const fallback = used.get(req);
-  return Response.json(data, fallback ? { headers: { "x-ai-fallback": fallback } } : undefined);
+  if (fallback) h["x-ai-fallback"] = fallback;
+  const spent = exhausted.get(req);
+  if (spent?.length) h["x-ai-exhausted"] = JSON.stringify(spent);
+  return h;
+}
+
+/** Response.json + `x-ai-fallback` (the backup model that answered) and `x-ai-exhausted` (model+keys that ran out). */
+export function aiJson(req: Request, data: unknown) {
+  return Response.json(data, { headers: aiHeaders(req) });
+}
+
+/** errorResponse that still reports quota hits, so the browser skips those models next time. */
+export function aiErrorResponse(req: Request, e: unknown) {
+  const res = errorResponse(e);
+  for (const [k, v] of Object.entries(aiHeaders(req))) res.headers.set(k, v);
+  return res;
 }

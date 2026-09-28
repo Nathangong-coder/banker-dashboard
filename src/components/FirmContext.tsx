@@ -129,7 +129,7 @@ export function FirmSummary({ r, highlight, compact }: { r: CoverageRow; highlig
                     <tr key={c.id} className={cn(highlight?.has(c.id) && "bg-blue-soft/40")}>
                       <td>{c.name}</td>
                       <td>{c.position}</td>
-                      <td>{c.location}</td>
+                      <td>{[c.location, c.team].filter(Boolean).join(" · ")}</td>
                       <td className={cn(!c.email && "text-red/70")}>{c.email || "missing"}</td>
                       <td>{c.sheetStatus && c.status === "new" ? c.sheetStatus : c.status.replace("_", " ")}</td>
                       <td title={c.comment}>{c.comment}</td>

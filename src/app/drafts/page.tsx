@@ -418,7 +418,7 @@ function facts(c: Contact) {
     name: c.name,
     bank: c.bank,
     position: c.position,
-    location: c.location,
+    location: [c.location, c.team].filter(Boolean).join(" · "),
     region: c.region,
     school: c.school,
     headline: c.headline,
