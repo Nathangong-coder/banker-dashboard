@@ -7,7 +7,7 @@ import { callApi } from "./api";
 import { canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHandle, writeToHandle } from "./files";
 import { chunk, download, guessDomain, splitName, uid } from "./util";
 import type { EnrichResult } from "@/app/api/enrich/route";
-import type { Contact, Prospect, Region } from "./types";
+import type { CellRef, Contact, Prospect, Region } from "./types";
 
 export async function importFile(file: File, handle?: FileSystemFileHandle, opts: { keepManualEdits?: boolean; buffer?: ArrayBuffer } = {}) {
   const buf = opts.buffer ?? (await readFile(file));
@@ -191,7 +191,7 @@ export interface NewContact {
 }
 
 /** Add one person by hand from the contacts list; with a workbook loaded they get a row on the bank's tab. */
-export function addManualContact(input: NewContact, toSheet: boolean): Contact {
+export function addManualContact(input: NewContact, toSheet: boolean, row?: CellRef): Contact {
   const s = useStore.getState();
   const name = input.name.trim().replace(/\s+/g, " ");
   const bank = input.bank.trim();
@@ -208,7 +208,8 @@ export function addManualContact(input: NewContact, toSheet: boolean): Contact {
   if (dup) throw new Error(`${dup.name} (${dup.bank}) is already in your contacts.`);
 
   const taken = new Set(s.contacts.filter((c) => c.ref).map((c) => `${c.ref!.sheet}:${c.ref!.row}`));
-  const ref = toSheet && s.workbook ? allocateRow(bank, s.tables, taken) : undefined;
+  // A grid row turned into a contact keeps pointing at that row; otherwise take the bank's next free slot.
+  const ref = row ?? (toSheet && s.workbook ? allocateRow(bank, s.tables, taken) : undefined);
   const { first, last } = splitName(name);
   const contact: Contact = {
     id: uid("c"),

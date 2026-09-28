@@ -79,9 +79,10 @@ interface State {
   addContacts: (c: Contact[]) => void;
   removeContacts: (ids: string[]) => void;
   setStatus: (ids: string[], status: Status, note?: string) => void;
-  setCell: (sheet: string, addr: string, v: string) => void;
+  /** Returns the contacts the edit created (a name typed into a contact table). */
+  setCell: (sheet: string, addr: string, v: string) => Contact[];
   /** Several manual cell edits at once (same live contact sync as setCell). */
-  applyCellEdits: (edits: Patches) => void;
+  applyCellEdits: (edits: Patches) => Contact[];
   upsertTemplate: (t: Template) => void;
   removeTemplate: (id: string) => void;
   upsertBank: (b: BankMeta) => void;
@@ -238,6 +239,7 @@ export const useStore = create<State>()(
           banks[k] ??= { key: k, name: c.bank, region: c.region, status: "active" };
         }
         set({ patches, contacts: synced.contacts, tables: get().snapshots.length ? synced.tables : get().tables, banks });
+        return synced.added;
       },
 
       upsertTemplate: (t) => {

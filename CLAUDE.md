@@ -76,6 +76,10 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   before and after the edit and applies only the difference to contacts. A name typed into a contact table adds a contact, and later cell edits update it.
   Clearing the name removes the contact only if the dashboard holds no work for it. The list view's "Add contact" (`components/AddContact.tsx`
   → `actions.ts#addManualContact`) creates a `source: "manual"` contact in an `allocateRow` slot.
+- **Row → contact:** rows the parser can't see as people (no name in a table, or not in a table at all) get a "+" by the row number when
+  `draftFromRow` reads a person from them. Outside a table it needs a LinkedIn or an email, since labels like "Bulge Bracket" look like names.
+  Clicking opens AddContact pre-filled, with `ref` = that row (the table's columns, or the columns the values were found in). On the owner's
+  workbook no existing row gets a "+", so keep it that way when loosening the heuristics. The tab bar search matches tab names and bank names (`canonBank`).
 - **Status mapping** (`statusFromSheet` / `STATUS_TO_SHEET`): "Sent" → `sent`. **"Pending" means queued, not sent yet** → `new`
   (confirmed by the owner). A dashboard status is written to the sheet only when it differs from what the sheet already implies.
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added

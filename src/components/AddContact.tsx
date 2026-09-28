@@ -4,27 +4,45 @@ import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { addManualContact, type NewContact } from "@/lib/actions";
 import { allocateRow, detectRegion } from "@/lib/workbook";
-import type { Region } from "@/lib/types";
+import type { CellRef, Region } from "@/lib/types";
 import { Button, Field, Input, Modal, Select, Textarea, toast } from "./ui";
 import { LocationTeamFields } from "./LocationTeam";
 
 const EMPTY: NewContact = { name: "", bank: "", linkedin: "", email: "", position: "", location: "", team: "", region: "SF", comment: "" };
 
-export function AddContactModal({ open, onClose, defaultBank }: { open: boolean; onClose: () => void; defaultBank?: string }) {
+export function AddContactModal({
+  open,
+  onClose,
+  defaultBank,
+  initial,
+  row,
+}: {
+  open: boolean;
+  onClose: () => void;
+  defaultBank?: string;
+  /** Pre-filled values (e.g. read from a spreadsheet row). */
+  initial?: Partial<NewContact>;
+  /** The spreadsheet row this person lives in, when turning a grid row into a contact. */
+  row?: CellRef;
+}) {
   return (
-    <Modal open={open} onClose={onClose} title="Add a contact">
-      {open && <Form onClose={onClose} defaultBank={defaultBank} />}
+    <Modal open={open} onClose={onClose} title={row ? `Make row ${row.row} a contact` : "Add a contact"}>
+      {open && <Form onClose={onClose} defaultBank={defaultBank} initial={initial} row={row} />}
     </Modal>
   );
 }
 
-function Form({ onClose, defaultBank }: { onClose: () => void; defaultBank?: string }) {
+function Form({ onClose, defaultBank, initial, row }: { onClose: () => void; defaultBank?: string; initial?: Partial<NewContact>; row?: CellRef }) {
   const contacts = useStore((s) => s.contacts);
   const tables = useStore((s) => s.tables);
   const hasWorkbook = useStore((s) => !!s.workbook);
-  const [d, setD] = useState<NewContact>({ ...EMPTY, bank: defaultBank ?? "" });
+  const [d, setD] = useState<NewContact>(() => {
+    const init = { ...EMPTY, bank: defaultBank ?? "", ...initial };
+    const guess = detectRegion(`${init.location} ${row?.sheet ?? ""}`);
+    return { ...init, region: guess !== "Other" ? guess : init.region };
+  });
   const [regionTouched, setRegionTouched] = useState(false);
-  const [toSheet, setToSheet] = useState(hasWorkbook);
+  const [toSheet, setToSheet] = useState(hasWorkbook && !row);
   const set = <K extends keyof NewContact>(k: K, v: NewContact[K]) => setD((x) => ({ ...x, [k]: v }));
   const banks = useMemo(() => [...new Set(contacts.map((c) => c.bank))].sort(), [contacts]);
 
@@ -38,11 +56,13 @@ function Form({ onClose, defaultBank }: { onClose: () => void; defaultBank?: str
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const c = addManualContact(d, toSheet);
+      const c = addManualContact(d, toSheet, row);
       toast.ok(
-        c.ref
-          ? `Added ${c.name} to row ${c.ref.row} of "${c.ref.sheet}". Save the spreadsheet to write it to the file.`
-          : `Added ${c.name}.`,
+        row
+          ? `${c.name} is now a contact (row ${row.row} of "${row.sheet}"). Enrich can look up their email.`
+          : c.ref
+            ? `Added ${c.name} to row ${c.ref.row} of "${c.ref.sheet}". Save the spreadsheet to write it to the file.`
+            : `Added ${c.name}.`,
       );
       onClose();
     } catch (err) {
@@ -102,7 +122,7 @@ function Form({ onClose, defaultBank }: { onClose: () => void; defaultBank?: str
           <Textarea rows={2} value={d.comment} onChange={(e) => set("comment", e.target.value)} />
         </Field>
       </div>
-      {hasWorkbook && (
+      {hasWorkbook && !row && (
         <label className="col-span-2 flex items-center gap-2 text-[12.5px] text-ink-2">
           <input type="checkbox" className="accent-navy" checked={toSheet} onChange={(e) => setToSheet(e.target.checked)} />
           Add to the spreadsheet

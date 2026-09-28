@@ -4,7 +4,7 @@ import type { Workbook, CellValue } from "exceljs";
 import type { CellRef, Contact, ContactField, Region, SheetSnapshot, Status } from "./types";
 import { contactId, splitName } from "./util";
 import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
-import { joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
+import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 
 const MAX_ROWS = 1500;
 const MAX_COLS = 40;
@@ -133,6 +133,9 @@ function sheetBankName(sheetName: string, title: string): string {
   return base || sheetName;
 }
 
+/** Section labels inside bank tabs ("Contact | Information") that sit in the Name column but aren't people. */
+const SECTION_LABEL = /^(contact|contacts|name|information|#)$/i;
+
 export async function parseWorkbook(buffer: ArrayBuffer): Promise<ParsedWorkbook> {
   const ExcelJS = await loadExcel();
   const wb = new ExcelJS.Workbook();
@@ -226,7 +229,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
         }
         table.lastRow = r;
         // Template placeholders like "(First Last)" and section labels like "Contact | Information".
-        if (name.startsWith("(") || /^(contact|contacts|name|information|#)$/i.test(name.trim())) continue;
+        if (name.startsWith("(") || SECTION_LABEL.test(name.trim())) continue;
 
         const email = (get(r, cols.email)?.v ?? "").replace(/^mailto:/i, "");
         const validEmail = /\S+@\S+\.\S+/.test(email) ? email : "";
@@ -541,6 +544,81 @@ function listFormula(values: string[]) {
     len += v.length + 1;
   }
   return `"${items.join(",")}"`;
+}
+
+/** A contact pre-filled from one grid row, for rows the parser didn't turn into a contact on its own. */
+export interface RowDraft {
+  name: string;
+  bank: string;
+  email: string;
+  linkedin: string;
+  position: string;
+  location: string;
+  team: string;
+  comment: string;
+  /** Where this person lives in the sheet: the table's columns, or the columns the values were found in. */
+  ref: CellRef;
+}
+
+const NAME_LIKE = /^[A-Z][A-Za-z'’.-]+(?:\s+[A-Z][A-Za-z'’.-]+){1,3}$/;
+const POSITION_LIKE = /\b(analyst|associate|vice president|vp|director|managing director|md|intern|partner|principal|banker)\b/i;
+const NOT_A_NAME = new Set(["contact information", "location team", "full name", "first name", "last name", ...DEFAULT_TEAMS.map((t) => t.toLowerCase())]);
+
+/** "https://www.linkedin.com/in/jane-doe-4b2a19/" -> "Jane Doe". */
+export function nameFromLinkedIn(url: string): string {
+  const slug = url.match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1] ?? "";
+  const parts = decodeURIComponent(slug).split(/[-_]/).filter((p) => /^[a-z'’]+$/i.test(p) && p.length > 1);
+  return parts.length >= 2 ? parts.slice(0, 3).map((p) => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(" ") : "";
+}
+
+/**
+ * Read a row as a person: use the contact table's columns when the row sits under one, else guess from the
+ * cells (an email, a LinkedIn link, something shaped like a name or a title). Returns undefined if nothing
+ * in the row looks like a person.
+ */
+export function draftFromRow(sheet: string, row: number, maxCol: number, cell: (c: number) => { v: string; link?: string } | undefined, tables: ContactTable[]): RowDraft | undefined {
+  const t = tables.filter((x) => x.sheet === sheet && x.headerRow < row).sort((a, b) => b.headerRow - a.headerRow)[0];
+  if (tables.some((x) => x.sheet === sheet && x.headerRow === row)) return undefined;
+  const tc = t?.cols ?? {};
+  const cells = Array.from({ length: maxCol }, (_, i) => ({ c: i + 1, v: (cell(i + 1)?.v ?? "").trim(), link: cell(i + 1)?.link }));
+  const at = (c?: number) => (c ? cells[c - 1] : undefined);
+  const find = (test: (x: (typeof cells)[number]) => boolean) => cells.find((x) => x.v && test(x));
+
+  const emailCell = at(tc.email)?.v.includes("@") ? at(tc.email) : find((x) => /\S+@\S+\.\S+/.test(x.v));
+  const email = (emailCell?.v ?? "").replace(/^mailto:/i, "");
+  const isLi = (x: { v: string; link?: string }) => /linkedin\.com\/in\//i.test(x.link || x.v);
+  const liCell = at(tc.linkedin) && isLi(at(tc.linkedin)!) ? at(tc.linkedin) : find(isLi);
+  const linkedin = liCell ? (liCell.link || liCell.v).trim() : "";
+
+  let nameCell = at(tc.name)?.v ? at(tc.name) : undefined;
+  let name = nameCell?.v ?? "";
+  if (!name && t?.firstNameCol && t.lastNameCol) name = `${at(t.firstNameCol)?.v ?? ""} ${at(t.lastNameCol)?.v ?? ""}`.trim();
+  if (!name) {
+    nameCell = find((x) => NAME_LIKE.test(x.v) && /[a-z]/.test(x.v) && !isPlace(x.v) && !POSITION_LIKE.test(x.v) && !NOT_A_NAME.has(x.v.toLowerCase()) && x !== emailCell && x !== liCell);
+    name = nameCell?.v ?? nameFromLinkedIn(linkedin);
+  }
+  // Outside a contact table, labels ("Bulge Bracket", "Conversion Rate") look like names; insist on a LinkedIn or an email.
+  if (!t && !linkedin && !email) return undefined;
+  if (!name || name.startsWith("(") || SECTION_LABEL.test(name)) return undefined;
+
+  const posCell = at(tc.position)?.v ? at(tc.position) : find((x) => POSITION_LIKE.test(x.v) && x.v.length < 60 && x !== nameCell);
+  const locRaw = tc.location ? (at(tc.location)?.v ?? "") : (find((x) => isPlace(x.v))?.v ?? "");
+  const { location, team } = readLocationTeam(locRaw, tc.team ? (at(tc.team)?.v ?? "") : undefined);
+  const bank = at(tc.company)?.v || t?.bank || tables.find((x) => x.sheet === sheet)?.bank || "";
+  const cols: CellRef["cols"] = t
+    ? t.cols
+    : { name: nameCell?.c, email: emailCell?.c, linkedin: liCell?.c, position: posCell?.c };
+  return {
+    name,
+    bank,
+    email: /\S+@\S+\.\S+/.test(email) ? email : "",
+    linkedin,
+    position: posCell?.v ?? "",
+    location,
+    team,
+    comment: at(tc.comment)?.v ?? "",
+    ref: { sheet, row, cols },
+  };
 }
 
 export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropdowns: Dropdown[] = []): Promise<ArrayBuffer> {

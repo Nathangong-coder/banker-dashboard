@@ -22,6 +22,8 @@ const TEAM_ALIASES: [RegExp, string][] = [
 const PLACES =
   /^(sf|san francisco|bay area|sf bay area|ny|nyc|new york|new york city|manhattan|la|los angeles|menlo park|palo alto|silicon valley|chicago|houston|boston|dallas|charlotte|london|atlanta|miami|seattle|denver|minneapolis|nashville|salt lake city|austin|toronto|century city|remote)$/i;
 
+export const isPlace = (v: string) => PLACES.test(v.trim());
+
 const alias = (list: [RegExp, string][], v: string) => list.find(([re]) => re.test(v))?.[1] ?? v;
 export const normLocation = (v: string) => alias(LOCATION_ALIASES, v.trim().replace(/\s+/g, " "));
 export const normTeam = (v: string) => alias(TEAM_ALIASES, v.trim().replace(/\s+/g, " "));
