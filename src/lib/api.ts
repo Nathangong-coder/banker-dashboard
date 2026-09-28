@@ -37,6 +37,24 @@ export async function callApi<T>(path: string, body: unknown, s: Settings): Prom
     }
   }
   const j = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-  if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    reportFailure(path, res, j);
+    throw new Error(j.error ?? `HTTP ${res.status}`);
+  }
+  if (skippedModels.length) console.info(`[Coverage] ${path}: skipped`, skippedModels.map((x) => `${x.model} (${x.reason})`).join(", "), `→ answered by ${fallback}`);
   return j as T;
+}
+
+/**
+ * Print what went wrong in the browser console (F12 → Console): the error, every model/key the server tried and
+ * why each failed, and Vercel's request id to find the same request in the deployment's logs. Keys are never included.
+ */
+function reportFailure(path: string, res: Response, j: { error?: string; attempts?: { model: string; key: string; ok: boolean; kind?: string; status?: number; error?: string; ms: number }[] }) {
+  if (typeof console === "undefined") return;
+  console.groupCollapsed(`%c[Coverage] ${path} failed (${res.status})`, "color:#b3261e;font-weight:600");
+  console.error(j.error ?? `HTTP ${res.status}`);
+  if (j.attempts?.length) console.table(j.attempts.map((a) => ({ model: a.model, key: a.key, result: a.ok ? "ok" : a.kind, status: a.status ?? "", error: a.error ?? "", ms: a.ms })));
+  const id = res.headers.get("x-vercel-id");
+  if (id) console.info(`Vercel request id: ${id} (Vercel → Deployments → Logs, search this id)`);
+  console.groupEnd();
 }

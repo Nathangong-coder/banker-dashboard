@@ -58,7 +58,8 @@ export function mask(v: string) {
   return v.length <= 8 ? "••••" : `${v.slice(0, 4)}…${v.slice(-4)}`;
 }
 
-const NOT_TEXT = /(tts|audio|image|embed|vision|realtime|search|transcribe|instruct|computer-use|robotics|live|native-audio|001$)/i;
+// Not usable as a drafting backup: non-text models, and Gemini-API models without JSON output or system instructions (Gemma, LearnLM, AQA).
+const NOT_TEXT = /(tts|audio|image|imagen|veo|lyria|banana|embed|vision|realtime|search|transcribe|instruct|computer-use|robotics|live|native-audio|gemma|learnlm|aqa|001$)/i;
 const version = (m: string) => Number(m.match(/(\d+(?:\.\d+)?)/)?.[1] ?? 0);
 const tier = (m: string) => (/-mini|haiku|small/.test(m) ? 1 : /opus|-pro\b|large|max/.test(m) ? 2 : 0);
 

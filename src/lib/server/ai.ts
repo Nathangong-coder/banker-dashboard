@@ -66,6 +66,8 @@ export function aiChainFromRequest(req: Request): AiSpec[] {
   return chain.slice(0, 12).map(validSpec);
 }
 
+const firstLine = (e: unknown) => redact((e instanceof Error ? e.message : String(e)).split("\n")[0]).slice(0, 200);
+
 /** AI SDK wraps the provider's error after retries (RetryError.lastError) or as a cause; dig out the real one. */
 function unwrap(e: unknown): unknown {
   let cur = e;
@@ -79,6 +81,14 @@ function unwrap(e: unknown): unknown {
 }
 
 type FailKind = "daily" | "rate" | "busy" | "key" | "model" | "fatal";
+
+/** Never let a key reach a log line or an error message. */
+export function redact(s: string) {
+  return s
+    .replace(/AIza[0-9A-Za-z_-]{10,}/g, "AIza…")
+    .replace(/\b(sk|gsk|xai|pk)-[A-Za-z0-9_-]{8,}/g, "$1-…")
+    .replace(/(key=)[^&\s"]+/gi, "$1…");
+}
 
 /**
  * Why a model+key failed, which decides what to try next:
@@ -96,7 +106,13 @@ export function classifyAiError(e: unknown): { kind: FailKind; text: string } {
     return { kind: "model", text: "model not available" };
   if ((st && st >= 500) || /high demand|overloaded|unavailable|try again later|timed? ?out|econnreset|fetch failed|socket hang up|network/i.test(text))
     return { kind: "busy", text: /high demand|overloaded/i.test(text) ? "busy (high demand)" : `unavailable${st ? ` (${st})` : ""}` };
-  return { kind: "fatal", text: (e instanceof Error ? e.message : String(e)).split("\n")[0].slice(0, 160) };
+  // Our own errors (e.g. a missing base URL) and cancelled requests: another model won't help.
+  if (e instanceof HttpError || (e as { name?: string })?.name === "AbortError") return { kind: "fatal", text: firstLine(e) };
+  // Everything else the provider says (this model can't do JSON output / system instructions, returned unparseable
+  // output, rejected the request) is specific to the model, so the next one gets a chance.
+  if (/not enabled for models|not supported|does not support|developer instruction|json mode|response.?schema|no object generated|could not parse|did not match|schema/i.test(text))
+    return { kind: "model", text: `can't do this request (${firstLine(e).slice(0, 90)})` };
+  return { kind: "model", text: `failed: ${firstLine(e).slice(0, 110)}` };
 }
 
 /** Next midnight in Pacific time, when Gemini's per-day quotas reset. */
@@ -137,6 +153,19 @@ const used = new WeakMap<Request, string>();
 const exhausted = new WeakMap<Request, AiExhausted[]>();
 const skipped = new WeakMap<Request, { model: string; reason: string }[]>();
 
+/** One try of one model with one key, for the Vercel logs and the browser console (never includes the key). */
+export interface AiAttempt {
+  model: string;
+  provider: string;
+  key: string;
+  ok: boolean;
+  kind?: string;
+  status?: number;
+  error?: string;
+  ms: number;
+}
+const attemptLog = new WeakMap<Request, AiAttempt[]>();
+
 /** A busy model is rested on every key for this long, so the next few requests go straight to a working one. */
 const BUSY_REST_MS = 2 * 60_000;
 
@@ -152,6 +181,9 @@ export async function withAi<T>(req: Request, fn: (model: LanguageModel, opts: {
   const passed: { model: string; reason: string }[] = [];
   exhausted.set(req, spent);
   skipped.set(req, passed);
+  const attempts: AiAttempt[] = [];
+  attemptLog.set(req, attempts);
+  const route = new URL(req.url).pathname;
   const total = chain.reduce((n, s) => n + s.keys.length, 0);
   let attempt = 0;
   let last: unknown;
@@ -159,14 +191,23 @@ export async function withAi<T>(req: Request, fn: (model: LanguageModel, opts: {
     const reasons: string[] = [];
     for (const [k, key] of spec.keys.entries()) {
       attempt++;
+      const t0 = Date.now();
+      const keyLabel = `${k + 1}/${spec.keys.length}`;
       try {
         const out = await fn(makeModel(spec.provider, key, spec.model, spec.baseURL), { maxRetries: attempt === total ? 2 : 0 });
         if (i > 0 || passed.length) used.set(req, `${spec.provider}/${spec.model}`);
+        attempts.push({ model: spec.model, provider: spec.provider, key: keyLabel, ok: true, ms: Date.now() - t0 });
+        if (attempts.length > 1) console.info(`[ai] ${route} answered by ${spec.provider}/${spec.model} after ${attempts.length - 1} skip(s)`);
         return out;
       } catch (err) {
         const e = unwrap(err);
         last = e;
         const why = classifyAiError(e);
+        const status = (e as { statusCode?: number })?.statusCode;
+        const a: AiAttempt = { model: spec.model, provider: spec.provider, key: keyLabel, ok: false, kind: why.kind, status, error: firstLine(e), ms: Date.now() - t0 };
+        attempts.push(a);
+        // Shows up in the Vercel function logs (Deployments → Logs), one line per failed try.
+        console.warn(`[ai] ${route} ${a.provider}/${a.model} key ${a.key} → ${a.kind}${status ? ` ${status}` : ""}: ${a.error}`);
         if (why.kind === "fatal") throw e;
         const keyId = spec.ids?.[k];
         const cool = cooldownUntil(e);
@@ -218,9 +259,13 @@ export function aiJson(req: Request, data: unknown) {
   return Response.json(data, { headers: aiHeaders(req) });
 }
 
-/** errorResponse that still reports quota hits, so the browser skips those models next time. */
+/** errorResponse that still reports quota hits (so the browser skips them) and every attempt (for the console). */
 export function aiErrorResponse(req: Request, e: unknown) {
-  const res = errorResponse(e);
+  const attempts = attemptLog.get(req) ?? [];
+  if (!(e instanceof HttpError) || !attempts.length) console.error(`[ai] ${new URL(req.url).pathname} failed:`, redact(e instanceof Error ? `${e.name}: ${e.message}` : String(e)));
+  const status = e instanceof HttpError ? e.status : 500;
+  const message = redact(e instanceof Error ? e.message : "Unexpected error");
+  const res = Response.json({ error: message, attempts }, { status });
   for (const [k, v] of Object.entries(aiHeaders(req))) res.headers.set(k, v);
   return res;
 }

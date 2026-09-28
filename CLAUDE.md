@@ -118,8 +118,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   an exhausted model costs one round trip. `aiJson` sets an `x-ai-fallback` response header, which `callApi`
   turns into an `ai-fallback` window event, and Shell toasts it once per model.
 - **Rotation (`withAi` + `classifyAiError`):** daily / rate / bad key → next key of the same model; busy (503, "high demand",
-  overloaded, network) → rest that model on every key for 2 min and go to the next model; unknown model → next model; anything else (bad
-  request, schema) stops, since another model won't fix the prompt. `unwrap` digs the provider error out of AI SDK RetryError/cause. The
+  overloaded, network) → rest that model on every key for 2 min and go to the next model. Any other provider error (unknown model, 400s
+  like Gemma's "JSON mode is not enabled", unparseable output) → next model. Only our own `HttpError`s and aborts stop early: a
+  "fatal" stop on a provider 400 once surfaced as a 500 on /api/draft. Auto backups exclude gemma/learnlm/aqa (no JSON mode or system
+  instructions on the Gemini API). Every attempt is logged as `[ai] <route> <provider/model> key i/n → kind status: msg` (Vercel function
+  logs), and error responses carry `attempts[]`, which `api.ts#reportFailure` prints as a console table with the `x-vercel-id`. Anything
+  logged or returned goes through `redact()` so keys never appear. `unwrap` digs the provider error out of AI SDK RetryError/cause. The
   server reports skips in `x-ai-skipped` ([{model, reason}]), and Shell toasts "X busy (high demand). Answered by Y instead." If everything
   fails, the error lists every model and why. The key test in Settings treats busy/quota as "valid, resting" so backups can still be added.
 - **Quota cooldowns:** on a 429/quota error, `cooldownUntil` picks when to retry that model+key (Gemini "PerDay" → next midnight PT, else the
