@@ -17,7 +17,7 @@ import type {
   Template,
   WorkbookMeta,
 } from "./types";
-import { applyPatches, contactPatches, hasDashboardWork, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
+import { applyPatches, contactPatches, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
 import { contactId } from "./util";
 import { splitLocationTeam } from "./locationTeam";
 import { DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_QUERIES_V1 } from "./defaults";
@@ -251,7 +251,10 @@ export const useStore = create<State>()(
         const patches = { ...before };
         for (const [sheet, cells] of Object.entries(edits)) patches[sheet] = { ...(before[sheet] ?? {}), ...cells };
         // Typing a person into a contact table makes them a contact immediately (no save/re-import needed).
-        const synced = syncGridEdits(get().contacts, get().snapshots, before, patches);
+        // Read the sheet the way the grid shows it (dashboard writes + manual edits), so edits to a row that only exists
+        // as a pending write (someone added from the dashboard) still reach that contact.
+        const derived = contactPatches(get().contacts, get().snapshots);
+        const synced = syncGridEdits(get().contacts, get().snapshots, mergePatches(derived, before), mergePatches(derived, patches));
         const banks = { ...get().banks };
         for (const c of synced.added) {
           const k = bankKey(c.bank, c.region);

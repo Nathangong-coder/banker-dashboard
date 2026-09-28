@@ -29,6 +29,15 @@ export function queryWordCount(q: string, bank = "Perella Weinberg Partners") {
   return q.replaceAll("{bank}", bank).split(/[\s()"]+/).filter(Boolean).length;
 }
 
+/** Coffee chat questions that work with any banker (edited on the prep page). */
+export const DEFAULT_GENERAL_QUESTIONS = [
+  "How did you end up in banking, and what made you pick this firm?",
+  "What does a typical week look like for you right now?",
+  "What's been the most interesting deal or project you've worked on?",
+  "What do you think makes an analyst stand out in their first year?",
+  "Looking back, what do you wish you'd known when you were recruiting?",
+];
+
 export const DEFAULT_SETTINGS: Settings = {
   profile: {
     name: "",
@@ -75,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
     revealPersonalEmails: false,
   },
   emailStyle: { font: "garamond" },
+  prep: { generalQuestions: DEFAULT_GENERAL_QUESTIONS },
 };
 
 /*

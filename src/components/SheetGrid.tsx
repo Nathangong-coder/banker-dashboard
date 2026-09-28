@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ClipboardCopy, Eraser, Plus, Rows3, Search, Trash2, Undo2, UserPlus, X } from "lucide-react";
-import type { Contact, SheetSnapshot } from "@/lib/types";
+import type { CellStyle, Contact, SheetSnapshot } from "@/lib/types";
 import { draftFromRow, type CellPatch, type Patches, type RowDraft } from "@/lib/workbook";
 import { canonBank } from "@/lib/banks";
 import { useStore } from "@/lib/store";
@@ -22,6 +22,35 @@ const colName = (n: number) => {
 };
 
 const PAGE = 150;
+const DEFAULT_COL = 110;
+
+/** Excel's look for one cell as inline CSS (colors, font, alignment, borders). */
+function cellCss(st: CellStyle | undefined, width?: number): React.CSSProperties {
+  const css: React.CSSProperties = {};
+  if (width) {
+    css.width = width;
+    css.minWidth = width;
+    css.maxWidth = width;
+  }
+  if (!st) return css;
+  if (st.bg) css.background = st.bg;
+  if (st.fg) css.color = st.fg;
+  if (st.b) css.fontWeight = 600;
+  if (st.i) css.fontStyle = "italic";
+  if (st.u) css.textDecoration = "underline";
+  if (st.sz) css.fontSize = Math.round(Math.min(st.sz, 24) * 1.25);
+  if (st.al) css.textAlign = st.al;
+  if (st.va) css.verticalAlign = st.va;
+  if (st.wrap) css.whiteSpace = "normal";
+  if (st.bd) {
+    const line = `1px solid ${st.bd.color}`;
+    if (st.bd.sides.includes("r")) css.borderRight = line;
+    if (st.bd.sides.includes("b")) css.borderBottom = line;
+    const inset = [st.bd.sides.includes("t") && `inset 0 1px 0 ${st.bd.color}`, st.bd.sides.includes("l") && `inset 1px 0 0 ${st.bd.color}`].filter(Boolean);
+    if (inset.length) css.boxShadow = inset.join(", ");
+  }
+  return css;
+}
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
 /** Anchor (where the selection started) and focus (the active cell), both as positions in the visible grid. */
@@ -100,8 +129,35 @@ export function SheetGrid({
   }
   cols = Math.max(cols, 6);
   // A few blank rows past the end so there's always room to type the next person.
-  const rowNums = Array.from({ length: rows + 5 }, (_, i) => i + 1).filter((r) => !onlyContacts || contactRows.has(r) || r === 1);
+  const fmt = snap?.format;
+  const hiddenRows = new Set(fmt?.hiddenRows ?? []);
+  const hiddenCols = new Set(fmt?.hiddenCols ?? []);
+  const colWidth = (c: number) => fmt?.colWidths[c] ?? (c === 1 ? 40 : DEFAULT_COL);
+  const styleAt = (r: number, c: number) => {
+    const i = fmt?.cellStyle[`${r}:${c}`];
+    return i === undefined ? undefined : fmt!.styles[i];
+  };
+  const rowNums = Array.from({ length: rows + 5 }, (_, i) => i + 1).filter((r) => !hiddenRows.has(r) && (!onlyContacts || contactRows.has(r) || r === 1));
   const visible = rowNums.slice(0, limit);
+
+  // Merged cells from the file: the top-left cell spans the block and the rest aren't drawn. Skipped while rows are
+  // filtered (a merge can't span rows that aren't shown).
+  const { spans, covered } = (() => {
+    const spans = new Map<string, { rowSpan: number; colSpan: number }>();
+    const covered = new Set<string>();
+    if (onlyContacts || !fmt) return { spans, covered };
+    const shown = new Set(visible);
+    for (const [r1, c1, r2, c2] of fmt.merges) {
+      if (!shown.has(r1)) continue;
+      let rowSpan = 0;
+      for (let r = r1; r <= r2; r++) if (shown.has(r)) rowSpan++;
+      let colSpan = 0;
+      for (let c = c1; c <= c2; c++) if (!hiddenCols.has(c)) colSpan++;
+      spans.set(`${r1}:${c1}`, { rowSpan, colSpan });
+      for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (r !== r1 || c !== c1) covered.add(`${r}:${c}`);
+    }
+    return { spans, covered };
+  })();
 
   const allTabs = [...snapshots.map((s) => s.name), ...extraSheets];
   // Tab search matches the tab name or its bank ("morgan" finds MS, "evercore" finds EVR and EVR (NY)).
@@ -474,11 +530,13 @@ export function SheetGrid({
           <thead>
             <tr>
               <th className="w-10" />
-              {Array.from({ length: cols }, (_, i) => (
-                <th key={i} style={{ minWidth: i === 0 ? 40 : 110 }} className={cn(range && i + 1 >= range.c1 && i + 1 <= range.c2 && "bg-[#e3e0d4]! text-ink!")}>
-                  {colName(i + 1)}
-                </th>
-              ))}
+              {Array.from({ length: cols }, (_, i) =>
+                hiddenCols.has(i + 1) ? null : (
+                  <th key={i} style={cellCss(undefined, colWidth(i + 1))} className={cn(range && i + 1 >= range.c1 && i + 1 <= range.c2 && "bg-[#e3e0d4]! text-ink!")}>
+                    {colName(i + 1)}
+                  </th>
+                ),
+              )}
             </tr>
           </thead>
           <tbody>
@@ -487,7 +545,7 @@ export function SheetGrid({
               const { draft, linked } = rowPerson(r);
               const rowSelected = !!range && i >= range.r1 && i <= range.r2;
               return (
-                <tr key={r} title={contact ? `${contact.name} · ${contact.status}` : undefined}>
+                <tr key={r} title={contact ? `${contact.name} · ${contact.status}` : undefined} style={fmt?.rowHeights[r] ? { height: Math.max(fmt.rowHeights[r], 18) } : undefined}>
                   <th
                     className={cn("group cursor-pointer", linked && "font-semibold text-navy", rowSelected && "bg-[#e3e0d4]!")}
                     onMouseDown={(e) => {
@@ -519,13 +577,21 @@ export function SheetGrid({
                   {Array.from({ length: cols }, (_, ci) => {
                     const c = ci + 1;
                     const key = `${r}:${c}`;
+                    if (hiddenCols.has(c) || covered.has(key)) return null;
                     const patched = sp[key];
                     const cell = patched ?? snap?.cells[key];
                     const isEmail = patched && /@/.test(patched.v);
                     const focused = sel?.fr === i && sel.fc === c;
+                    const span = spans.get(key);
+                    const css = cellCss(styleAt(r, c), span ? undefined : colWidth(c));
+                    // Unsaved changes keep their highlight on top of the sheet's own colors.
+                    if (patched) {
+                      css.background = isEmail ? "var(--green-soft)" : "var(--brass-soft)";
+                      css.color = isEmail ? "var(--green)" : undefined;
+                    }
                     if (editing?.r === r && editing.c === c) {
                       return (
-                        <td key={c} className="p-0!">
+                        <td key={c} className="p-0!" rowSpan={span?.rowSpan} colSpan={span?.colSpan} style={{ width: css.width, minWidth: css.minWidth }}>
                           <input
                             autoFocus
                             list={suggestionsFor(r, c)}
@@ -574,6 +640,9 @@ export function SheetGrid({
                           selectCell(i, c, e.shiftKey);
                         }}
                         onMouseEnter={() => dragging.current && setSel((s) => (s ? { ...s, fr: i, fc: c } : s))}
+                        rowSpan={span?.rowSpan}
+                        colSpan={span?.colSpan}
+                        style={css}
                         onDoubleClick={() => setEditing({ r, c })}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -583,14 +652,13 @@ export function SheetGrid({
                         title={cell?.v}
                         className={cn(
                           "cursor-cell",
-                          patched && (isEmail ? "bg-green-soft text-green" : "bg-brass-soft"),
-                          r === 1 && "font-semibold",
+                          !fmt && r === 1 && "font-semibold",
                           inRange(i, c) && !focused && "bg-blue-soft/70!",
                           focused && "outline-2 -outline-offset-2 outline-navy",
                         )}
                       >
                         {cell?.link && /^https?:/.test(cell.link) ? (
-                          <a href={cell.link} target="_blank" rel="noreferrer" className="text-blue hover:underline" onMouseDown={(e) => e.stopPropagation()}>
+                          <a href={cell.link} target="_blank" rel="noreferrer" className={cn("hover:underline", !styleAt(r, c)?.fg && "text-blue")} onMouseDown={(e) => e.stopPropagation()}>
                             {cell.v || cell.link}
                           </a>
                         ) : (

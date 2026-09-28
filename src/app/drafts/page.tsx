@@ -327,6 +327,7 @@ function DraftsInner() {
                       />
                     </th>
                     <th className="px-2 py-2 font-medium">Contact</th>
+                    <th className="px-2 py-2 font-medium">Notes</th>
                     <th className="px-2 py-2 font-medium">Template</th>
                     <th className="px-2 py-2 font-medium">Draft</th>
                     <th className="px-3 py-2 font-medium">Status</th>
@@ -361,6 +362,16 @@ function DraftsInner() {
                             </div>
                           ) : null;
                         })()}
+                      </td>
+                      <td className="max-w-[240px] px-2 py-2 text-[12px]">
+                        {/* The sheet's Connection / Comment column (J on bank tabs); the AI uses it when picking a template. */}
+                        {c.comment ? (
+                          <p className="line-clamp-3 text-ink-2" title={c.comment}>
+                            {c.comment}
+                          </p>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         <Select

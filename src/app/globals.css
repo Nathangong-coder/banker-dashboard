@@ -68,7 +68,7 @@ body {
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   padding: 0 6px;
-  height: 26px;
+  height: 22px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

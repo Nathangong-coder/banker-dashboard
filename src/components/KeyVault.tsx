@@ -412,7 +412,8 @@ function Resting({ m, label }: { m: ModelRef; label?: string }) {
   const { resting, total, back } = restingInfo(settings, cooldowns, m);
   if (!resting) return null;
   const time = back ? new Date(back).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
-  const text = `${resting === total ? "out of quota" : `out on ${resting}/${total} keys`}${time ? ` · back ${time}` : ""}`;
+  // Resting = hit a quota/rate limit or was overloaded; requests skip it until then.
+  const text = `${resting === total ? "resting" : `resting on ${resting}/${total} keys`}${time ? ` · back ${time}` : ""}`;
   if (!label) return <Badge tone={resting === total ? "red" : "brass"}>{text}</Badge>;
   return (
     <p className="mb-1 text-[12px] text-ink-2">

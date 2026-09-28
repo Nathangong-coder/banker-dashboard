@@ -18,7 +18,13 @@ export async function callApi<T>(path: string, body: unknown, s: Settings): Prom
   if (ai) headers["x-ai"] = ai;
   const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
   const fallback = res.headers.get("x-ai-fallback");
-  if (fallback && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("ai-fallback", { detail: fallback }));
+  let skippedModels: { model: string; reason: string }[] = [];
+  try {
+    skippedModels = JSON.parse(res.headers.get("x-ai-skipped") ?? "[]");
+  } catch {
+    // Only the explanation is lost.
+  }
+  if (fallback && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("ai-fallback", { detail: { model: fallback, skipped: skippedModels } }));
   const spent = res.headers.get("x-ai-exhausted");
   if (spent) {
     try {

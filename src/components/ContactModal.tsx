@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { Coffee, ExternalLink } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { STATUS_LABEL, type Contact, type Region, type Status } from "@/lib/types";
 import { fmtDate } from "@/lib/util";
@@ -144,6 +145,9 @@ function Editor({ c, onClose }: { c: Contact; onClose: () => void }) {
           Remove from dashboard
         </Button>
         <div className="flex gap-2">
+          <Link href={`/prep?id=${encodeURIComponent(c.id)}`} onClick={onClose} className="flex items-center gap-1 self-center px-2 text-[12.5px] font-medium text-navy hover:underline">
+            <Coffee className="size-3.5" /> Coffee chat prep
+          </Link>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>

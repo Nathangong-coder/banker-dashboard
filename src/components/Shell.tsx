@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2 } from "lucide-react";
+import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
+import { FORMAT_VERSION, readFormats } from "@/lib/workbook";
+import { useSaveShortcut } from "./WorkbookControls";
 import { nextAction } from "@/lib/followups";
 import { cn } from "@/lib/util";
 import { Toaster, toast } from "./ui";
@@ -18,6 +20,7 @@ const NAV = [
   { href: "/find", label: "Find people", icon: Search },
   { href: "/drafts", label: "Email drafts", icon: Mail },
   { href: "/followups", label: "Follow-ups", icon: BellRing },
+  { href: "/prep", label: "Coffee chat prep", icon: Coffee },
   { href: "/settings", label: "Settings & keys", icon: Settings2 },
 ];
 
@@ -28,6 +31,14 @@ function useHydrated() {
       const snaps = await blobs.snapshots();
       if (snaps) useStore.getState().setSnapshots(snaps);
       setReady(true);
+      if (snaps?.length && snaps.some((s) => s.format?.version !== FORMAT_VERSION)) {
+        const buf = await blobs.workbook();
+        if (!buf) return;
+        const formats = await readFormats(buf);
+        const next = useStore.getState().snapshots.map((s) => (formats[s.name] ? { ...s, format: formats[s.name] } : s));
+        useStore.getState().setSnapshots(next);
+        blobs.setSnapshots(next);
+      }
     };
     if (useStore.persist.hasHydrated()) done();
     return useStore.persist.onFinishHydration(() => done());
@@ -53,6 +64,7 @@ function useDailyNudge(due: number) {
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const ready = useHydrated();
+  useSaveShortcut();
   const contacts = useStore((s) => s.contacts);
   const banks = useStore((s) => s.banks);
   const fu = useStore((s) => s.settings.followUp);
@@ -69,11 +81,14 @@ export function Shell({ children }: { children: ReactNode }) {
   // The server switched to a backup model (primary hit a rate/quota limit): say so once per model.
   useEffect(() => {
     const seen = new Set<string>();
+    // Say which models were skipped and why, once per distinct situation this session.
     const on = (e: Event) => {
-      const m = (e as CustomEvent<string>).detail;
-      if (seen.has(m)) return;
-      seen.add(m);
-      toast.info(`Your main AI model hit its limit, so a backup (${m}) is being used.`);
+      const { model, skipped } = (e as CustomEvent<{ model: string; skipped: { model: string; reason: string }[] }>).detail;
+      const why = skipped.map((s) => `${s.model} ${s.reason}`).join("; ");
+      const key = `${model}|${why}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      toast.info(`${why ? `${why}. ` : ""}Answered by ${model.split("/").pop()} instead.`);
     };
     // A model used up its daily quota on a key: it's skipped (no wasted round trips) until midnight PT.
     const onSpent = (e: Event) => {

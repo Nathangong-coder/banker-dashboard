@@ -20,7 +20,7 @@ function captureScript(origin: string) {
     const slug = slugOf(location.pathname);
     const lines = main.innerText.split("\\n").map(clean).filter((l) => l && !noise.test(l));
     const name = clean((main.querySelector("h1") || {}).innerText) || lines[0];
-    out.push({ slug, name, text: lines.join(" · ").slice(0, 6000) });
+    out.push({ slug, name, text: lines.join(" · ").slice(0, 12000) });
   } else {
     for (const a of main.querySelectorAll('a[href*="/in/"]')) {
       const slug = slugOf(a.getAttribute("href"));
@@ -37,7 +37,8 @@ function captureScript(origin: string) {
   }
   if (!out.length) { alert("No LinkedIn profiles found on this page. Open a People search (or a profile) first, scroll so the results load, then click again."); return; }
   const payload = encodeURIComponent(JSON.stringify({ v: 1, page: location.href.slice(0, 300), people: out.slice(0, 60) }));
-  window.open(O + "/find#li=" + payload, "_blank");
+  const single = /^\\/in\\/[^/]+\\/?$/.test(location.pathname);
+  window.open(O + (single ? "/prep#li=" : "/find#li=") + payload, "_blank");
 })();`;
 }
 
@@ -97,7 +98,7 @@ export function parseCapture(hash: string, knownBanks: string[], fallbackBank?: 
     if (!p || typeof p.slug !== "string" || typeof p.name !== "string") continue;
     const slug = p.slug.toLowerCase().replace(/[^a-z0-9%_-]/g, "").slice(0, 100);
     const name = p.name.replace(/[,|].*$/, "").replace(/\s*\(.*?\)\s*/g, " ").trim().slice(0, 80);
-    const text = typeof p.text === "string" ? p.text.slice(0, 6000) : "";
+    const text = typeof p.text === "string" ? p.text.slice(0, 12000) : "";
     if (!slug || name.length < 2) continue;
     const parts = text.split(" · ");
     out.push({
@@ -111,4 +112,14 @@ export function parseCapture(hash: string, knownBanks: string[], fallbackBank?: 
     });
   }
   return out;
+}
+
+/** Was this capture taken on a single profile page (rather than a People search)? */
+export function captureIsProfile(hash: string): boolean {
+  try {
+    const data = JSON.parse(decodeURIComponent(hash.replace(/^#?li=/, ""))) as { page?: unknown; people?: unknown[] };
+    return typeof data.page === "string" && /linkedin\.com\/in\/[^/?#]+\/?(\?|#|$)/i.test(data.page) && Array.isArray(data.people) && data.people.length === 1;
+  } catch {
+    return false;
+  }
 }

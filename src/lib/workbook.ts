@@ -1,7 +1,7 @@
 "use client";
 
 import type { Workbook, CellValue } from "exceljs";
-import type { CellRef, Contact, ContactField, Region, SheetSnapshot, Status } from "./types";
+import type { CellRef, CellStyle, Contact, ContactField, Region, SheetFormat, SheetSnapshot, Status } from "./types";
 import { contactId, splitName } from "./util";
 import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
@@ -143,8 +143,135 @@ export async function parseWorkbook(buffer: ArrayBuffer): Promise<ParsedWorkbook
   return parseLoaded(wb);
 }
 
+export const FORMAT_VERSION = 1;
+
+/** Theme colors from the workbook's theme XML, in Excel's theme-index order (lt1, dk1, lt2, dk2, accent1–6, hlink, folHlink). */
+function themePalette(wb: Workbook): string[] {
+  const fallback = ["FFFFFF", "000000", "E7E6E6", "44546A", "4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47", "0563C1", "954F72"];
+  const xml = (wb as unknown as { _themes?: Record<string, string> })._themes?.theme1 ?? "";
+  const pick = (tag: string) => xml.match(new RegExp(`<a:${tag}>[\\s\\S]*?(?:srgbClr val|lastClr)="([0-9A-Fa-f]{6})"`))?.[1];
+  const order = ["lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"];
+  return order.map((t, i) => pick(t) ?? fallback[i]);
+}
+
+/** Excel tint: -1..1, darkens toward black or lightens toward white. */
+function tint(hex: string, t = 0) {
+  if (!t) return hex;
+  const ch = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const out = ch.map((v) => Math.round(t < 0 ? v * (1 + t) : v + (255 - v) * t));
+  return out.map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("");
+}
+
+type XColor = { argb?: string; theme?: number; tint?: number; indexed?: number } | undefined;
+function cssColor(c: XColor, palette: string[]): string | undefined {
+  if (!c) return undefined;
+  if (c.argb && /^[0-9A-Fa-f]{8}$/.test(c.argb)) return `#${c.argb.slice(2).toLowerCase()}`;
+  if (typeof c.theme === "number" && palette[c.theme]) return `#${tint(palette[c.theme], c.tint).toLowerCase()}`;
+  return undefined;
+}
+
+/** Read a tab's look (fills, fonts, alignment, borders, sizes, merges) within the area that has content. */
+function readFormat(ws: import("exceljs").Worksheet, maxR: number, maxC: number, palette: string[]): SheetFormat {
+  const styles: CellStyle[] = [];
+  const index = new Map<string, number>();
+  const cellStyle: Record<string, number> = {};
+  const lastRow = Math.min(maxR + 5, MAX_ROWS);
+  const lastCol = Math.min(Math.max(maxC, 1) + 1, MAX_COLS);
+  for (let r = 1; r <= lastRow; r++) {
+    const row = ws.findRow(r);
+    if (!row) continue;
+    row.eachCell({ includeEmpty: true }, (cell, c) => {
+      if (c > lastCol) return;
+      const st = cell.style ?? {};
+      const s: CellStyle = {};
+      const fill = st.fill as { type?: string; pattern?: string; fgColor?: XColor } | undefined;
+      if (fill?.type === "pattern" && fill.pattern && fill.pattern !== "none") s.bg = cssColor(fill.fgColor, palette);
+      const f = st.font;
+      if (f) {
+        const fg = cssColor(f.color as XColor, palette);
+        if (fg && fg !== "#000000") s.fg = fg;
+        if (f.bold) s.b = 1;
+        if (f.italic) s.i = 1;
+        if (f.underline) s.u = 1;
+        if (f.size && f.size !== 10 && f.size !== 11) s.sz = f.size;
+      }
+      const a = st.alignment;
+      if (a?.horizontal === "center" || a?.horizontal === "right" || a?.horizontal === "left") s.al = a.horizontal;
+      if (a?.vertical === "top" || a?.vertical === "middle" || a?.vertical === "bottom") s.va = a.vertical;
+      if (a?.wrapText) s.wrap = 1;
+      const b = st.border;
+      if (b) {
+        const sides = (["top", "right", "bottom", "left"] as const).filter((k) => b[k]?.style).map((k) => k[0]).join("");
+        if (sides) {
+          const any = b.top ?? b.right ?? b.bottom ?? b.left;
+          s.bd = { sides, color: cssColor(any?.color as XColor, palette) ?? "#999999" };
+        }
+      }
+      if (!Object.keys(s).length) return;
+      const key = JSON.stringify(s);
+      let i = index.get(key);
+      if (i === undefined) {
+        i = styles.push(s) - 1;
+        index.set(key, i);
+      }
+      cellStyle[`${r}:${c}`] = i;
+    });
+  }
+  const colWidths: Record<number, number> = {};
+  const hiddenCols: number[] = [];
+  for (let c = 1; c <= lastCol; c++) {
+    const col = ws.getColumn(c);
+    if (col.hidden) hiddenCols.push(c);
+    else if (col.width) colWidths[c] = Math.round(col.width * 7 + 5);
+  }
+  const rowHeights: Record<number, number> = {};
+  const hiddenRows: number[] = [];
+  for (let r = 1; r <= lastRow; r++) {
+    const row = ws.findRow(r);
+    if (!row) continue;
+    if (row.hidden) hiddenRows.push(r);
+    else if (row.height) rowHeights[r] = Math.round((row.height * 4) / 3);
+  }
+  const merges: SheetFormat["merges"] = [];
+  for (const m of ((ws.model as { merges?: string[] }).merges ?? []).slice(0, 500)) {
+    const [a, b] = m.split(":");
+    const pa = parseAddr(a);
+    const pb = parseAddr(b ?? a);
+    if (pa && pb && pa.r <= lastRow) merges.push([pa.r, pa.c, pb.r, pb.c]);
+  }
+  return { version: FORMAT_VERSION, styles, cellStyle, colWidths, rowHeights, merges, hiddenCols, hiddenRows };
+}
+
+function parseAddr(a: string) {
+  const m = a.match(/^\$?([A-Z]+)\$?(\d+)$/i);
+  if (!m) return null;
+  const c = m[1].toUpperCase().split("").reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  return { r: Number(m[2]), c };
+}
+
+/** Re-read just the formatting of an already-imported workbook (snapshots saved before formatting was captured). */
+export async function readFormats(buffer: ArrayBuffer): Promise<Record<string, SheetFormat>> {
+  const ExcelJS = await loadExcel();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const palette = themePalette(wb);
+  const out: Record<string, SheetFormat> = {};
+  wb.eachSheet((ws) => {
+    let maxR = 0;
+    let maxC = 0;
+    ws.eachRow({ includeEmpty: false }, (row, r) => {
+      if (r > MAX_ROWS) return;
+      maxR = r;
+      maxC = Math.max(maxC, Math.min(row.cellCount, MAX_COLS));
+    });
+    out[ws.name] = readFormat(ws, maxR, maxC, palette);
+  });
+  return out;
+}
+
 function parseLoaded(wb: Workbook): ParsedWorkbook {
   const snapshots: SheetSnapshot[] = [];
+  const palette = themePalette(wb);
   wb.eachSheet((ws) => {
     const cells: SheetSnapshot["cells"] = {};
     let maxR = 0;
@@ -165,7 +292,7 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
         maxC = Math.max(maxC, c);
       });
     });
-    snapshots.push({ name: ws.name, rows: maxR, cols: maxC, cells });
+    snapshots.push({ name: ws.name, rows: maxR, cols: maxC, cells, format: readFormat(ws, maxR, maxC, palette) });
   });
   return { snapshots, ...parseSnapshots(snapshots) };
 }
@@ -405,7 +532,7 @@ export function syncGridEdits(contacts: Contact[], snapshots: SheetSnapshot[], b
   const next = parseSnapshots(applyPatches(snapshots, after));
   const byId = new Map(contacts.map((c) => [c.id, c]));
   // Rows already holding someone added from the dashboard (not yet saved into the file).
-  const occupied = new Set(contacts.filter((c) => c.ref && c.source !== "sheet").map((c) => `${c.ref!.sheet}:${c.ref!.row}`));
+  const occupied = new Map(contacts.filter((c) => c.ref && c.source !== "sheet").map((c) => [`${c.ref!.sheet}:${c.ref!.row}`, c]));
   const updates = new Map<string, Partial<Contact>>();
   const added: Contact[] = [];
   const nextIds = new Set<string>();
@@ -413,19 +540,22 @@ export function syncGridEdits(contacts: Contact[], snapshots: SheetSnapshot[], b
   for (const n of next.contacts) {
     nextIds.add(n.id);
     const p = prev.get(n.id);
-    const cur = byId.get(n.id);
+    // Someone added from the dashboard (Add contact, Find people) owns their row, so edits to it update them too.
+    const owner = n.ref ? occupied.get(`${n.ref.sheet}:${n.ref.row}`) : undefined;
+    const cur = byId.get(n.id) ?? owner;
     if (!cur) {
-      if (!p && !(n.ref && occupied.has(`${n.ref.sheet}:${n.ref.row}`))) added.push(n);
+      if (!p) added.push(n);
       continue;
     }
+    if (cur === owner && !p) continue; // the row just got its first cells from the dashboard itself; nothing typed yet
     const patch: Partial<Contact> = {};
     for (const f of GRID_FIELDS) {
       if ((p?.[f] ?? "") !== (n[f] ?? "")) (patch as Record<string, unknown>)[f] = n[f];
     }
     if ("email" in patch) patch.emailSource = n.email ? "sheet" : undefined;
     if ("sheetStatus" in patch) patch.status = n.status;
-    if (JSON.stringify(cur.ref) !== JSON.stringify(n.ref)) patch.ref = n.ref;
-    if (Object.keys(patch).length) updates.set(n.id, patch);
+    if (cur !== owner && JSON.stringify(cur.ref) !== JSON.stringify(n.ref)) patch.ref = n.ref;
+    if (Object.keys(patch).length) updates.set(cur.id, { ...updates.get(cur.id), ...patch });
   }
 
   // A row whose name was cleared: drop the contact unless the dashboard holds work for it.

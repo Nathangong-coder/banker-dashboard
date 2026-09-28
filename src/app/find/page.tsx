@@ -12,7 +12,7 @@ import { chunk, cn, guessDomain, linkedinSlug } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, PageHeader, Progress, Textarea, toast } from "@/components/ui";
 import { aiReady, hasKey } from "@/lib/keys";
 import { DEFAULT_QUERIES, queryWordCount } from "@/lib/defaults";
-import { bookmarkletHref, guessBank, linkedinSearchUrl, parseCapture } from "@/lib/linkedinCapture";
+import { bookmarkletHref, captureIsProfile, guessBank, linkedinSearchUrl, parseCapture } from "@/lib/linkedinCapture";
 import { canonBank } from "@/lib/banks";
 
 type Verdict = {
@@ -142,6 +142,10 @@ function FindInner() {
   useEffect(() => {
     if (importedHash.current || !window.location.hash.startsWith("#li=")) return;
     importedHash.current = true;
+    if (captureIsProfile(window.location.hash)) {
+      window.location.replace(`/prep${window.location.hash}`);
+      return;
+    }
     const incoming = parseCapture(window.location.hash, bankUniverse, banks.length === 1 ? banks[0] : undefined);
     history.replaceState(null, "", window.location.pathname + window.location.search);
     const current = useStore.getState().prospects;

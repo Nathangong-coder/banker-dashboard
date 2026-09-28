@@ -79,7 +79,31 @@ export interface Contact {
   snoozeUntil?: string;
   /** Last time Gmail was searched for this person (throttles name lookups). */
   gmailCheckedAt?: string;
+  /**
+   * Their LinkedIn profile as the user saw it: captured by the bookmarklet from the page the user had open, or pasted.
+   * Never fetched by the app itself.
+   */
+  profile?: { text: string; source: "linkedin" | "paste"; capturedAt: string };
+  /** Coffee chat prep generated for this person (see app/prep). */
+  prep?: CoffeePrep;
   history: HistoryEvent[];
+}
+
+export interface CoffeePrep {
+  generatedAt: string;
+  /** 3–4 sentence who-they-are, from the facts given. */
+  brief: string;
+  /** Roles in order, most recent first (only from the profile text). */
+  path: { role: string; org: string; when: string }[];
+  commonGround: string[];
+  /** The user's 30-second intro, angled at this person. */
+  intro: string;
+  tailored: { question: string; why: string }[];
+  /** Public web results the AI saw (title + link), for checking its claims. */
+  sources: { title: string; link: string }[];
+  /** Indexes of questions ticked off during the call: "g0", "t2"… */
+  asked?: string[];
+  notes?: string;
 }
 
 export type BankStatus = "active" | "paused" | "moved_on" | "applied" | "offer";
@@ -165,6 +189,8 @@ export interface Settings {
   };
   /** How drafts look in Gmail. */
   emailStyle: { font: EmailFont };
+  /** Coffee chat prep: the general questions that work for anyone. */
+  prep: { generalQuestions: string[] };
 }
 
 export interface Prospect {
@@ -202,6 +228,39 @@ export interface SheetSnapshot {
   rows: number;
   cols: number;
   cells: Record<string, { v: string; link?: string }>; // key "r:c" (1-based)
+  /** How the tab looks in Excel, so the grid can match it. Missing on snapshots from before formatting was read. */
+  format?: SheetFormat;
+}
+
+/** Cell look, CSS-ready. Colors are "#rrggbb". */
+export interface CellStyle {
+  bg?: string;
+  fg?: string;
+  b?: 1;
+  i?: 1;
+  u?: 1;
+  /** Font size in points. */
+  sz?: number;
+  al?: "left" | "center" | "right";
+  va?: "top" | "middle" | "bottom";
+  wrap?: 1;
+  /** Borders present: any of "t", "r", "b", "l", with a color. */
+  bd?: { sides: string; color: string };
+}
+
+export interface SheetFormat {
+  /** Bump when the reader changes, so older snapshots get re-read. */
+  version: number;
+  /** Distinct styles; `cellStyle` points into this list. */
+  styles: CellStyle[];
+  cellStyle: Record<string, number>;
+  /** Column widths and row heights in CSS px (only where set). */
+  colWidths: Record<number, number>;
+  rowHeights: Record<number, number>;
+  /** Merged ranges as [top, left, bottom, right] (1-based, inclusive). */
+  merges: [number, number, number, number][];
+  hiddenCols: number[];
+  hiddenRows: number[];
 }
 
 export type VaultService = "apollo" | "hunter" | "serper" | "brave" | "ai";

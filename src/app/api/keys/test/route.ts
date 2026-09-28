@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { createGateway } from "@ai-sdk/gateway";
 import { z } from "zod";
-import { makeModel, PROVIDERS } from "@/lib/server/ai";
+import { makeModel, PROVIDERS, classifyAiError } from "@/lib/server/ai";
 import { HttpError, assertPublicHttps, errorResponse } from "@/lib/server/http";
 import type { AiProvider } from "@/lib/types";
 
@@ -173,7 +173,12 @@ export async function POST(req: Request) {
             await generateText({ model: makeModel(b.provider, b.key.trim(), b.model, baseURL), prompt: "Reply OK", maxOutputTokens: 5 });
             result = { ...result, note: `${b.model} responds` };
           } catch (e) {
-            result = bad(`${b.model} failed: ${(e as Error).message.slice(0, 200)}`);
+            // Busy or out of quota still proves the key and model id are real; the chain will rest it until it's back.
+            const why = classifyAiError(e);
+            result =
+              why.kind === "busy" || why.kind === "daily" || why.kind === "rate"
+                ? { ...result, note: `${b.model} is valid but ${why.text} right now; it'll be used once it's back` }
+                : bad(`${b.model} failed: ${(e as Error).message.slice(0, 200)}`);
           }
         }
         break;

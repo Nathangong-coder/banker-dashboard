@@ -76,6 +76,14 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   before and after the edit and applies only the difference to contacts. A name typed into a contact table adds a contact, and later cell edits update it.
   Clearing the name removes the contact only if the dashboard holds no work for it. The list view's "Add contact" (`components/AddContact.tsx`
   → `actions.ts#addManualContact`) creates a `source: "manual"` contact in an `allocateRow` slot.
+- **Formatting:** `readFormat` stores per tab `SheetSnapshot.format`: deduped cell styles (fill, font color, bold/italic/underline, size,
+  alignment, wrap, borders; theme colors resolved from the workbook theme XML + tint), column widths / row heights in px, merges, and
+  hidden rows/cols. SheetGrid renders it inline (merges as row/colSpan, off while "Contact rows only" is on). Unsaved cells keep the
+  brass/green highlight on top. Snapshots from before this (`format.version !== FORMAT_VERSION`) are upgraded once in `Shell` from the
+  stored workbook blob (`readFormats`).
+- **Ctrl/Cmd+S** (`WorkbookControls#useSaveShortcut`, mounted in Shell) blocks the browser's "Save page" and saves the workbook in place.
+- Grid edits sync against `derived + manual` patches, so edits to a row that only exists as a pending dashboard write (Add contact /
+  Find people) reach that contact. A non-sheet contact "owns" its row. Drafts shows `comment` (column J, Connection / Comment) as Notes.
 - **Row → contact:** rows the parser can't see as people (no name in a table, or not in a table at all) get a "+" by the row number when
   `draftFromRow` reads a person from them. Outside a table it needs a LinkedIn or an email, since labels like "Bulge Bracket" look like names.
   Clicking opens AddContact pre-filled, with `ref` = that row (the table's columns, or the columns the values were found in). On the owner's
@@ -109,6 +117,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   missing-model errors (`shouldTryNextModel`) moves to the next model. SDK retries are off (`maxRetries: 0`) except on the last option, so
   an exhausted model costs one round trip. `aiJson` sets an `x-ai-fallback` response header, which `callApi`
   turns into an `ai-fallback` window event, and Shell toasts it once per model.
+- **Rotation (`withAi` + `classifyAiError`):** daily / rate / bad key → next key of the same model; busy (503, "high demand",
+  overloaded, network) → rest that model on every key for 2 min and go to the next model; unknown model → next model; anything else (bad
+  request, schema) stops, since another model won't fix the prompt. `unwrap` digs the provider error out of AI SDK RetryError/cause. The
+  server reports skips in `x-ai-skipped` ([{model, reason}]), and Shell toasts "X busy (high demand). Answered by Y instead." If everything
+  fails, the error lists every model and why. The key test in Settings treats busy/quota as "valid, resting" so backups can still be added.
 - **Quota cooldowns:** on a 429/quota error, `cooldownUntil` picks when to retry that model+key (Gemini "PerDay" → next midnight PT, else the
   "retry in Ns" hint). The server echoes vault key ids (never keys) in `x-ai-exhausted` (also on errors, via `aiErrorResponse`). `callApi` stores
   them in `state.aiCooldowns`, and `keys.ts#aiHeader` leaves resting model+keys out of the chain (the full chain if everything is resting).
@@ -134,6 +147,17 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   → `parseTemplateBlocks` (greeting line = email start, the line above = subject, ALL-CAPS blanks → placeholders, NAME resolved by position,
   unknown caps → flagged `[[AI: …]]`) → optional `api/templates/organize` AI pass, whose edits are **discarded unless `sameWording` holds** →
   review modal (`components/TemplateImport.tsx`) → upsert by template name. Google Doc links: `api/templates/gdoc` (docs.google.com only).
+
+## Coffee chat prep (`app/prep`, `app/api/prep`)
+
+- Pick a contact (replied/call-scheduled first) → "Prep me" sends the record, their LinkedIn profile text (`contact.profile`), the
+  owner's profile, their last draft, and optionally web results (`lib/server/search.ts#webSearch`, Serper→Brave, `-site:linkedin.com`)
+  to the AI. It returns `CoffeePrep`: brief, career path, common ground, a 30-second intro, and 3–5 tailored questions, saved on the contact
+  with tick-off state and call notes. General questions are `settings.prep.generalQuestions` (editable on the page, defaults in `defaults.ts`).
+- **Profile source = the user's own view only.** The bookmarklet on a single `/in/` page opens `/prep#li=` (search pages still go to
+  `/find`, and old bookmarks that send a profile to /find are forwarded). A paste box is the other option. The owner asked to automate a
+  backup LinkedIn account. That was declined: logged-in automation is against LinkedIn's terms and gets accounts banned, and the official
+  API doesn't expose other members' profiles.
 
 ## Finding people (`app/api/prospect/search`, `src/lib/linkedinCapture.ts`)
 
