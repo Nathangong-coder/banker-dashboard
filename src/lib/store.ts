@@ -17,10 +17,12 @@ import type {
   Template,
   WorkbookMeta,
 } from "./types";
-import { syncGridEdits, type ContactTable, type Patches } from "./workbook";
+import { applyPatches, contactPatches, hasDashboardWork, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
+import { contactId } from "./util";
 import { splitLocationTeam } from "./locationTeam";
 import { DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_QUERIES_V1 } from "./defaults";
 import type { TargetBank } from "./banks";
+import type { DeskTarget } from "./desks";
 
 const idbStorage: StateStorage = {
   getItem: async (k) => (await idbGet<string>(k)) ?? null,
@@ -60,10 +62,13 @@ interface State {
   /** Firms found on target-list tabs of the workbook. */
   targets: TargetBank[];
   /** Coverage page: banks the user hid, added by hand, and whether to include the starter IB list. */
-  coverage: { hidden: string[]; added: TargetBank[]; includeStarter: boolean };
+  /** Coverage page: banks hidden / added by hand, the starter IB list toggle, and the recruiting plan (desks to cover). */
+  coverage: { hidden: string[]; added: TargetBank[]; includeStarter: boolean; plan?: DeskTarget[] };
   lastGmailSync?: string;
   /** AI model+key pairs out of quota, skipped until the time given (see keys.ts#aiHeader). */
   aiCooldowns: Record<string, string>;
+  /** Grid undo history (this session only, not persisted). */
+  gridUndo: GridState[];
 
   setSettings: (fn: (s: Settings) => Settings) => void;
   importWorkbook: (args: {
@@ -83,6 +88,10 @@ interface State {
   setCell: (sheet: string, addr: string, v: string) => Contact[];
   /** Several manual cell edits at once (same live contact sync as setCell). */
   applyCellEdits: (edits: Patches) => Contact[];
+  /** Excel-style delete (shift up) / insert (shift down) of rows inside a contact table. */
+  shiftRows: (sheet: string, row: number, count: number, mode: "delete" | "insert") => { error?: string; removed: string[]; detached: string[] };
+  /** Undo the last grid change (cell edits, clears, pastes, row deletes/inserts). */
+  undoGrid: () => boolean;
   upsertTemplate: (t: Template) => void;
   removeTemplate: (id: string) => void;
   upsertBank: (b: BankMeta) => void;
@@ -98,6 +107,9 @@ interface State {
 }
 
 const now = () => new Date().toISOString();
+
+type GridState = Pick<State, "patches" | "contacts" | "tables" | "banks">;
+const UNDO_LIMIT = 50;
 
 /** Apply a status transition, stamping the dates follow-up logic depends on. */
 function transition(c: Contact, status: Status, note?: string): Contact {
@@ -118,7 +130,12 @@ function transition(c: Contact, status: Status, note?: string): Contact {
 
 export const useStore = create<State>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      const pushUndo = () => {
+        const { patches, contacts, tables, banks, gridUndo } = get();
+        set({ gridUndo: [...gridUndo.slice(-(UNDO_LIMIT - 1)), { patches, contacts, tables, banks }] });
+      };
+      return {
       settings: DEFAULT_SETTINGS,
       contacts: [],
       templates: DEFAULT_TEMPLATES,
@@ -131,6 +148,7 @@ export const useStore = create<State>()(
       targets: [],
       coverage: { hidden: [], added: [], includeStarter: false },
       aiCooldowns: {},
+      gridUndo: [],
 
       setSettings: (fn) => set({ settings: fn(get().settings) }),
 
@@ -183,7 +201,7 @@ export const useStore = create<State>()(
           banks[k] ??= { key: k, name: c.bank, region: c.region, status: "active" };
         }
         blobs.setSnapshots(snapshots);
-        set({ contacts: [...merged, ...kept], tables, snapshots, workbook: meta, banks, patches: {}, targets: targets ?? get().targets });
+        set({ contacts: [...merged, ...kept], tables, snapshots, workbook: meta, banks, patches: {}, targets: targets ?? get().targets, gridUndo: [] });
         return { added, updated };
       },
 
@@ -228,6 +246,7 @@ export const useStore = create<State>()(
       setCell: (sheet, addr, v) => get().applyCellEdits({ [sheet]: { [addr]: { v } } }),
 
       applyCellEdits: (edits) => {
+        pushUndo();
         const before = get().patches;
         const patches = { ...before };
         for (const [sheet, cells] of Object.entries(edits)) patches[sheet] = { ...(before[sheet] ?? {}), ...cells };
@@ -240,6 +259,52 @@ export const useStore = create<State>()(
         }
         set({ patches, contacts: synced.contacts, tables: get().snapshots.length ? synced.tables : get().tables, banks });
         return synced.added;
+      },
+
+      shiftRows: (sheet, row, count, mode) => {
+        const s = get();
+        const snapshot = s.snapshots.find((x) => x.name === sheet);
+        if (!snapshot) return { error: "This tab isn't in the loaded spreadsheet.", removed: [], detached: [] };
+        const res = shiftTableRows({ snapshot, sheetPatches: s.patches[sheet] ?? {}, tables: s.tables, row, count, mode });
+        if ("error" in res) return { error: res.error, removed: [], detached: [] };
+        pushUndo();
+        const removed: string[] = [];
+        const detached: string[] = [];
+        const contacts: Contact[] = [];
+        for (const c of s.contacts) {
+          if (c.ref?.sheet !== sheet) {
+            contacts.push(c);
+            continue;
+          }
+          const to = res.moveRow(c.ref.row);
+          if (to === null) {
+            // The row is gone. Keep people the dashboard has history for, as dashboard-only contacts.
+            if (hasDashboardWork(c)) {
+              detached.push(c.name);
+              contacts.push({ ...c, ref: undefined, source: "manual", id: c.source === "sheet" ? `m_${c.id}` : c.id });
+            } else removed.push(c.name);
+            continue;
+          }
+          if (to === c.ref.row) contacts.push(c);
+          // Sheet ids are "s:<tab>:<row>"; renumber so a re-import after saving still matches this person.
+          else contacts.push({ ...c, ref: { ...c.ref, row: to }, id: c.id === contactId(sheet, c.ref.row) ? contactId(sheet, to) : c.id });
+        }
+        // Cells a moved contact writes itself (email, status…) come from the contact, not from the shifted copy.
+        const sheetPatches = { ...res.patches };
+        const derived = contactPatches(contacts.filter((c) => c.ref?.sheet === sheet), s.snapshots)[sheet] ?? {};
+        for (const k of Object.keys(derived)) delete sheetPatches[k];
+        const patches = { ...s.patches, [sheet]: sheetPatches };
+        const tables = parseSnapshots(applyPatches(s.snapshots, patches)).tables;
+        set({ patches, contacts, tables });
+        return { removed, detached };
+      },
+
+      undoGrid: () => {
+        const stack = get().gridUndo;
+        const prev = stack[stack.length - 1];
+        if (!prev) return false;
+        set({ ...prev, gridUndo: stack.slice(0, -1) });
+        return true;
       },
 
       upsertTemplate: (t) => {
@@ -289,14 +354,15 @@ export const useStore = create<State>()(
       },
 
       replaceAll: (data) => set(data),
-    }),
+      };
+    },
     {
       name: "banker-dashboard",
       version: 4,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      partialize: ({ snapshots, ...rest }) => rest,
+      partialize: ({ snapshots, gridUndo, ...rest }) => rest,
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<State>;
         return {

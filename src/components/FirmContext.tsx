@@ -5,6 +5,8 @@ import { ChevronRight, ExternalLink, PanelRightClose, PanelRightOpen, Table2 } f
 import { useStore } from "@/lib/store";
 import { buildCoverage, type CoverageRow } from "@/lib/coverage";
 import { canonBank } from "@/lib/banks";
+import { DESK_STATE_LABEL, deskKey, deskLabel, deskOf, targetLabel } from "@/lib/desks";
+import { LIVE_STATUSES } from "@/lib/followups";
 import type { Contact } from "@/lib/types";
 import { cn, fmtDate, relDays } from "@/lib/util";
 import { Badge, StatusBadge } from "./ui";
@@ -40,6 +42,14 @@ export function FirmSummary({ r, highlight, compact }: { r: CoverageRow; highlig
     .sort((a, b) => (b.lastTouchAt ?? b.sentAt ?? "").localeCompare(a.lastTouchAt ?? a.sentAt ?? ""));
   const notYet = r.contacts.filter((c) => !contacted.includes(c));
   const [label, tone] = BUCKET_LABEL[r.bucket];
+  // Live people per desk (office + team): the cap applies to each desk separately.
+  const desks = [...r.contacts.filter((c) => LIVE_STATUSES.has(c.status)).reduce((m, c) => {
+    const k = deskKey(c);
+    const d = deskOf(c);
+    m.set(k, { label: deskLabel(d.region, d.team), live: (m.get(k)?.live ?? 0) + 1 });
+    return m;
+  }, new Map<string, { label: string; live: number }>()).values()];
+  const full = desks.filter((d) => d.live >= cap);
 
   return (
     <div className="space-y-2">
@@ -47,17 +57,34 @@ export function FirmSummary({ r, highlight, compact }: { r: CoverageRow; highlig
         <span className="font-medium">{r.name}</span>
         {r.tier && <span className="text-[11px] text-muted">{r.tier}</span>}
         <Badge tone={tone}>{label}</Badge>
-        <Badge tone={r.live >= cap ? "red" : "neutral"}>
-          <span className="num">
-            {r.live}/{cap} live
-          </span>
-        </Badge>
+{desks.length === 0 && (
+          <Badge tone="neutral">
+            <span className="num">0 live</span>
+          </Badge>
+        )}
+        {desks.map((d) => (
+          <Badge key={d.label} tone={d.live >= cap ? "red" : "neutral"}>
+            <span className="num">
+              {d.label} {d.live}/{cap}
+            </span>
+          </Badge>
+        ))}
         {r.replied > 0 && <Badge tone="green">{r.replied} replied</Badge>}
       </div>
-      {r.live >= cap && (
+      {full.length > 0 && (
         <p className="text-[11.5px] text-red">
-          At your limit of {cap} live people here. Wait for a reply or move someone on before emailing more.
+          {full.map((d) => d.label).join(", ")} {full.length > 1 ? "are" : "is"} at your limit of {cap} live people. Other teams and offices here are
+          fine to email.
         </p>
+      )}
+      {r.desks.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {r.desks.map((d) => (
+            <Badge key={d.target.id} tone={d.state === "replied" || d.state === "emailed" ? "green" : d.state === "ready" ? "amber" : "neutral"}>
+              {targetLabel(d.target)}: {DESK_STATE_LABEL[d.state]}
+            </Badge>
+          ))}
+        </div>
       )}
 
       <div>
@@ -80,7 +107,7 @@ export function FirmSummary({ r, highlight, compact }: { r: CoverageRow; highlig
                   </span>
                 </div>
                 <div className="truncate text-[11.5px] text-muted">
-                  {[c.position, c.region !== "Other" ? c.region : "", touchDate(c)].filter(Boolean).join(" · ")}
+                  {[c.position, [c.region !== "Other" ? c.region : "", c.team].filter(Boolean).join(" "), touchDate(c)].filter(Boolean).join(" · ")}
                   {c.followUps > 0 && ` · ${c.followUps} follow-up${c.followUps > 1 ? "s" : ""}`}
                 </div>
                 {!compact && c.comment && <div className="truncate text-[11.5px] text-ink-2" title={c.comment}>“{c.comment}”</div>}

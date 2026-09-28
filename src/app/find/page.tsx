@@ -50,6 +50,11 @@ function FindInner() {
 
   const knownBanks = useMemo(() => [...new Set(contacts.map((c) => c.bank))].sort(), [contacts]);
   const [banks, setBanks] = useState<string[]>(() => (params.get("banks") ?? "").split("|").map((b) => b.trim()).filter(Boolean));
+  // Arriving from the coverage page's desk checklist: "NY|Generalist" = look for that office + team.
+  const [desk, setDesk] = useState<{ location: string; team: string } | null>(() => {
+    const [location, team] = (params.get("desk") ?? "").split("|").map((x) => x.trim());
+    return location && team ? { location, team } : null;
+  });
   const [custom, setCustom] = useState("");
   const [useApollo, setUseApollo] = useState(false);
   const [apolloMax, setApolloMax] = useState(10);
@@ -95,7 +100,9 @@ function FindInner() {
         const { results } = await callApi<{ results: Verdict[] }>(
           "/api/prospect/filter",
           {
-            criteria: settings.prospect.criteria,
+            criteria: desk
+              ? `${settings.prospect.criteria}\n\nFOR THIS SEARCH: prioritize bankers on the ${desk.team} team in ${desk.location}. Anyone clearly on another team or office is at best "maybe".`
+              : settings.prospect.criteria,
             candidates: b.map(({ id, name, bank, title, snippet }) => ({ id, name, bank, title, snippet })),
           },
           settings,
@@ -219,6 +226,15 @@ function FindInner() {
         title="Find people"
         sub="Searches public LinkedIn profiles through Google, then AI keeps only the bankers who match your criteria. Add the good ones to your sheet with one click."
       />
+
+      {desk && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-brass/40 bg-brass-soft px-3 py-2 text-[12.5px] text-[#7d5d1f]">
+          Looking for <b>{desk.location} · {desk.team}</b> bankers (from your recruiting plan). The AI screen will favor them.
+          <button className="ml-auto rounded p-0.5 hover:bg-white/50" aria-label="Stop focusing on this desk" onClick={() => setDesk(null)}>
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
         <div className="space-y-6">

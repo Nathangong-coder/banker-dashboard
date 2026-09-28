@@ -15,7 +15,11 @@ export interface Filters {
   region: string;
   status: string;
   email: string;
+  /** "" = any, NO_TEAM = team not set, else a team name. */
+  team?: string;
 }
+
+export const NO_TEAM = "__none";
 
 export function useContactFilter(contacts: Contact[], f: Filters) {
   return useMemo(() => {
@@ -26,13 +30,15 @@ export function useContactFilter(contacts: Contact[], f: Filters) {
         (!f.bank || c.bank === f.bank) &&
         (!f.region || c.region === f.region) &&
         (!f.status || c.status === f.status) &&
-        (!f.email || (f.email === "noemail" ? !c.email : !!c.email)),
+        (!f.email || (f.email === "noemail" ? !c.email : !!c.email)) &&
+        (!f.team || (f.team === NO_TEAM ? !c.team : (c.team ?? "").toLowerCase() === f.team.toLowerCase())),
     );
   }, [contacts, f]);
 }
 
 export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: Filters) => void; contacts: Contact[]; extra?: ReactNode }) {
   const banks = useMemo(() => [...new Set(contacts.map((c) => c.bank))].sort(), [contacts]);
+  const teams = useMemo(() => [...new Set(contacts.map((c) => c.team).filter((t): t is string => !!t))].sort(), [contacts]);
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
       <div className="relative w-56">
@@ -50,6 +56,13 @@ export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: 
         <option value="SF">SF</option>
         <option value="NY">NY</option>
         <option value="Other">Other</option>
+      </Select>
+      <Select className="h-8" value={f.team ?? ""} onChange={(e) => setF({ ...f, team: e.target.value })} aria-label="Team">
+        <option value="">Any team</option>
+        <option value={NO_TEAM}>Team not set</option>
+        {teams.map((t) => (
+          <option key={t}>{t}</option>
+        ))}
       </Select>
       <Select className="h-8" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} aria-label="Status">
         <option value="">Any status</option>
@@ -82,7 +95,7 @@ export function ContactsTable({
   initialBank?: string;
 }) {
   const contacts = useStore((s) => s.contacts);
-  const [f, setF] = useState<Filters>({ q: "", bank: initialBank ?? "", region: "", status: "", email: initialFilter === "noemail" ? "noemail" : "" });
+  const [f, setF] = useState<Filters>({ q: "", bank: initialBank ?? "", region: "", status: "", email: initialFilter === "noemail" ? "noemail" : "", team: initialFilter === "noteam" ? NO_TEAM : "" });
   const [open, setOpen] = useState<Contact | null>(null);
   const [adding, setAdding] = useState(false);
   const rows = useContactFilter(contacts, f);
@@ -156,7 +169,7 @@ export function ContactsTable({
                     </div>
                   </td>
                   <td className="px-2 py-2 whitespace-nowrap">
-                    {c.bank} <span className="text-[11px] text-muted">{c.region !== "Other" ? c.region : ""}</span>
+                    {c.bank} <span className="text-[11px] text-muted">{[c.region !== "Other" ? c.region : "", c.team].filter(Boolean).join(" · ")}</span>
                   </td>
                   <td className="px-2 py-2 text-ink-2">{c.position}</td>
                   <td className="px-2 py-2">

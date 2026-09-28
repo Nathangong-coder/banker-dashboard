@@ -9,6 +9,7 @@ import { STARTER_TARGETS } from "@/lib/banks";
 import { parseWorkbook } from "@/lib/workbook";
 import { DAY, cn, relDays } from "@/lib/util";
 import { Badge, Button, Card, Checkbox, Empty, Input, PageHeader, Select } from "@/components/ui";
+import { DeskChecklist, DeskChips, RecruitingPlan } from "@/components/RecruitingPlan";
 
 const COLS: { bucket: Exclude<Bucket, "hidden">; title: string; sub: string; tone: string; dot: string }[] = [
   { bucket: "reached", title: "Reached out", sub: "At least one email sent", tone: "text-green", dot: "bg-green" },
@@ -62,6 +63,8 @@ export default function CoveragePage() {
     return { thisWeek: outreachBetween(contacts, weekStart, now + DAY), lastWeek: outreachBetween(contacts, weekStart - 7 * DAY, weekStart) };
   }, [contacts, now]);
   const repliedBanks = visible.filter((r) => r.replied > 0).length;
+  const deskTotal = visible.reduce((n, r) => n + r.desks.length, 0);
+  const deskDone = visible.reduce((n, r) => n + r.desks.filter((d) => d.state === "emailed" || d.state === "replied").length, 0);
   const quiet = visible.filter((r) => r.quiet);
   const cold = by("cold");
   const ready = by("ready");
@@ -92,6 +95,8 @@ export default function CoveragePage() {
         sub="Every bank you could be recruiting at, sorted by how far along you are. Emptying the cold column is the job."
       />
 
+      <RecruitingPlan rows={rows} />
+
       {/* Scoreboard */}
       <Card className="mb-5 grid gap-0 md:grid-cols-[1.4fr_1fr]">
         <div className="border-line p-5 md:border-r">
@@ -110,6 +115,11 @@ export default function CoveragePage() {
             <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-brass" /> {counts.ready} ready to email</span>
             <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-line-2" /> {counts.cold} cold</span>
           </div>
+          {deskTotal > 0 && (
+            <p className="mt-2 text-[12.5px] text-ink-2">
+              <b className="num">{deskDone}</b> of <span className="num">{deskTotal}</span> desks in your plan emailed (a desk = one office + team at one bank).
+            </p>
+          )}
         </div>
         <div className="grid grid-cols-2 divide-x divide-line">
           <div className="p-5">
@@ -158,6 +168,8 @@ export default function CoveragePage() {
           <div className="rounded-lg border border-green/30 bg-green-soft p-4 text-[13px] text-green md:col-span-3">Every bank on your list has been reached. 🎉</div>
         )}
       </div>
+
+      <DeskChecklist rows={rows} />
 
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -303,7 +315,8 @@ function BankCard({ r, onHide }: { r: CoverageRow; onHide: () => void }) {
       : { href: `/sheet?view=contacts&filter=noemail&bank=${enc(r.name)}`, label: "Find their emails" };
   } else {
     detail = <span className="text-muted">No contacts yet</span>;
-    action = { href: `/find?banks=${enc(r.name)}`, label: "Find people" };
+    const desk = r.desks.find((d) => d.state === "empty")?.target;
+    action = { href: `/find?banks=${enc(r.name)}${desk ? `&desk=${enc(`${desk.location}|${desk.team}`)}` : ""}`, label: desk ? `Find ${desk.location} ${desk.team} people` : "Find people" };
   }
 
   return (
@@ -320,6 +333,7 @@ function BankCard({ r, onHide }: { r: CoverageRow; onHide: () => void }) {
             ))}
           </div>
           <div className="mt-0.5 text-[12px] text-ink-2">{detail}</div>
+          <DeskChips r={r} />
         </div>
         <button onClick={onHide} className="rounded p-1 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[#efede5] hover:text-ink focus:opacity-100" title="Not recruiting here: hide" aria-label={`Hide ${r.name}`}>
           <EyeOff className="size-3.5" />

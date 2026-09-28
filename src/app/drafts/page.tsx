@@ -10,7 +10,7 @@ import { connectGmail, createDraft } from "@/lib/gmail";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type Contact, type Template } from "@/lib/types";
 import { chunk, cn, pool, uid } from "@/lib/util";
-import { overCap } from "@/lib/followups";
+import { overCapDesks } from "@/lib/desks";
 import { bodyToPlain, normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
@@ -92,10 +92,11 @@ function DraftsInner() {
   const generate = async () => {
     const list = chosen.filter((c) => c.templateId || initialTemplates[0]);
     if (!list.length) return toast.err("Select contacts first.");
-    const over = overCap(contacts, list, settings.followUp.livePerBank);
+    // The cap is per desk (bank + office + team): SF Tech and NY Generalist at the same bank don't crowd each other.
+    const over = overCapDesks(contacts, list, settings.followUp.livePerBank);
     if (over.length)
       toast.info(
-        `Heads up: this puts ${over.map(([b, n]) => `${b} at ${n}`).join(", ")} live contacts (your cap is ${settings.followUp.livePerBank} per bank).`,
+        `Heads up: this puts ${over.map((d) => `${d.bank} ${d.label} at ${d.live}`).join(", ")} live contacts (your cap is ${settings.followUp.livePerBank} per team).`,
       );
     if (profileMissing) toast.info("Tip: fill in your name and school in Settings so {{my_*}} placeholders work.");
     setPhase({ label: "Writing drafts", done: 0, total: list.length });

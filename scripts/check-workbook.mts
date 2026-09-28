@@ -6,7 +6,7 @@
  */
 import fs from "node:fs";
 import ExcelJS from "exceljs";
-import { allocateRow, applyPatches, buildWorkbook, contactPatches, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, splitLocationTeamPatches, syncGridEdits, type Patches } from "../src/lib/workbook";
+import { allocateRow, applyPatches, buildWorkbook, contactPatches, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, shiftTableRows, splitLocationTeamPatches, syncGridEdits, type Patches } from "../src/lib/workbook";
 import { locationTeamOptions } from "../src/lib/locationTeam";
 
 const file = process.argv[2];
@@ -99,3 +99,52 @@ if (diff.length || reread.contacts.length !== p.contacts.length || !dv?.formulae
   process.exit(1);
 }
 console.log("location/team split OK");
+
+// Excel-style row delete/insert inside a contact table: people below move, banners/other tables and "#" stay put.
+{
+  const info = p.tables.find((t) => t.sheet === "MS" && t.cols.linkedin) ?? p.tables.find((t) => t.cols.linkedin && t.cols.name)!;
+  const conv = p.tables.find((t) => t.sheet === info.sheet && t !== info);
+  const snap = p.snapshots.find((s) => s.name === info.sheet)!;
+  const people = p.contacts.filter((c) => c.ref?.sheet === info.sheet && c.ref.row > info.headerRow).sort((a, b) => a.ref!.row - b.ref!.row);
+  const first = people[0];
+  const del = shiftTableRows({ snapshot: snap, sheetPatches: {}, tables: p.tables, row: first.ref!.row, count: 1, mode: "delete" });
+  if ("error" in del) throw new Error(del.error);
+  const after = parseSnapshots(applyPatches(p.snapshots, { [info.sheet]: del.patches }));
+  const namesAt = (list: typeof p.contacts) => list.filter((c) => c.ref?.sheet === info.sheet && c.ref.row > info.headerRow).map((c) => `${c.ref!.row}:${c.name}`).sort();
+  const expected = people.slice(1).map((c) => `${del.moveRow(c.ref!.row)}:${c.name}`).sort();
+  const got = namesAt(after.contacts).filter((x) => Number(x.split(":")[0]) > info.headerRow);
+  const numberColIntact = Object.keys(del.patches).every((k) => !k.endsWith(":1"));
+  const header = (x: typeof p.snapshots) => x.find((s) => s.name === info.sheet)!.cells[`${info.headerRow}:${info.cols.name}`]?.v;
+  console.log(`delete row ${first.ref!.row} (${first.name}) on ${info.sheet}: ${people.length} -> ${got.length} people, # column untouched=${numberColIntact}`);
+  if (JSON.stringify(expected) !== JSON.stringify(got) || !numberColIntact || header(applyPatches(p.snapshots, { [info.sheet]: del.patches })) !== header(p.snapshots)) {
+    console.error("ROW DELETE FAILED", expected.slice(0, 3), got.slice(0, 3));
+    process.exit(1);
+  }
+  // Deleting in the Conversation table must stop at the "Contact | Information" banner.
+  if (conv) {
+    const convDel = shiftTableRows({ snapshot: snap, sheetPatches: {}, tables: p.tables, row: conv.headerRow + 1, count: 1, mode: "delete" });
+    const touched = "error" in convDel ? [] : Object.keys(convDel.patches).map((k) => Number(k.split(":")[0]));
+    const maxTouched = Math.max(0, ...touched);
+    console.log(`conversation-table delete touches rows up to ${maxTouched} (next header at ${info.headerRow})`);
+    if (maxTouched >= info.headerRow - 1 && touched.length) {
+      console.error("ROW DELETE CROSSED A SECTION");
+      process.exit(1);
+    }
+  }
+  const ins = shiftTableRows({ snapshot: snap, sheetPatches: {}, tables: p.tables, row: first.ref!.row, count: 1, mode: "insert" });
+  if ("error" in ins) throw new Error(ins.error);
+  const afterIns = parseSnapshots(applyPatches(p.snapshots, { [info.sheet]: ins.patches }));
+  const insGot = namesAt(afterIns.contacts);
+  const insExpected = people.map((c) => `${c.ref!.row + 1}:${c.name}`).sort();
+  if (JSON.stringify(insGot) !== JSON.stringify(insExpected)) {
+    console.error("ROW INSERT FAILED", insExpected.slice(0, 3), insGot.slice(0, 3));
+    process.exit(1);
+  }
+  // And the file written from those patches reads back the same way.
+  const savedDel = await parseWorkbook(await buildWorkbook(ab, { [info.sheet]: del.patches }));
+  if (JSON.stringify(namesAt(savedDel.contacts).filter((x) => Number(x.split(":")[0]) > info.headerRow)) !== JSON.stringify(expected)) {
+    console.error("ROW DELETE SAVE FAILED");
+    process.exit(1);
+  }
+  console.log("row delete/insert OK");
+}

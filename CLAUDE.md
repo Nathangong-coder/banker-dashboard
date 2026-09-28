@@ -80,6 +80,13 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `draftFromRow` reads a person from them. Outside a table it needs a LinkedIn or an email, since labels like "Bulge Bracket" look like names.
   Clicking opens AddContact pre-filled, with `ref` = that row (the table's columns, or the columns the values were found in). On the owner's
   workbook no existing row gets a "+", so keep it that way when loosening the heuristics. The tab bar search matches tab names and bank names (`canonBank`).
+- **Grid (`components/SheetGrid.tsx`) is Excel-like:** click/drag/Shift selection, arrows/Tab/Enter, type-to-edit, a formula bar, Delete clears,
+  copy/cut/paste as TSV (pastes from Excel; one value fills a block), Ctrl+Z (`state.gridUndo`, 50 steps, session-only, reset on import/save),
+  and a right-click row menu. **Row delete/insert (`workbook.ts#shiftTableRows`, `store#shiftRows`) shift values only inside the contact table**
+  (`tableBody` stops at section banners like "Contact | Information"). They leave the "#" column alone, and outside tables rows can only be
+  cleared. The owner's tabs have merged banners but no formulas, and a whole-sheet value shift would break the merges. Moved contacts are
+  renumbered (`s:<tab>:<row>` ids) so a re-import after saving matches. A deleted row's contact is dropped, or kept as `source: "manual"` if it
+  has dashboard work. Cells a moved contact writes itself are removed from the shifted manual patches so derived values win.
 - **Status mapping** (`statusFromSheet` / `STATUS_TO_SHEET`): "Sent" → `sent`. **"Pending" means queued, not sent yet** → `new`
   (confirmed by the owner). A dashboard status is written to the sheet only when it differs from what the sheet already implies.
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
@@ -147,7 +154,13 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Target lists: row style (header "Institution Name" [+ "Institution Type", "#"]; rows need a numeric # and a bank/PE-ish type) or
   column style (≥3 category headers; only `DEFAULT_TIERS` kept). `cleanBankName` strips "(MS) & MS NY)" noise.
 - Workbooks imported before this existed get `targets` backfilled by re-parsing the stored blob on the coverage page.
-- Deep links: `/find?banks=A|B` (pipe-separated), `/drafts?bank=Name`, `/sheet?view=contacts&filter=noemail&bank=Name`.
+- Deep links: `/find?banks=A|B` (pipe-separated, optional `&desk=NY|Tech` to steer the AI screen), `/drafts?bank=Name`,
+  `/sheet?view=contacts&filter=noemail|noteam&bank=Name`.
+- **Recruiting plan** (`coverage.plan`, `src/lib/desks.ts`, `components/RecruitingPlan.tsx`): a checklist of desks (office + team) with a scope of
+  all banks, tiers, or picked firms. `buildCoverage` fills `CoverageRow.desks` via `deskStatus` (replied / emailed / ready / needs_email / empty).
+  SF/NY match `region` and other offices match the location text. "Tech" also matches TMT/Technology. Contacts with no team count toward no desk,
+  and the UI links to the no-team filter. Select the plan with `useStore((s) => s.coverage.plan)` and default outside the selector: `?? []`
+  inside it returns a new array every call, which re-renders forever in zustand v5.
 
 ## Gmail sync (`src/lib/gmailSync.ts`, `components/GmailSyncWidget.tsx`)
 
@@ -169,8 +182,9 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - `nextAction(contact)`: `new` → reach out; `drafted` → send; `sent`/`followed_up` → follow-up #n after `firstAfterDays`/`nextAfterDays`
   from `lastTouchAt ?? sentAt`, until `maxFollowUps`, then "move on?" after `moveOnAfterDays`. `snoozeUntil` pushes the due date later.
   Banks with status paused/moved_on suppress reminders.
-- **Live cap:** the owner keeps at most **2 live people per bank** (`followUp.livePerBank`). "Live" = drafted/sent/followed_up with no
-  reply. The Bank board shows `x/2 live` and suggests the next `new` contact when a slot opens. Drafts warn (but don't block) when over the cap.
+- **Live cap:** the owner keeps at most **2 live people per desk** = bank + region + team (`followUp.livePerBank`, name kept for storage;
+  `desks.ts#liveByDesk/overCapDesks/nextUpByDesk`). SF Tech, NY Tech and NY Generalist at one bank each get their own 2 slots (owner's rule).
+  "Live" = drafted/sent/followed_up with no reply. Drafts warn (but don't block) when a desk goes over.
 - Reminders (`src/lib/reminders.ts`): one digest per day at 9am. Channels are browser Notification (only while the app is open), ntfy,
   Twilio, WhatsApp (CallMeBot, send-now), and .ics export. There is **no server cron**, because the server has no data. A true server-side scheduler would need a DB.
 
@@ -185,7 +199,8 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 ## Status / known gaps (as of 2026-09-24)
 
 - Built and `npm run build` passes. The parser was verified on the owner's workbook (106 contacts, round-trip OK).
-- **Not yet click-tested in a browser** (the browser tool was denied in-session). No live calls have been made with *real* keys.
+- Grid (select, delete/insert row, undo, type-to-contact, paste) and the recruiting plan were click-tested on 2026-09-28 against a synthetic
+  workbook on a separate origin (127.0.0.1 + `next start`, so the owner's IndexedDB at localhost wasn't touched). Other pages have not been click-tested. No live calls have been made with *real* keys.
   Every provider's key test *was* exercised with fake keys: each rejects cleanly, multi-key fallback reports "All N … keys failed", and the SSRF guard blocks private IPs.
   The owner's Google Client ID was confirmed to exist (auth endpoint answered `redirect_uri_mismatch`, not `invalid_client`).
   Things most likely to need fixes on first real use:

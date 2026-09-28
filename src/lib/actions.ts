@@ -85,6 +85,7 @@ export async function saveWorkbook(mode: "in-place" | "download") {
     tables: parsed.tables,
     targets: parsed.targets,
     patches: {},
+    gridUndo: [],
     workbook: { ...cur, sheetNames: parsed.snapshots.map((x) => x.name), lastModified },
   });
   return { name, rebased };

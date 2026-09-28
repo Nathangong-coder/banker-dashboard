@@ -388,6 +388,11 @@ export function applyPatches(snapshots: SheetSnapshot[], patches: Patches): Shee
   return out;
 }
 
+/** The dashboard holds something for this person beyond what the sheet says (outreach, a draft, a found email). */
+export function hasDashboardWork(c: Contact) {
+  return c.status !== "new" || !!c.sentAt || !!c.draft || (!!c.email && c.emailSource !== "sheet");
+}
+
 const GRID_FIELDS = ["name", "firstName", "lastName", "bank", "region", "location", "team", "position", "email", "linkedin", "comment", "sheetStatus"] as const;
 
 /**
@@ -427,7 +432,7 @@ export function syncGridEdits(contacts: Contact[], snapshots: SheetSnapshot[], b
   const removed = new Set(
     [...prev.keys()].filter((id) => {
       const c = byId.get(id);
-      return !nextIds.has(id) && c?.source === "sheet" && c.status === "new" && !c.sentAt && !c.draft && (!c.email || c.emailSource === "sheet");
+      return !nextIds.has(id) && c?.source === "sheet" && !hasDashboardWork(c);
     }),
   );
 
@@ -546,6 +551,91 @@ function listFormula(values: string[]) {
   return `"${items.join(",")}"`;
 }
 
+/**
+ * The body of a contact table: from under the header down to the last person or numbered slot. Stops at a
+ * section banner ("Contact | Information") so row operations never move another table's header.
+ */
+export function tableBody(t: ContactTable, tables: ContactTable[], cell: (r: number, c: number) => string, maxRow: number) {
+  const next = tables.filter((o) => o.sheet === t.sheet && o.headerRow > t.headerRow).map((o) => o.headerRow).sort((a, b) => a - b)[0];
+  const limit = next ? next - 1 : maxRow;
+  const tableCols = [...new Set([...Object.values(t.cols), t.firstNameCol, t.lastNameCol].filter((c): c is number => !!c))];
+  let to = t.headerRow;
+  let end = limit;
+  for (let r = t.headerRow + 1; r <= limit; r++) {
+    const name = t.cols.name ? cell(r, t.cols.name) : "";
+    if (SECTION_LABEL.test(name.trim())) {
+      end = r - 1;
+      break;
+    }
+    if (/^\d+$/.test(cell(r, 1)) || tableCols.some((c) => cell(r, c))) to = r;
+  }
+  // `limit` is how far the table may grow: up to the banner/next header, or unbounded for the last table.
+  return { from: t.headerRow + 1, to, limit: next ? end : Infinity, numberCol: cell(t.headerRow, 1).trim() === "#" ? 1 : undefined };
+}
+
+/**
+ * Excel-style "delete rows (shift up)" / "insert rows (shift down)", limited to the contact table the row is in so
+ * headers, banners and other tables stay put. The "#" numbering column doesn't move. Returns the tab's new manual
+ * patches and where each old row ended up (null = deleted).
+ */
+export function shiftTableRows(args: {
+  snapshot: SheetSnapshot;
+  sheetPatches: Record<string, CellPatch>;
+  tables: ContactTable[];
+  row: number;
+  count: number;
+  mode: "delete" | "insert";
+}): { patches: Record<string, CellPatch>; moveRow: (r: number) => number | null } | { error: string } {
+  const { snapshot, sheetPatches, tables, row, count, mode } = args;
+  const eff = (r: number, c: number): CellPatch | undefined => {
+    const p = sheetPatches[`${r}:${c}`] ?? snapshot.cells[`${r}:${c}`];
+    return p && (p.v || p.link) ? p : undefined;
+  };
+  let maxRow = snapshot.rows;
+  let maxCol = snapshot.cols;
+  for (const k of Object.keys(sheetPatches)) {
+    const [r, c] = k.split(":").map(Number);
+    maxRow = Math.max(maxRow, r);
+    maxCol = Math.max(maxCol, c);
+  }
+  const t = tables.filter((x) => x.sheet === snapshot.name && x.headerRow < row).sort((a, b) => b.headerRow - a.headerRow)[0];
+  if (!t) return { error: "Only rows inside a contact table can be deleted or inserted (other rows can be cleared)." };
+  const body = tableBody(t, tables, (r, c) => eff(r, c)?.v ?? "", maxRow);
+  if (row > body.limit) return { error: "That row is a section banner, not part of the table." };
+
+  const shifted = new Map<number, number | null>();
+  const writes = new Map<number, (c: number) => CellPatch | undefined>();
+  let last = Math.max(body.to, row + (mode === "delete" ? count - 1 : 0));
+  if (mode === "delete") {
+    const n = Math.min(count, last - row + 1);
+    for (let r = row; r <= last; r++) {
+      shifted.set(r, r < row + n ? null : r - n);
+      writes.set(r, (c) => (r + n <= last ? eff(r + n, c) : undefined));
+    }
+  } else {
+    if (last + count > body.limit) return { error: "This table is full up to the next section. Delete a row first, or add people at the bottom of the last table." };
+    last += count;
+    for (let r = last; r >= row; r--) {
+      if (r - count >= row) shifted.set(r - count, r);
+      writes.set(r, (c) => (r - count >= row ? eff(r - count, c) : undefined));
+    }
+  }
+
+  const patches = { ...sheetPatches };
+  for (const [r, value] of writes) {
+    for (let c = 1; c <= maxCol; c++) {
+      if (c === body.numberCol) continue;
+      const k = `${r}:${c}`;
+      const v = value(c);
+      const base = snapshot.cells[k];
+      const same = (v?.v ?? "") === (base?.v ?? "") && (v?.link ?? "") === (base?.link ?? "");
+      if (same) delete patches[k];
+      else patches[k] = v ? { ...v } : { v: "" };
+    }
+  }
+  return { patches, moveRow: (r) => (shifted.has(r) ? shifted.get(r)! : r) };
+}
+
 /** A contact pre-filled from one grid row, for rows the parser didn't turn into a contact on its own. */
 export interface RowDraft {
   name: string;
@@ -638,7 +728,7 @@ export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropd
     for (const [addr, p] of Object.entries(cells)) {
       const [r, c] = addr.split(":").map(Number);
       const cell = ws.getCell(r, c);
-      cell.value = p.link ? { text: p.v, hyperlink: p.link } : p.v;
+      cell.value = p.link ? { text: p.v, hyperlink: p.link } : p.v === "" ? null : p.v;
     }
   }
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;

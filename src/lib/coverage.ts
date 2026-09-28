@@ -3,6 +3,7 @@ import type { ContactTable } from "./workbook";
 import { STARTER_TARGETS, canonBank, type TargetBank } from "./banks";
 import { LIVE_STATUSES, nextAction } from "./followups";
 import { DAY } from "./util";
+import { deskStatus, targetAppliesTo, type DeskStatus, type DeskTarget } from "./desks";
 
 export type Bucket = "reached" | "ready" | "cold" | "hidden";
 
@@ -21,6 +22,8 @@ export interface CoverageRow {
   due: number;
   /** Reached out, but nobody replied and nothing's in flight for 3+ weeks. */
   quiet: boolean;
+  /** The recruiting plan's desks that apply to this bank, and where each stands. */
+  desks: DeskStatus[];
 }
 
 const REACHED = new Set(["sent", "followed_up", "replied", "call_scheduled", "done"]);
@@ -37,7 +40,7 @@ export function buildCoverage(args: {
   contacts: Contact[];
   tables: ContactTable[];
   targets: TargetBank[];
-  coverage: { hidden: string[]; added: TargetBank[]; includeStarter: boolean };
+  coverage: { hidden: string[]; added: TargetBank[]; includeStarter: boolean; plan?: DeskTarget[] };
   banks: Record<string, BankMeta>;
   followUp: Settings["followUp"];
 }): CoverageRow[] {
@@ -47,7 +50,7 @@ export function buildCoverage(args: {
     const key = canonBank(name);
     let r = rows.get(key);
     if (!r) {
-      r = { key, name, tier, bucket: "cold", contacts: [], reached: 0, replied: 0, live: 0, withEmail: 0, regions: { SF: 0, NY: 0, Other: 0 }, due: 0, quiet: false };
+      r = { key, name, tier, bucket: "cold", contacts: [], reached: 0, replied: 0, live: 0, withEmail: 0, regions: { SF: 0, NY: 0, Other: 0 }, due: 0, quiet: false, desks: [] };
       rows.set(key, r);
     }
     if (!r.tier && tier) r.tier = tier;
@@ -78,6 +81,7 @@ export function buildCoverage(args: {
     }
     if (last) r.lastOutreach = new Date(last).toISOString();
     r.quiet = r.reached > 0 && r.replied === 0 && r.live === 0 && !!last && now - last > 21 * DAY;
+    r.desks = (coverage.plan ?? []).filter((t) => t.enabled && targetAppliesTo(t, r)).map((t) => deskStatus(t, r.contacts));
     const active = r.contacts.filter((c) => c.status !== "ignored");
     r.bucket = hidden.has(r.key) ? "hidden" : r.reached > 0 ? "reached" : active.length > 0 ? "ready" : "cold";
   }

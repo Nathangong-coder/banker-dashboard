@@ -74,24 +74,5 @@ export function rollupBanks(contacts: Contact[], banks: Record<string, BankMeta>
   return [...map.values()];
 }
 
-/** Outreach in flight: emailed (or about to be) with no reply yet. Counts toward the per-bank cap. */
+/** Outreach in flight: emailed (or about to be) with no reply yet. Counts toward the per-desk cap (see desks.ts). */
 export const LIVE_STATUSES = new Set(["drafted", "sent", "followed_up"]);
-
-export function liveByBank(contacts: Contact[]) {
-  const m = new Map<string, number>();
-  for (const c of contacts) if (LIVE_STATUSES.has(c.status)) m.set(c.bank, (m.get(c.bank) ?? 0) + 1);
-  return m;
-}
-
-/** Banks whose live count would exceed the cap if `adding` contacts were drafted too. */
-export function overCap(contacts: Contact[], adding: Contact[], cap: number) {
-  const live = liveByBank(contacts);
-  const touched = new Set(adding.map((c) => c.bank));
-  for (const c of adding) if (!LIVE_STATUSES.has(c.status)) live.set(c.bank, (live.get(c.bank) ?? 0) + 1);
-  return [...live.entries()].filter(([bank, n]) => touched.has(bank) && n > cap);
-}
-
-/** Who to reach out to next at a bank once a live slot opens: not-yet-contacted, emails first. */
-export function nextUp(bankContacts: Contact[]) {
-  return bankContacts.filter((c) => c.status === "new").sort((a, b) => Number(!!b.email) - Number(!!a.email))[0];
-}

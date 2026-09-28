@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, CalendarPlus, Check, Clock, MailPlus, MessageSquare, RefreshCw, Smartphone, UserX } from "lucide-react";
 import { blobs, bankKey, useStore } from "@/lib/store";
-import { liveByBank, nextAction, nextUp, rollupBanks, type BankRollup } from "@/lib/followups";
+import { nextAction, rollupBanks, type BankRollup } from "@/lib/followups";
+import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
 import { connectGmail, createDraft } from "@/lib/gmail";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
@@ -346,14 +347,17 @@ function BankBoard({ onOpen }: { onOpen: (c: Contact) => void }) {
   const { contacts, banks, settings, upsertBank, setStatus } = useStore();
   const rollups = useMemo(() => rollupBanks(contacts, banks, settings.followUp), [contacts, banks, settings.followUp]);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const live = useMemo(() => liveByBank(contacts), [contacts]);
+  const live = useMemo(() => liveByDesk(contacts), [contacts]);
   const cap = settings.followUp.livePerBank;
   const regions: Region[] = ["SF", "NY", ...(rollups.some((r) => r.meta.region === "Other") ? (["Other"] as Region[]) : [])];
 
   const row = (r: BankRollup) => {
     const isOpen = expanded === r.meta.key;
-    const liveN = live.get(r.meta.name) ?? 0;
-    const upNext = liveN < cap && r.meta.status === "active" ? nextUp(contacts.filter((c) => c.bank === r.meta.name)) : undefined;
+    // The live cap is per team here (SF Tech and SF Generalist each get their own slots).
+    const desks = [...new Map(r.contacts.map((c) => [deskKey(c), deskOf(c).team])).entries()]
+      .map(([key, team]) => ({ key, team, live: live.get(key)?.live ?? 0 }))
+      .filter((d) => d.live > 0);
+    const upNext = r.meta.status === "active" ? nextUpByDesk(r.contacts, contacts, cap) : undefined;
     return (
       <li key={r.meta.key} className={cn(r.meta.status === "moved_on" && "opacity-60")}>
         <div className="flex items-center gap-3 px-4 py-2.5">
@@ -366,15 +370,24 @@ function BankBoard({ onOpen }: { onOpen: (c: Contact) => void }) {
             {upNext && (
               <div className="mt-0.5 text-[11.5px] text-green">
                 Open slot → next up: {upNext.name}
+                {upNext.team && ` (${upNext.team})`}
                 {!upNext.email && " (needs email)"}
               </div>
             )}
           </button>
-          <Badge tone={liveN >= cap ? "amber" : "neutral"}>
-            <span className="num">
-              {liveN}/{cap} live
-            </span>
-          </Badge>
+{desks.length === 0 ? (
+            <Badge tone="neutral">
+              <span className="num">0 live</span>
+            </Badge>
+          ) : (
+            desks.map((d) => (
+              <Badge key={d.key} tone={d.live >= cap ? "amber" : "neutral"}>
+                <span className="num">
+                  {d.team || "no team"} {d.live}/{cap}
+                </span>
+              </Badge>
+            ))
+          )}
           {r.due > 0 && <Badge tone="red">{r.due} due</Badge>}
           <Select
             className="h-7 text-[12px]"
