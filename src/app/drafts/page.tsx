@@ -8,17 +8,18 @@ import { blobs, useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT } from "@/lib/template";
-import { EMAIL_FONTS, type Contact, type Template } from "@/lib/types";
+import { EMAIL_FONTS, type Contact, type RequiredFact, type Template } from "@/lib/types";
 import { chunk, cn, pool, uid } from "@/lib/util";
 import { overCapDesks } from "@/lib/desks";
 import { pickBase, pickVariant, usageTally } from "@/lib/experiments";
+import { REQUIRED_FACTS, guessSchool, missingFacts } from "@/lib/template";
 import { bodyToPlain, normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { TemplateEditor } from "@/components/TemplateEditor";
 import { TemplateImport } from "@/components/TemplateImport";
 import { FirmPanel, FirmSummary, useFirmRows } from "@/components/FirmContext";
-import { DEFAULT_TEMPLATES } from "@/lib/defaults";
+import { DEFAULT_TEMPLATES, ORIGINAL_BASE } from "@/lib/defaults";
 import { aiReady, googleClientId } from "@/lib/keys";
 
 export default function DraftsPage() {
@@ -90,9 +91,24 @@ function DraftsInner() {
     setPhase(null);
   };
 
-  const generate = async () => {
-    const list = chosen.filter((c) => c.templateId || initialTemplates[0]);
-    if (!list.length) return toast.err("Select contacts first.");
+  const [needs, setNeeds] = useState<{ c: Contact; t: Template; missing: RequiredFact[] }[] | null>(null);
+
+  const generate = async (skip: Set<string> = new Set()) => {
+    const list = chosen.filter((c) => (c.templateId || initialTemplates[0]) && !skip.has(c.id));
+    if (!list.length) return toast.err(skip.size ? "Nothing left to draft." : "Select contacts first.");
+    // Templates like "Non-target school" can't be written without a fact (their university): ask instead of guessing.
+    const latest = useStore.getState().contacts;
+    const blocked = list
+      .map((c0) => {
+        const c = latest.find((x) => x.id === c0.id) ?? c0;
+        const t = templates.find((x) => x.id === c.templateId) ?? ruleAssign(c, templates)!;
+        return { c, t, missing: t ? missingFacts(t, c) : [] };
+      })
+      .filter((x) => x.missing.length);
+    if (blocked.length) {
+      setNeeds(blocked);
+      return;
+    }
     // The cap is per desk (bank + office + team): SF Tech and NY Generalist at the same bank don't crowd each other.
     const over = overCapDesks(contacts, list, settings.followUp.livePerBank);
     if (over.length)
@@ -110,7 +126,8 @@ function DraftsInner() {
       async (c) => {
         const assigned = templates.find((x) => x.id === c.templateId) ?? ruleAssign(c, templates)!;
         const t = pickVariant(assigned, templates, tally.template);
-        const base = pickBase(settings, tally.base);
+        // Word-for-word templates keep the Original wording and stay out of base tests.
+        const base = t.lockBase ? (settings.emailBases?.find((b) => b.id === ORIGINAL_BASE.id) ?? ORIGINAL_BASE) : pickBase(settings, tally.base);
         let subject = fillPlaceholders(t.subject, c, settings, {}, base);
         let body = fillPlaceholders(t.body, c, settings, {}, base);
         body = withSignature(body, settings.profile);
@@ -315,7 +332,7 @@ function DraftsInner() {
                 <Button size="sm" icon={<Wand2 className="size-3.5" />} onClick={assign} disabled={!sel.size}>
                   Auto-assign templates
                 </Button>
-                <Button size="sm" variant="brass" icon={<Sparkles className="size-3.5" />} onClick={generate} disabled={!sel.size}>
+                <Button size="sm" variant="brass" icon={<Sparkles className="size-3.5" />} onClick={() => generate()} disabled={!sel.size}>
                   Generate drafts
                 </Button>
                 <Button size="sm" variant="primary" icon={<Mail className="size-3.5" />} onClick={toGmail} disabled={!chosen.some((c) => c.draft)}>
@@ -439,6 +456,14 @@ function DraftsInner() {
       <TemplateImport open={importOpen} onClose={() => setImportOpen(false)} />
       <TemplateEditor template={editing} onClose={() => setEditing(null)} onSave={s.upsertTemplate} onDelete={templates.some((t) => t.id === editing?.id) ? s.removeTemplate : undefined} />
       <DraftModal contact={preview} onClose={() => setPreview(null)} />
+      <NeedsModal
+        needs={needs}
+        onClose={() => setNeeds(null)}
+        onDone={(skip) => {
+          setNeeds(null);
+          generate(skip);
+        }}
+      />
     </>
   );
 }
@@ -574,6 +599,103 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
           }}
         >
           Save draft
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Before drafting: people whose template needs a fact we don't have (e.g. their university for the non-target
+ * template). Suggestions come from their captured LinkedIn profile / notes; nothing is filled in without the user.
+ */
+function NeedsModal({
+  needs,
+  onClose,
+  onDone,
+}: {
+  needs: { c: Contact; t: Template; missing: RequiredFact[] }[] | null;
+  onClose: () => void;
+  onDone: (skip: Set<string>) => void;
+}) {
+  return (
+    <Modal open={!!needs} onClose={onClose} title="A few details before drafting" wide>
+      {needs && <NeedsForm key={needs.map((n) => n.c.id).join()} needs={needs} onDone={onDone} onClose={onClose} />}
+    </Modal>
+  );
+}
+
+function NeedsForm({ needs, onDone, onClose }: { needs: { c: Contact; t: Template; missing: RequiredFact[] }[]; onDone: (skip: Set<string>) => void; onClose: () => void }) {
+  const update = useStore((s) => s.updateContact);
+  const [vals, setVals] = useState<Record<string, string>>(() => {
+    const v: Record<string, string> = {};
+    for (const { c, missing } of needs) for (const k of missing) v[`${c.id}|${k}`] = k === "their_school" ? (guessSchool(c) ?? "") : "";
+    return v;
+  });
+  const filled = (id: string, missing: RequiredFact[]) => missing.every((k) => vals[`${id}|${k}`]?.trim());
+  const ready = needs.filter((n) => filled(n.c.id, n.missing)).length;
+
+  const save = () => {
+    const skip = new Set<string>();
+    for (const { c, missing } of needs) {
+      if (!filled(c.id, missing)) {
+        skip.add(c.id);
+        continue;
+      }
+      const patch: Partial<Contact> = {};
+      for (const k of missing) patch[REQUIRED_FACTS[k].field] = vals[`${c.id}|${k}`].trim();
+      update(c.id, patch);
+    }
+    onDone(skip);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] text-ink-2">
+        These templates only work with the right facts, so they won&apos;t be guessed. Check their LinkedIn, fill these in, and the drafts are written word
+        for word. Anyone left blank is skipped this time.
+      </p>
+      <ul className="max-h-[55vh] space-y-2 overflow-y-auto">
+        {needs.map(({ c, t, missing }) => (
+          <li key={c.id} className="rounded-lg border border-line p-3">
+            <div className="flex flex-wrap items-center gap-2 text-[13px]">
+              <span className="font-medium">{c.name}</span>
+              <span className="text-muted">
+                {c.bank} · template “{t.name}”
+              </span>
+              {c.linkedin && (
+                <a href={c.linkedin} target="_blank" rel="noreferrer" className="ml-auto text-[12px] text-[#0a66c2] hover:underline">
+                  Open LinkedIn ↗
+                </a>
+              )}
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {missing.map((k) => (
+                <Field
+                  key={k}
+                  label={REQUIRED_FACTS[k].label}
+                  hint={k === "their_school" && guessSchool(c) ? "Suggested from their profile/notes. Check it." : undefined}
+                >
+                  <Input
+                    value={vals[`${c.id}|${k}`] ?? ""}
+                    placeholder={REQUIRED_FACTS[k].placeholder}
+                    onChange={(e) => setVals((v) => ({ ...v, [`${c.id}|${k}`]: e.target.value }))}
+                  />
+                </Field>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center justify-end gap-2 border-t border-line pt-3">
+        <span className="mr-auto text-[12px] text-muted">
+          {ready}/{needs.length} ready
+        </span>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={save}>
+          {ready === needs.length ? "Save & write drafts" : `Save & draft (skip ${needs.length - ready})`}
         </Button>
       </div>
     </div>

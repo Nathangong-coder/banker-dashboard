@@ -1,4 +1,4 @@
-import type { Contact, EmailBase, Settings, Template } from "./types";
+import type { Contact, EmailBase, RequiredFact, Settings, Template } from "./types";
 import { ORIGINAL_BASE } from "./defaults";
 
 export const PLACEHOLDERS: { key: string; desc: string }[] = [
@@ -51,7 +51,7 @@ function values(c: Contact, s: Settings): Record<string, string> {
     last_name: c.lastName,
     full_name: c.name,
     bank: c.bank,
-    position: c.position.replace(/\?/g, "").trim(),
+    position: emailTitle(c.position),
     team: c.team || c.location,
     their_school: c.school ?? "",
     their_city: CITY[c.region] ?? "",
@@ -68,6 +68,19 @@ function values(c: Contact, s: Settings): Record<string, string> {
     my_linkedin: p.linkedin,
     original_subject: c.draft?.subject?.replace(/^re:\s*/i, "") ?? "",
   };
+}
+
+/**
+ * Job titles read mid-sentence in emails ("as an associate"), so they're lowercased there. Acronyms (MD, VP, TMT, M&A)
+ * keep their capitals. The sheet and dashboard keep the title as written.
+ */
+export function emailTitle(position: string) {
+  return position
+    .replace(/\?/g, "")
+    .trim()
+    .split(/(\s+|[-,/|()])/)
+    .map((w) => (/^[A-Z0-9&]{2,}$/.test(w) ? w : w.toLowerCase()))
+    .join("");
 }
 
 const article = (word: string) => (/^[aeiou]/i.test(word) || /^(MD|SVP|EVP|M&A|MBA)\b/.test(word) ? "an" : "a");
@@ -122,4 +135,32 @@ export function ruleAssign(c: Contact, templates: Template[]): Template | undefi
 export function followUpTemplate(c: Contact, templates: Template[]): Template | undefined {
   const fus = templates.filter((t) => t.kind === "follow_up").sort((a, b) => (a.step ?? 99) - (b.step ?? 99));
   return fus.find((t) => t.step === c.followUps + 1) ?? fus[Math.min(c.followUps, fus.length - 1)];
+}
+
+/* ---------------- required facts ---------------- */
+
+export const REQUIRED_FACTS: Record<RequiredFact, { label: string; field: "school" | "position"; placeholder: string }> = {
+  their_school: { label: "Their university", field: "school", placeholder: "e.g. San Diego State University" },
+  position: { label: "Their title", field: "position", placeholder: "e.g. Associate" },
+};
+
+/** Required facts this template needs that the contact doesn't have yet. */
+export function missingFacts(t: Template, c: Contact): RequiredFact[] {
+  return (t.requires ?? []).filter((k) => !(c[REQUIRED_FACTS[k].field] ?? "").trim());
+}
+
+const SCHOOL = /\b(University of [A-Z][A-Za-z.'&-]*(?:[ ,]+(?:at |in )?[A-Z][A-Za-z.'&-]*){0,4}|(?:[A-Z][A-Za-z.'&-]+ ){1,4}(?:University|College|Institute of Technology|State)(?: of [A-Z][A-Za-z]+(?: [A-Z][A-Za-z]+)?)?)\b/;
+
+/**
+ * Best guess at where someone went to school, from what the dashboard already has: their captured LinkedIn profile
+ * (Education section first), the headline, then the sheet notes. Only ever a suggestion the user confirms.
+ */
+export function guessSchool(c: Pick<Contact, "profile" | "headline" | "comment">): string | undefined {
+  const profile = c.profile?.text ?? "";
+  const edu = profile.search(/\beducation\b/i);
+  for (const text of [edu >= 0 ? profile.slice(edu, edu + 1500) : "", c.headline ?? "", c.comment ?? "", profile]) {
+    const m = text.match(SCHOOL)?.[1]?.replace(/[ ,]+$/, "").trim();
+    if (m && !/^(The|Investment|Business)\b/.test(m)) return m;
+  }
+  return undefined;
 }

@@ -65,7 +65,8 @@ export async function POST(req: Request) {
         "The draft contains [[AI: instruction]] slots: replace each slot with text following its instruction. " +
         "Leave all other wording exactly as written, keeping the same line breaks: exactly one blank line between paragraphs, no blank line between the sign-off and the name, no indentation. Any leftover {{placeholder}} you cannot fill " +
         "from the facts should be removed gracefully. Use ONLY the facts provided — never invent shared schools, " +
-        "mutual connections, deals or groups. Keep the tone concise, warm and professional; avoid em dashes and flattery.",
+        "mutual connections, deals or groups. Keep the tone concise, warm and professional; avoid em dashes and flattery. " +
+        "Write job titles in lowercase mid-sentence (\"an associate\", \"a vice president\"); acronyms like MD or VP stay capitalized.",
       prompt:
         `CONTACT FACTS\n${JSON.stringify(input.contact)}\n\nSENDER\n${JSON.stringify(input.sender)}\n\n` +
         `DRAFT SUBJECT\n${input.subject}\n\nDRAFT BODY\n${input.body}`,

@@ -44,6 +44,7 @@ export async function POST(req: Request) {
           ". For anything that differs per recipient and isn't a placeholder (their high school, a specific group, the year they moved), " +
           "write an [[AI: instruction]] slot, which is filled per person later from their profile. Never invent facts about the student " +
           "beyond the angle and their profile. Keep the student's voice from the examples: warm, direct, no flattery, no em dashes. " +
+          "Job titles are lowercase mid-sentence (\"an associate\"). " +
           "Don't repeat the base's intro or ask inside the hook.",
         prompt: [
           `ANGLE (the student's words)\n${input.angle}`,

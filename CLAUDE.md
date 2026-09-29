@@ -168,6 +168,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   same way (`pickVariant`; "Make an A/B variant" in TemplateEditor). Each draft records `contact.draftMeta {templateId, baseId}`.
   Results: reply rate (replied ÷ sent) per arm with a Wilson 95% range, and `verdict` refuses to call a winner below 30 sends per arm or
   at p ≥ 0.05 (two-proportion z-test).
+- **Required facts / exact wording:** `Template.requires` (`their_school`, `position`) makes drafting stop and ask (NeedsModal on
+  /drafts, pre-filled by `template.ts#guessSchool` from the captured profile's Education section or notes). The AI fill step used to "remove
+  leftover placeholders gracefully", which rewrote the non-target template into something else. `Template.lockBase` keeps the Original
+  base even during a base A/B test. The non-target starter has both and renders the owner's template word for word; store v6 migration
+  applies them to any non-target copy and resets one that lost `{{their_school}}`.
 - **Generator:** an angle → AI writes subject + hook + whenToUse on top of the active base (1–3 versions; several can be saved as one A/B
   group), saved as `experimental` templates.
 

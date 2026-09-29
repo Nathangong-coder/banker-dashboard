@@ -144,7 +144,16 @@ export interface Template {
   experimental?: boolean;
   /** Templates sharing a group are A/B variants: drafts alternate between them and replies are compared. */
   variantGroup?: string;
+  /**
+   * Facts the email can't be written without (e.g. "their_school" for the non-target template). Drafting stops and asks
+   * for them instead of letting the AI paper over a blank.
+   */
+  requires?: RequiredFact[];
+  /** Always use the Original base wording, even while a base A/B test runs (for templates that must read word for word). */
+  lockBase?: boolean;
 }
+
+export type RequiredFact = "their_school" | "position";
 
 /**
  * The shared skeleton of every first email: pleasantry, who I am, the ask, and the sign-off. Templates use

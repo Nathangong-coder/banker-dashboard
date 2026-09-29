@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { PLACEHOLDERS } from "@/lib/template";
-import type { Template } from "@/lib/types";
+import { PLACEHOLDERS, REQUIRED_FACTS } from "@/lib/template";
+import { DEFAULT_TEMPLATES } from "@/lib/defaults";
+import type { RequiredFact, Template } from "@/lib/types";
 import { uid } from "@/lib/util";
 import { Button, Checkbox, Field, Input, Modal, Select, Textarea, toast } from "./ui";
 
@@ -26,6 +27,7 @@ export function TemplateEditor({
 
 function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Template) => void; onClose: () => void; onDelete?: (id: string) => void }) {
   const [d, setD] = useState(t);
+  const starter = DEFAULT_TEMPLATES.find((x) => x.id === t.id || x.name.toLowerCase() === t.name.toLowerCase());
   return (
     <div className="grid gap-5 md:grid-cols-[1fr_220px]">
       <div className="space-y-3">
@@ -52,6 +54,28 @@ function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Temp
         <label className="flex items-center gap-2 text-[13px]">
           <Checkbox checked={d.attachResume} onChange={(v) => setD({ ...d, attachResume: v })} /> Attach my resume
         </label>
+        {d.kind === "initial" && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md bg-[#fbfaf6] px-3 py-2 text-[12.5px] text-ink-2">
+            <span className="text-muted">Needs before drafting:</span>
+            {(Object.keys(REQUIRED_FACTS) as RequiredFact[]).map((k) => (
+              <label key={k} className="flex items-center gap-1.5" title="Drafting asks you for it instead of letting AI guess or drop the sentence">
+                <Checkbox
+                  checked={!!d.requires?.includes(k)}
+                  onChange={(v) => setD({ ...d, requires: v ? [...(d.requires ?? []), k] : (d.requires ?? []).filter((x) => x !== k) })}
+                />
+                {REQUIRED_FACTS[k].label.toLowerCase()}
+              </label>
+            ))}
+            <label className="flex items-center gap-1.5" title="Always uses the Original base wording, even during a base A/B test">
+              <Checkbox checked={!!d.lockBase} onChange={(v) => setD({ ...d, lockBase: v || undefined })} /> keep exact wording
+            </label>
+            {starter && (starter.body !== d.body || starter.subject !== d.subject) && (
+              <button className="text-navy hover:underline" onClick={() => setD({ ...d, subject: starter.subject, body: starter.body, requires: starter.requires, lockBase: starter.lockBase })}>
+                Reset to starter wording
+              </button>
+            )}
+          </div>
+        )}
         {d.kind === "initial" && (
           <div className="flex flex-wrap items-center gap-3 rounded-md bg-[#fbfaf6] px-3 py-2 text-[12.5px] text-ink-2">
             {d.experimental && (

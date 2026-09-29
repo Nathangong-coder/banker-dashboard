@@ -284,6 +284,9 @@ Seeing as how you were a member of {{my_club}} when you were an undergrad, I wan
     kind: "initial",
     attachResume: true,
     subject: "{{my_school}} Student Seeking to Connect",
+    // The owner's template, word for word: it only works with the recipient's actual university, so that's required.
+    requires: ["their_school", "position"],
+    lockBase: true,
     body: personal(
       "Seeing as how you studied at {{their_school}} and I'm currently at {{my_school}}, I wanted to reach out to you specifically to hear about your experiences coming from a school that isn't traditionally targeted by investment banks. Given that I also attend a non-target, I was hoping to gain some insight into how you overcame that hurdle and got to where you are today.",
     ),

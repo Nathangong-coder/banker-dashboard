@@ -363,7 +363,7 @@ export const useStore = create<State>()(
     },
     {
       name: "banker-dashboard",
-      version: 5,
+      version: 6,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -436,6 +436,15 @@ function migrateState(p: Record<string, unknown>, version: number) {
       // People found online: trust the headline's current title over an AI guess from the snippet.
       if (c.source !== "sheet" && c.headline && !sameLevel(c.headline, c.position)) next = { ...next, position: reconcileTitle(c.headline, c.position) };
       return next;
+    });
+  }
+  if (version < 6 && Array.isArray(p?.templates)) {
+    const starter = DEFAULT_TEMPLATES.find((t) => t.id === "tpl_non_target")!;
+    p.templates = (p.templates as Template[]).map((t) => {
+      if (t.kind !== "initial" || !(t.id === starter.id || /non.?target/i.test(t.name))) return t;
+      const fixed = { ...t, requires: starter.requires, lockBase: true };
+      // Lost its school blank (mangled import or edit): back to the owner's wording.
+      return /\{\{\s*their_school\s*\}\}/.test(t.body) ? fixed : { ...fixed, subject: starter.subject, body: starter.body };
     });
   }
   return p;
