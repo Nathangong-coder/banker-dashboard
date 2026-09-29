@@ -160,6 +160,18 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 
 ## Email lab (`app/lab`, `lib/experiments.ts`, `api/templates/generate`)
 
+- **Layout:** `/lab` = Setup (experiments, shared wording, generator) and `/lab?view=results` = Results (experiment tables, "What works
+  for whom" explorer, wording/template results, sent-email tagging).
+- **Segments & send time (`lib/segments.ts`):** `crossTab(contacts, dimension, segment)` over sent emails. Dimensions: font, send time
+  (buckets in the recipient's time zone by region: NY Eastern, Chicago Central, SF/LA Pacific), day, hook, template, wording, each
+  experiment. Segments: bank type (`tierIndex`: workbook targets → coverage.added → STARTER_TARGETS; the owner's 106 contacts all resolve),
+  team, location. Past emails are auto-tagged where derivable: send time from `sentAt`, template/hook/wording from `draftMeta` or the
+  draft text.
+- **Time experiments** (`kind: "time"`, arms = hour windows) tag emails by when they actually went out (`experimentArmOf`), so emails
+  sent before the experiment count too. A planned window is still assigned per Gmail draft and shown on /drafts ("send 7–9am their time").
+- **Tagging sent emails** (`components/LabResults.tsx#SentEmails`): "Auto-tag fonts from Gmail" (`gmailSync.ts#autoTagFontsFromGmail` →
+  `gmail.ts#detectSentFont` reads the first sent message's HTML `font-family`; Gmail stores quotes as `&quot;`; no font-family = Gmail
+  default sans). Manual font / experiment-arm tags per row or in bulk. `trial.fontSource` = draft | gmail | manual.
 - **Experiments (top of the lab, `components/SelfExperiments.tsx`):** `settings.experiments` (font or custom arms, `alternate` = least-used
   arm per draft, `wave` = `currentArm` until switched). `assignTrial` runs when a Gmail draft is made (drafts page bulk + editor), sets
   `contact.trial {font, arms}` and picks the font. It's kept on later updates, and follow-ups reuse `trial.font`. Results come from

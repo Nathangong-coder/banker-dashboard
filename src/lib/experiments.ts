@@ -183,12 +183,12 @@ export function trialTally(contacts: Contact[]) {
  * The font and experiment arms for a Gmail draft. A contact that already has a trial keeps it (updating a draft or
  * sending a follow-up doesn't switch fonts mid-conversation or move them to another arm).
  */
-export function assignTrial(c: Contact, s: Settings, tally: Map<string, Map<string, number>>): NonNullable<Contact["trial"]> {
-  if (c.trial) return c.trial;
+export function assignTrial(c: Contact, s: Settings, tally: Map<string, Map<string, number>>): NonNullable<Contact["trial"]> & { font: EmailFont } {
+  if (c.trial?.font) return { ...c.trial, font: c.trial.font };
   let font: EmailFont = s.emailStyle.font;
-  const arms: Record<string, string> = {};
+  const arms: Record<string, string> = { ...(c.trial?.arms ?? {}) };
   for (const e of runningExperiments(s)) {
-    if (!e.arms.length) continue;
+    if (!e.arms.length || arms[e.id]) continue;
     const counts = tally.get(e.id) ?? new Map<string, number>();
     const a = e.mode === "wave" ? (e.arms.find((x) => x.id === e.currentArm) ?? e.arms[0]) : leastUsed(e.arms, counts);
     counts.set(a.id, (counts.get(a.id) ?? 0) + 1);
@@ -196,7 +196,7 @@ export function assignTrial(c: Contact, s: Settings, tally: Map<string, Map<stri
     arms[e.id] = a.id;
     if (e.kind === "font" && a.font) font = a.font;
   }
-  return { at: new Date().toISOString(), font, arms };
+  return { at: new Date().toISOString(), font, fontSource: "draft", arms };
 }
 
 /** Reply rates per arm of one experiment. */

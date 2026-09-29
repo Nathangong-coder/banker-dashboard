@@ -1,7 +1,7 @@
 "use client";
 
 import { useStore } from "./store";
-import { draftExists, findEmailByName, gmailConnected, syncContact, type SyncResult } from "./gmail";
+import { detectSentFont, draftExists, findEmailByName, gmailConnected, syncContact, type SyncResult } from "./gmail";
 import { googleClientId } from "./keys";
 import type { Contact } from "./types";
 import { pool } from "./util";
@@ -131,4 +131,41 @@ export function describeSync(r: SyncSummary) {
     r.draftsReverted && `${r.draftsReverted} deleted Gmail draft${r.draftsReverted > 1 ? "s" : ""} back in your drafts`,
   ].filter(Boolean);
   return bits.length ? `Gmail sync: ${bits.join(" · ")}.` : r.updated ? `Gmail sync: ${r.updated} contact${r.updated > 1 ? "s" : ""} updated.` : "Gmail sync: everything was already up to date.";
+}
+
+/**
+ * Tag already-sent emails with the font they actually went out in (read from Gmail), so results cover outreach from
+ * before font tracking. Only touches sent contacts with an email and no font yet; manual tags are never overwritten.
+ */
+export async function autoTagFontsFromGmail(onProgress?: (done: number, total: number) => void) {
+  const s = useStore.getState();
+  const clientId = googleClientId(s.settings);
+  if (!clientId) throw new Error("Connect Gmail first (Settings → Gmail).");
+  const list = s.contacts.filter((c) => c.email && !c.trial?.font && (c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status)));
+  let tagged = 0;
+  let noMail = 0;
+  await pool(
+    list,
+    3,
+    async (c) => {
+      try {
+        const r = await detectSentFont(clientId, c.email);
+        const cur = useStore.getState().contacts.find((x) => x.id === c.id) ?? c;
+        if (!r.sentAt) {
+          noMail++;
+          return;
+        }
+        if (!r.font) return;
+        tagged++;
+        useStore.getState().updateContact(c.id, {
+          trial: { at: cur.trial?.at ?? r.sentAt, arms: cur.trial?.arms ?? {}, font: r.font, fontSource: "gmail" },
+          ...(cur.sentAt ? {} : { sentAt: r.sentAt }),
+        });
+      } catch (e) {
+        if (/expired|session/i.test((e as Error).message)) throw e;
+      }
+    },
+    (done) => onProgress?.(done, list.length),
+  );
+  return { checked: list.length, tagged, noMail };
 }

@@ -101,7 +101,7 @@ export interface Contact {
   /** Hook chosen by hand for this person; otherwise it follows their team (lib/hooks.ts). */
   hookId?: string;
   /** Set when the Gmail draft is made: the font it went out in and the arm of each running experiment. Kept on updates. */
-  trial?: { at: string; font: EmailFont; arms: Record<string, string> };
+  trial?: { at: string; font?: EmailFont; fontSource?: "draft" | "gmail" | "manual"; arms: Record<string, string> };
   history: HistoryEvent[];
 }
 
@@ -166,8 +166,9 @@ export type RequiredFact = "their_school" | "position";
 export interface Experiment {
   id: string;
   name: string;
-  kind: "font" | "custom";
-  arms: { id: string; label: string; font?: EmailFont }[];
+  kind: "font" | "custom" | "time";
+  /** Time arms are hour windows in the recipient's local time; emails are tagged from when they actually went out. */
+  arms: { id: string; label: string; font?: EmailFont; from?: number; to?: number }[];
   /** alternate: each new draft gets the least-used arm (fairest). wave: every draft uses `currentArm` until you switch. */
   mode: "alternate" | "wave";
   currentArm?: string;

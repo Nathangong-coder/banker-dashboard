@@ -1,5 +1,7 @@
 "use client";
 
+import { EMAIL_FONTS, type EmailFont } from "./types";
+
 /**
  * Gmail runs entirely in the browser: Google Identity Services gives us a short-lived
  * access token, and we call the Gmail REST API directly (it supports CORS).
@@ -271,6 +273,41 @@ export async function syncContact(clientId: string, email: string): Promise<Sync
   out.subject = header(first, "Subject");
   if (firstReply) out.repliedAt = new Date(when(firstReply)).toISOString();
   return out;
+}
+
+type Part = { mimeType?: string; body?: { data?: string }; parts?: Part[] };
+
+function htmlOf(p: Part | undefined): string {
+  if (!p) return "";
+  if (p.mimeType === "text/html" && p.body?.data) {
+    const b64 = p.body.data.replace(/-/g, "+").replace(/_/g, "/");
+    return new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
+  }
+  return (p.parts ?? []).map(htmlOf).find(Boolean) ?? "";
+}
+
+/**
+ * The font the first email to this person actually went out in (read from its HTML), for tagging emails sent before
+ * font tracking existed. Gmail's default (no font-family in the HTML) counts as "sans". Undefined if nothing was sent
+ * or the email was plain text.
+ */
+export async function detectSentFont(clientId: string, email: string): Promise<{ font?: EmailFont; sentAt?: string }> {
+  const sent = await listMessages(clientId, `in:sent to:${email}`, 10);
+  if (!sent.length) return {};
+  const metas = (await Promise.all(sent.map((m) => getMeta(clientId, m.id)))).sort((a, b) => when(a) - when(b));
+  const first = metas[0];
+  const full = await gapi<{ payload?: Part }>(clientId, `/messages/${first.id}?format=full`);
+  const html = htmlOf(full.payload);
+  const sentAt = new Date(when(first)).toISOString();
+  if (!html) return { sentAt };
+  // Gmail stores quotes inside style attributes as &quot;, so decode before reading the font list.
+  const family = html.replace(/&quot;/g, '"').match(/font-family:\s*((?:"[^"]*"|'[^']*'|[^;"'>])+)/i)?.[1] ?? "";
+  const firstFamily = family.split(",")[0].replace(/["']/g, "").trim().toLowerCase();
+  if (!firstFamily) return { font: "sans", sentAt };
+  const hit = (Object.entries(EMAIL_FONTS) as [EmailFont, { css: string }][]).find(
+    ([, v]) => v.css.split(",")[0].replace(/["']/g, "").trim().toLowerCase() === firstFamily,
+  );
+  return { font: hit?.[0] ?? (/(arial|helvetica|sans)/.test(firstFamily) ? "sans" : /(times|serif)/.test(firstFamily) ? "serif" : undefined), sentAt };
 }
 
 const normName = (s: string) =>

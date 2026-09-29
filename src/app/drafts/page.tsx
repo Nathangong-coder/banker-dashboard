@@ -473,6 +473,15 @@ function DraftsInner() {
                         <div className="flex items-center gap-1.5">
                           <StatusBadge status={c.status} />
                           {c.draft?.gmailDraftId && <Badge tone="green">in Gmail</Badge>}
+                          {/* A running send-time experiment planned a window for this draft (recipient's local time). */}
+                          {!c.sentAt &&
+                            (settings.experiments ?? [])
+                              .filter((e) => e.kind === "time" && e.status === "running" && c.trial?.arms[e.id])
+                              .map((e) => (
+                                <Badge key={e.id} tone="blue">
+                                  send {e.arms.find((a) => a.id === c.trial!.arms[e.id])?.label} their time
+                                </Badge>
+                              ))}
                         </div>
                       </td>
                     </tr>
