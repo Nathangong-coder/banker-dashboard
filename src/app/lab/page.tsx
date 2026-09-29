@@ -9,9 +9,11 @@ import { aiReady } from "@/lib/keys";
 import { CONCISE_BASE, ORIGINAL_BASE } from "@/lib/defaults";
 import { PLACEHOLDERS, fillPlaceholders } from "@/lib/template";
 import { normalizeBody } from "@/lib/emailFormat";
+import { hookFor } from "@/lib/hooks";
 import { applyBaseToTemplates, experimentResults, verdict, type Arm } from "@/lib/experiments";
 import type { Contact, EmailBase, Template } from "@/lib/types";
 import { cn, uid } from "@/lib/util";
+import { SelfExperiments } from "@/components/SelfExperiments";
 import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, PageHeader, Select, Textarea, toast } from "@/components/ui";
 
 const hookBody = (hook: string) => `Hi {{first_name}},
@@ -74,7 +76,7 @@ export default function LabPage() {
     <>
       <PageHeader
         title="Email lab"
-        sub="One shared base under every template, A/B tests that alternate automatically, and an AI generator for new angles. Reply rates tell you what works."
+        sub="Try things on your outreach (fonts, wording, new angles) and let reply rates tell you what works."
         right={
           <label className="flex items-center gap-2 text-[12.5px] text-ink-2">
             Preview as
@@ -90,6 +92,7 @@ export default function LabPage() {
         }
       />
       <div className="space-y-6">
+        <SelfExperiments />
         <Bases sample={sample} />
         <Results results={results} />
         <Generator sample={sample} />
@@ -115,10 +118,10 @@ function Bases({ sample }: { sample: Contact }) {
   const applyToTemplates = () => {
     const { changed, untouched } = applyBaseToTemplates(templates);
     changed.forEach(upsertTemplate);
-    if (changed.length) toast.ok(`${changed.length} template${changed.length > 1 ? "s" : ""} now use the base.`);
+    if (changed.length) toast.ok(`${changed.length} template${changed.length > 1 ? "s" : ""} now use the shared wording.`);
     if (untouched.length)
       toast.info(`${untouched.join(", ")} didn't contain the original intro/ask/sign-off word for word. Add {{base_ask}} and {{base_close}} to ${untouched.length > 1 ? "them" : "it"} by hand.`);
-    if (!changed.length && !untouched.length) toast.info("Every template already uses the base.");
+    if (!changed.length && !untouched.length) toast.info("Every template already uses the shared wording.");
   };
 
   return (
@@ -126,10 +129,10 @@ function Bases({ sample }: { sample: Contact }) {
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            <Layers className="size-4 text-brass" /> The base
+            <Layers className="size-4 text-brass" /> Shared wording
           </span>
         }
-        sub="The pleasantry, intro, ask and sign-off every first email shares. Templates only add their hook. Turn on two bases to A/B test them."
+        sub="The opening line, “who I am”, the ask and the sign-off are the same in every first email; templates only change the personal paragraph. Edit a version here to change all emails at once, or tick two versions to test which wording gets more replies."
         right={
           <Button
             size="sm"
@@ -141,12 +144,12 @@ function Bases({ sample }: { sample: Contact }) {
               setOpen(copy.id);
             }}
           >
-            New variant
+            New version
           </Button>
         }
       />
       <div className="border-b border-line px-4 py-2.5 text-[12.5px] text-ink-2">
-        <b className="num">{usingBase.length}</b> of <span className="num">{initial.length}</span> first-email templates use the base.
+        <b className="num">{usingBase.length}</b> of <span className="num">{initial.length}</span> first-email templates use this shared wording.
         {usingBase.length < initial.length && (
           <button className="ml-2 font-medium text-navy hover:underline" onClick={applyToTemplates}>
             Switch the rest over
@@ -154,7 +157,7 @@ function Bases({ sample }: { sample: Contact }) {
         )}
         {active.length > 1 && (
           <span className="ml-3 rounded bg-blue-soft px-1.5 py-0.5 text-blue">
-            A/B test running: {active.map((b) => b.name).join(" vs ")}. New drafts alternate.
+            Testing {active.map((b) => b.name).join(" vs ")}: new drafts alternate between them.
           </span>
         )}
       </div>
@@ -166,12 +169,12 @@ function Bases({ sample }: { sample: Contact }) {
                 checked={b.active}
                 label={`Use ${b.name} for new drafts`}
                 onChange={(v) => {
-                  if (!v && active.length === 1 && b.active) return toast.info("Keep at least one base on.");
+                  if (!v && active.length === 1 && b.active) return toast.info("Keep at least one version on.");
                   setBases((list) => list.map((x) => (x.id === b.id ? { ...x, active: v } : x)));
                 }}
               />
               <span className="font-medium">{b.name}</span>
-              {b.id === ORIGINAL_BASE.id && <Badge>control</Badge>}
+              {b.id === ORIGINAL_BASE.id && <Badge>your original</Badge>}
               {b.active && <Badge tone="green">in use</Badge>}
               <span className="text-[12px] text-muted">{b.notes}</span>
               <div className="flex-1" />
@@ -183,7 +186,7 @@ function Bases({ sample }: { sample: Contact }) {
                   aria-label={`Delete ${b.name}`}
                   className="rounded p-1 text-muted hover:text-red"
                   onClick={() => {
-                    if (b.active && active.length === 1) return toast.info("Turn another base on first.");
+                    if (b.active && active.length === 1) return toast.info("Turn another version on first.");
                     setBases((list) => list.filter((x) => x.id !== b.id));
                   }}
                 >
@@ -292,13 +295,13 @@ function Results({ results }: { results: ReturnType<typeof experimentResults> })
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            <FlaskConical className="size-4 text-brass" /> Results
+            <FlaskConical className="size-4 text-brass" /> Wording &amp; template results
           </span>
         }
         sub="Reply rate = replied ÷ sent. The bar shows the likely range; overlapping ranges mean it's too early to pick a winner."
       />
-      <div className="border-b border-line px-4 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted">Bases</div>
-      <ArmTable arms={baseArms} empty="No tracked drafts yet. Every draft made from now on records its base and template." />
+      <div className="border-b border-line px-4 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted">Shared wording versions</div>
+      <ArmTable arms={baseArms} empty="No tracked drafts yet. Every draft made from now on records its wording version and template." />
       {liveBases.length === 2 && <p className="px-4 pb-3 text-[12.5px] text-ink-2">{verdict(liveBases[0], liveBases[1])}</p>}
       {groups.map((arms) => (
         <div key={arms[0].id} className="border-t border-line">
@@ -347,7 +350,7 @@ function Generator({ sample }: { sample: Contact }) {
         {
           angle: angle.trim(),
           audience: audience.trim(),
-          me: { name: p.name, school: p.school, year: p.year, major: p.major, hometown: p.hometown, club: p.club, pitch: p.pitch },
+          me: { name: p.name, school: p.school, year: p.year, major: p.major, hometown: p.hometown, club: p.club, pitch: hookFor(sample, settings).text },
           base: { opener: base.opener, intro: base.intro, ask: base.ask, close: base.close },
           examples,
           placeholders: PLACEHOLDERS.filter((x) => !x.key.startsWith("base_")),
@@ -383,7 +386,7 @@ function Generator({ sample }: { sample: Contact }) {
             <Beaker className="size-4 text-brass" /> New template from an angle <Badge tone="brass">experimental</Badge>
           </span>
         }
-        sub="Describe a connection you share with a group of bankers. AI writes the hook and subject around your base; you review before saving."
+        sub="Describe a connection you share with a group of bankers. AI writes the personal paragraph and subject around your shared wording; you review before saving."
       />
       <div className="grid gap-3 p-4 md:grid-cols-[1fr_260px]">
         <Field label="The angle">

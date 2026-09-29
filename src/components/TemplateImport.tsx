@@ -3,6 +3,7 @@
 import { Fragment, useRef, useState } from "react";
 import { AlertTriangle, FileUp, Link2, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { hooksOf } from "@/lib/hooks";
 import { callApi } from "@/lib/api";
 import { aiReady } from "@/lib/keys";
 import { PLACEHOLDERS } from "@/lib/template";
@@ -53,7 +54,7 @@ export function TemplateImport({ open, onClose }: { open: boolean; onClose: () =
       const p = settings.profile;
       let r = parseTemplateBlocks(blocks, {
         senderName: p.name,
-        generalize: generalize ? { name: p.name, school: p.school, major: p.major, pitch: p.pitch, club: p.club, schoolNickname: p.schoolNickname, hometown: p.hometown } : undefined,
+        generalize: generalize ? { name: p.name, school: p.school, major: p.major, pitch: p.pitch, pitches: hooksOf(settings).map((h) => h.text).filter(Boolean), club: p.club, schoolNickname: p.schoolNickname, hometown: p.hometown } : undefined,
       });
       if (!r.candidates.length) throw new Error("No emails found. Each template needs a greeting line like “Hi NAME,”.");
       if (useAi && aiReady(settings)) {

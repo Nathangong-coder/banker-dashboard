@@ -1,4 +1,5 @@
 import type { EmailBase, Settings, Template } from "./types";
+import { DEFAULT_HOOKS } from "./hooks";
 
 export const DEFAULT_CRITERIA = `Include a person ONLY if ALL THREE groups are satisfied:
 
@@ -129,6 +130,8 @@ export const DEFAULT_SETTINGS: Settings = {
   emailStyle: { font: "garamond" },
   prep: { generalQuestions: DEFAULT_GENERAL_QUESTIONS },
   emailBases: DEFAULT_BASES,
+  hooks: DEFAULT_HOOKS,
+  experiments: [],
 };
 
 /*

@@ -1,5 +1,6 @@
 import type { Contact, EmailBase, RequiredFact, Settings, Template } from "./types";
 import { ORIGINAL_BASE } from "./defaults";
+import { hookFor } from "./hooks";
 
 export const PLACEHOLDERS: { key: string; desc: string }[] = [
   { key: "first_name", desc: "Contact first name" },
@@ -16,7 +17,7 @@ export const PLACEHOLDERS: { key: string; desc: string }[] = [
   { key: "my_school_city", desc: "e.g. LA" },
   { key: "my_year", desc: "Your class year" },
   { key: "my_major", desc: "Your major" },
-  { key: "my_pitch", desc: "Your 1–2 sentence background" },
+  { key: "my_pitch", desc: "Your hook (by team: Tech, Energy, none…)" },
   { key: "my_club", desc: "Your club" },
   { key: "my_hometown", desc: "Your hometown" },
   { key: "my_phone", desc: "Your phone" },
@@ -61,7 +62,7 @@ function values(c: Contact, s: Settings): Record<string, string> {
     my_school_city: p.schoolCity,
     my_year: p.year,
     my_major: p.major,
-    my_pitch: p.pitch,
+    my_pitch: hookFor(c, s).text,
     my_club: p.club,
     my_hometown: p.hometown,
     my_phone: p.phone,
@@ -93,6 +94,8 @@ const article = (word: string) => (/^[aeiou]/i.test(word) || /^(MD|SVP|EVP|M&A|M
 export function fillPlaceholders(text: string, c: Contact, s: Settings, extra: Record<string, string> = {}, base: EmailBase = baseFor(c, s)) {
   const v = { ...values(c, s), ...extra };
   return expandBase(text, base)
+    // No hook for this person (Generic): drop the sentence and the space before it, rather than leaving a blank.
+    .replace(/([ \t]*)\{\{\s*my_pitch\s*\}\}/g, (_m, sp: string) => (v.my_pitch ? sp + v.my_pitch : ""))
     .replace(/\b([Aa]n?) \{\{\s*(\w+)\s*\}\}/g, (m, a: string, k: string) => {
       const val = v[k];
       if (!val) return m;

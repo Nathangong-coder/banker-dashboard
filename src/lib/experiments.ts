@@ -1,4 +1,4 @@
-import type { Contact, EmailBase, Settings, Template } from "./types";
+import type { Contact, EmailBase, EmailFont, Experiment, Settings, Template } from "./types";
 import { BASE_PLACEHOLDERS, ORIGINAL_BASE } from "./defaults";
 
 /**
@@ -86,7 +86,7 @@ export interface Arm {
   medianDays?: number;
 }
 
-function arm(id: string, label: string, list: Contact[]): Arm {
+export function arm(id: string, label: string, list: Contact[]): Arm {
   const sent = list.filter(wasSent);
   const replied = sent.filter(gotReply);
   const days = replied
@@ -161,4 +161,51 @@ export function applyBaseToTemplates(templates: Template[], base: EmailBase = OR
     else if (!/\{\{\s*base_/.test(t.body)) untouched.push(t.name || "Untitled");
   }
   return { changed, untouched };
+}
+
+/* ---------------- self-run experiments (fonts, custom) ---------------- */
+
+export const runningExperiments = (s: Settings) => (s.experiments ?? []).filter((e) => e.status === "running");
+
+/** How many drafts each arm of each running experiment already has, for balancing "alternate" experiments. */
+export function trialTally(contacts: Contact[]) {
+  const t = new Map<string, Map<string, number>>();
+  for (const c of contacts)
+    for (const [exp, armId] of Object.entries(c.trial?.arms ?? {})) {
+      const m = t.get(exp) ?? new Map<string, number>();
+      m.set(armId, (m.get(armId) ?? 0) + 1);
+      t.set(exp, m);
+    }
+  return t;
+}
+
+/**
+ * The font and experiment arms for a Gmail draft. A contact that already has a trial keeps it (updating a draft or
+ * sending a follow-up doesn't switch fonts mid-conversation or move them to another arm).
+ */
+export function assignTrial(c: Contact, s: Settings, tally: Map<string, Map<string, number>>): NonNullable<Contact["trial"]> {
+  if (c.trial) return c.trial;
+  let font: EmailFont = s.emailStyle.font;
+  const arms: Record<string, string> = {};
+  for (const e of runningExperiments(s)) {
+    if (!e.arms.length) continue;
+    const counts = tally.get(e.id) ?? new Map<string, number>();
+    const a = e.mode === "wave" ? (e.arms.find((x) => x.id === e.currentArm) ?? e.arms[0]) : leastUsed(e.arms, counts);
+    counts.set(a.id, (counts.get(a.id) ?? 0) + 1);
+    tally.set(e.id, counts);
+    arms[e.id] = a.id;
+    if (e.kind === "font" && a.font) font = a.font;
+  }
+  return { at: new Date().toISOString(), font, arms };
+}
+
+/** Reply rates per arm of one experiment. */
+export function experimentArms(e: Experiment, contacts: Contact[]): Arm[] {
+  return e.arms.map((a) => arm(a.id, a.label, contacts.filter((c) => c.trial?.arms[e.id] === a.id)));
+}
+
+/** Reply rate by the font emails actually went out in (every tracked Gmail draft, experiment or not). */
+export function resultsByFont(contacts: Contact[], labels: Record<string, string>): Arm[] {
+  const fonts = [...new Set(contacts.map((c) => c.trial?.font).filter((f): f is EmailFont => !!f))];
+  return fonts.map((f) => arm(f, labels[f] ?? f, contacts.filter((c) => c.trial?.font === f))).sort((a, b) => b.sent - a.sent);
 }

@@ -160,6 +160,16 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 
 ## Email lab (`app/lab`, `lib/experiments.ts`, `api/templates/generate`)
 
+- **Experiments (top of the lab, `components/SelfExperiments.tsx`):** `settings.experiments` (font or custom arms, `alternate` = least-used
+  arm per draft, `wave` = `currentArm` until switched). `assignTrial` runs when a Gmail draft is made (drafts page bulk + editor), sets
+  `contact.trial {font, arms}` and picks the font. It's kept on later updates, and follow-ups reuse `trial.font`. Results come from
+  `experimentArms` / `resultsByFont`. "Use X from now on" sets `settings.emailStyle.font` and ends the test. In the UI the "base" is called
+  "Shared wording" (versions); the code still says base.
+- **Hooks (`lib/hooks.ts`, `components/Hooks.tsx`):** `{{my_pitch}}` = `hookFor(contact)`: the per-contact `hookId`, else the first hook whose
+  team words match `contact.team`, else the fallback (Generic, empty). An empty hook removes the sentence cleanly (`fillPlaceholders`).
+  Defaults: Tech (the owner's sentence), Energy (empty, the owner will write it), Generic. Store v7 turns `profile.pitch` into the Tech
+  hook. Drafts has a Team · hook column; `draftMeta.hookId` records which hook a draft used.
+
 - **Base** (`settings.emailBases`, `EmailBase`): opener / intro / ask / close shared by every first email via `{{base_opener}}`
   `{{base_intro}}` `{{base_ask}}` `{{base_close}}`, expanded first by `template.ts#expandBase` (empty piece = removed). `ORIGINAL_BASE` =
   the owner's wording (the control). `CONCISE_BASE` = a ~90-word challenger (15-min ask, time window, no "I know you value your time").

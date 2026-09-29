@@ -8,6 +8,7 @@ import type {
   ApiKeyEntry,
   BankMeta,
   Contact,
+  EmailHook,
   HistoryEvent,
   Prospect,
   Region,
@@ -20,6 +21,7 @@ import type {
 import { applyPatches, contactPatches, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
 import { contactId } from "./util";
 import { isPlace, splitLocationTeam } from "./locationTeam";
+import { DEFAULT_HOOKS } from "./hooks";
 import { reconcileTitle, sameLevel } from "./titles";
 import { detectRegion } from "./workbook";
 import { DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_QUERIES_V1 } from "./defaults";
@@ -363,7 +365,7 @@ export const useStore = create<State>()(
     },
     {
       name: "banker-dashboard",
-      version: 6,
+      version: 7,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -446,6 +448,13 @@ function migrateState(p: Record<string, unknown>, version: number) {
       // Lost its school blank (mangled import or edit): back to the owner's wording.
       return /\{\{\s*their_school\s*\}\}/.test(t.body) ? fixed : { ...fixed, subject: starter.subject, body: starter.body };
     });
+  }
+  if (version < 7 && p?.settings) {
+    const settings = p.settings as { hooks?: EmailHook[]; profile?: { pitch?: string } };
+    if (!settings.hooks?.length) {
+      const pitch = settings.profile?.pitch?.trim();
+      settings.hooks = DEFAULT_HOOKS.map((h) => (h.id === "hook_tech" && pitch ? { ...h, text: pitch } : h));
+    }
   }
   return p;
 }

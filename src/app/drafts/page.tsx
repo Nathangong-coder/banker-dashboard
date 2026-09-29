@@ -11,7 +11,9 @@ import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT 
 import { EMAIL_FONTS, type Contact, type RequiredFact, type Template } from "@/lib/types";
 import { chunk, cn, pool, uid } from "@/lib/util";
 import { overCapDesks } from "@/lib/desks";
-import { pickBase, pickVariant, usageTally } from "@/lib/experiments";
+import { assignTrial, pickBase, pickVariant, trialTally, usageTally } from "@/lib/experiments";
+import { autoHook, hookFor, hooksOf } from "@/lib/hooks";
+import { HooksCard } from "@/components/Hooks";
 import { REQUIRED_FACTS, guessSchool, missingFacts } from "@/lib/template";
 import { bodyToPlain, normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
@@ -153,7 +155,7 @@ function DraftsInner() {
         s.updateContact(c.id, {
           templateId: t.id,
           draft: { subject: normalizeSubject(subject), body: normalizeBody(body), createdAt, gmailDraftId: c.draft?.gmailDraftId },
-          draftMeta: { templateId: t.id, baseId: base.id, createdAt },
+          draftMeta: { templateId: t.id, baseId: base.id, hookId: hookFor(c, settings).id, createdAt },
         });
       },
       (done) => setPhase({ label: "Writing drafts", done, total: list.length }),
@@ -179,11 +181,14 @@ function DraftsInner() {
     const resume = await blobs.resume();
     setPhase({ label: "Creating Gmail drafts", done: 0, total: list.length });
     let ok = 0;
+    // Running experiments (Email lab): font + arm per draft, balanced across the batch.
+    const trials = trialTally(useStore.getState().contacts);
     await pool(
       list,
       3,
       async (c) => {
         const t = templates.find((x) => x.id === c.templateId);
+        const trial = assignTrial(c, settings, trials);
         try {
           // Already in Gmail → update that draft in place (or recreate it if it was deleted), never a duplicate.
           const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, {
@@ -191,11 +196,11 @@ function DraftsInner() {
             subject: c.draft!.subject,
             body: c.draft!.body,
             attachment: t?.attachResume && resume ? resume : undefined,
-            font: EMAIL_FONTS[settings.emailStyle.font]?.css,
+            font: EMAIL_FONTS[trial.font]?.css,
           });
           ok++;
           const st = useStore.getState();
-          st.updateContact(c.id, { draft: { ...c.draft!, gmailDraftId: r.id } });
+          st.updateContact(c.id, { draft: { ...c.draft!, gmailDraftId: r.id }, trial });
           if (c.status === "new") st.setStatus([c.id], "drafted", "Gmail draft created");
         } catch (e) {
           toast.err(`${c.name}: ${(e as Error).message}`);
@@ -285,6 +290,11 @@ function DraftsInner() {
           </Card>
 
           <Card>
+            <CardHeader title="Hooks" sub="The sentence after your intro, picked by team" />
+            <HooksCard />
+          </Card>
+
+          <Card>
             <CardHeader title="Resume" sub="Attached to templates marked with a paperclip" />
             <div className="flex items-center gap-2 p-4">
               <Paperclip className="size-4 text-muted" />
@@ -364,6 +374,9 @@ function DraftsInner() {
                     </th>
                     <th className="px-2 py-2 font-medium">Contact</th>
                     <th className="px-2 py-2 font-medium">Notes</th>
+                    <th className="px-2 py-2 font-medium" title="Their team decides the hook automatically; switch it here to include or leave out a blurb">
+                      Team · hook
+                    </th>
                     <th className="px-2 py-2 font-medium">Template</th>
                     <th className="px-2 py-2 font-medium">Draft</th>
                     <th className="px-3 py-2 font-medium">Status</th>
@@ -408,6 +421,28 @@ function DraftsInner() {
                         ) : (
                           <span className="text-muted">—</span>
                         )}
+                      </td>
+                      <td className="px-2 py-2 text-[12px]">
+                        {/* Team from the sheet; the hook follows it unless picked by hand (then the draft needs regenerating). */}
+                        <div className={cn("mb-1", c.team ? "text-ink-2" : "text-muted")}>{c.team || "team not set"}</div>
+                        <Select
+                          className="h-7 max-w-[150px] text-[12px]"
+                          value={c.hookId ?? ""}
+                          aria-label={`Hook for ${c.name}`}
+                          onChange={(e) => {
+                            s.updateContact(c.id, { hookId: e.target.value || undefined });
+                            if (c.draft) toast.info(`Hook changed for ${c.name}. Generate their draft again to use it.`);
+                          }}
+                        >
+                          <option value="">Auto: {autoHook(c.team, settings).name}</option>
+                          {hooksOf(settings).map((h) => (
+                            <option key={h.id} value={h.id}>
+                              {h.name}
+                              {!h.text.trim() && !h.fallback ? " (empty)" : ""}
+                            </option>
+                          ))}
+                        </Select>
+                        {c.draftMeta?.hookId && c.draftMeta.hookId !== hookFor(c, settings).id && <div className="mt-0.5 text-[11px] text-amber">draft uses the old hook</div>}
                       </td>
                       <td className="px-2 py-2">
                         <Select
@@ -512,8 +547,9 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
       save();
       const t = templates.find((x) => x.id === c.templateId);
       const resume = t?.attachResume ? await blobs.resume() : undefined;
-      const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, { to: c.email, subject, body, attachment: resume, font: EMAIL_FONTS[settings.emailStyle.font]?.css });
-      update(c.id, { draft: { ...c.draft!, subject, body, gmailDraftId: r.id } });
+      const trial = assignTrial(c, settings, trialTally(useStore.getState().contacts));
+      const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, { to: c.email, subject, body, attachment: resume, font: EMAIL_FONTS[trial.font]?.css });
+      update(c.id, { draft: { ...c.draft!, subject, body, gmailDraftId: r.id }, trial });
       if (c.status === "new") setStatus([c.id], "drafted", "Gmail draft created");
       toast.ok(c.draft!.gmailDraftId ? "Gmail draft updated." : "Draft created in Gmail.");
       onClose();

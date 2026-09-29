@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { HooksEditor } from "@/components/Hooks";
 import { useStore } from "@/lib/store";
 import { EMAIL_FONTS, type EmailFont, type Settings } from "@/lib/types";
 import { download } from "@/lib/util";
@@ -182,11 +183,13 @@ export default function SettingsPage() {
             <Field label="School city" hint="“…went to college in LA”"><Input value={p.schoolCity} placeholder="LA" onChange={(e) => setP({ schoolCity: e.target.value })} /></Field>
             <Field label="Club"><Input value={p.club} placeholder="e.g. Bruin Finance Society" onChange={(e) => setP({ club: e.target.value })} /></Field>
             <div className="md:col-span-3">
-              <Field label="Background line ({{my_pitch}})" hint="1–2 sentences used right after your intro in most templates.">
-                <Textarea rows={2} value={p.pitch} placeholder="Through my software development internship and starting my own tech startup, I've developed a strong interest in the tech sector." onChange={(e) => setP({ pitch: e.target.value })} />
-              </Field>
+              <div className="mb-1 text-[12.5px] font-medium text-ink-2">Hooks ({"{{my_pitch}}"})</div>
+              <HooksEditor />
             </div>
-            <Field label="Email font" hint="Used for drafts created in Gmail">
+            <Field
+              label="Email font"
+              hint={(settings.experiments ?? []).some((x) => x.status === "running" && x.kind === "font") ? "A font experiment is running (Email lab); it picks the font until it ends" : "Used for drafts created in Gmail"}
+            >
               <Select
                 className="w-full"
                 value={settings.emailStyle.font}

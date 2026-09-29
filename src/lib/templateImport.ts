@@ -134,7 +134,7 @@ function outsideSlots(line: string, fn: (seg: string) => string) {
 function myDetails(p?: ImportProfile): MyDetail[] {
   if (!p) return [];
   const list: [string | undefined, string, string][] = [
-    [p.pitch, "{{my_pitch}}", "your background line (Settings → profile)"],
+    ...(p.pitches ?? [p.pitch]).map((t): [string | undefined, string, string] => [t, "{{my_pitch}}", "one of your hooks (Email drafts → Hooks)"]),
     [p.major, "{{my_major}}", "your major"],
     [p.club, "{{my_club}}", "your club"],
     [p.schoolNickname, "{{my_school_nickname}}", "your school nickname"],
@@ -148,6 +148,8 @@ function myDetails(p?: ImportProfile): MyDetail[] {
 }
 
 export interface ImportProfile {
+  /** All hook texts; each becomes {{my_pitch}}. */
+  pitches?: string[];
   name?: string;
   school?: string;
   major?: string;

@@ -96,8 +96,12 @@ export interface Contact {
   profile?: { text: string; source: "linkedin" | "paste"; capturedAt: string };
   /** Coffee chat prep generated for this person (see app/prep). */
   prep?: CoffeePrep;
-  /** What produced the current draft, for A/B results: the template, the base, and when. */
-  draftMeta?: { templateId: string; baseId: string; createdAt: string };
+  /** What produced the current draft, for A/B results: the template, the base, the hook, and when. */
+  draftMeta?: { templateId: string; baseId: string; hookId?: string; createdAt: string };
+  /** Hook chosen by hand for this person; otherwise it follows their team (lib/hooks.ts). */
+  hookId?: string;
+  /** Set when the Gmail draft is made: the font it went out in and the arm of each running experiment. Kept on updates. */
+  trial?: { at: string; font: EmailFont; arms: Record<string, string> };
   history: HistoryEvent[];
 }
 
@@ -154,6 +158,35 @@ export interface Template {
 }
 
 export type RequiredFact = "their_school" | "position";
+
+/**
+ * A self-run experiment. Font experiments set the Gmail draft's font; custom ones just tag each draft with the arm
+ * (e.g. "sent before 9am" vs "after lunch") so replies can be compared.
+ */
+export interface Experiment {
+  id: string;
+  name: string;
+  kind: "font" | "custom";
+  arms: { id: string; label: string; font?: EmailFont }[];
+  /** alternate: each new draft gets the least-used arm (fairest). wave: every draft uses `currentArm` until you switch. */
+  mode: "alternate" | "wave";
+  currentArm?: string;
+  status: "running" | "ended";
+  startedAt: string;
+  endedAt?: string;
+}
+
+/** A {{my_pitch}} sentence for a kind of banker (see lib/hooks.ts). */
+export interface EmailHook {
+  id: string;
+  name: string;
+  /** Empty = no hook sentence at all. */
+  text: string;
+  /** Team words that pick this hook automatically ("tech", "tmt"…). */
+  teams: string[];
+  /** Used when no other hook matches the contact's team. */
+  fallback?: boolean;
+}
 
 /**
  * The shared skeleton of every first email: pleasantry, who I am, the ask, and the sign-off. Templates use
@@ -236,6 +269,10 @@ export interface Settings {
   prep: { generalQuestions: string[] };
   /** Shared email skeletons (see EmailBase). */
   emailBases: EmailBase[];
+  /** {{my_pitch}} sentences by kind of banker (see lib/hooks.ts). */
+  hooks: EmailHook[];
+  /** Self-run experiments (Email lab), e.g. which font gets more replies. */
+  experiments: Experiment[];
 }
 
 export interface Prospect {

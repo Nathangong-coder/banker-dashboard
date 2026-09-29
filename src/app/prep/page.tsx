@@ -8,6 +8,7 @@ import { callApi } from "@/lib/api";
 import { aiReady, hasKey } from "@/lib/keys";
 import { bookmarkletHref, captureIsProfile, parseCapture } from "@/lib/linkedinCapture";
 import { DEFAULT_GENERAL_QUESTIONS } from "@/lib/defaults";
+import { hookFor } from "@/lib/hooks";
 import { bodyToPlain } from "@/lib/emailFormat";
 import { STATUS_LABEL, type CoffeePrep, type Contact } from "@/lib/types";
 import { cn, fmtDate, linkedinSlug, relDays } from "@/lib/util";
@@ -234,7 +235,7 @@ function PrepView({ c }: { c: Contact }) {
             major: p.major,
             hometown: p.hometown,
             club: p.club,
-            pitch: p.pitch,
+            pitch: hookFor(c, settings).text,
           },
           lastEmail: lastEmail.slice(0, 4000),
           searchWeb: searchWeb && canSearch,
@@ -407,7 +408,9 @@ function PrepView({ c }: { c: Contact }) {
             <Card className="p-4">
               <SectionTitle>Your intro (if they say “tell me about yourself”)</SectionTitle>
               <p className="text-[13.5px] leading-relaxed text-ink-2">{prep.intro}</p>
-              {!settings.profile.pitch && <p className="mt-2 text-[11.5px] text-amber">Add a short pitch in Settings → Profile to make this sound more like you.</p>}
+              {!hookFor(c, settings).text && (
+                <p className="mt-2 text-[11.5px] text-muted">No hook for {c.firstName || c.name}&apos;s team ({hookFor(c, settings).name}). Hooks are on Email drafts.</p>
+              )}
             </Card>
           </div>
 

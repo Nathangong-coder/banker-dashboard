@@ -137,7 +137,8 @@ function useActions() {
         threadId: c.threadId,
         inReplyTo: c.lastMessageId,
         attachment: resume,
-        font: EMAIL_FONTS[s.settings.emailStyle.font]?.css,
+        // Same font as the first email (keeps font experiments clean and the thread consistent).
+        font: EMAIL_FONTS[c.trial?.font ?? s.settings.emailStyle.font]?.css,
       });
       toast.ok(`Follow-up draft for ${c.name} is in Gmail${c.threadId ? " (same thread)" : ""}. Mark it followed up once it's sent.`);
     } catch (e) {
