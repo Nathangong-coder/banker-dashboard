@@ -1,4 +1,14 @@
-export type Region = "SF" | "NY" | "Other";
+/** Office regions. SF covers the Bay Area (Menlo Park, Palo Alto); LA and Chicago are their own markets. */
+export type Region = "SF" | "LA" | "NY" | "CHI" | "Other";
+
+export const REGIONS: { id: Region; short: string; label: string; city: string }[] = [
+  { id: "SF", short: "SF", label: "San Francisco / Bay Area", city: "San Francisco" },
+  { id: "LA", short: "LA", label: "Los Angeles", city: "Los Angeles" },
+  { id: "NY", short: "NY", label: "New York", city: "New York" },
+  { id: "CHI", short: "Chicago", label: "Chicago", city: "Chicago" },
+  { id: "Other", short: "Other", label: "Other / unassigned", city: "" },
+];
+export const regionInfo = (r: Region) => REGIONS.find((x) => x.id === r) ?? REGIONS[REGIONS.length - 1];
 
 export type Status =
   | "new"
@@ -86,6 +96,8 @@ export interface Contact {
   profile?: { text: string; source: "linkedin" | "paste"; capturedAt: string };
   /** Coffee chat prep generated for this person (see app/prep). */
   prep?: CoffeePrep;
+  /** What produced the current draft, for A/B results: the template, the base, and when. */
+  draftMeta?: { templateId: string; baseId: string; createdAt: string };
   history: HistoryEvent[];
 }
 
@@ -128,6 +140,28 @@ export interface Template {
   kind: "initial" | "follow_up";
   /** Follow-ups only: 1 = first follow-up, 2 = second, … */
   step?: number;
+  /** Made in the Email lab (AI-generated or a test variant); shown with a badge until you're happy with it. */
+  experimental?: boolean;
+  /** Templates sharing a group are A/B variants: drafts alternate between them and replies are compared. */
+  variantGroup?: string;
+}
+
+/**
+ * The shared skeleton of every first email: pleasantry, who I am, the ask, and the sign-off. Templates use
+ * {{base_opener}} {{base_intro}} {{base_ask}} {{base_close}}, so improving the base improves every template, and
+ * several bases can be A/B tested against each other.
+ */
+export interface EmailBase {
+  id: string;
+  name: string;
+  opener: string;
+  intro: string;
+  ask: string;
+  close: string;
+  /** Active bases are used for new drafts; with two or more active, drafts alternate between them (A/B test). */
+  active: boolean;
+  /** Why this base is written the way it is (shown in the Email lab). */
+  notes?: string;
 }
 
 export interface Settings {
@@ -191,6 +225,8 @@ export interface Settings {
   emailStyle: { font: EmailFont };
   /** Coffee chat prep: the general questions that work for anyone. */
   prep: { generalQuestions: string[] };
+  /** Shared email skeletons (see EmailBase). */
+  emailBases: EmailBase[];
 }
 
 export interface Prospect {

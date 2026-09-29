@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { addManualContact, type NewContact } from "@/lib/actions";
 import { allocateRow, detectRegion } from "@/lib/workbook";
-import type { CellRef, Region } from "@/lib/types";
+import { REGIONS, type CellRef, type Region } from "@/lib/types";
 import { Button, Field, Input, Modal, Select, Textarea, toast } from "./ui";
 import { LocationTeamFields } from "./LocationTeam";
 
@@ -112,9 +112,11 @@ function Form({ onClose, defaultBank, initial, row }: { onClose: () => void; def
             set("region", e.target.value as Region);
           }}
         >
-          <option value="SF">SF / West Coast</option>
-          <option value="NY">New York</option>
-          <option value="Other">Other</option>
+          {REGIONS.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.label}
+            </option>
+          ))}
         </Select>
       </Field>
       <div className="col-span-2">

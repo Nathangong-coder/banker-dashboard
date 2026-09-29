@@ -1,4 +1,5 @@
-import type { Contact, Settings, Template } from "./types";
+import type { Contact, EmailBase, Settings, Template } from "./types";
+import { ORIGINAL_BASE } from "./defaults";
 
 export const PLACEHOLDERS: { key: string; desc: string }[] = [
   { key: "first_name", desc: "Contact first name" },
@@ -21,9 +22,27 @@ export const PLACEHOLDERS: { key: string; desc: string }[] = [
   { key: "my_phone", desc: "Your phone" },
   { key: "my_linkedin", desc: "Your LinkedIn" },
   { key: "original_subject", desc: "Subject of the first email (follow-ups)" },
+  { key: "base_opener", desc: "Base: pleasantry (Email lab)" },
+  { key: "base_intro", desc: "Base: who you are (Email lab)" },
+  { key: "base_ask", desc: "Base: the ask (Email lab)" },
+  { key: "base_close", desc: "Base: sign-off (Email lab)" },
 ];
 
-const CITY: Record<string, string> = { NY: "New York", SF: "San Francisco" };
+/** The base this contact's draft uses: the one recorded on the draft, else the first active base. */
+export function baseFor(c: Pick<Contact, "draftMeta">, s: Settings): EmailBase {
+  const bases = s.emailBases?.length ? s.emailBases : [ORIGINAL_BASE];
+  return bases.find((b) => b.id === c.draftMeta?.baseId) ?? bases.find((b) => b.active) ?? bases[0];
+}
+
+/** Put the base's pieces into a template. An empty piece (e.g. no opener) disappears along with the space after it. */
+export function expandBase(text: string, base: EmailBase): string {
+  return text.replace(/\{\{\s*base_(opener|intro|ask|close)\s*\}\}([ \t]?)/g, (_m, k: "opener" | "intro" | "ask" | "close", sp: string) => {
+    const v = base[k]?.trim();
+    return v ? v + sp : "";
+  });
+}
+
+const CITY: Record<string, string> = { NY: "New York", SF: "San Francisco", LA: "Los Angeles", CHI: "Chicago" };
 
 function values(c: Contact, s: Settings): Record<string, string> {
   const p = s.profile;
@@ -58,9 +77,9 @@ const article = (word: string) => (/^[aeiou]/i.test(word) || /^(MD|SVP|EVP|M&A|M
  * step can fill them from context, or the user sees exactly what's missing, instead of a silent blank.
  * "a {{position}}" / "an {{my_major}}" get the right article for the value.
  */
-export function fillPlaceholders(text: string, c: Contact, s: Settings, extra: Record<string, string> = {}) {
+export function fillPlaceholders(text: string, c: Contact, s: Settings, extra: Record<string, string> = {}, base: EmailBase = baseFor(c, s)) {
   const v = { ...values(c, s), ...extra };
-  return text
+  return expandBase(text, base)
     .replace(/\b([Aa]n?) \{\{\s*(\w+)\s*\}\}/g, (m, a: string, k: string) => {
       const val = v[k];
       if (!val) return m;

@@ -3,6 +3,7 @@
 import { blobs, useStore } from "./store";
 import { allocateRow, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseWorkbook, splitLocationTeamPatches } from "./workbook";
 import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
+import { reconcileTitle } from "./titles";
 import { callApi } from "./api";
 import { canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHandle, writeToHandle } from "./files";
 import { chunk, download, guessDomain, splitName, uid } from "./util";
@@ -162,7 +163,7 @@ export function addProspects(list: Prospect[], toSheet: boolean) {
       region,
       location: locationForRegion("", region, detectRegion),
       team: p.team ? normTeam(p.team) : undefined,
-      position: p.position || p.title,
+      position: reconcileTitle(p.title, p.position) || p.title,
       email: "",
       linkedin: p.linkedin,
       comment: [p.school, p.reasons].filter(Boolean).join(" — "),

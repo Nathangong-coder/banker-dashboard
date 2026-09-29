@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { PLACEHOLDERS } from "@/lib/template";
 import type { Template } from "@/lib/types";
-import { Button, Checkbox, Field, Input, Modal, Select, Textarea } from "./ui";
+import { uid } from "@/lib/util";
+import { Button, Checkbox, Field, Input, Modal, Select, Textarea, toast } from "./ui";
 
 export function TemplateEditor({
   template,
@@ -51,6 +52,37 @@ function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Temp
         <label className="flex items-center gap-2 text-[13px]">
           <Checkbox checked={d.attachResume} onChange={(v) => setD({ ...d, attachResume: v })} /> Attach my resume
         </label>
+        {d.kind === "initial" && (
+          <div className="flex flex-wrap items-center gap-3 rounded-md bg-[#fbfaf6] px-3 py-2 text-[12.5px] text-ink-2">
+            {d.experimental && (
+              <label className="flex items-center gap-2">
+                <Checkbox checked={!!d.experimental} onChange={(v) => setD({ ...d, experimental: v || undefined })} /> Experimental (untick once it&apos;s proven)
+              </label>
+            )}
+            {d.variantGroup ? (
+              <>
+                <span className="text-blue">Part of an A/B test: drafts alternate between its variants.</span>
+                <button className="text-navy hover:underline" onClick={() => setD({ ...d, variantGroup: undefined })}>
+                  Take out of the test
+                </button>
+              </>
+            ) : (
+              <button
+                className="text-navy hover:underline"
+                title="Copies this template as variant B. New drafts alternate between the two and the Email lab compares reply rates."
+                onClick={() => {
+                  const group = d.id;
+                  onSave({ ...d, variantGroup: group });
+                  onSave({ ...d, id: uid("tpl"), name: `${d.name || "Template"} (B)`, variantGroup: group, experimental: true });
+                  toast.ok(`Made “${d.name || "Template"} (B)”. Edit it to change one thing (subject line, hook, or ask), then drafts alternate between A and B.`);
+                  onClose();
+                }}
+              >
+                Make an A/B variant
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div className="text-[12px]">
         <div className="mb-1.5 font-medium text-ink-2">Placeholders</div>

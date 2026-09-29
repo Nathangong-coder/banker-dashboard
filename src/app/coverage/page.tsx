@@ -6,6 +6,7 @@ import { ArrowRight, EyeOff, Flame, Mail, Plus, Search, Snowflake, Sparkles, Tre
 import { blobs, useStore } from "@/lib/store";
 import { buildCoverage, outreachBetween, tierRank, type Bucket, type CoverageRow } from "@/lib/coverage";
 import { STARTER_TARGETS } from "@/lib/banks";
+import { REGIONS } from "@/lib/types";
 import { parseWorkbook } from "@/lib/workbook";
 import { DAY, cn, relDays } from "@/lib/util";
 import { Badge, Button, Card, Checkbox, Empty, Input, PageHeader, Select } from "@/components/ui";
@@ -288,7 +289,7 @@ function NextMove({ icon, show, title, body, href, cta }: { icon: React.ReactNod
 }
 
 function BankCard({ r, onHide }: { r: CoverageRow; onHide: () => void }) {
-  const regions = (["SF", "NY"] as const).filter((k) => r.regions[k] > 0);
+  const regions = REGIONS.filter((x) => x.id !== "Other" && r.regions[x.id] > 0);
   let detail: React.ReactNode;
   let action: { href: string; label: string } | null = null;
 
@@ -326,9 +327,9 @@ function BankCard({ r, onHide }: { r: CoverageRow; onHide: () => void }) {
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-medium">{r.name}</span>
             {r.tier && <span className="text-[11px] text-muted">{r.tier}</span>}
-            {regions.map((k) => (
-              <Badge key={k} tone="neutral" className="px-1 py-0 text-[10.5px]">
-                {k} {r.regions[k]}
+            {regions.map((x) => (
+              <Badge key={x.id} tone="neutral" className="px-1 py-0 text-[10.5px]">
+                {x.short} {r.regions[x.id]}
               </Badge>
             ))}
           </div>

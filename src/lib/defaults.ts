@@ -1,4 +1,4 @@
-import type { Settings, Template } from "./types";
+import type { EmailBase, Settings, Template } from "./types";
 
 export const DEFAULT_CRITERIA = `Include a person ONLY if ALL THREE groups are satisfied:
 
@@ -37,6 +37,49 @@ export const DEFAULT_GENERAL_QUESTIONS = [
   "What do you think makes an analyst stand out in their first year?",
   "Looking back, what do you wish you'd known when you were recruiting?",
 ];
+
+const INTRO = `My name is {{my_name}}, I'm a {{my_major}} student at {{my_school}}, and I am very interested in pursuing investment banking. {{my_pitch}}`;
+const ASK = `I know that as a {{position}}, you must place a lot of value on your time, but if you are available, would you be open to having a call sometime this week or next week to talk about your career? If so, I can send my availability, and I've attached my resume for your reference.`;
+const CLOSE = `Thank you so much for your time, and I hope we get a chance to connect!
+
+Sincerely,
+{{my_name}}`;
+
+/** The owner's original wording, unchanged: the control in any A/B test. */
+export const ORIGINAL_BASE: EmailBase = {
+  id: "base_original",
+  name: "Original",
+  opener: "I hope this email finds you well!",
+  intro: INTRO,
+  ask: ASK,
+  close: CLOSE,
+  active: true,
+  notes: "Your wording from the template doc. Keep it as the control while you test alternatives.",
+};
+
+/**
+ * A tighter challenger, built on what tends to get busy people to reply: short enough to read on a phone (about 90
+ * words with a hook), one specific low-cost ask with a time box and a window, an easy "yes" (you adapt to them), and
+ * no hedging about their time, which reads as filler. Reference to them comes from the template's hook, not the base.
+ */
+export const CONCISE_BASE: EmailBase = {
+  id: "base_concise",
+  name: "Concise (15-min ask)",
+  opener: "",
+  intro: "I'm {{my_name}}, a {{my_major}} student at {{my_school}} recruiting for investment banking. {{my_pitch}}",
+  ask: "Would you have 15 minutes for a quick call in the next week or two? I'd love to hear how you got to {{bank}} and what your work looks like day to day. I'm happy to work around your schedule, and I've attached my resume for context.",
+  close: `Thank you for your time!
+
+Best,
+{{my_name}}`,
+  active: false,
+  notes: "Shorter, one concrete 15-minute ask with a time window, no apology for their time. Test it against Original.",
+};
+
+export const DEFAULT_BASES: EmailBase[] = [ORIGINAL_BASE, CONCISE_BASE];
+
+/** The base's literal texts, for converting templates that still spell the base out word for word. */
+export const BASE_PLACEHOLDERS = { opener: "{{base_opener}}", intro: "{{base_intro}}", ask: "{{base_ask}}", close: "{{base_close}}" } as const;
 
 export const DEFAULT_SETTINGS: Settings = {
   profile: {
@@ -85,6 +128,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   emailStyle: { font: "garamond" },
   prep: { generalQuestions: DEFAULT_GENERAL_QUESTIONS },
+  emailBases: DEFAULT_BASES,
 };
 
 /*
@@ -95,22 +139,16 @@ export const DEFAULT_SETTINGS: Settings = {
  *   CITY → {{their_city}}, the sender's school/major/background → {{my_school}} / {{my_major}} / {{my_pitch}}.
  * Things only the recipient's profile can tell us (their high school, shared major) are [[AI: …]] slots.
  */
-const INTRO = `My name is {{my_name}}, I'm a {{my_major}} student at {{my_school}}, and I am very interested in pursuing investment banking. {{my_pitch}}`;
-const ASK = `I know that as a {{position}}, you must place a lot of value on your time, but if you are available, would you be open to having a call sometime this week or next week to talk about your career? If so, I can send my availability, and I've attached my resume for your reference.`;
-const CLOSE = `Thank you so much for your time, and I hope we get a chance to connect!
-
-Sincerely,
-{{my_name}}`;
-
+const OPEN = "{{base_opener}}";
 const personal = (hook: string) => `Hi {{first_name}},
 
-I hope this email finds you well! ${INTRO}
+${OPEN} {{base_intro}}
 
 ${hook}
 
-${ASK}
+{{base_ask}}
 
-${CLOSE}`;
+{{base_close}}`;
 
 export const DEFAULT_TEMPLATES: Template[] = [
   {
@@ -122,11 +160,11 @@ export const DEFAULT_TEMPLATES: Template[] = [
     subject: "{{my_school}} Student Seeking to Connect",
     body: `Hi {{first_name}},
 
-I hope this email finds you well! My name is {{my_name}}, I'm a student at {{my_school}} majoring in {{my_major}}, and I wanted to reach out to you because I'm interested in learning more about investment banking at {{bank}}.
+{{base_opener}} My name is {{my_name}}, I'm a student at {{my_school}} majoring in {{my_major}}, and I wanted to reach out to you because I'm interested in learning more about investment banking at {{bank}}.
 
-${ASK}
+{{base_ask}}
 
-${CLOSE}`,
+{{base_close}}`,
   },
   {
     id: "tpl_senior",
@@ -137,13 +175,13 @@ ${CLOSE}`,
     subject: "{{my_school}} Student Seeking to Connect",
     body: `Hi {{first_name}},
 
-I hope this email finds you well! My name is {{my_name}}, I'm a student at {{my_school}} majoring in {{my_major}}, and I wanted to reach out to you because I'm interested in learning more about investment banking at {{bank}}.
+{{base_opener}} My name is {{my_name}}, I'm a student at {{my_school}} majoring in {{my_major}}, and I wanted to reach out to you because I'm interested in learning more about investment banking at {{bank}}.
 
 So far, I've spoken to a number of analysts and associates, but I wanted to reach out to you specifically, because given your position as a {{position}}, I felt that you would have a longer term view on the industry and differentiated insights into the merits of a long term career in investment banking.
 
-${ASK}
+{{base_ask}}
 
-${CLOSE}`,
+{{base_close}}`,
   },
   {
     id: "tpl_same_school",
@@ -176,13 +214,13 @@ ${CLOSE}`,
     subject: "{{my_club}} Student Seeking to Connect",
     body: `Hi {{first_name}},
 
-I hope this email finds you well! My name is {{my_name}}, I'm a {{my_school}} student and {{my_club}} member majoring in {{my_major}}, and I wanted to reach out to you because I'm interested in learning more about investment banking at {{bank}}.
+{{base_opener}} My name is {{my_name}}, I'm a {{my_school}} student and {{my_club}} member majoring in {{my_major}}, and I wanted to reach out to you because I'm interested in learning more about investment banking at {{bank}}.
 
 Seeing as how you were a member of {{my_club}} when you were an undergrad, I wanted to reach out to you specifically to hear more about your journey and how you found yourself at {{bank}} after graduating from {{my_school}}.
 
-${ASK}
+{{base_ask}}
 
-${CLOSE}`,
+{{base_close}}`,
   },
   {
     id: "tpl_uc",

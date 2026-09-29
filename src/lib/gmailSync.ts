@@ -1,7 +1,7 @@
 "use client";
 
 import { useStore } from "./store";
-import { findEmailByName, gmailConnected, syncContact, type SyncResult } from "./gmail";
+import { draftExists, findEmailByName, gmailConnected, syncContact, type SyncResult } from "./gmail";
 import { googleClientId } from "./keys";
 import type { Contact } from "./types";
 import { pool } from "./util";
@@ -12,6 +12,8 @@ export interface SyncSummary {
   emailsFound: number;
   newlySent: number;
   replies: number;
+  /** Gmail drafts the user deleted without sending: back to editable dashboard drafts. */
+  draftsReverted: number;
 }
 
 /** How often a contact with no email is re-searched by name. */
@@ -51,7 +53,7 @@ export function syncAllWithGmail(opts: { interactive: boolean; onProgress?: (don
   running = (async () => {
     const s = useStore.getState();
     const clientId = googleClientId(s.settings);
-    const summary: SyncSummary = { checked: 0, updated: 0, emailsFound: 0, newlySent: 0, replies: 0 };
+    const summary: SyncSummary = { checked: 0, updated: 0, emailsFound: 0, newlySent: 0, replies: 0, draftsReverted: 0 };
     if (!clientId || (!opts.interactive && !gmailConnected(clientId))) return summary;
 
     const now = Date.now();
@@ -81,12 +83,28 @@ export function syncAllWithGmail(opts: { interactive: boolean; onProgress?: (don
           summary.checked++;
           const cur = useStore.getState().contacts.find((x) => x.id === c.id) ?? c;
           const p = patchFrom({ ...cur, ...extra }, r);
+          // A Gmail draft we created is gone: sent (Gmail shows mail after the draft was made) or deleted by the user.
+          const draftId = cur.draft?.gmailDraftId;
+          if (draftId && !(await draftExists(clientId, draftId))) {
+            const sentAfter = r.lastSentAt && cur.draft && r.lastSentAt >= cur.draft.createdAt;
+            const draft = { ...(p?.draft ?? cur.draft!), gmailDraftId: undefined };
+            if (sentAfter) Object.assign(extra, { draft });
+            else {
+              summary.draftsReverted++;
+              useStore.getState().updateContact(
+                c.id,
+                { draft },
+                { at: new Date().toISOString(), type: "note", note: "Gmail draft was deleted without sending; it's back in the dashboard drafts" },
+              );
+              extra.draft = draft;
+            }
+          }
           if (p?.status === "replied" && cur.status !== "replied") summary.replies++;
           if (p?.sentAt && !cur.sentAt) summary.newlySent++;
           if (p || extra.email) summary.updated++;
           useStore.getState().updateContact(
             c.id,
-            { ...extra, ...(p ?? {}) },
+            { ...extra, ...(p ?? {}), ...(extra.draft ? { draft: extra.draft } : {}) },
             p || extra.email
               ? { at: new Date().toISOString(), type: "note", note: `Gmail: ${r.firstSentAt ? `first emailed ${new Date(r.firstSentAt).toLocaleDateString()}` : "no sent mail"}${r.outreachCount > 1 ? `, ${r.outreachCount - 1} follow-up(s)` : ""}${r.repliedAt ? ", replied" : ""}${extra.email ? `, email found (${email})` : ""}` }
               : undefined,
@@ -110,6 +128,7 @@ export function describeSync(r: SyncSummary) {
     r.newlySent && `${r.newlySent} sent date${r.newlySent > 1 ? "s" : ""} filled in`,
     r.emailsFound && `${r.emailsFound} missing email${r.emailsFound > 1 ? "s" : ""} found`,
     r.replies && `${r.replies} new repl${r.replies > 1 ? "ies" : "y"}`,
+    r.draftsReverted && `${r.draftsReverted} deleted Gmail draft${r.draftsReverted > 1 ? "s" : ""} back in your drafts`,
   ].filter(Boolean);
   return bits.length ? `Gmail sync: ${bits.join(" · ")}.` : r.updated ? `Gmail sync: ${r.updated} contact${r.updated > 1 ? "s" : ""} updated.` : "Gmail sync: everything was already up to date.";
 }

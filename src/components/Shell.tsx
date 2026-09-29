@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee } from "lucide-react";
+import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { FORMAT_VERSION, readFormats } from "@/lib/workbook";
 import { useSaveShortcut } from "./WorkbookControls";
@@ -19,6 +19,7 @@ const NAV = [
   { href: "/sheet", label: "Spreadsheet", icon: Sheet },
   { href: "/find", label: "Find people", icon: Search },
   { href: "/drafts", label: "Email drafts", icon: Mail },
+  { href: "/lab", label: "Email lab", icon: FlaskConical },
   { href: "/followups", label: "Follow-ups", icon: BellRing },
   { href: "/prep", label: "Coffee chat prep", icon: Coffee },
   { href: "/settings", label: "Settings & keys", icon: Settings2 },

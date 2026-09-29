@@ -6,11 +6,12 @@ import Link from "next/link";
 import { FileText, FileUp, Mail, Paperclip, Pencil, Plus, Send, Sparkles, Wand2 } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
-import { connectGmail, createDraft } from "@/lib/gmail";
+import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type Contact, type Template } from "@/lib/types";
 import { chunk, cn, pool, uid } from "@/lib/util";
 import { overCapDesks } from "@/lib/desks";
+import { pickBase, pickVariant, usageTally } from "@/lib/experiments";
 import { bodyToPlain, normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
@@ -101,13 +102,17 @@ function DraftsInner() {
     if (profileMissing) toast.info("Tip: fill in your name and school in Settings so {{my_*}} placeholders work.");
     setPhase({ label: "Writing drafts", done: 0, total: list.length });
     let failed = 0;
+    // A/B tests (Email lab): each draft gets the least-used active base and template variant, recorded on the contact.
+    const tally = usageTally(useStore.getState().contacts);
     await pool(
       list,
       4,
       async (c) => {
-        const t = templates.find((x) => x.id === c.templateId) ?? ruleAssign(c, templates)!;
-        let subject = fillPlaceholders(t.subject, c, settings);
-        let body = fillPlaceholders(t.body, c, settings);
+        const assigned = templates.find((x) => x.id === c.templateId) ?? ruleAssign(c, templates)!;
+        const t = pickVariant(assigned, templates, tally.template);
+        const base = pickBase(settings, tally.base);
+        let subject = fillPlaceholders(t.subject, c, settings, {}, base);
+        let body = fillPlaceholders(t.body, c, settings, {}, base);
         body = withSignature(body, settings.profile);
         const needsAi = hasAiSlots(subject + body) || missingPlaceholders(subject + body).length > 0;
         if (needsAi && aiReady(settings)) {
@@ -127,7 +132,12 @@ function DraftsInner() {
         } else if (needsAi) {
           body = body.replace(new RegExp(AI_SLOT.source, "g"), "").replace(/\n{3,}/g, "\n\n");
         }
-        s.updateContact(c.id, { templateId: t.id, draft: { subject: normalizeSubject(subject), body: normalizeBody(body), createdAt: new Date().toISOString() } });
+        const createdAt = new Date().toISOString();
+        s.updateContact(c.id, {
+          templateId: t.id,
+          draft: { subject: normalizeSubject(subject), body: normalizeBody(body), createdAt, gmailDraftId: c.draft?.gmailDraftId },
+          draftMeta: { templateId: t.id, baseId: base.id, createdAt },
+        });
       },
       (done) => setPhase({ label: "Writing drafts", done, total: list.length }),
     );
@@ -158,7 +168,8 @@ function DraftsInner() {
       async (c) => {
         const t = templates.find((x) => x.id === c.templateId);
         try {
-          const r = await createDraft(googleClientId(settings), {
+          // Already in Gmail → update that draft in place (or recreate it if it was deleted), never a duplicate.
+          const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, {
             to: c.email,
             subject: c.draft!.subject,
             body: c.draft!.body,
@@ -176,7 +187,7 @@ function DraftsInner() {
       (done) => setPhase({ label: "Creating Gmail drafts", done, total: list.length }),
     );
     setPhase(null);
-    toast.ok(`${ok} drafts are waiting in Gmail.${skipped ? ` ${skipped} skipped (no email or no draft).` : ""}`);
+    toast.ok(`${ok} drafts are waiting in Gmail (existing ones were updated, not duplicated).${skipped ? ` ${skipped} skipped (no email or no draft).` : ""}`);
   };
 
   const onResume = async (file: File) => {
@@ -223,6 +234,8 @@ function DraftsInner() {
                       <div className="flex items-center gap-1.5 font-medium">
                         {t.name || "Untitled"}
                         {t.kind === "follow_up" && <Badge>follow-up</Badge>}
+                        {t.experimental && <Badge tone="brass">experiment</Badge>}
+                        {t.variantGroup && templates.filter((x) => x.variantGroup === t.variantGroup).length > 1 && <Badge tone="blue">A/B</Badge>}
                         {t.attachResume && <Paperclip className="size-3 text-muted" />}
                       </div>
                       <div className="truncate text-[12px] text-muted">{t.whenToUse || "No rule set"}</div>
@@ -233,7 +246,13 @@ function DraftsInner() {
               ))}
             </ul>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-[11.5px] text-muted">
-              <span>Import a Word / Google Doc with one section per template.</span>
+              <span>
+                Import a Word / Google Doc with one section per template, or{" "}
+                <Link href="/lab" className="font-medium text-navy hover:underline">
+                  test and generate templates in the Email lab
+                </Link>
+                .
+              </span>
               {missingStarters.length > 0 && (
                 <button
                   className="font-medium text-navy hover:underline"
@@ -457,6 +476,45 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
     [c.email, subject, body],
   );
   const save = () => update(c.id, { draft: { ...c.draft!, subject, body } });
+  const [gmailBusy, setGmailBusy] = useState(false);
+  const settings = useStore((s) => s.settings);
+  const templates = useStore((s) => s.templates);
+  /** Push the edits to Gmail: updates the existing Gmail draft, or makes a new one if it was deleted there. */
+  const pushToGmail = async () => {
+    if (!c.email) return toast.err("Add their email first.");
+    setGmailBusy(true);
+    try {
+      save();
+      const t = templates.find((x) => x.id === c.templateId);
+      const resume = t?.attachResume ? await blobs.resume() : undefined;
+      const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, { to: c.email, subject, body, attachment: resume, font: EMAIL_FONTS[settings.emailStyle.font]?.css });
+      update(c.id, { draft: { ...c.draft!, subject, body, gmailDraftId: r.id } });
+      if (c.status === "new") setStatus([c.id], "drafted", "Gmail draft created");
+      toast.ok(c.draft!.gmailDraftId ? "Gmail draft updated." : "Draft created in Gmail.");
+      onClose();
+    } catch (e) {
+      toast.err((e as Error).message);
+    } finally {
+      setGmailBusy(false);
+    }
+  };
+  /** Forget the Gmail link (the Gmail draft, if any, stays) so this can be edited and sent to Gmail again. */
+  const unlink = () => {
+    update(c.id, { draft: { ...c.draft!, subject, body, gmailDraftId: undefined } }, { at: new Date().toISOString(), type: "note", note: "Unlinked from Gmail draft" });
+    toast.info("Unlinked. The dashboard draft is editable again; the Gmail draft (if it still exists) wasn't touched.");
+  };
+  const removeFromGmail = async () => {
+    setGmailBusy(true);
+    try {
+      await deleteDraft(googleClientId(settings), c.draft!.gmailDraftId!);
+      update(c.id, { draft: { ...c.draft!, subject, body, gmailDraftId: undefined } }, { at: new Date().toISOString(), type: "note", note: "Gmail draft deleted from the dashboard" });
+      toast.ok("Deleted the Gmail draft. It's still here in your dashboard drafts.");
+    } catch (e) {
+      toast.err((e as Error).message);
+    } finally {
+      setGmailBusy(false);
+    }
+  };
   return (
     <div className="space-y-3">
       <div className="text-[12.5px] text-muted">To: {c.email || "no email yet"}</div>
@@ -471,7 +529,19 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
       <Field label="Body">
         <Textarea rows={16} value={body} onChange={(e) => setBody(e.target.value)} />
       </Field>
-      {c.draft!.gmailDraftId && <p className="text-[12px] text-amber">Already in Gmail. Edits here won’t update that Gmail draft.</p>}
+      {c.draft!.gmailDraftId && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-green/30 bg-green-soft/50 px-3 py-2 text-[12.5px]">
+          <span className="text-green">In Gmail as a draft.</span>
+          <span className="text-muted">Edit here and hit “Update Gmail draft”, or take it back:</span>
+          <div className="flex-1" />
+          <Button size="sm" variant="ghost" onClick={unlink} disabled={gmailBusy} title="Keep the Gmail draft, but let this one be edited and re-sent">
+            Unlink
+          </Button>
+          <Button size="sm" variant="danger" onClick={removeFromGmail} loading={gmailBusy} title="Delete the draft in Gmail; the text stays here">
+            Delete Gmail draft
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         <a
           href={c.email ? mailto : undefined}
@@ -492,6 +562,9 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
           }}
         >
           Mark as sent
+        </Button>
+        <Button variant="secondary" icon={<Mail className="size-3.5" />} loading={gmailBusy} onClick={pushToGmail} disabled={!c.email || !googleClientId(settings)}>
+          {c.draft!.gmailDraftId ? "Update Gmail draft" : "Send to Gmail"}
         </Button>
         <Button
           variant="primary"

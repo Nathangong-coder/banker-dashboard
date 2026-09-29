@@ -26,11 +26,13 @@ const Verdict = z.object({
   score: z.number().describe("0-100 fit score"),
   firstName: z.string(),
   lastName: z.string(),
-  position: z.string().describe("Analyst / Associate / VP / Director / MD etc., empty if unknown"),
+  position: z
+    .string()
+    .describe("CURRENT title only (Analyst / Associate / VP / Director / MD…), taken from the headline or current role. Ignore former, past or incoming roles. Empty if unknown"),
   team: z.string().describe("Coverage group, e.g. Technology, Generalist, Healthcare; empty if unknown"),
   school: z.string().describe("Undergrad school if visible, else empty"),
   location: z.string().describe("Current city/state if visible, else empty"),
-  region: z.enum(["SF", "NY", "Other"]).describe("SF = California, NY = New York"),
+  region: z.enum(["SF", "LA", "NY", "CHI", "Other"]).describe("SF = San Francisco Bay Area, LA = Los Angeles / Southern California, NY = New York, CHI = Chicago, Other = anywhere else or unknown"),
   reasons: z.string().describe("One short sentence citing the evidence for each criteria group"),
   employer: z.string().describe("Current employer as written in the snippet (e.g. 'Goldman Sachs'), empty if unclear"),
 });

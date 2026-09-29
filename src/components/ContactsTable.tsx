@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ExternalLink, Plus, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { STATUS_LABEL, type Contact, type Status } from "@/lib/types";
+import { REGIONS, STATUS_LABEL, type Contact, type Status } from "@/lib/types";
 import { cn } from "@/lib/util";
 import { Badge, Button, Card, Checkbox, Empty, Input, Select, StatusBadge } from "./ui";
 import { ContactModal } from "./ContactModal";
@@ -52,10 +52,12 @@ export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: 
         ))}
       </Select>
       <Select className="h-8" value={f.region} onChange={(e) => setF({ ...f, region: e.target.value })} aria-label="Region">
-        <option value="">SF + NY</option>
-        <option value="SF">SF</option>
-        <option value="NY">NY</option>
-        <option value="Other">Other</option>
+        <option value="">All regions</option>
+        {REGIONS.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.short}
+          </option>
+        ))}
       </Select>
       <Select className="h-8" value={f.team ?? ""} onChange={(e) => setF({ ...f, team: e.target.value })} aria-label="Team">
         <option value="">Any team</option>

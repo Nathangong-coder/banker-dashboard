@@ -12,7 +12,7 @@ import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
 import { digestText, upcomingDigests } from "@/lib/reminders";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
-import { EMAIL_FONTS, type BankStatus, type Contact, type Region } from "@/lib/types";
+import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Empty, Field, Input, PageHeader, Progress, Select, StatusBadge, toast } from "@/components/ui";
 import { ContactModal } from "@/components/ContactModal";
@@ -349,7 +349,7 @@ function BankBoard({ onOpen }: { onOpen: (c: Contact) => void }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const live = useMemo(() => liveByDesk(contacts), [contacts]);
   const cap = settings.followUp.livePerBank;
-  const regions: Region[] = ["SF", "NY", ...(rollups.some((r) => r.meta.region === "Other") ? (["Other"] as Region[]) : [])];
+  const regions: Region[] = REGIONS.map((x) => x.id).filter((id) => id === "SF" || id === "NY" || rollups.some((r) => r.meta.region === id));
 
   const row = (r: BankRollup) => {
     const isOpen = expanded === r.meta.key;
@@ -443,7 +443,7 @@ function BankBoard({ onOpen }: { onOpen: (c: Contact) => void }) {
         return (
           <Card key={region}>
             <CardHeader
-              title={region === "SF" ? "San Francisco / West Coast" : region === "NY" ? "New York" : "Unassigned region"}
+              title={regionInfo(region).label}
               sub={`${list.length} banks · ${totals.reached} reached · ${totals.replied} replies`}
             />
             {list.length ? <ul className="divide-y divide-line">{list.map(row)}</ul> : <div className="p-6 text-center text-[13px] text-muted">No banks here yet.</div>}

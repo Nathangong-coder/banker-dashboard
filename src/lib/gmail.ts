@@ -174,6 +174,38 @@ export async function createDraft(clientId: string, d: DraftInput) {
   });
 }
 
+/** Does this Gmail draft still exist? (It disappears when it's sent or deleted.) */
+export async function draftExists(clientId: string, id: string): Promise<boolean> {
+  const t = await connectGmail(clientId);
+  const res = await fetch(`${API}/drafts/${encodeURIComponent(id)}?format=minimal`, { headers: { Authorization: `Bearer ${t}` } });
+  if (res.status === 404) return false;
+  if (res.status === 401) {
+    token = null;
+    throw new Error("Gmail session expired — click Connect Gmail again.");
+  }
+  if (!res.ok) throw new Error(`Gmail: ${(await res.text()).slice(0, 200)}`);
+  return true;
+}
+
+/** Delete a draft from Gmail (only ever called from an explicit button). Already gone counts as done. */
+export async function deleteDraft(clientId: string, id: string) {
+  const t = await connectGmail(clientId);
+  const res = await fetch(`${API}/drafts/${encodeURIComponent(id)}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
+  if (!res.ok && res.status !== 404) throw new Error(`Gmail: ${(await res.text()).slice(0, 200)}`);
+}
+
+/** Replace the Gmail draft's content if it still exists, otherwise create a new one (so re-sending never duplicates). */
+export async function upsertDraft(clientId: string, existingId: string | undefined, d: DraftInput) {
+  if (existingId && (await draftExists(clientId, existingId))) {
+    const raw = toUrlSafe(b64Text(buildMime(d)));
+    return gapi<{ id: string; message: { id: string; threadId: string } }>(clientId, `/drafts/${encodeURIComponent(existingId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ id: existingId, message: { raw, ...(d.threadId ? { threadId: d.threadId } : {}) } }),
+    });
+  }
+  return createDraft(clientId, d);
+}
+
 type MsgMeta = {
   id: string;
   threadId: string;

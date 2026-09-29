@@ -19,7 +19,9 @@ import type {
 } from "./types";
 import { applyPatches, contactPatches, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
 import { contactId } from "./util";
-import { splitLocationTeam } from "./locationTeam";
+import { isPlace, splitLocationTeam } from "./locationTeam";
+import { reconcileTitle, sameLevel } from "./titles";
+import { detectRegion } from "./workbook";
 import { DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_QUERIES_V1 } from "./defaults";
 import type { TargetBank } from "./banks";
 import type { DeskTarget } from "./desks";
@@ -361,7 +363,7 @@ export const useStore = create<State>()(
     },
     {
       name: "banker-dashboard",
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -422,6 +424,18 @@ function migrateState(p: Record<string, unknown>, version: number) {
       const { location, team } = splitLocationTeam(c.location);
       // Same reading as a combined sheet column, so the next write-back sees no change.
       return { ...c, location, team: team || undefined };
+    });
+  }
+  if (version < 5 && Array.isArray(p?.contacts)) {
+    p.contacts = (p.contacts as Contact[]).map((c) => {
+      let next = c;
+      // LA and Chicago became their own regions, and unknown cities stopped defaulting to SF.
+      const r = detectRegion(c.location);
+      if (r !== "Other" && r !== c.region) next = { ...next, region: r };
+      else if (r === "Other" && c.region === "SF" && c.location && isPlace(c.location)) next = { ...next, region: "Other" };
+      // People found online: trust the headline's current title over an AI guess from the snippet.
+      if (c.source !== "sheet" && c.headline && !sameLevel(c.headline, c.position)) next = { ...next, position: reconcileTitle(c.headline, c.position) };
+      return next;
     });
   }
   return p;

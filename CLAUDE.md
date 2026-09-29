@@ -59,6 +59,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Email or LinkedIn. Header synonyms are in `HEADERS`. A tab titled "X Application Tracker" makes X the bank.
 - The owner's bank tabs have two tables: a "Conversation" table (row 5) and a "Contact Information" table (row ~18, the one with LinkedIn
   and Status). The same person in both is merged by `dedupe`, which prefers the LinkedIn table as the write-back target.
+- **Regions:** `Region = SF | LA | NY | CHI | Other` (`types.ts#REGIONS`). `detectRegion` checks NY, Chicago, LA (LA before SF: "Los Angeles,
+  California" is LA), then Bay Area. An unmapped city is "Other". Only a blank location on a bank tab defaults to SF (it used to default
+  everything, which put Chicago on the West Coast). Store v5 migration re-detects regions.
+- **Titles:** `lib/titles.ts#currentTitle` takes the headline's first seniority word, skipping former/ex/incoming. Find uses
+  `reconcileTitle(headline, aiPosition)`, since the AI screen sometimes returned an old role from the snippet. v5 migration fixes non-sheet
+  contacts whose headline disagrees.
 - **Region:** SF and NY people share **one bank tab**. The region is read from the Location (or legacy `Location/Team`) text (`detectRegion`),
   with legacy `(NY)` tabs as a fallback, and bank tabs otherwise default to SF. When the region is changed by hand, `locationForRegion` sets the
   location to the region code. `allocateRow` always prefers the main (non-"(NY)") bank tab.
@@ -152,6 +158,19 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   unknown caps → flagged `[[AI: …]]`) → optional `api/templates/organize` AI pass, whose edits are **discarded unless `sameWording` holds** →
   review modal (`components/TemplateImport.tsx`) → upsert by template name. Google Doc links: `api/templates/gdoc` (docs.google.com only).
 
+## Email lab (`app/lab`, `lib/experiments.ts`, `api/templates/generate`)
+
+- **Base** (`settings.emailBases`, `EmailBase`): opener / intro / ask / close shared by every first email via `{{base_opener}}`
+  `{{base_intro}}` `{{base_ask}}` `{{base_close}}`, expanded first by `template.ts#expandBase` (empty piece = removed). `ORIGINAL_BASE` =
+  the owner's wording (the control). `CONCISE_BASE` = a ~90-word challenger (15-min ask, time window, no "I know you value your time").
+  Starter templates use the placeholders; `applyBaseToTemplates` converts older ones by whitespace-flexible match of the original text.
+- **A/B:** with 2+ active bases, `drafts` gives each new draft the least-used base (`pickBase`). Templates sharing `variantGroup` rotate the
+  same way (`pickVariant`; "Make an A/B variant" in TemplateEditor). Each draft records `contact.draftMeta {templateId, baseId}`.
+  Results: reply rate (replied ÷ sent) per arm with a Wilson 95% range, and `verdict` refuses to call a winner below 30 sends per arm or
+  at p ≥ 0.05 (two-proportion z-test).
+- **Generator:** an angle → AI writes subject + hook + whenToUse on top of the active base (1–3 versions; several can be saved as one A/B
+  group), saved as `experimental` templates.
+
 ## Coffee chat prep (`app/prep`, `app/api/prep`)
 
 - Pick a contact (replied/call-scheduled first) → "Prep me" sends the record, their LinkedIn profile text (`contact.profile`), the
@@ -191,6 +210,10 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   inside it returns a new array every call, which re-renders forever in zustand v5.
 
 ## Gmail sync (`src/lib/gmailSync.ts`, `components/GmailSyncWidget.tsx`)
+
+- **Draft revert:** a linked `draft.gmailDraftId` that no longer exists (`gmail.ts#draftExists`, 404) is cleared on sync. If Gmail has mail
+  sent after the draft was made, it was sent; otherwise the user deleted it and it's back as an editable dashboard draft (`draftsReverted`).
+  Sending to Gmail uses `upsertDraft` (updates the existing draft, never duplicates). The draft editor has Update / Unlink / Delete Gmail draft.
 
 - `syncAllWithGmail({interactive})` is single-flight. Contacts with an email → `gmail.ts#syncContact` (first sent, follow-ups counted
   up to the first reply, reply date, thread/Message-ID for in-thread follow-ups). Contacts without one → `findEmailByName` (Sent-mail

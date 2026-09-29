@@ -1,4 +1,4 @@
-import type { Contact, Region } from "./types";
+import { regionInfo, type Contact, type Region } from "./types";
 
 /**
  * Location and team used to share one "Location/Team" column ("SF/Tech", "Tech, SF", "San Francisco (TMT)").
@@ -11,7 +11,8 @@ export const DEFAULT_TEAMS = ["Tech", "Healthcare", "RX", "Generalist", "TMT", "
 const LOCATION_ALIASES: [RegExp, string][] = [
   [/^(sf|san francisco|bay area|sf bay area)$/i, "SF"],
   [/^(ny|nyc|new york|new york city|manhattan)$/i, "NY"],
-  [/^(la|los angeles)$/i, "LA"],
+  [/^(la|l\.a\.|los angeles)$/i, "LA"],
+  [/^(chi|chicago)$/i, "Chicago"],
 ];
 const TEAM_ALIASES: [RegExp, string][] = [
   [/^(tech|technology)$/i, "Tech"],
@@ -58,7 +59,7 @@ export const joinLocationTeam = (location?: string, team?: string) => [location,
 /** When the region is changed by hand, the location becomes that region unless it's already a place in it. */
 export function locationForRegion(location: string, region: Region, detect: (s: string) => Region): string {
   if (region === "Other" || (location && detect(location) === region)) return location;
-  return region;
+  return regionInfo(region).short;
 }
 
 /** Dropdown options: the defaults, then anything in use (so values people type join the list). */

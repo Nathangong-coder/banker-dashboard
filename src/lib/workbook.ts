@@ -86,7 +86,10 @@ function matchHeaders(row: Map<number, string>) {
 export function detectRegion(...hints: (string | undefined)[]): Region {
   const text = hints.filter(Boolean).join(" ");
   if (/\b(NY|NYC|New York|Manhattan|Brooklyn)\b/i.test(text)) return "NY";
-  if (/\b(SF|San Francisco|Menlo|Palo Alto|Bay Area|California|Los Angeles|LA|Silicon Valley|CA)\b/i.test(text))
+  if (/\b(Chicago|CHI)\b/i.test(text)) return "CHI";
+  // LA before SF: "Los Angeles, California" is LA, not the Bay Area.
+  if (/\b(LA|L\.A\.|Los Angeles|Century City|Santa Monica|Beverly Hills|Irvine|Newport Beach|Orange County|Pasadena)\b/i.test(text)) return "LA";
+  if (/\b(SF|San Francisco|Menlo|Palo Alto|Bay Area|Silicon Valley|San Mateo|Redwood City|Mountain View|San Jose|California)\b/i.test(text))
     return "SF";
   return "Other";
 }
@@ -119,11 +122,13 @@ export const STATUS_TO_SHEET: Record<Status, (c: Contact) => string> = {
  * SF and NY people share one bank tab; the Location/Team column is the source of truth.
  * Legacy "(NY)" tabs still work as a fallback.
  */
-function regionFor(sheetIsNY: boolean, location: string, company?: string): Region {
+function regionFor(sheetIsNY: boolean, location: string, company?: string, officeKnown = !!location.trim()): Region {
   const r = detectRegion(location);
   if (r !== "Other") return r;
   if (sheetIsNY) return "NY";
-  // Bank tracker tabs default to the West Coast; generic lists stay unassigned.
+  // A city we don't map (Houston, Boston…) is "Other", never silently SF. Only a blank location on a bank tracker
+  // tab defaults to SF (the owner's home market); generic lists stay unassigned.
+  if (officeKnown) return "Other";
   return company ? "Other" : "SF";
 }
 
@@ -375,7 +380,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
           firstName: first,
           lastName: last,
           bank: company || bank,
-          region: regionFor(sheetIsNY, rawLocation, company),
+          region: regionFor(sheetIsNY, rawLocation, company, !!location),
           location,
           team,
           position: get(r, cols.position)?.v ?? "",

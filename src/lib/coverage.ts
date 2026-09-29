@@ -1,4 +1,4 @@
-import type { BankMeta, Contact, Settings } from "./types";
+import type { BankMeta, Contact, Region, Settings } from "./types";
 import type { ContactTable } from "./workbook";
 import { STARTER_TARGETS, canonBank, type TargetBank } from "./banks";
 import { LIVE_STATUSES, nextAction } from "./followups";
@@ -17,7 +17,7 @@ export interface CoverageRow {
   replied: number;
   live: number;
   withEmail: number;
-  regions: { SF: number; NY: number; Other: number };
+  regions: Record<Region, number>;
   lastOutreach?: string;
   due: number;
   /** Reached out, but nobody replied and nothing's in flight for 3+ weeks. */
@@ -50,7 +50,7 @@ export function buildCoverage(args: {
     const key = canonBank(name);
     let r = rows.get(key);
     if (!r) {
-      r = { key, name, tier, bucket: "cold", contacts: [], reached: 0, replied: 0, live: 0, withEmail: 0, regions: { SF: 0, NY: 0, Other: 0 }, due: 0, quiet: false, desks: [] };
+      r = { key, name, tier, bucket: "cold", contacts: [], reached: 0, replied: 0, live: 0, withEmail: 0, regions: { SF: 0, LA: 0, NY: 0, CHI: 0, Other: 0 }, due: 0, quiet: false, desks: [] };
       rows.set(key, r);
     }
     if (!r.tier && tier) r.tier = tier;

@@ -6,6 +6,7 @@ import { ArrowRight, BellRing, Mail, Search, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { nextAction, rollupBanks } from "@/lib/followups";
 import { buildCoverage } from "@/lib/coverage";
+import { REGIONS } from "@/lib/types";
 import { STATUS_LABEL, type Status } from "@/lib/types";
 import { fmtDate, relDays } from "@/lib/util";
 import { Badge, Card, CardHeader, PageHeader, Stat, StatusBadge } from "@/components/ui";
@@ -159,12 +160,12 @@ export default function Overview() {
       </div>
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
-        {(["SF", "NY"] as const).map((region) => {
+        {REGIONS.filter((x) => x.id === "SF" || x.id === "NY" || rollups.some((r) => r.meta.region === x.id)).map(({ id: region, label }) => {
           const rows = rollups.filter((r) => r.meta.region === region).sort((a, b) => b.due - a.due || b.total - a.total);
           return (
             <Card key={region}>
               <CardHeader
-                title={region === "SF" ? "San Francisco / West Coast" : "New York"}
+                title={label}
                 sub={`${rows.length} banks · ${rows.reduce((n, r) => n + r.total, 0)} contacts`}
                 right={<BellRing className="size-4 text-muted" />}
               />

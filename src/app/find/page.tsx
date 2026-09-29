@@ -7,13 +7,14 @@ import { Bookmark, ExternalLink, Filter, Plus, Search, Sparkles, UserSearch, X }
 import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { addProspects, enrichContacts } from "@/lib/actions";
-import type { Prospect } from "@/lib/types";
+import type { Prospect, Region } from "@/lib/types";
 import { chunk, cn, guessDomain, linkedinSlug } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, PageHeader, Progress, Textarea, toast } from "@/components/ui";
 import { aiReady, hasKey } from "@/lib/keys";
 import { DEFAULT_QUERIES, queryWordCount } from "@/lib/defaults";
 import { bookmarkletHref, captureIsProfile, guessBank, linkedinSearchUrl, parseCapture } from "@/lib/linkedinCapture";
 import { canonBank } from "@/lib/banks";
+import { reconcileTitle } from "@/lib/titles";
 
 type Verdict = {
   id: string;
@@ -25,7 +26,7 @@ type Verdict = {
   team: string;
   school: string;
   location: string;
-  region: "SF" | "NY" | "Other";
+  region: Region;
   reasons: string;
   employer?: string;
 };
@@ -116,7 +117,8 @@ function FindInner() {
             score: v.score,
             firstName: v.firstName || p.firstName,
             lastName: v.lastName || p.lastName,
-            position: v.position,
+            // The LinkedIn headline says the current title; the AI sometimes picks an old one from the snippet.
+            position: reconcileTitle(p.title, v.position),
             team: v.team,
             school: v.school,
             location: v.location,

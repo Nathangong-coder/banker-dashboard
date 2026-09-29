@@ -1,4 +1,4 @@
-import type { Contact } from "./types";
+import { REGIONS, regionInfo, type Contact, type Region } from "./types";
 import { canonBank } from "./banks";
 import { normLocation, normTeam } from "./locationTeam";
 import { LIVE_STATUSES } from "./followups";
@@ -12,8 +12,8 @@ export function deskOf(c: Pick<Contact, "region" | "team">) {
   return { region: c.region, team: c.team ? normTeam(c.team) : "" };
 }
 
-export function deskLabel(region: string, team: string) {
-  return [region !== "Other" ? region : "", team || "team not set"].filter(Boolean).join(" · ");
+export function deskLabel(region: Region, team: string) {
+  return [region !== "Other" ? regionInfo(region).short : "", team || "team not set"].filter(Boolean).join(" · ");
 }
 
 export function deskKey(c: Pick<Contact, "bank" | "region" | "team">) {
@@ -88,10 +88,11 @@ export function teamMatches(want: string, have?: string) {
   return w === "tech" && /\b(tmt|technology|tech)\b/.test(h);
 }
 
-/** SF and NY match the contact's region (Menlo Park counts as SF); other offices match the location text. */
+/** SF, LA, NY and Chicago match the contact's region (Menlo Park counts as SF); other offices match the location text. */
 export function locationMatches(want: string, c: Pick<Contact, "region" | "location">) {
   const w = normLocation(want);
-  if (w === "SF" || w === "NY") return c.region === w;
+  const region = REGIONS.find((x) => x.id !== "Other" && (x.short.toLowerCase() === w.toLowerCase() || x.id === w));
+  if (region) return c.region === region.id;
   return normLocation(c.location ?? "").toLowerCase() === w.toLowerCase();
 }
 

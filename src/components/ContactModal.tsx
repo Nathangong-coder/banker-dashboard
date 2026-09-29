@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Coffee, ExternalLink } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { STATUS_LABEL, type Contact, type Region, type Status } from "@/lib/types";
+import { STATUS_LABEL, type Contact, type Region, type Status, REGIONS } from "@/lib/types";
 import { fmtDate } from "@/lib/util";
 import { detectRegion } from "@/lib/workbook";
 import { locationForRegion, normLocation, normTeam } from "@/lib/locationTeam";
@@ -72,9 +72,11 @@ function Editor({ c, onClose }: { c: Contact; onClose: () => void }) {
         <LocationTeamFields location={d.location} team={d.team ?? ""} onLocation={(v) => setD((x) => ({ ...x, location: v, region: detectRegion(v) !== "Other" ? detectRegion(v) : x.region }))} onTeam={(v) => set("team", v)} />
         <Field label="Region">
           <Select className="w-full" value={d.region} onChange={(e) => set("region", e.target.value as Region)}>
-            <option value="SF">SF / West Coast</option>
-            <option value="NY">New York</option>
-            <option value="Other">Other</option>
+            {REGIONS.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.label}
+            </option>
+          ))}
           </Select>
         </Field>
         <Field label="School">
