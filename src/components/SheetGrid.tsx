@@ -5,6 +5,7 @@ import { ClipboardCopy, Eraser, Plus, Rows3, Search, Trash2, Undo2, UserPlus, X 
 import type { CellStyle, Contact, SheetSnapshot } from "@/lib/types";
 import { draftFromRow, type CellPatch, type Patches, type RowDraft } from "@/lib/workbook";
 import { canonBank } from "@/lib/banks";
+import { parseSheetLink } from "@/lib/sheetLinks";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/util";
 import { Card, toast } from "./ui";
@@ -23,6 +24,23 @@ const colName = (n: number) => {
 
 const PAGE = 150;
 const DEFAULT_COL = 110;
+
+function sheetSize(snap: SheetSnapshot | undefined, sp: Patches[string]) {
+  let rows = snap?.rows ?? 0;
+  let cols = snap?.cols ?? 0;
+  for (const k of Object.keys(sp)) {
+    const [r, c] = k.split(":").map(Number);
+    rows = Math.max(rows, r);
+    cols = Math.max(cols, c);
+  }
+  return { rows, cols: Math.max(cols, 6) };
+}
+
+/** Row numbers the grid shows for a tab: a few blank rows past the end (room to type the next person), minus hidden rows. */
+function gridRows(snap: SheetSnapshot | undefined, sp: Patches[string], onlyRows?: Map<number, unknown> | Set<number>) {
+  const hidden = new Set(snap?.format?.hiddenRows ?? []);
+  return Array.from({ length: sheetSize(snap, sp).rows + 5 }, (_, i) => i + 1).filter((r) => !hidden.has(r) && (!onlyRows || onlyRows.has(r) || r === 1));
+}
 
 /** Excel's look for one cell as inline CSS (colors, font, alignment, borders). */
 function cellCss(st: CellStyle | undefined, width?: number): React.CSSProperties {
@@ -120,24 +138,15 @@ export function SheetGrid({
     return undefined;
   };
 
-  let rows = snap?.rows ?? 0;
-  let cols = snap?.cols ?? 0;
-  for (const k of Object.keys(sp)) {
-    const [r, c] = k.split(":").map(Number);
-    rows = Math.max(rows, r);
-    cols = Math.max(cols, c);
-  }
-  cols = Math.max(cols, 6);
-  // A few blank rows past the end so there's always room to type the next person.
+  const { cols } = sheetSize(snap, sp);
   const fmt = snap?.format;
-  const hiddenRows = new Set(fmt?.hiddenRows ?? []);
   const hiddenCols = new Set(fmt?.hiddenCols ?? []);
   const colWidth = (c: number) => fmt?.colWidths[c] ?? (c === 1 ? 40 : DEFAULT_COL);
   const styleAt = (r: number, c: number) => {
     const i = fmt?.cellStyle[`${r}:${c}`];
     return i === undefined ? undefined : fmt!.styles[i];
   };
-  const rowNums = Array.from({ length: rows + 5 }, (_, i) => i + 1).filter((r) => !hiddenRows.has(r) && (!onlyContacts || contactRows.has(r) || r === 1));
+  const rowNums = gridRows(snap, sp, onlyContacts ? contactRows : undefined);
   const visible = rowNums.slice(0, limit);
 
   // Merged cells from the file: the top-left cell spans the block and the rest aren't drawn. Skipped while rows are
@@ -186,6 +195,34 @@ export function SheetGrid({
     setEditing(null);
   };
 
+  // Links between tabs (OVERVIEW → bank tab, a tab's title → OVERVIEW) open the tab and select the target cell once it renders.
+  const followLink = (link: string, label: string) => {
+    const t = parseSheetLink(link);
+    if (!t || !active) return;
+    let target = { sheet: t.sheet ?? active, r: t.r, c: t.c };
+    if (!allTabs.includes(target.sheet)) {
+      // A link to a tab that no longer exists (Excel shows "null!A1" after a tab is renamed): try the bank named in the cell.
+      const want = canonBank(label);
+      const byBank = want ? allTabs.find((n) => [...(tabBanks.get(n) ?? [])].some((b) => canonBank(b) === want)) : undefined;
+      if (!byBank) {
+        toast.info(`This link points to a tab named "${target.sheet}", which isn't in the workbook.`);
+        return;
+      }
+      target = { sheet: byBank, r: 1, c: 1 };
+    }
+    // Select the target cell; its position is an index into the target tab's shown rows.
+    const tsnap = snapshots.find((s) => s.name === target.sheet);
+    const tContacts = new Set(contacts.filter((x) => x.ref?.sheet === target.sheet).map((x) => x.ref!.row));
+    const i = gridRows(tsnap, patches[target.sheet] ?? {}, onlyContacts ? tContacts : undefined).indexOf(target.r);
+    if (target.sheet !== active) openTab(target.sheet);
+    setTabQuery("");
+    if (i < 0) return;
+    if (i >= PAGE) setLimit(i + PAGE);
+    setSel({ ar: i, ac: target.c, fr: i, fc: target.c });
+    setEditing(null);
+    focusGrid();
+  };
+
   // Rows that look like a person but aren't a contact yet get a "+" by the row number.
   const cellAt = (r: number, c: number): CellPatch | undefined => sp[`${r}:${c}`] ?? snap?.cells[`${r}:${c}`];
   const text = (r: number, c: number) => cellAt(r, c)?.v ?? "";
@@ -211,6 +248,7 @@ export function SheetGrid({
   const clampRow = (i: number) => Math.max(0, Math.min(visible.length - 1, i));
   const clampCol = (c: number) => Math.max(1, Math.min(cols, c));
   const focusGrid = () => gridRef.current?.focus({ preventScroll: true });
+
 
   useEffect(() => {
     if (!sel) return;
@@ -660,6 +698,19 @@ export function SheetGrid({
                         {cell?.link && /^https?:/.test(cell.link) ? (
                           <a href={cell.link} target="_blank" rel="noreferrer" className={cn("hover:underline", !styleAt(r, c)?.fg && "text-blue")} onMouseDown={(e) => e.stopPropagation()}>
                             {cell.v || cell.link}
+                          </a>
+                        ) : cell?.link?.startsWith("#") ? (
+                          <a
+                            href={cell.link}
+                            title={`Go to ${parseSheetLink(cell.link)?.sheet ?? "cell"}`}
+                            className={cn("cursor-pointer hover:underline", !styleAt(r, c)?.fg && "text-blue")}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              followLink(cell.link!, cell.v);
+                            }}
+                          >
+                            {cell.v || cell.link.slice(1)}
                           </a>
                         ) : (
                           cell?.v

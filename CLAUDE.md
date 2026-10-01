@@ -87,6 +87,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   hidden rows/cols. SheetGrid renders it inline (merges as row/colSpan, off while "Contact rows only" is on). Unsaved cells keep the
   brass/green highlight on top. Snapshots from before this (`format.version !== FORMAT_VERSION`) are upgraded once in `Shell` from the
   stored workbook blob (`readFormats`).
+- **Links between tabs** (`src/lib/sheetLinks.ts`): ExcelJS 4.4 drops `<hyperlink location="MS!A1">` on read and can't write them
+  (it makes every link an external relationship), so every save used to strip OVERVIEW → bank tab and each title → OVERVIEW.
+  They're read from the sheet XML with JSZip into snapshot cells as `link: "#MS!A1"`, and `buildWorkbook` writes them back into the
+  saved XML (original links + patches; retyping keeps the link, clearing removes it). SheetGrid follows them (opens the tab, selects the
+  cell). A link to a missing tab (the owner's ACTIVE BAY has `null!A1`) falls back to the tab whose bank matches the cell text.
+  FORMAT_VERSION 2 re-reads links for older imports. Verified in real Excel via COM (Hyperlinks.SubAddress + Follow).
 - **Ctrl/Cmd+S** (`WorkbookControls#useSaveShortcut`, mounted in Shell) blocks the browser's "Save page" and saves the workbook in place.
 - Grid edits sync against `derived + manual` patches, so edits to a row that only exists as a pending dashboard write (Add contact /
   Find people) reach that contact. A non-sheet contact "owns" its row. Drafts shows `comment` (column J, Connection / Comment) as Notes.

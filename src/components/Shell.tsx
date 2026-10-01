@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
-import { FORMAT_VERSION, readFormats } from "@/lib/workbook";
+import { FORMAT_VERSION, readFormats, withInternalLinks } from "@/lib/workbook";
+import { readInternalLinks } from "@/lib/sheetLinks";
 import { useSaveShortcut } from "./WorkbookControls";
 import { nextAction } from "@/lib/followups";
 import { cn } from "@/lib/util";
@@ -35,8 +36,11 @@ function useHydrated() {
       if (snaps?.length && snaps.some((s) => s.format?.version !== FORMAT_VERSION)) {
         const buf = await blobs.workbook();
         if (!buf) return;
-        const formats = await readFormats(buf);
-        const next = useStore.getState().snapshots.map((s) => (formats[s.name] ? { ...s, format: formats[s.name] } : s));
+        const [formats, links] = await Promise.all([readFormats(buf), readInternalLinks(buf)]);
+        // Imports from before FORMAT_VERSION 2 also lost the links between tabs.
+        const next = useStore.getState().snapshots.map((s) =>
+          formats[s.name] ? { ...s, format: formats[s.name], cells: withInternalLinks(s.cells, links[s.name]) } : s,
+        );
         useStore.getState().setSnapshots(next);
         blobs.setSnapshots(next);
       }

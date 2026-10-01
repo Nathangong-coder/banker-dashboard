@@ -5,6 +5,7 @@ import type { CellRef, CellStyle, Contact, ContactField, Region, SheetFormat, Sh
 import { contactId, splitName } from "./util";
 import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
+import { isInternalLink, readInternalLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
 
 const MAX_ROWS = 1500;
 const MAX_COLS = 40;
@@ -145,10 +146,11 @@ export async function parseWorkbook(buffer: ArrayBuffer): Promise<ParsedWorkbook
   const ExcelJS = await loadExcel();
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
-  return parseLoaded(wb);
+  return parseLoaded(wb, await readInternalLinks(buffer));
 }
 
-export const FORMAT_VERSION = 1;
+/** 2: snapshots also carry in-workbook links (`#Tab!A1`), which older imports lost. */
+export const FORMAT_VERSION = 2;
 
 /** Theme colors from the workbook's theme XML, in Excel's theme-index order (lt1, dk1, lt2, dk2, accent1–6, hlink, folHlink). */
 function themePalette(wb: Workbook): string[] {
@@ -274,7 +276,19 @@ export async function readFormats(buffer: ArrayBuffer): Promise<Record<string, S
   return out;
 }
 
-function parseLoaded(wb: Workbook): ParsedWorkbook {
+/** Put in-workbook links on snapshot cells (an external link on the same cell wins). */
+export function withInternalLinks(cells: SheetSnapshot["cells"], links: Record<string, string> | undefined): SheetSnapshot["cells"] {
+  if (!links) return cells;
+  const out = { ...cells };
+  for (const [key, link] of Object.entries(links)) {
+    const cur = out[key];
+    if (cur?.link && !isInternalLink(cur.link)) continue;
+    out[key] = { v: cur?.v ?? "", link };
+  }
+  return out;
+}
+
+function parseLoaded(wb: Workbook, links: InternalLinks): ParsedWorkbook {
   const snapshots: SheetSnapshot[] = [];
   const palette = themePalette(wb);
   wb.eachSheet((ws) => {
@@ -297,7 +311,13 @@ function parseLoaded(wb: Workbook): ParsedWorkbook {
         maxC = Math.max(maxC, c);
       });
     });
-    snapshots.push({ name: ws.name, rows: maxR, cols: maxC, cells, format: readFormat(ws, maxR, maxC, palette) });
+    const linked = withInternalLinks(cells, links[ws.name]);
+    for (const key of Object.keys(linked)) {
+      const [r, c] = key.split(":").map(Number);
+      maxR = Math.max(maxR, r);
+      maxC = Math.max(maxC, c);
+    }
+    snapshots.push({ name: ws.name, rows: maxR, cols: maxC, cells: linked, format: readFormat(ws, maxR, maxC, palette) });
   });
   return { snapshots, ...parseSnapshots(snapshots) };
 }
@@ -511,7 +531,10 @@ export function applyPatches(snapshots: SheetSnapshot[], patches: Patches): Shee
     for (const [addr, p] of Object.entries(cells)) {
       const [r, c] = addr.split(":").map(Number);
       const v = p.v.trim();
-      if (v || p.link) snap.cells[addr] = p.link ? { v, link: p.link } : { v };
+      // Like Excel, retyping a cell keeps its jump-to-tab link; clearing it removes the link.
+      const kept = snap.cells[addr]?.link;
+      const link = p.link ?? (v && isInternalLink(kept) ? kept : undefined);
+      if (v || link) snap.cells[addr] = link ? { v, link } : { v };
       else delete snap.cells[addr];
       snap.rows = Math.max(snap.rows, r);
       snap.cols = Math.max(snap.cols, c);
@@ -858,15 +881,25 @@ export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropd
       ws.getCell(r, d.col).dataValidation = { type: "list", allowBlank: true, formulae, showErrorMessage: false };
     }
   }
+  // ExcelJS can't read or write links between tabs, so they're carried over from the original file (plus any set by
+  // patches) and written into the saved XML afterwards.
+  const links = await readInternalLinks(buffer);
   for (const [sheet, cells] of Object.entries(patches)) {
     const ws = wb.getWorksheet(sheet) ?? wb.addWorksheet(sheet);
     for (const [addr, p] of Object.entries(cells)) {
       const [r, c] = addr.split(":").map(Number);
       const cell = ws.getCell(r, c);
-      cell.value = p.link ? { text: p.v, hyperlink: p.link } : p.v === "" ? null : p.v;
+      const internal = isInternalLink(p.link);
+      cell.value = p.link && !internal ? { text: p.v, hyperlink: p.link } : p.v === "" ? null : p.v;
+      if (internal) (links[sheet] ??= {})[addr] = p.link!;
+      else if (p.link || p.v === "") delete links[sheet]?.[addr];
     }
   }
-  return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+  const out = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+  return writeInternalLinks(out, links, (sheet, addr) => {
+    const [r, c] = addr.split(":").map(Number);
+    return cellText(wb.getWorksheet(sheet)?.getCell(r, c).value).trim();
+  });
 }
 
 const TARGET_NAME_HEADERS = new Set(["institution name", "institution", "bank", "bank name", "firm", "firm name", "company", "company name", "target"]);

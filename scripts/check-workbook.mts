@@ -148,3 +148,32 @@ console.log("location/team split OK");
   }
   console.log("row delete/insert OK");
 }
+
+// Links between tabs (OVERVIEW → bank tab, title → OVERVIEW): read into snapshots and kept through a save, even when the
+// linked cell is retyped. ExcelJS alone drops them.
+{
+  const internal = (snaps: typeof p.snapshots) =>
+    snaps.flatMap((s) => Object.entries(s.cells).filter(([, x]) => x.link?.startsWith("#")).map(([k, x]) => `${s.name}!${k}=${x.link}`)).sort();
+  const before = internal(p.snapshots);
+  console.log(`tab links: ${before.length}`, before.slice(0, 3).join(", "));
+  if (before.length) {
+    const s0 = p.snapshots.find((s) => Object.values(s.cells).some((x) => x.link?.startsWith("#")))!;
+    const sheet = s0.name;
+    const addr = Object.keys(s0.cells).find((k) => s0.cells[k].link?.startsWith("#"))!;
+    const savedLinks = await parseWorkbook(await buildWorkbook(ab, { [sheet]: { [addr]: { v: "Retyped title" } } }));
+    const after = internal(savedLinks.snapshots);
+    const retyped = savedLinks.snapshots.find((s) => s.name === sheet)!.cells[addr];
+    const shown = applyPatches(p.snapshots, { [sheet]: { [addr]: { v: "Retyped title" } } }).find((s) => s.name === sheet)!.cells[addr];
+    console.log(`after save: ${after.length} tab links; retyped cell = ${JSON.stringify(retyped)}`);
+    if (JSON.stringify(after) !== JSON.stringify(before) || retyped?.v !== "Retyped title" || shown?.link !== retyped.link) {
+      console.error("TAB LINKS LOST ON SAVE", before.filter((x) => !after.includes(x)).slice(0, 5));
+      process.exit(1);
+    }
+    const cleared = internal((await parseWorkbook(await buildWorkbook(ab, { [sheet]: { [addr]: { v: "" } } }))).snapshots);
+    if (cleared.length !== before.length - 1) {
+      console.error("CLEARING A LINKED CELL KEPT ITS LINK");
+      process.exit(1);
+    }
+    console.log("tab links OK");
+  }
+}
