@@ -1,6 +1,8 @@
 import type { Contact, EmailBase, RequiredFact, Settings, Template } from "./types";
 import { ORIGINAL_BASE } from "./defaults";
 import { hookFor } from "./hooks";
+import { teamOf } from "./locationTeam";
+import { composeOutreach, emailBankName } from "./outreach";
 
 export const PLACEHOLDERS: { key: string; desc: string }[] = [
   { key: "first_name", desc: "Contact first name" },
@@ -27,6 +29,10 @@ export const PLACEHOLDERS: { key: string; desc: string }[] = [
   { key: "base_intro", desc: "Base: who you are (Email lab)" },
   { key: "base_ask", desc: "Base: the ask (Email lab)" },
   { key: "base_close", desc: "Base: sign-off (Email lab)" },
+  { key: "outreach_subject", desc: "Outreach rules: subject by school / background (Fellow Bruin…)" },
+  { key: "outreach_hook", desc: "Outreach rules: the one affinity / career-path hook" },
+  { key: "outreach_ask", desc: "Outreach rules: the ask (experiment E1)" },
+  { key: "outreach_close", desc: "Outreach rules: the close (experiment E2)" },
 ];
 
 /** The base this contact's draft uses: the one recorded on the draft, else the first active base. */
@@ -51,9 +57,9 @@ function values(c: Contact, s: Settings): Record<string, string> {
     first_name: c.firstName,
     last_name: c.lastName,
     full_name: c.name,
-    bank: c.bank,
+    bank: emailBankName(c),
     position: emailTitle(c.position),
-    team: c.team || c.location,
+    team: teamOf(c) || c.location,
     their_school: c.school ?? "",
     their_city: CITY[c.region] ?? "",
     my_name: p.name,
@@ -93,7 +99,15 @@ const article = (word: string) => (/^[aeiou]/i.test(word) || /^(MD|SVP|EVP|M&A|M
  */
 export function fillPlaceholders(text: string, c: Contact, s: Settings, extra: Record<string, string> = {}, base: EmailBase = baseFor(c, s)) {
   const v = { ...values(c, s), ...extra };
-  return expandBase(text, base)
+  let out = expandBase(text, base);
+  // Outreach-rule pieces go in first: they contain placeholders of their own ("as a {{position}}").
+  if (/\{\{\s*outreach_/.test(out)) {
+    const plan = composeOutreach(c, s);
+    const pieces: Record<string, string> = { subject: plan.subject, hook: plan.hook, ask: plan.ask, close: plan.close };
+    out = out.replace(/\{\{\s*outreach_(subject|hook|ask|close)\s*\}\}([ \t]?)/g, (_m, k: string, sp: string) => (pieces[k] ? pieces[k] + sp : ""));
+    if (!plan.techHook) v.my_pitch = "";
+  }
+  return out
     // No hook for this person (Generic): drop the sentence and the space before it, rather than leaving a blank.
     .replace(/([ \t]*)\{\{\s*my_pitch\s*\}\}/g, (_m, sp: string) => (v.my_pitch ? sp + v.my_pitch : ""))
     .replace(/\b([Aa]n?) \{\{\s*(\w+)\s*\}\}/g, (m, a: string, k: string) => {
@@ -122,7 +136,10 @@ const SENIOR = /\b(vp|vice president|director|md|managing director|partner|head|
 /** Non-AI fallback: keyword rules over the contact's notes/school/title, matched against template names. */
 export function ruleAssign(c: Contact, templates: Template[]): Template | undefined {
   const initial = templates.filter((t) => t.kind === "initial");
-  const hay = `${c.comment} ${c.school ?? ""} ${c.headline ?? ""}`.toLowerCase();
+  // The outreach-rules template picks its own subject and hook per person, so it covers everyone.
+  const outreach = initial.find((t) => /\{\{\s*outreach_hook\s*\}\}/.test(t.body));
+  if (outreach) return outreach;
+  const hay =`${c.comment} ${c.school ?? ""} ${c.headline ?? ""}`.toLowerCase();
   const find = (re: RegExp) => initial.find((t) => re.test(`${t.name} ${t.whenToUse}`));
   if (/anderson/.test(hay)) return find(/anderson|business.school/i) ?? find(/same.school|ucla/i);
   if (/\bucla\b|bruin/.test(hay)) return find(/same.school|ucla/i);

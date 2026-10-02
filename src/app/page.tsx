@@ -45,7 +45,7 @@ export default function Overview() {
   const targets = useStore((s) => s.targets);
   const coverage = useStore((s) => s.coverage);
   const cov = useMemo(() => {
-    const rows = buildCoverage({ contacts, tables, targets, coverage, banks, followUp: fu }).filter((r) => r.bucket !== "hidden");
+    const rows = buildCoverage({ contacts, tables, targets, coverage: { ...coverage, plan: undefined }, banks, followUp: fu }).filter((r) => r.bucket !== "hidden");
     return { total: rows.length, reached: rows.filter((r) => r.bucket === "reached").length, cold: rows.filter((r) => r.bucket === "cold").length };
   }, [contacts, tables, targets, coverage, banks, fu]);
 

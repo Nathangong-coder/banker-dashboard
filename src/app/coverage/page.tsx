@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, EyeOff, Flame, Mail, Plus, Search, Snowflake, Sparkles, TrendingDown, TrendingUp, Undo2 } from "lucide-react";
+import { ArrowRight, EyeOff, Flame, Lightbulb, Mail, Plus, Search, Snowflake, Sparkles, TrendingDown, TrendingUp, Undo2, X } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
-import { buildCoverage, outreachBetween, tierRank, type Bucket, type CoverageRow } from "@/lib/coverage";
+import { buildCoverage, outreachBetween, scoreboard, tierRank, type Bucket, type CoverageRow, type ScoreUnit } from "@/lib/coverage";
+import { activeDesks, targetLabel } from "@/lib/desks";
+import { coverageInsights, type Insight } from "@/lib/insights";
 import { STARTER_TARGETS } from "@/lib/banks";
 import { REGIONS } from "@/lib/types";
 import { parseWorkbook } from "@/lib/workbook";
 import { DAY, cn, relDays } from "@/lib/util";
 import { Badge, Button, Card, Checkbox, Empty, Input, PageHeader, Select } from "@/components/ui";
-import { DeskChecklist, DeskChips, RecruitingPlan } from "@/components/RecruitingPlan";
+import { DeskChecklist, DeskChips, OfficePicker, RecruitingPlan } from "@/components/RecruitingPlan";
 
 const COLS: { bucket: Exclude<Bucket, "hidden">; title: string; sub: string; tone: string; dot: string }[] = [
   { bucket: "reached", title: "Reached out", sub: "At least one email sent", tone: "text-green", dot: "bg-green" },
@@ -46,24 +48,33 @@ export default function CoveragePage() {
     () => buildCoverage({ contacts, tables, targets, coverage, banks, followUp: settings.followUp }),
     [contacts, tables, targets, coverage, banks, settings.followUp],
   );
-  const visible = rows.filter((r) => r.bucket !== "hidden");
+  // The desks checked in the plan scope everything below it (nothing checked = the whole list).
+  const active = useMemo(() => activeDesks(coverage.plan), [coverage.plan]);
+  const [unitPick, setUnit] = useState<ScoreUnit | null>(null);
+  const unit: ScoreUnit = !active.length ? "banks" : (unitPick ?? (active.length > 1 ? "desks" : "banks"));
+  const visible = rows.filter((r) => r.bucket !== "hidden" && !r.notOffered);
   const tiers = [...new Set(visible.map((r) => r.tier).filter(Boolean) as string[])].sort((a, b) => tierRank(a) - tierRank(b));
   const shown = visible.filter((r) => (!tier || r.tier === tier) && (!q || r.name.toLowerCase().includes(q.toLowerCase())));
   const by = (b: Bucket) => shown.filter((r) => r.bucket === b);
 
-  const counts = {
-    reached: visible.filter((r) => r.bucket === "reached").length,
-    ready: visible.filter((r) => r.bucket === "ready").length,
-    cold: visible.filter((r) => r.bucket === "cold").length,
-  };
-  const total = counts.reached + counts.ready + counts.cold;
-  const pct = total ? Math.round((counts.reached / total) * 100) : 0;
+  const sb = scoreboard(rows, unit);
+  const counts = { reached: sb.reached, ready: sb.ready, cold: sb.cold };
+  const { total, pct } = sb;
+  const bankCounts = scoreboard(rows, "banks");
+  const noun = unit === "desks" ? "desk" : "bank";
   const [now] = useState(() => Date.now());
+  const scopedContacts = useMemo(() => (active.length ? rows.flatMap((r) => r.contacts) : contacts), [active.length, rows, contacts]);
   const { thisWeek, lastWeek } = useMemo(() => {
     const weekStart = now - 7 * DAY;
-    return { thisWeek: outreachBetween(contacts, weekStart, now + DAY), lastWeek: outreachBetween(contacts, weekStart - 7 * DAY, weekStart) };
-  }, [contacts, now]);
-  const repliedBanks = visible.filter((r) => r.replied > 0).length;
+    return { thisWeek: outreachBetween(scopedContacts, weekStart, now + DAY), lastWeek: outreachBetween(scopedContacts, weekStart - 7 * DAY, weekStart) };
+  }, [scopedContacts, now]);
+  const repliedBanks = sb.replied;
+  const insights = useMemo(
+    () => coverageInsights(rows, coverage.plan ?? [], scopedContacts, settings.followUp.livePerBank),
+    [rows, coverage.plan, scopedContacts, settings.followUp.livePerBank],
+  );
+  const oneDesk = active.length === 1 ? `&desk=${enc(`${active[0].location}|${active[0].team}`)}` : "";
+  const clearDesks = () => setCoverage((c) => ({ ...c, plan: (c.plan ?? []).map((t) => ({ ...t, enabled: false })) }));
   const deskTotal = visible.reduce((n, r) => n + r.desks.length, 0);
   const deskDone = visible.reduce((n, r) => n + r.desks.filter((d) => d.state === "emailed" || d.state === "replied").length, 0);
   const quiet = visible.filter((r) => r.quiet);
@@ -98,13 +109,41 @@ export default function CoveragePage() {
 
       <RecruitingPlan rows={rows} />
 
+      {active.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[12.5px]">
+          <span className="flex items-center gap-1.5 rounded-full border border-navy/30 bg-blue-soft/50 px-2.5 py-1 text-ink">
+            Showing: <b className="font-medium">{active.map(targetLabel).join(", ")}</b>
+            <span className="text-muted">({active.length} desk{active.length > 1 ? "s" : ""})</span>
+            <button onClick={clearDesks} className="ml-0.5 flex items-center gap-0.5 text-navy hover:underline" title="Uncheck every desk and show the whole list">
+              <X className="size-3" /> clear
+            </button>
+          </span>
+          <div className="flex-1" />
+          <span className="text-muted">Count</span>
+          <div className="flex overflow-hidden rounded-md border border-line-2" role="group" aria-label="Count banks or desks">
+            {(["banks", "desks"] as const).map((u) => (
+              <button
+                key={u}
+                onClick={() => setUnit(u)}
+                className={cn("px-2.5 py-1 capitalize", unit === u ? "bg-navy text-white" : "bg-panel text-ink-2 hover:bg-[#efede5]")}
+                aria-pressed={unit === u}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Insights items={insights} scoped={active.length > 0} />
+
       {/* Scoreboard */}
       <Card className="mb-5 grid gap-0 md:grid-cols-[1.4fr_1fr]">
         <div className="border-line p-5 md:border-r">
           <div className="flex items-baseline gap-2">
             <span className="num text-[44px] leading-none">{counts.reached}</span>
             <span className="text-[15px] text-ink-2">
-              of {total} banks reached · <b>{pct}%</b>
+              of {total} {noun}s reached · <b>{pct}%</b>
             </span>
           </div>
           <div className="mt-4 flex h-3 overflow-hidden rounded-full bg-[#ecebe4]" role="img" aria-label={`${counts.reached} reached, ${counts.ready} with contacts, ${counts.cold} cold`}>
@@ -113,10 +152,10 @@ export default function CoveragePage() {
           </div>
           <div className="mt-2 flex flex-wrap gap-4 text-[12.5px] text-ink-2">
             <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-green" /> {counts.reached} reached</span>
-            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-brass" /> {counts.ready} ready to email</span>
+            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-brass" /> {counts.ready} {unit === "desks" ? "with people" : "ready to email"}</span>
             <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-line-2" /> {counts.cold} cold</span>
           </div>
-          {deskTotal > 0 && (
+          {deskTotal > 0 && unit === "banks" && (
             <p className="mt-2 text-[12.5px] text-ink-2">
               <b className="num">{deskDone}</b> of <span className="num">{deskTotal}</span> desks in your plan emailed (a desk = one office + team at one bank).
             </p>
@@ -132,9 +171,9 @@ export default function CoveragePage() {
             <div className="mt-1.5 text-[12px] text-muted">{lastWeek} the week before</div>
           </div>
           <div className="p-5">
-            <div className="text-[11.5px] font-medium uppercase tracking-[0.06em] text-muted">Banks that replied</div>
+            <div className="text-[11.5px] font-medium uppercase tracking-[0.06em] text-muted">{unit === "desks" ? "Desks" : "Banks"} that replied</div>
             <div className="num mt-1 text-[32px] leading-none text-green">{repliedBanks}</div>
-            <div className="mt-1.5 text-[12px] text-muted">{counts.reached ? `${Math.round((repliedBanks / counts.reached) * 100)}% of banks reached` : "—"}</div>
+            <div className="mt-1.5 text-[12px] text-muted">{counts.reached ? `${Math.round((repliedBanks / counts.reached) * 100)}% of ${noun}s reached` : "—"}</div>
           </div>
         </div>
       </Card>
@@ -144,7 +183,7 @@ export default function CoveragePage() {
         <NextMove
           icon={<Mail className="size-4" />}
           show={ready.length > 0}
-          title={`${counts.ready} bank${counts.ready === 1 ? "" : "s"} ready to email`}
+          title={`${bankCounts.ready} bank${bankCounts.ready === 1 ? "" : "s"} ready to email`}
           body={ready.slice(0, 4).map((r) => r.name).join(", ") + (ready.length > 4 ? "…" : "")}
           href="/drafts"
           cta="Draft emails"
@@ -152,9 +191,13 @@ export default function CoveragePage() {
         <NextMove
           icon={<Snowflake className="size-4" />}
           show={cold.length > 0}
-          title={`${counts.cold} cold bank${counts.cold === 1 ? "" : "s"}`}
-          body="Find 2–3 people at each: UC grads, Washington, Tech/NY generalists."
-          href={`/find?banks=${enc(cold.slice(0, 8).map((r) => r.name).join("|"))}`}
+          title={`${bankCounts.cold} cold bank${bankCounts.cold === 1 ? "" : "s"}`}
+          body={
+            active.length
+              ? `Nobody yet on ${active.map(targetLabel).join(" / ")}: ${cold.slice(0, 4).map((r) => r.name).join(", ")}${cold.length > 4 ? "…" : ""}`
+              : "Find 2–3 people at each: UC grads, Washington, Tech/NY generalists."
+          }
+          href={`/find?banks=${enc(cold.slice(0, 8).map((r) => r.name).join("|"))}${oneDesk}`}
           cta={`Find people at ${Math.min(cold.length, 8)}`}
         />
         <NextMove
@@ -273,6 +316,41 @@ export default function CoveragePage() {
   );
 }
 
+function Insights({ items, scoped }: { items: Insight[]; scoped: boolean }) {
+  const [all, setAll] = useState(false);
+  if (!items.length) return null;
+  const list = all ? items : items.slice(0, 5);
+  return (
+    <Card className="mb-5 p-4">
+      <div className="mb-2 flex flex-wrap items-baseline gap-2">
+        <Lightbulb className="size-4 translate-y-0.5 text-brass" />
+        <h2 className="text-[14px] font-semibold">What am I missing</h2>
+        <span className="text-[12px] text-muted">
+          {scoped ? "for the checked desks" : "for your usual desks (Tech in SF / LA, Generalist in NY / LA, Energy in Texas). Check desks in your plan to focus."}
+        </span>
+      </div>
+      <ul className="space-y-1.5 text-[13px]">
+        {list.map((i, n) => (
+          <li key={n} className="flex flex-wrap items-baseline gap-x-2">
+            <span className={cn("size-1.5 shrink-0 -translate-y-0.5 rounded-full", i.kind === "uncovered" ? "bg-red" : i.kind === "not_offered" ? "bg-line-2" : "bg-brass")} />
+            <span className="min-w-0 flex-1 text-ink-2">{i.text}</span>
+            {i.href && (
+              <Link href={i.href} className="flex items-center gap-1 text-[12px] font-medium text-navy hover:underline">
+                {i.cta} <ArrowRight className="size-3" />
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+      {items.length > 5 && (
+        <button className="mt-2 text-[12px] text-navy hover:underline" onClick={() => setAll(!all)}>
+          {all ? "Show fewer" : `Show all ${items.length}`}
+        </button>
+      )}
+    </Card>
+  );
+}
+
 function NextMove({ icon, show, title, body, href, cta }: { icon: React.ReactNode; show: boolean; title: string; body: string; href: string; cta: string }) {
   if (!show) return null;
   return (
@@ -334,7 +412,13 @@ function BankCard({ r, onHide }: { r: CoverageRow; onHide: () => void }) {
             ))}
           </div>
           <div className="mt-0.5 text-[12px] text-ink-2">{detail}</div>
+          {r.all.contacts > r.contacts.length && (
+            <div className="text-[11.5px] text-muted">
+              +{r.all.contacts - r.contacts.length} contact{r.all.contacts - r.contacts.length > 1 ? "s" : ""} on other desks
+            </div>
+          )}
           <DeskChips r={r} />
+          <OfficePicker r={r} />
         </div>
         <button onClick={onHide} className="rounded p-1 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[#efede5] hover:text-ink focus:opacity-100" title="Not recruiting here: hide" aria-label={`Hide ${r.name}`}>
           <EyeOff className="size-3.5" />

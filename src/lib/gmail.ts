@@ -212,6 +212,7 @@ type MsgMeta = {
   id: string;
   threadId: string;
   internalDate: string;
+  snippet?: string;
   payload?: { headers?: { name: string; value: string }[] };
 };
 
@@ -240,7 +241,14 @@ export interface SyncResult {
   lastMessageId?: string;
   subject?: string;
   repliedAt?: string;
+  /** A delivery-failure notice for our email came back. */
+  bouncedAt?: string;
+  /** An auto-reply says they've left (follow-ups stop; it isn't a reply). */
+  leftNote?: string;
 }
+
+const AUTO_REPLY = /^(automatic reply|auto[- ]?reply|autoreply|out of (?:the )?office|ooo\b)/i;
+const LEFT = /\b(no longer (?:with|at|employed|working)|has left|have left|left the (?:firm|company|bank)|last day (?:at|with))\b/i;
 
 const header = (m: MsgMeta, n: string) => m.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value;
 const when = (m: MsgMeta) => Number(m.internalDate);
@@ -250,9 +258,10 @@ const when = (m: MsgMeta) => Number(m.internalDate);
  * reply, so back-and-forth scheduling emails don't inflate "follow-ups sent".
  */
 export async function syncContact(clientId: string, email: string): Promise<SyncResult> {
-  const [sent, replies] = await Promise.all([
+  const [sent, replies, bounces] = await Promise.all([
     listMessages(clientId, `in:sent to:${email}`, 15),
     listMessages(clientId, `from:${email}`, 5),
+    listMessages(clientId, `from:(mailer-daemon OR postmaster) "${email}"`, 2),
   ]);
   const out: SyncResult = { sentCount: sent.length, outreachCount: 0 };
   const sentMeta = (await Promise.all(sent.map((m) => getMeta(clientId, m.id)))).sort((a, b) => when(a) - when(b));
@@ -261,7 +270,14 @@ export async function syncContact(clientId: string, email: string): Promise<Sync
     return out;
   }
   const first = sentMeta[0];
-  const replyMeta = (await Promise.all(replies.map((m) => getMeta(clientId, m.id)))).filter((m) => when(m) > when(first)).sort((a, b) => when(a) - when(b));
+  const allReplies = (await Promise.all(replies.map((m) => getMeta(clientId, m.id)))).filter((m) => when(m) > when(first)).sort((a, b) => when(a) - when(b));
+  // Out-of-office auto-replies aren't replies; one that says they've left stops the follow-ups.
+  const auto = (m: MsgMeta) => AUTO_REPLY.test(header(m, "Subject") ?? "");
+  const replyMeta = allReplies.filter((m) => !auto(m));
+  const left = allReplies.find((m) => auto(m) && LEFT.test(m.snippet ?? ""));
+  if (left) out.leftNote = (left.snippet ?? "").slice(0, 160);
+  const bounce = (await Promise.all(bounces.map((m) => getMeta(clientId, m.id)))).find((m) => when(m) > when(first));
+  if (bounce) out.bouncedAt = new Date(when(bounce)).toISOString();
   const firstReply = replyMeta[0];
   const outreach = firstReply ? sentMeta.filter((m) => when(m) < when(firstReply)) : sentMeta;
   const last = outreach[outreach.length - 1] ?? first;

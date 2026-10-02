@@ -1,4 +1,5 @@
 @AGENTS.md
+@docs/outreach-rules.md
 
 # Coverage: IB networking dashboard (agent handoff notes)
 
@@ -13,6 +14,8 @@ npm run build                                 # must pass before pushing (Vercel
 npm run typecheck && npm run lint
 npm run check:workbook -- "path/to/file.xlsx" # parser + write-back round-trip on a real workbook (no browser needed)
 npm run check:templates -- "file.docx" ["Sender Name"]  # template-doc importer output (PROFILE='{"school":"UCLA",...}' to generalize)
+npm run check:coverage -- "path/to/file.xlsx" # scoreboard for no desks / SF Tech / NY Generalist / both (must all differ)
+npm run check:outreach                        # outreach rules: one rendered email per affinity, 80/20 + 70/30 shares, checks
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -279,6 +282,53 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (paper / navy / brass palette, IBM Plex Sans/Mono, Instrument Serif headings). Match the existing density and tone.
 - Validate route bodies with zod and return errors via `errorResponse`. Error messages are shown to the user, so keep them actionable.
 - Don't use `window.alert`. Toasts are the pattern. `window.confirm` is used only for bulk destructive actions.
+
+## Outreach rules (`docs/outreach-rules.md`; `src/lib/outreach.ts`)
+
+- The owner's rules (10/2026) are in `docs/outreach-rules.md`, loaded via `@docs/outreach-rules.md`. Most are enforced in `outreach.ts`.
+- **First email = `tpl_outreach` + `base_3p`.** Base: opener + intro + `{{my_pitch}}` (the tech hook, Tech/TMT/software teams only),
+  ask = `{{outreach_ask}}`, close = `{{outreach_close}}` + sign-off. The template: `{{outreach_subject}}`, and paragraph 2 =
+  `{{outreach_hook}} {{base_ask}}`. `fillPlaceholders` expands `outreach_*` first via `composeOutreach` (they contain `{{position}}`).
+  `ruleAssign` returns the outreach template for everyone when it exists. Store v8 adds it, makes `base_3p` the only active base,
+  replaces the old tech hook text / Garamond font / criteria if never edited, and adds the E1–E4 experiments.
+- **Affinity** (`affinityOf`): volunteer > Washington > Chinese > UCLA/Anderson > LA > UC > California > standard. "Chinese" comes only
+  from the owner's Comment notes, never from a name. Schools come from school / comment / headline / the profile's Education section.
+- **Tailored hooks** ("your path from X to Y") are `[[AI: …]]` slots, written only when a LinkedIn profile was captured (`contact.profile`,
+  now sent to `api/draft` as `profile`). With no profile it's the template wording and E3 isn't tagged.
+- **Experiments E1 ask / E2 close / E3 tailored 80-20 / E4 "shaped that journey" 70-30** are `settings.experiments` with arm `weight`s.
+  Their arms are assigned when the draft TEXT is written (`assignOutreachArms` → `composeOutreach` corrects arms that couldn't apply,
+  e.g. E1-A on a two-hook or senior email becomes B → `settleOutreachArms`), not at Gmail time (`assignTrial` skips them).
+  `pickWeighted` (target share) replaces least-used for alternate experiments and weighted template variants.
+- **Who / when:** `seniorSkipReason` (MD/Head/Partner without a UCLA/Anderson/WA tie) hides people on Find (collapsed "Senior (skipped)")
+  and warns on Drafts. `emailVerified` (Apollo "verified", Hunter "valid", sheet/manual/Gmail addresses) gates drafting and Gmail drafts.
+  `leftFirm` (headline employer ≠ bank) offers "Mark as left firm". `sendTimeFor`: NY 5 PM PT, else 7 PM PT.
+- **Enrichment** (`api/enrich`): a match is discarded (with the reason in the note) if its LinkedIn slug, last name, firm or city
+  disagrees with ours. `detectRegion` moved to `lib/region.ts` so server routes can use it (workbook.ts re-exports it).
+- **Gmail sync:** out-of-office auto-replies aren't replies. A bounce (mailer-daemon) or an auto-reply saying they left sets `ignored`.
+- **Signature:** `School Class of YYYY / major / phone | [LinkedIn](url) | email`. `unwrapRedirects` strips `google.com/url?q=` wrappers.
+
+## Teams & coverage scope
+
+- `locationTeam.ts#teamOf(c)` is the team to act on: the sheet's (`?`, `-`, `n/a`, `unknown` = blank), else a high-confidence
+  `inferTeam` guess from title → comment → headline/profile that wasn't rejected (`teamRejected`). Desks, hooks, segments, the noteam
+  filter and coverage all use `teamOf`. ContactsTable shows guesses in italic with ✓ (writes the Team cell via `updateContact`) / ✗.
+- `buildCoverage` is scoped to the checked desks (`activeDesks/inScope/bankInScope`): banks no checked desk applies to drop out, and
+  counts/bucket come from in-scope contacts (`r.contacts`; all of them in `r.allContacts`). FirmContext and the home page pass
+  `plan: undefined` to stay unscoped. `scoreboard(rows, "banks" | "desks")` and `insights.ts#coverageInsights` feed the page.
+- **Offices (`src/lib/offices.ts`):** the owner's COVERAGE tab (Bank | Tier | Office SF/LA/NY | SA seats here? | Teams / groups
+  recruiting here | … | # offices/groups you can apply to) is read from the snapshots (`readOfficeMap`, any sheet with Bank + Office +
+  "SA seats" headers) and registered by a store subscription (`setOfficeMap`; scripts call it after parsing). `BUILT_IN` fills what the
+  tab lacks, incl. Texas (Houston energy banks; a bank not on that list = not offered in Texas). A desk is `not_offered` when the
+  office doesn't hire ("No / unclear") or clearly recruits one other team (`officeTeam`: Moelis SF = Generalist, Qatalyst NY = Tech).
+  `officeOf` maps Menlo Park / Palo Alto / Burlingame → SF, Santa Monica → LA, Houston / Dallas / Austin → TX.
+- **Office cap:** you can usually apply to 2 offices per bank (`coverage.officesPerBank`). `desks.ts#pickOffices` picks offices
+  already emailed, then with contacts, then plan order; `coverage.officePick[bankKey]` overrides (OfficePicker on the bank card).
+  Desks elsewhere are `not_applying` and leave the scope and counts. Not-offered desks don't use a pick.
+- **The owner's desks (`DESK_PRESETS`, "Add all my desks"):** Tech SF + LA, Generalist NY + LA, Energy Texas, over IB tiers only.
+  `teamMatches`: Tech ⊇ TMT, Energy ⊇ power/utilities/oil & gas, Generalist ⊇ M&A. Team guesses fall back to the office's team
+  (`teamSource: "office"`). Team cells with a URL or "?" are blank; "FIG?" is FIG. Credit Suisse = UBS, Mizuho Greenhill = Greenhill.
+- **Restore tab links** (sheet toolbar, `sheetLinks.ts#tabLinkPatches`): rebuilds OVERVIEW ↔ bank-tab links an older save stripped,
+  as manual patches (the 9-30 workbook had 0; 92 restorable = the original 45 + 47).
 
 ## Status / known gaps (as of 2026-09-24)
 

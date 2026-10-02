@@ -14,6 +14,8 @@ const ContactFacts = z.object({
   school: z.string().optional(),
   headline: z.string().optional(),
   comment: z.string(),
+  /** Their LinkedIn profile as the user captured it (Experience section = the source of truth for their path). */
+  profile: z.string().max(8000).optional(),
 });
 
 const Body = z.discriminatedUnion("mode", [
@@ -65,7 +67,10 @@ export async function POST(req: Request) {
         "The draft contains [[AI: instruction]] slots: replace each slot with text following its instruction. " +
         "Leave all other wording exactly as written, keeping the same line breaks: exactly one blank line between paragraphs, no blank line between the sign-off and the name, no indentation. Any leftover {{placeholder}} you cannot fill " +
         "from the facts should be removed gracefully. Use ONLY the facts provided — never invent shared schools, " +
-        "mutual connections, deals or groups. Keep the tone concise, warm and professional; avoid em dashes and flattery. " +
+        "mutual connections, deals or groups. A career-path slot comes ONLY from the Experience section of the contact's " +
+        "LinkedIn profile text (if there is none, write their current firm and group from the facts, nothing more). Never invent " +
+        "or imply experience for the sender beyond the SENDER facts (e.g. workshops or programs they didn't do). " +
+        "Keep the tone concise, warm and professional; avoid em dashes and flattery. " +
         "Write job titles in lowercase mid-sentence (\"an associate\", \"a vice president\"); acronyms like MD or VP stay capitalized.",
       prompt:
         `CONTACT FACTS\n${JSON.stringify(input.contact)}\n\nSENDER\n${JSON.stringify(input.sender)}\n\n` +

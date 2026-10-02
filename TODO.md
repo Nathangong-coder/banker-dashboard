@@ -33,3 +33,10 @@ shares its storage and cron with item 1, so build them together.
 - Rate-limit `/api/keys/test` (it can be used as a key-checking oracle; low risk, but cheap to add).
 - Browser click-through test of all pages with real keys (never done in-session: the browser tool was denied).
 - Consider merging legacy `(NY)` tabs into the main bank tabs in the owner's workbook.
+
+## Gmail labels that mirror outreach state (docs/outreach-rules.md A5): not built
+
+`Outreach/SEND NOW`, `Outreach/HOLD - desk full`, `Outreach/Sent - waiting`, `Outreach/Replied`, `Outreach/Bounced`,
+`Outreach/CHECK - email or role`. Creating labels and labelling threads needs the `gmail.modify` (or `gmail.labels` + modify)
+scope. The app asks for `gmail.compose` + `gmail.readonly` only, so this means a scope change and new consent. Decide with
+the owner before adding it. Then: `labels.create` once, and `threads.modify` from `gmailSync` when the status changes.

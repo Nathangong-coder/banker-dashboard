@@ -5,6 +5,7 @@ import { hooksOf } from "./hooks";
 import { fillPlaceholders } from "./template";
 import { ORIGINAL_BASE } from "./defaults";
 import { gotReply, wasSent } from "./experiments";
+import { teamOf } from "./locationTeam";
 
 /**
  * Slicing outreach results: "compare by" a dimension (font, send time, wording…) and "split by" a segment (bank type,
@@ -45,7 +46,7 @@ export function segmentOf(c: Contact, seg: Segment, tiers: Map<string, string>):
     const t = tiers.get(canonBank(c.bank));
     return t ? (TIER_SHORT[t] ?? t) : "Tier unknown";
   }
-  if (seg === "team") return c.team?.trim() || "Team not set";
+  if (seg === "team") return teamOf(c) || "Team not set";
   if (seg === "region") return regionInfo(c.region).label;
   return "Everyone";
 }

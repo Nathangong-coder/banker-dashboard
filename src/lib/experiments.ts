@@ -1,5 +1,6 @@
 import type { Contact, EmailBase, EmailFont, Experiment, Settings, Template } from "./types";
 import { BASE_PLACEHOLDERS, ORIGINAL_BASE } from "./defaults";
+import { OUTREACH_EXPERIMENT_IDS, pickWeighted } from "./outreach";
 
 /**
  * Email A/B testing. Each draft records which template and base produced it (`contact.draftMeta`). New drafts go to
@@ -39,10 +40,10 @@ export function pickBase(s: Settings, tally: Map<string, number>): EmailBase {
   return b;
 }
 
-/** If the chosen template has A/B variants, use the least-used one of the group, and count it. */
+/** If the chosen template has A/B variants, pick one by target share (`weight`; even split without weights), and count it. */
 export function pickVariant(t: Template, templates: Template[], tally: Map<string, number>): Template {
   const group = t.variantGroup ? templates.filter((x) => x.variantGroup === t.variantGroup && x.kind === t.kind) : [];
-  const pick = group.length > 1 ? leastUsed(group, tally) : t;
+  const pick = group.length > 1 ? pickWeighted(group, tally) : t;
   tally.set(pick.id, (tally.get(pick.id) ?? 0) + 1);
   return pick;
 }
@@ -187,10 +188,12 @@ export function assignTrial(c: Contact, s: Settings, tally: Map<string, Map<stri
   if (c.trial?.font) return { ...c.trial, font: c.trial.font };
   let font: EmailFont = s.emailStyle.font;
   const arms: Record<string, string> = { ...(c.trial?.arms ?? {}) };
+  const contentExperiments = new Set<string>(Object.values(OUTREACH_EXPERIMENT_IDS));
   for (const e of runningExperiments(s)) {
-    if (!e.arms.length || arms[e.id]) continue;
+    // Outreach experiments shape the text, so they're assigned when the draft is written (assignOutreachArms), not here.
+    if (!e.arms.length || arms[e.id] || contentExperiments.has(e.id)) continue;
     const counts = tally.get(e.id) ?? new Map<string, number>();
-    const a = e.mode === "wave" ? (e.arms.find((x) => x.id === e.currentArm) ?? e.arms[0]) : leastUsed(e.arms, counts);
+    const a = e.mode === "wave" ? (e.arms.find((x) => x.id === e.currentArm) ?? e.arms[0]) : pickWeighted(e.arms, counts);
     counts.set(a.id, (counts.get(a.id) ?? 0) + 1);
     tally.set(e.id, counts);
     arms[e.id] = a.id;

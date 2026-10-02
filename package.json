@@ -9,7 +9,9 @@
     "lint": "eslint",
     "check:workbook": "tsx scripts/check-workbook.mts",
     "typecheck": "tsc --noEmit",
-    "check:templates": "tsx scripts/check-templates.mts"
+    "check:templates": "tsx scripts/check-templates.mts",
+    "check:coverage": "tsx scripts/check-coverage.mts",
+    "check:outreach": "tsx scripts/check-outreach.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.62",

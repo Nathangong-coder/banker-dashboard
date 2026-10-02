@@ -1,4 +1,5 @@
 import type { Contact, EmailHook, Settings } from "./types";
+import { teamOf } from "./locationTeam";
 
 /**
  * Hooks: the sentence after "…pursuing investment banking." ({{my_pitch}}). It depends on who you're writing to:
@@ -6,6 +7,10 @@ import type { Contact, EmailHook, Settings } from "./types";
  * A contact can override the automatic choice (the Hook column on Email drafts).
  */
 export const TECH_HOOK_TEXT =
+  "Through my summer/fall investment banking internship I worked on multiple tech deals (including one on a medtech startup), consequently developing a strong interest in the tech sector.";
+
+/** The tech hook before 10/2026; replaced by the store migration when it was never edited. */
+export const LEGACY_TECH_HOOK_TEXT =
   "Through my software development internship and starting my own tech startup, I've developed a strong interest in the tech sector.";
 
 export const DEFAULT_HOOKS: EmailHook[] = [
@@ -27,6 +32,6 @@ export function autoHook(team: string | undefined, s: Settings): EmailHook {
 }
 
 /** The hook for this contact: their override, else the automatic one for their team. */
-export function hookFor(c: Pick<Contact, "hookId" | "team">, s: Settings): EmailHook {
-  return (c.hookId && hooksOf(s).find((h) => h.id === c.hookId)) || autoHook(c.team, s);
+export function hookFor(c: Contact, s: Settings): EmailHook {
+  return (c.hookId && hooksOf(s).find((h) => h.id === c.hookId)) || autoHook(teamOf(c), s);
 }

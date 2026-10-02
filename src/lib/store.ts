@@ -21,12 +21,14 @@ import type {
 import { applyPatches, contactPatches, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
 import { contactId } from "./util";
 import { isPlace, splitLocationTeam } from "./locationTeam";
-import { DEFAULT_HOOKS } from "./hooks";
+import { DEFAULT_HOOKS, LEGACY_TECH_HOOK_TEXT, TECH_HOOK_TEXT } from "./hooks";
+import { OUTREACH_EXPERIMENTS } from "./outreach";
 import { reconcileTitle, sameLevel } from "./titles";
 import { detectRegion } from "./workbook";
-import { DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_QUERIES_V1 } from "./defaults";
+import { DEFAULT_CRITERIA, DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_CRITERIA_V1, LEGACY_QUERIES_V1, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "./defaults";
 import type { TargetBank } from "./banks";
-import type { DeskTarget } from "./desks";
+import type { CoverageSettings } from "./coverage";
+import { readOfficeMap, setOfficeMap } from "./offices";
 
 const idbStorage: StateStorage = {
   getItem: async (k) => (await idbGet<string>(k)) ?? null,
@@ -67,7 +69,7 @@ interface State {
   targets: TargetBank[];
   /** Coverage page: banks the user hid, added by hand, and whether to include the starter IB list. */
   /** Coverage page: banks hidden / added by hand, the starter IB list toggle, and the recruiting plan (desks to cover). */
-  coverage: { hidden: string[]; added: TargetBank[]; includeStarter: boolean; plan?: DeskTarget[] };
+  coverage: CoverageSettings;
   lastGmailSync?: string;
   /** AI model+key pairs out of quota, skipped until the time given (see keys.ts#aiHeader). */
   aiCooldowns: Record<string, string>;
@@ -365,7 +367,7 @@ export const useStore = create<State>()(
     },
     {
       name: "banker-dashboard",
-      version: 7,
+      version: 8,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -382,6 +384,11 @@ export const useStore = create<State>()(
     },
   ),
 );
+
+// The COVERAGE tab's office map follows the sheets: team guesses and "not offered" desks read it (lib/offices.ts).
+useStore.subscribe((s, prev) => {
+  if (s.snapshots !== prev.snapshots) setOfficeMap(readOfficeMap(s.snapshots));
+});
 
 function deepMerge(base: object, over: object): object {
   const out: Record<string, unknown> = { ...base };
@@ -455,6 +462,24 @@ function migrateState(p: Record<string, unknown>, version: number) {
       const pitch = settings.profile?.pitch?.trim();
       settings.hooks = DEFAULT_HOOKS.map((h) => (h.id === "hook_tech" && pitch ? { ...h, text: pitch } : h));
     }
+  }
+  // Outreach rules (docs/outreach-rules.md, 10/2026): new defaults replace old ones the owner never edited.
+  if (version < 8 && p?.settings) {
+    const settings = p.settings as Settings;
+    if (settings.emailStyle?.font === "garamond") settings.emailStyle = { ...settings.emailStyle, font: "sans" };
+    const oldPitch = settings.profile?.pitch?.trim();
+    settings.hooks = (settings.hooks ?? DEFAULT_HOOKS).map((h) =>
+      h.id === "hook_tech" && (!h.text.trim() || h.text === LEGACY_TECH_HOOK_TEXT || h.text.trim() === oldPitch) ? { ...h, text: TECH_HOOK_TEXT } : h,
+    );
+    // The 3-paragraph base becomes the one in use; older bases stay (inactive) for history and results.
+    const bases = settings.emailBases ?? [];
+    if (!bases.some((b) => b.id === THREE_PARAGRAPH_BASE.id)) settings.emailBases = [THREE_PARAGRAPH_BASE, ...bases.map((b) => ({ ...b, active: false }))];
+    if (settings.prospect?.criteria?.trim() === LEGACY_CRITERIA_V1.trim()) settings.prospect = { ...settings.prospect, criteria: DEFAULT_CRITERIA };
+    const have = new Set((settings.experiments ?? []).map((e) => e.id));
+    settings.experiments = [...(settings.experiments ?? []), ...OUTREACH_EXPERIMENTS.filter((e) => !have.has(e.id))];
+  }
+  if (version < 8 && Array.isArray(p?.templates) && !(p.templates as Template[]).some((t) => t.id === OUTREACH_TEMPLATE.id)) {
+    p.templates = [OUTREACH_TEMPLATE, ...(p.templates as Template[])];
   }
   return p;
 }

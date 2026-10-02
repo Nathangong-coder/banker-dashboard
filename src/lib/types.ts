@@ -64,8 +64,12 @@ export interface Contact {
   region: Region;
   /** Office, e.g. "SF", "NY", "Menlo Park" (see locationTeam.ts). */
   location: string;
-  /** Coverage group, e.g. "Tech", "Healthcare", "RX". */
+  /** Coverage group, e.g. "Tech", "Healthcare", "RX", as on the sheet. Blank = not set (see locationTeam.ts#teamOf for inference). */
   team?: string;
+  /** How `team` was set when not read from the sheet ("position" etc. = an accepted guess). */
+  teamSource?: "sheet" | "position" | "comment" | "headline" | "office" | "manual";
+  /** A guessed team the user rejected (✗), so it isn't suggested or counted again. */
+  teamRejected?: string;
   position: string;
   email: string;
   emailSource?: "sheet" | "apollo" | "hunter" | "manual" | "gmail";
@@ -148,6 +152,8 @@ export interface Template {
   experimental?: boolean;
   /** Templates sharing a group are A/B variants: drafts alternate between them and replies are compared. */
   variantGroup?: string;
+  /** Target share within its variant group (e.g. 80 vs 20). Without weights, variants split evenly. */
+  weight?: number;
   /**
    * Facts the email can't be written without (e.g. "their_school" for the non-target template). Drafting stops and asks
    * for them instead of letting the AI paper over a blank.
@@ -168,7 +174,8 @@ export interface Experiment {
   name: string;
   kind: "font" | "custom" | "time";
   /** Time arms are hour windows in the recipient's local time; emails are tagged from when they actually went out. */
-  arms: { id: string; label: string; font?: EmailFont; from?: number; to?: number }[];
+  /** `weight` = target share (80/20, 70/30); arms without one split evenly. */
+  arms: { id: string; label: string; font?: EmailFont; from?: number; to?: number; weight?: number }[];
   /** alternate: each new draft gets the least-used arm (fairest). wave: every draft uses `currentArm` until you switch. */
   mode: "alternate" | "wave";
   currentArm?: string;

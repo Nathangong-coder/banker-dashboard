@@ -25,6 +25,16 @@ const ALIASES: Record<string, string> = {
   "perella weinberg": "perella weinberg",
   "raine": "raine",
   "mizuho financial": "mizuho",
+  // Merged firms and short names from the owner's COVERAGE / target tabs.
+  "credit suisse": "ubs",
+  bnp: "bnp paribas",
+  kbcm: "keybanc",
+  "keybanc capital markets": "keybanc",
+  "td cowen": "cowen",
+  "stifel kbw": "stifel",
+  // The merged M&A business; the owner's tab is "Greenhill & Co.", the COVERAGE tab says "Mizuho Greenhill".
+  "mizuho greenhill": "greenhill",
+  "greenhill mizuho": "greenhill",
   "mitsubishi ufj financial": "mufg",
   "rbc": "rbc",
   "royal bank of canada": "rbc",
@@ -73,6 +83,10 @@ export interface TargetBank {
 export function normalizeTier(raw?: string): string | undefined {
   if (!raw) return undefined;
   const t = raw.toLowerCase();
+  // The COVERAGE tab abbreviates tiers.
+  if (/^bb$/.test(t.trim())) return "Bulge Bracket";
+  if (/^eb$/.test(t.trim())) return "Elite Boutique";
+  if (/^mm$/.test(t.trim())) return "Middle Market";
   if (/bulge/.test(t)) return "Bulge Bracket";
   if (/elite|boutique/.test(t)) return "Elite Boutique";
   if (/middle|mid.?market/.test(t)) return "Middle Market";
@@ -130,3 +144,4 @@ export const STARTER_TARGETS: TargetBank[] = [
     "KeyBanc Capital Markets",
   ].map((name) => ({ name, tier: "Middle Market", source: "starter" })),
 ];
+

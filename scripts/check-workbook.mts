@@ -176,4 +176,80 @@ console.log("location/team split OK");
     }
     console.log("tab links OK");
   }
+  // A workbook whose links were stripped by an older save: rebuild them and check they survive a save.
+  const { tabLinkPatches } = await import("../src/lib/sheetLinks");
+  const { canonBank, cleanBankName } = await import("../src/lib/banks");
+  const restore = tabLinkPatches(p.snapshots, (n) => canonBank(cleanBankName(n)));
+  const sample = Object.entries(restore.patches).flatMap(([sh, cells]) => Object.entries(cells).map(([k, x]) => `${sh}!${k} "${x.v}" → ${x.link}`)).slice(0, 4);
+  console.log(`restorable tab links: ${restore.count}`, sample.join("; "));
+  if (restore.count) {
+    const restored = internal((await parseWorkbook(await buildWorkbook(ab, restore.patches))).snapshots);
+    if (restored.length !== before.length + restore.count) {
+      console.error("RESTORED LINKS DIDN'T SURVIVE THE SAVE", restored.length, before.length, restore.count);
+      process.exit(1);
+    }
+    console.log("restored tab links OK");
+  }
+}
+
+// Teams: from the Team cell, else inferred from title → notes → headline. Anyone whose title says Tech/TMT/Software/Internet
+// must come out as Tech or TMT.
+{
+  const { teamGuess, teamOf } = await import("../src/lib/locationTeam");
+  // As the store does: the COVERAGE tab (if any) feeds office-based team guesses.
+  const { readOfficeMap, setOfficeMap } = await import("../src/lib/offices");
+  setOfficeMap(readOfficeMap(p.snapshots));
+  const counts = { sheet: 0, inferredHigh: 0, inferredLow: 0, none: 0 };
+  const low: string[] = [];
+  const bySource: Record<string, number> = {};
+  for (const c of p.contacts) {
+    const g = teamGuess(c);
+    if (!g) counts.none++;
+    else if (g.source === "sheet" || g.source === "manual") counts.sheet++;
+    else {
+      bySource[g.source] = (bySource[g.source] ?? 0) + 1;
+      if (g.confidence === "high") counts.inferredHigh++;
+      else {
+        counts.inferredLow++;
+        low.push(`${c.name} (${c.bank}): "${c.position}" → ${g.team}`);
+      }
+    }
+  }
+  console.log("teams:", JSON.stringify(counts), "inferred from:", JSON.stringify(bySource));
+  const sample = p.contacts
+    .map((c) => ({ c, g: teamGuess(c) }))
+    .filter((x) => x.g && x.g.source !== "sheet")
+    .slice(0, 8)
+    .map((x) => `${x.c.name}: "${x.c.position}" → ${x.g!.team} [${x.g!.source}, ${x.g!.confidence}, "${x.g!.match}"]`);
+  console.log(sample.join("\n"));
+  if (low.length) console.log("lowest-confidence:\n  " + low.slice(0, 10).join("\n  "));
+  const wrong = p.contacts.filter((c) => /\b(tech|technology|tmt|software|internet)\b/i.test(c.position) && !["Tech", "TMT"].includes(teamOf(c)) && !/\b(tech|tmt|technology)\b/i.test(c.team ?? ""));
+  if (wrong.length) {
+    console.error("TECH TITLES NOT SORTED AS TECH/TMT:", wrong.slice(0, 5).map((c) => `${c.name}: ${c.position} → ${teamOf(c) || "none"} (sheet: ${c.team || "-"})`));
+    process.exit(1);
+  }
+  // The examples from docs/outreach-rules.md (Part B).
+  const { inferTeam } = await import("../src/lib/locationTeam");
+  const cases: [string, string | undefined, { bank?: string; region?: string }?][] = [
+    ["Analyst - Tech M&A", "Tech"],
+    ["VP - Software IB", "Tech"],
+    ["Associate - Healthcare M&A", "Healthcare"],
+    ["MD - Head of Consumer & Retail", "Consumer"],
+    ["IB Analyst - Debt Advisory & Restructuring", "RX"],
+    ["Investment Banking Analyst, Technology, Media & Telecom", "TMT"],
+    ["Analyst, Media, Entertainment & Sports", "TMT"],
+    ["Associate, Financial Sponsors Group", "Sponsors"],
+    ["Analyst - Strategic Advisory", "Generalist"],
+    ["Investment Banking Analyst", "Generalist", { bank: "Moelis & Company" }],
+    ["Investment Banking Analyst", undefined, { bank: "Evercore", region: "SF" }],
+    ["Investment Banking Analyst", "Generalist", { bank: "Evercore", region: "NY" }],
+    ["Analyst", undefined],
+    ["Analyst - SF", undefined],
+  ];
+  const bad = cases.filter(([t, want, ctx]) => inferTeam(t, ctx)?.team !== want);
+  if (bad.length) {
+    console.error("INFER TEAM FAILED", bad.map(([t, want, ctx]) => `${t} → ${inferTeam(t, ctx)?.team} (want ${want})`));
+    process.exit(1);
+  }
+  console.log("team inference OK");
 }

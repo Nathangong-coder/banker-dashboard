@@ -15,6 +15,7 @@ import { DEFAULT_QUERIES, queryWordCount } from "@/lib/defaults";
 import { bookmarkletHref, captureIsProfile, guessBank, linkedinSearchUrl, parseCapture } from "@/lib/linkedinCapture";
 import { canonBank } from "@/lib/banks";
 import { reconcileTitle } from "@/lib/titles";
+import { seniorSkipReason } from "@/lib/outreach";
 
 type Verdict = {
   id: string;
@@ -30,6 +31,10 @@ type Verdict = {
   reasons: string;
   employer?: string;
 };
+
+/** Outreach rule: VPs and below. MD / Head / Partner only with a UCLA, Anderson or Seattle / Washington tie. */
+const seniorSkip = (p: Prospect) =>
+  seniorSkipReason({ position: p.position || p.title, headline: p.title, school: p.school, comment: p.snippet, location: p.location ?? "", profile: undefined });
 
 export default function FindPage() {
   return (
@@ -198,14 +203,17 @@ function FindInner() {
     if (autoScreen && aiReady(settings)) list = await screen(list);
   };
 
-  const shown = prospects
+  // Senior people (MD+, no exception) are set aside in their own collapsed list, never deleted.
+  const senior = prospects.filter((p) => seniorSkip(p));
+  const eligible = prospects.filter((p) => !seniorSkip(p));
+  const shown = eligible
     .filter((p) => (tab === "all" ? true : tab === "match" ? p.verdict === "match" : tab === "maybe" ? p.verdict === "maybe" || !p.verdict : p.verdict === "no"))
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   const counts = {
-    match: prospects.filter((p) => p.verdict === "match").length,
-    maybe: prospects.filter((p) => p.verdict === "maybe" || !p.verdict).length,
-    no: prospects.filter((p) => p.verdict === "no").length,
-    all: prospects.length,
+    match: eligible.filter((p) => p.verdict === "match").length,
+    maybe: eligible.filter((p) => p.verdict === "maybe" || !p.verdict).length,
+    no: eligible.filter((p) => p.verdict === "no").length,
+    all: eligible.length,
   };
 
   const add = async () => {
@@ -437,6 +445,27 @@ function FindInner() {
               </Button>
             )}
           </div>
+
+          {senior.length > 0 && (
+            <details className="border-b border-line px-3 py-2 text-[12.5px]">
+              <summary className="cursor-pointer text-ink-2">
+                Senior (skipped) <span className="num text-muted">{senior.length}</span>
+                <span className="ml-1 text-muted">· MD / Head / Partner with no UCLA, Anderson or Washington tie</span>
+              </summary>
+              <ul className="mt-2 space-y-1">
+                {senior.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-baseline gap-x-2">
+                    <a href={p.linkedin} target="_blank" rel="noreferrer" className="font-medium text-navy hover:underline">
+                      {p.name}
+                    </a>
+                    <span className="text-muted">
+                      {p.bank} · {p.position || p.title}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
 
           {shown.length === 0 ? (
             <Empty icon={<Search className="size-6" />} title={prospects.length ? "Nothing in this bucket" : "No candidates yet"}>

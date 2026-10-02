@@ -2,9 +2,9 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Columns2, Sparkles, Table2, Users } from "lucide-react";
+import { Columns2, Link2, Sparkles, Table2, Users } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { enrichContacts, splitLocationTeamColumns } from "@/lib/actions";
+import { enrichContacts, restorableTabLinks, restoreTabLinks, splitLocationTeamColumns } from "@/lib/actions";
 import { contactPatches, mergePatches, splitLocationTeamPatches } from "@/lib/workbook";
 import { Button, PageHeader, Progress, toast } from "@/components/ui";
 import { SaveButtons, UploadButton, WorkbookEmpty } from "@/components/WorkbookControls";
@@ -45,6 +45,11 @@ function SheetInner() {
 
   const tables = useStore((s) => s.tables);
   const combinedTables = useMemo(() => splitLocationTeamPatches(snapshots, tables).tables, [snapshots, tables]);
+  const linksToRestore = useMemo(() => restorableTabLinks(snapshots, patches).count, [snapshots, patches]);
+  const runRestoreLinks = () => {
+    const n = restoreTabLinks();
+    toast.ok(`Restored ${n} links between tabs (OVERVIEW ↔ bank tabs). They're highlighted; save to write them into the file.`);
+  };
   const runSplit = () => {
     const n = splitLocationTeamColumns();
     toast.ok(`Split Location/Team on ${n} table${n === 1 ? "" : "s"}. Check the highlighted cells, then save. Saving also adds the dropdowns in Excel.`);
@@ -128,6 +133,11 @@ function SheetInner() {
           ))}
         </div>
         <div className="flex-1" />
+        {view === "grid" && linksToRestore > 0 && (
+          <Button icon={<Link2 className="size-3.5" />} onClick={runRestoreLinks} title="An older save dropped the links between OVERVIEW and the bank tabs. This puts them back as edits you can review, then save.">
+            Restore tab links ({linksToRestore})
+          </Button>
+        )}
         {view === "grid" && combinedTables > 0 && (
           <Button icon={<Columns2 className="size-3.5" />} onClick={runSplit} title="Location/Team becomes two columns (Location, and Team in the first empty column), each with a dropdown you can also type into">
             Split Location/Team ({combinedTables} tables)

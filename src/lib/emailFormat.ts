@@ -60,7 +60,7 @@ export function bodyToHtml(text: string, fontCss?: string): string {
       .replace(/\u0000(\d+)\u0000/g, (_m, i: string) => named[Number(i)]);
   };
   const style = fontCss ? ` style="font-family:${fontCss.replace(/"/g, "&quot;")}"` : "";
-  return `<div dir="ltr"${style}>${normalizeBody(text)
+  return `<div dir="ltr"${style}>${normalizeBody(unwrapRedirects(text))
     .split("\n")
     .map((l) => (l ? `<div>${linkify(l)}</div>` : "<div><br></div>"))
     .join("")}</div>`;
@@ -68,25 +68,52 @@ export function bodyToHtml(text: string, fontCss?: string): string {
 
 /** Plain-text part: "[LinkedIn](url)" → "LinkedIn: url". */
 export function bodyToPlain(text: string): string {
-  return normalizeBody(text).replace(MD_LINK, (_m, label: string, url: string) => `${label}: ${url}`);
+  return normalizeBody(unwrapRedirects(text)).replace(MD_LINK, (_m, label: string, url: string) => `${label}: ${url}`);
 }
 
 /**
- * Line added under the sign-off name: "you@school.edu | LinkedIn" with LinkedIn hyperlinked.
- * A custom signature from Settings replaces it.
+ * Gmail's web UI rewrites links in drafts it opens into `https://www.google.com/url?q=<target>&…` redirects (with a
+ * `data-saferedirecturl` attribute). Anything copied back out of Gmail goes through this so a signature or body never
+ * links through Google: the redirect becomes its target and the attribute is dropped.
  */
-export function signatureLine(p: { email?: string; linkedin?: string; signature?: string }): string {
-  const url = p.linkedin?.trim() ? (/^https?:\/\//.test(p.linkedin.trim()) ? p.linkedin.trim() : `https://${p.linkedin.trim().replace(/^\/+/, "")}`) : "";
-  if (p.signature?.trim()) {
-    // In a custom signature, a plain "LinkedIn" becomes a link to the profile URL (unless already a [LinkedIn](…) link).
-    const sig = p.signature.trim();
-    return url ? sig.replace(/(?<!\[)\bLinkedIn\b(?!\]\()/g, `[LinkedIn](${url})`) : sig;
-  }
-  return [p.email?.trim(), url && `[LinkedIn](${url})`].filter(Boolean).join(" | ");
+export function unwrapRedirects(text: string): string {
+  return text
+    .replace(/\s*data-saferedirecturl="[^"]*"/g, "")
+    .replace(/https?:\/\/(?:www\.)?google\.[a-z.]+\/url\?(?:[^\s"')\]<>]*?&(?:amp;)?)?q=([^&\s"')\]<>]+)[^\s"')\]<>]*/g, (m, q: string) => {
+      try {
+        const target = decodeURIComponent(q);
+        return /^https?:\/\//.test(target) ? target : m;
+      } catch {
+        return m;
+      }
+    });
 }
 
-/** Append the signature line unless the body already has it (or already mentions the LinkedIn/email). */
-export function withSignature(body: string, p: { email?: string; linkedin?: string; signature?: string }): string {
+type SignatureProfile = { email?: string; linkedin?: string; signature?: string; school?: string; year?: string; major?: string; phone?: string };
+
+/**
+ * Lines added under the sign-off name:
+ *   UCLA Class of 2029
+ *   Economics & Applied Mathematics
+ *   425-… | LinkedIn | you@school.edu        (LinkedIn links straight to the profile URL, never a redirect)
+ * Lines without a value are left out. A custom signature from Settings replaces it.
+ */
+export function signatureLine(p: SignatureProfile): string {
+  const raw = unwrapRedirects(p.linkedin?.trim() ?? "");
+  const url = raw ? (/^https?:\/\//.test(raw) ? raw : `https://${raw.replace(/^\/+/, "")}`) : "";
+  if (p.signature?.trim()) {
+    // In a custom signature, a plain "LinkedIn" becomes a link to the profile URL (unless already a [LinkedIn](…) link).
+    const sig = unwrapRedirects(p.signature.trim());
+    return url ? sig.replace(/(?<!\[)\bLinkedIn\b(?!\]\()/g, `[LinkedIn](${url})`) : sig;
+  }
+  const year = p.year?.trim();
+  const classOf = p.school?.trim() && year ? `${p.school.trim()} ${/class/i.test(year) ? year : `Class of ${year}`}` : "";
+  const contact = [p.phone?.trim(), url && `[LinkedIn](${url})`, p.email?.trim()].filter(Boolean).join(" | ");
+  return [classOf, p.major?.trim(), contact].filter(Boolean).join("\n");
+}
+
+/** Append the signature unless the body already has it (or already mentions the LinkedIn/email). */
+export function withSignature(body: string, p: SignatureProfile): string {
   let sig = signatureLine(p);
   if (!sig) return body;
   const b = body.trimEnd();

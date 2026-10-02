@@ -1,13 +1,25 @@
 import type { EmailBase, Settings, Template } from "./types";
 import { DEFAULT_HOOKS } from "./hooks";
+import { OUTREACH_EXPERIMENTS } from "./outreach";
 
-export const DEFAULT_CRITERIA = `Include a person ONLY if ALL THREE groups are satisfied:
-
-1) ROLE: Works in investment banking at the target bank, in a Technology coverage group (Tech / TMT / Technology, Media & Telecom) anywhere, OR is a Generalist banker based in New York. EXCLUDE anyone in a Healthcare group.
+const CRITERIA_GROUPS = `1) ROLE: Works in investment banking at the target bank, in a Technology coverage group (Tech / TMT / Technology, Media & Telecom) anywhere, OR is a Generalist banker based in New York. EXCLUDE anyone in a Healthcare group.
 
 2) BACKGROUND: Graduated from a University of California campus (UCLA, UC Berkeley, UC San Diego, UC Irvine, UC Davis, UC Santa Barbara, UC Santa Cruz, UC Riverside, UC Merced), OR is originally from Washington State (e.g. high school in WA, University of Washington, grew up in Seattle/Bellevue/etc.).
 
-3) LOCATION: Currently lives/works in California or New York.
+3) LOCATION: Currently lives/works in California or New York.`;
+
+export const DEFAULT_CRITERIA = `Include a person ONLY if ALL FOUR groups are satisfied:
+
+${CRITERIA_GROUPS}
+
+4) SENIORITY (current role): Analyst, Associate, Senior Associate or Vice President. Director / Executive Director / Principal are OK but score lower. EXCLUDE Managing Directors, Heads, Group Heads, Global Heads and Partners, unless they went to UCLA / UCLA Anderson or are from Seattle / Washington.
+
+If the profile snippet is missing information needed to confirm a group, answer "maybe" rather than "no" unless another group clearly fails.`;
+
+/** The criteria before the seniority rule; replaced by the store migration if never edited. */
+export const LEGACY_CRITERIA_V1 = `Include a person ONLY if ALL THREE groups are satisfied:
+
+${CRITERIA_GROUPS}
 
 If the profile snippet is missing information needed to confirm a group, answer "maybe" rather than "no" unless another group clearly fails.`;
 
@@ -77,7 +89,25 @@ Best,
   notes: "Shorter, one concrete 15-minute ask with a time window, no apology for their time. Test it against Original.",
 };
 
-export const DEFAULT_BASES: EmailBase[] = [ORIGINAL_BASE, CONCISE_BASE];
+/**
+ * The 3-paragraph email (consolidated 10/1/2026; the Original had 5): intro + tech hook, then one hook + the ask, then
+ * the close. The ask and close are the E1 / E2 experiment arms (lib/outreach.ts), so they live in placeholders.
+ */
+export const THREE_PARAGRAPH_BASE: EmailBase = {
+  id: "base_3p",
+  name: "3 paragraphs (10/1)",
+  opener: "I hope this email finds you well!",
+  intro: "My name is {{my_name}}, I'm a {{my_major}} student at {{my_school}} interested in investment banking. {{my_pitch}}",
+  ask: "{{outreach_ask}}",
+  close: `{{outreach_close}}
+
+Sincerely,
+{{my_name}}`,
+  active: true,
+  notes: "The current wording (docs/outreach-rules.md). The ask and close rotate through experiments E1 and E2.",
+};
+
+export const DEFAULT_BASES: EmailBase[] = [THREE_PARAGRAPH_BASE, { ...ORIGINAL_BASE, active: false }, CONCISE_BASE];
 
 /** The base's literal texts, for converting templates that still spell the base out word for word. */
 export const BASE_PLACEHOLDERS = { opener: "{{base_opener}}", intro: "{{base_intro}}", ask: "{{base_ask}}", close: "{{base_close}}" } as const;
@@ -127,11 +157,11 @@ export const DEFAULT_SETTINGS: Settings = {
   enrich: {
     revealPersonalEmails: false,
   },
-  emailStyle: { font: "garamond" },
+  emailStyle: { font: "sans" },
   prep: { generalQuestions: DEFAULT_GENERAL_QUESTIONS },
   emailBases: DEFAULT_BASES,
   hooks: DEFAULT_HOOKS,
-  experiments: [],
+  experiments: OUTREACH_EXPERIMENTS,
 };
 
 /*
@@ -153,7 +183,26 @@ ${hook}
 
 {{base_close}}`;
 
+/** Every first email under the outreach rules: subject and hook picked per person (lib/outreach.ts#composeOutreach). */
+export const OUTREACH_TEMPLATE: Template = {
+  id: "tpl_outreach",
+  name: "Outreach rules (3 paragraphs)",
+  whenToUse:
+    "Every first email. Picks the subject and the one hook from their school / background / seniority (Fellow Bruin, UC, LA, California, Chinese, Washingtonian, volunteer, standard) and runs experiments E1–E4.",
+  kind: "initial",
+  attachResume: true,
+  subject: "{{outreach_subject}}",
+  body: `Hi {{first_name}},
+
+{{base_opener}} {{base_intro}}
+
+{{outreach_hook}} {{base_ask}}
+
+{{base_close}}`,
+};
+
 export const DEFAULT_TEMPLATES: Template[] = [
+  OUTREACH_TEMPLATE,
   {
     id: "tpl_standard",
     name: "Standard",

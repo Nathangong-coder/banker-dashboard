@@ -10,8 +10,10 @@ import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type Contact, type RequiredFact, type Template } from "@/lib/types";
 import { chunk, cn, pool, uid } from "@/lib/util";
+import { teamOf } from "@/lib/locationTeam";
 import { overCapDesks } from "@/lib/desks";
 import { assignTrial, pickBase, pickVariant, trialTally, usageTally } from "@/lib/experiments";
+import { assignOutreachArms, composeOutreach, emailVerified, leftFirm, seniorSkipReason, sendTimeFor, settleOutreachArms } from "@/lib/outreach";
 import { autoHook, hookFor, hooksOf } from "@/lib/hooks";
 import { HooksCard } from "@/components/Hooks";
 import { REQUIRED_FACTS, guessSchool, missingFacts } from "@/lib/template";
@@ -96,8 +98,18 @@ function DraftsInner() {
   const [needs, setNeeds] = useState<{ c: Contact; t: Template; missing: RequiredFact[] }[] | null>(null);
 
   const generate = async (skip: Set<string> = new Set()) => {
-    const list = chosen.filter((c) => (c.templateId || initialTemplates[0]) && !skip.has(c.id));
-    if (!list.length) return toast.err(skip.size ? "Nothing left to draft." : "Select contacts first.");
+    const eligible = chosen.filter((c) => (c.templateId || initialTemplates[0]) && !skip.has(c.id));
+    // Outreach rule: no verified address = "needs email", no draft.
+    const unverified = eligible.filter((c) => !emailVerified(c));
+    const list = eligible.filter((c) => emailVerified(c));
+    if (unverified.length)
+      toast.info(
+        `${unverified.length} skipped: no verified email (${unverified.slice(0, 3).map((c) => c.firstName || c.name).join(", ")}${unverified.length > 3 ? "…" : ""}). Enrich them, or add an address you've confirmed.`,
+      );
+    if (!list.length) return toast.err(skip.size || unverified.length ? "Nothing left to draft." : "Select contacts first.");
+    const senior = list.filter((c) => seniorSkipReason(c));
+    if (senior.length)
+      toast.info(`Heads up: ${senior.map((c) => c.name).join(", ")} ${senior.length > 1 ? "are" : "is"} MD / Head / Partner with no UCLA or Washington tie. The rule is VPs and below.`);
     // Templates like "Non-target school" can't be written without a fact (their university): ask instead of guessing.
     const latest = useStore.getState().contacts;
     const blocked = list
@@ -122,6 +134,8 @@ function DraftsInner() {
     let failed = 0;
     // A/B tests (Email lab): each draft gets the least-used active base and template variant, recorded on the contact.
     const tally = usageTally(useStore.getState().contacts);
+    // Outreach experiments (E1–E4) shape the wording, so their arms are assigned here, by target share.
+    const outreachTally = trialTally(useStore.getState().contacts);
     await pool(
       list,
       4,
@@ -130,8 +144,15 @@ function DraftsInner() {
         const t = pickVariant(assigned, templates, tally.template);
         // Word-for-word templates keep the Original wording and stay out of base tests.
         const base = t.lockBase ? (settings.emailBases?.find((b) => b.id === ORIGINAL_BASE.id) ?? ORIGINAL_BASE) : pickBase(settings, tally.base);
-        let subject = fillPlaceholders(t.subject, c, settings, {}, base);
-        let body = fillPlaceholders(t.body, c, settings, {}, base);
+        let cc = c;
+        if (/\{\{\s*outreach_/.test(t.subject + t.body + base.ask + base.close)) {
+          const assigned = assignOutreachArms(c, settings, outreachTally);
+          cc = { ...c, trial: { ...(c.trial ?? { at: new Date().toISOString() }), arms: assigned } };
+          const plan = composeOutreach(cc, settings);
+          cc = { ...cc, trial: { ...cc.trial!, arms: settleOutreachArms(assigned, plan.arms, outreachTally) } };
+        }
+        let subject = fillPlaceholders(t.subject, cc, settings, {}, base);
+        let body = fillPlaceholders(t.body, cc, settings, {}, base);
         body = withSignature(body, settings.profile);
         const needsAi = hasAiSlots(subject + body) || missingPlaceholders(subject + body).length > 0;
         if (needsAi && aiReady(settings)) {
@@ -156,6 +177,7 @@ function DraftsInner() {
           templateId: t.id,
           draft: { subject: normalizeSubject(subject), body: normalizeBody(body), createdAt, gmailDraftId: c.draft?.gmailDraftId },
           draftMeta: { templateId: t.id, baseId: base.id, hookId: hookFor(c, settings).id, createdAt },
+          ...(cc.trial !== c.trial ? { trial: cc.trial } : {}),
         });
       },
       (done) => setPhase({ label: "Writing drafts", done, total: list.length }),
@@ -170,9 +192,10 @@ function DraftsInner() {
   };
 
   const toGmail = async () => {
-    const list = chosen.filter((c) => c.draft && c.email);
+    // Only verified addresses (outreach rule); older drafts may predate the check.
+    const list = chosen.filter((c) => c.draft && c.email && emailVerified(c));
     const skipped = chosen.length - list.length;
-    if (!list.length) return toast.err("None of the selected contacts have both a draft and an email.");
+    if (!list.length) return toast.err("None of the selected contacts have both a draft and a verified email.");
     try {
       await connectGmail(googleClientId(settings));
     } catch (e) {
@@ -209,7 +232,7 @@ function DraftsInner() {
       (done) => setPhase({ label: "Creating Gmail drafts", done, total: list.length }),
     );
     setPhase(null);
-    toast.ok(`${ok} drafts are waiting in Gmail (existing ones were updated, not duplicated).${skipped ? ` ${skipped} skipped (no email or no draft).` : ""}`);
+    toast.ok(`${ok} drafts are waiting in Gmail (existing ones were updated, not duplicated).${skipped ? ` ${skipped} skipped (no draft, or no verified email).` : ""}`);
   };
 
   const onResume = async (file: File) => {
@@ -402,6 +425,10 @@ function DraftsInner() {
                         <div className="text-[12px] text-muted">
                           {c.bank} · {c.email || <span className="text-red/80">no email</span>}
                         </div>
+                        <RowChecks c={c} onLeft={(employer) => {
+                          s.setStatus([c.id], "ignored", `Left firm (headline: ${employer})`);
+                          s.updateContact(c.id, { comment: [c.comment, `left firm (now ${employer})`].filter(Boolean).join("; ") });
+                        }} />
                         {(() => {
                           const others = (reachedByBank.get(c.bank) ?? []).filter((o) => o.id !== c.id);
                           return others.length ? (
@@ -424,7 +451,7 @@ function DraftsInner() {
                       </td>
                       <td className="px-2 py-2 text-[12px]">
                         {/* Team from the sheet; the hook follows it unless picked by hand (then the draft needs regenerating). */}
-                        <div className={cn("mb-1", c.team ? "text-ink-2" : "text-muted")}>{c.team || "team not set"}</div>
+                        <div className={cn("mb-1", teamOf(c) ? "text-ink-2" : "text-muted")}>{teamOf(c) || "team not set"}</div>
                         <Select
                           className="h-7 max-w-[150px] text-[12px]"
                           value={c.hookId ?? ""}
@@ -434,7 +461,7 @@ function DraftsInner() {
                             if (c.draft) toast.info(`Hook changed for ${c.name}. Generate their draft again to use it.`);
                           }}
                         >
-                          <option value="">Auto: {autoHook(c.team, settings).name}</option>
+                          <option value="">Auto: {autoHook(teamOf(c), settings).name}</option>
                           {hooksOf(settings).map((h) => (
                             <option key={h.id} value={h.id}>
                               {h.name}
@@ -512,6 +539,38 @@ function DraftsInner() {
   );
 }
 
+/** Outreach-rule checks for one row: seniority, left the firm, unverified email, when to send. */
+function RowChecks({ c, onLeft }: { c: Contact; onLeft: (employer: string) => void }) {
+  const senior = seniorSkipReason(c);
+  const left = leftFirm(c);
+  const verified = emailVerified(c);
+  const send = sendTimeFor(c);
+  return (
+    <div className="mt-0.5 space-y-0.5 text-[11.5px]">
+      {senior && (
+        <div className="text-amber" title="Rule: only VPs and below, unless they went to UCLA / Anderson or are from Seattle / Washington.">
+          Senior: {senior}
+        </div>
+      )}
+      {left && (
+        <div className="text-red">
+          Headline says {left}. Left {c.bank}?{" "}
+          <button className="underline" onClick={() => onLeft(left)}>
+            Mark as left firm
+          </button>
+        </div>
+      )}
+      {c.email && !verified && (
+        <div className="text-red" title={c.emailStatus}>
+          Email not verified ({c.emailSource}: {c.emailStatus || "unknown"}). No draft until it is.
+        </div>
+      )}
+      {!c.profile && <div className="text-muted">Check their LinkedIn: title, team and office come from the current profile.</div>}
+      <div className="text-muted">Send at {send.label}</div>
+    </div>
+  );
+}
+
 function facts(c: Contact) {
   return {
     id: c.id,
@@ -523,6 +582,8 @@ function facts(c: Contact) {
     school: c.school,
     headline: c.headline,
     comment: c.comment,
+    // The captured LinkedIn profile: the only source for "your path from X to Y" (never web snippets).
+    profile: c.profile?.text.slice(0, 6000),
   };
 }
 

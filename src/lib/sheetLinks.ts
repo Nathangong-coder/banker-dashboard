@@ -118,3 +118,45 @@ export async function writeInternalLinks(buffer: ArrayBuffer, links: InternalLin
   }
   return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
 }
+
+/* ---------------- restoring links lost by an older save ---------------- */
+
+type Snap = { name: string; rows: number; cols: number; cells: Record<string, { v: string; link?: string }> };
+
+/** "#MS!A1", or "#'EVR (NY)'!A1" when the tab name needs quoting (Excel's rule: anything but letters, digits, _ and .). */
+export const tabLink = (tab: string, cell = "A1") => `#${/^[A-Za-z_][\w.]*$/.test(tab) ? tab : `'${tab.replace(/'/g, "''")}'`}!${cell}`;
+
+/**
+ * Links an older save stripped, rebuilt the way the owner's workbook had them: each bank name on the overview tab
+ * ("Institution Name" column) → that bank's tab, and each bank tab's "X Application Tracker" title (A1) → the overview.
+ * Cells that already have a link are left alone. Returned as cell patches to review and save.
+ */
+export function tabLinkPatches(snaps: Snap[], canon: (name: string) => string): { patches: Record<string, Record<string, { v: string; link: string }>>; count: number } {
+  const patches: Record<string, Record<string, { v: string; link: string }>> = {};
+  let count = 0;
+  const put = (sheet: string, key: string, v: string, link: string) => {
+    (patches[sheet] ??= {})[key] = { v, link };
+    count++;
+  };
+  const overview = snaps.find((s) => /^overview$/i.test(s.name.trim())) ?? snaps.find((s) => Object.values(s.cells).some((c) => /^institution name$/i.test(c.v.trim())));
+  const bankTabs = snaps
+    .map((s) => ({ s, title: s.cells["1:1"]?.v ?? "" }))
+    .filter((x) => /application tracker/i.test(x.title))
+    .map((x) => ({ ...x, bank: canon(x.title.replace(/\s*application tracker.*$/i, "").replace(/\(NY\)/i, "")) }));
+  if (!overview) return { patches, count };
+
+  for (const { s, title } of bankTabs) if (!s.cells["1:1"]?.link) put(s.name, "1:1", title, tabLink(overview.name));
+
+  const header = Object.entries(overview.cells).find(([, c]) => /^institution name$/i.test(c.v.trim()));
+  if (!header) return { patches, count };
+  const [hr, hc] = header[0].split(":").map(Number);
+  for (let r = hr + 1; r <= overview.rows; r++) {
+    const cell = overview.cells[`${r}:${hc}`];
+    if (!cell?.v.trim() || cell.link) continue;
+    const want = canon(cell.v);
+    // The main tab, not a legacy "(NY)" one.
+    const tab = bankTabs.filter((t) => t.bank === want).sort((a, b) => Number(/\(NY\)/i.test(a.s.name)) - Number(/\(NY\)/i.test(b.s.name)))[0];
+    if (tab) put(overview.name, `${r}:${hc}`, cell.v, tabLink(tab.s.name));
+  }
+  return { patches, count };
+}

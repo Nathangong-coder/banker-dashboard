@@ -6,6 +6,7 @@ import { contactId, splitName } from "./util";
 import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 import { isInternalLink, readInternalLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
+import { detectRegion } from "./region";
 
 const MAX_ROWS = 1500;
 const MAX_COLS = 40;
@@ -84,16 +85,7 @@ function matchHeaders(row: Map<number, string>) {
   return ok ? found : null;
 }
 
-export function detectRegion(...hints: (string | undefined)[]): Region {
-  const text = hints.filter(Boolean).join(" ");
-  if (/\b(NY|NYC|New York|Manhattan|Brooklyn)\b/i.test(text)) return "NY";
-  if (/\b(Chicago|CHI)\b/i.test(text)) return "CHI";
-  // LA before SF: "Los Angeles, California" is LA, not the Bay Area.
-  if (/\b(LA|L\.A\.|Los Angeles|Century City|Santa Monica|Beverly Hills|Irvine|Newport Beach|Orange County|Pasadena)\b/i.test(text)) return "LA";
-  if (/\b(SF|San Francisco|Menlo|Palo Alto|Bay Area|Silicon Valley|San Mateo|Redwood City|Mountain View|San Jose|California)\b/i.test(text))
-    return "SF";
-  return "Other";
-}
+export { detectRegion };
 
 export function statusFromSheet(raw: string | undefined): Status {
   const s = norm(raw ?? "");
@@ -937,7 +929,7 @@ function extractTargets(sheet: string, cells: SheetSnapshot["cells"], rowText: M
         const type = typeCol ? get(rr, typeCol) : "";
         const numbered = numCol ? /^\d+$/.test(get(rr, numCol)) : true;
         // Keep banks / buy-side firms; skip helper rows and unrelated types.
-        const typed = !typeCol || (!!type && isNaN(Number(type)) && /bank|bracket|boutique|market|equity|credit|advis|capital|fund/i.test(type));
+        const typed = !typeCol || (!!type && isNaN(Number(type)) && /bank|bracket|boutique|market|equity|credit|advis|capital|fund|^(bb|eb|mm)$/i.test(type.trim()));
         if (!numbered || !typed) continue;
         const name = cleanBankName(raw);
         if (name.length >= 2) out.push({ name, tier: normalizeTier(type), source: sheet });

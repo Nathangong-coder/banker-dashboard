@@ -39,6 +39,8 @@ function patchFrom(c: Contact, r: SyncResult): Partial<Contact> | null {
     p.repliedAt = r.repliedAt;
     if (!["call_scheduled", "done", "ignored"].includes(c.status)) p.status = "replied";
   }
+  // Never follow up after a bounce or an out-of-office saying they left.
+  if ((r.bouncedAt || r.leftNote) && !r.repliedAt && !["replied", "call_scheduled", "done"].includes(c.status)) p.status = "ignored";
   const changed = (Object.keys(p) as (keyof Contact)[]).some((k) => JSON.stringify(p[k]) !== JSON.stringify(c[k]));
   return changed ? p : null;
 }
@@ -106,7 +108,7 @@ export function syncAllWithGmail(opts: { interactive: boolean; onProgress?: (don
             c.id,
             { ...extra, ...(p ?? {}), ...(extra.draft ? { draft: extra.draft } : {}) },
             p || extra.email
-              ? { at: new Date().toISOString(), type: "note", note: `Gmail: ${r.firstSentAt ? `first emailed ${new Date(r.firstSentAt).toLocaleDateString()}` : "no sent mail"}${r.outreachCount > 1 ? `, ${r.outreachCount - 1} follow-up(s)` : ""}${r.repliedAt ? ", replied" : ""}${extra.email ? `, email found (${email})` : ""}` }
+              ? { at: new Date().toISOString(), type: "note", note: `Gmail: ${r.firstSentAt ? `first emailed ${new Date(r.firstSentAt).toLocaleDateString()}` : "no sent mail"}${r.outreachCount > 1 ? `, ${r.outreachCount - 1} follow-up(s)` : ""}${r.repliedAt ? ", replied" : ""}${r.bouncedAt ? ", bounced (no more follow-ups)" : ""}${r.leftNote ? `, auto-reply says they left: "${r.leftNote}"` : ""}${extra.email ? `, email found (${email})` : ""}` }
               : undefined,
           );
         } catch (e) {

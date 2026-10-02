@@ -7,6 +7,8 @@ import { useStore } from "@/lib/store";
 import { canonBank } from "@/lib/banks";
 import { tierRank, TIER_ORDER, type CoverageRow } from "@/lib/coverage";
 import {
+  DEFAULT_OFFICES_PER_BANK,
+  DESK_PRESETS,
   DESK_STATE_LABEL,
   targetAppliesTo,
   targetLabel,
@@ -14,29 +16,20 @@ import {
   type DeskTarget,
 } from "@/lib/desks";
 import { cn, uid } from "@/lib/util";
+import { teamOf } from "@/lib/locationTeam";
 import { Badge, Button, Card, Checkbox, Input } from "./ui";
 import { useLocationTeamOptions } from "./LocationTeam";
 
 const enc = encodeURIComponent;
 const DONE: DeskState[] = ["emailed", "replied"];
 
-/** One-click starting points, from how the owner actually recruits. */
-const PRESETS: Omit<DeskTarget, "id" | "enabled">[] = [
-  { location: "SF", team: "Tech", scope: "all", tiers: [], banks: [] },
-  {
-    location: "NY",
-    team: "Generalist",
-    scope: "tiers",
-    tiers: ["Bulge Bracket"],
-    banks: [],
-  },
-  { location: "NY", team: "Tech", scope: "banks", tiers: [], banks: [] },
-];
+const PRESETS = DESK_PRESETS;
+const tierText = (tiers: string[]) => (["Bulge Bracket", "Elite Boutique", "Middle Market"].every((t) => tiers.includes(t)) ? "investment banks" : tiers.join(", "));
 
 function scopeText(t: DeskTarget) {
   if (t.scope === "all") return "all banks";
   if (t.scope === "tiers")
-    return t.tiers.length ? t.tiers.join(", ") : "no tiers picked";
+    return t.tiers.length ? tierText(t.tiers) : "no tiers picked";
   if (!t.banks.length) return "no firms picked";
   return t.banks.length <= 3
     ? t.banks.join(", ")
@@ -48,7 +41,7 @@ function deskRows(t: DeskTarget, rows: CoverageRow[]) {
   return rows
     .filter((r) => r.bucket !== "hidden" && targetAppliesTo(t, r))
     .map((r) => ({ row: r, status: r.desks.find((d) => d.target.id === t.id) }))
-    .filter((x) => x.status) as {
+    .filter((x) => x.status && x.status.state !== "not_offered" && x.status.state !== "not_applying") as {
     row: CoverageRow;
     status: NonNullable<CoverageRow["desks"][number]>;
   }[];
@@ -58,9 +51,10 @@ export function RecruitingPlan({ rows }: { rows: CoverageRow[] }) {
   const stored = useStore((s) => s.coverage.plan);
   const plan = stored ?? [];
   const setCoverage = useStore((s) => s.setCoverage);
+  const officesPerBank = useStore((s) => s.coverage.officesPerBank) ?? DEFAULT_OFFICES_PER_BANK;
   const contacts = useStore((s) => s.contacts);
   const noTeam = useMemo(
-    () => contacts.filter((c) => !c.team && c.status !== "ignored").length,
+    () => contacts.filter((c) => !teamOf(c) && c.status !== "ignored").length,
     [contacts],
   );
   const [adding, setAdding] = useState(false);
@@ -103,7 +97,10 @@ export function RecruitingPlan({ rows }: { rows: CoverageRow[] }) {
 
       {plan.length === 0 && !adding && (
         <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-[12.5px] text-ink-2">
-          Start with:
+          <Button size="sm" variant="primary" onClick={() => setPlan((list) => [...list, ...PRESETS.map((p) => ({ ...p, id: uid("desk"), enabled: true }))])}>
+            Add all my desks
+          </Button>
+          or start with:
           {PRESETS.map((p) => (
             <button
               key={`${p.location}${p.team}${p.scope}`}
@@ -114,7 +111,7 @@ export function RecruitingPlan({ rows }: { rows: CoverageRow[] }) {
               {p.scope === "all"
                 ? "all banks"
                 : p.scope === "tiers"
-                  ? p.tiers.join(", ")
+                  ? tierText(p.tiers)
                   : "select firms"}
             </button>
           ))}
@@ -136,6 +133,25 @@ export function RecruitingPlan({ rows }: { rows: CoverageRow[] }) {
             />
           ))}
         </ul>
+      )}
+
+      {plan.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2 text-[12px] text-muted">
+          You can usually apply to
+          <input
+            type="number"
+            min={1}
+            max={4}
+            aria-label="Offices you can apply to per bank"
+            className="num h-6 w-10 rounded border border-line-2 bg-panel px-1 text-center text-ink"
+            value={officesPerBank}
+            onChange={(e) => {
+              const n = Math.max(1, Math.min(4, Number(e.target.value) || DEFAULT_OFFICES_PER_BANK));
+              setCoverage((c) => ({ ...c, officesPerBank: n }));
+            }}
+          />
+          offices per bank. Where your desks reach more, the offices you already have people at are picked (change them on a bank&apos;s card).
+        </div>
       )}
 
       {plan.length > 0 && noTeam > 0 && (
@@ -619,6 +635,12 @@ export function DeskChips({ r }: { r: CoverageRow }) {
     <div className="mt-1 flex flex-wrap gap-1">
       {r.desks.map((d) => {
         const ok = DONE.includes(d.state);
+        if (d.state === "not_offered" || d.state === "not_applying")
+          return (
+            <Badge key={d.target.id} tone="neutral" className={cn("px-1.5 py-0 text-[10.5px] opacity-60", d.state === "not_applying" && "line-through")}>
+              {targetLabel(d.target)} · {DESK_STATE_LABEL[d.state]}
+            </Badge>
+          );
         return (
           <Badge
             key={d.target.id}
@@ -639,6 +661,40 @@ export function DeskChips({ r }: { r: CoverageRow }) {
           </Badge>
         );
       })}
+    </div>
+  );
+}
+
+/** "Applying to SF · NY (2 of 3 offices)": shown when the checked desks reach more offices at a bank than you can apply to. */
+export function OfficePicker({ r }: { r: CoverageRow }) {
+  const setCoverage = useStore((s) => s.setCoverage);
+  if (r.offices.all.length <= r.offices.cap) return null;
+  const toggle = (o: string) =>
+    setCoverage((c) => {
+      const cur = c.officePick?.[r.key] ?? r.offices.picked;
+      let next = cur.includes(o) ? cur.filter((x) => x !== o) : [...cur, o];
+      if (next.length > r.offices.cap) next = next.slice(next.length - r.offices.cap);
+      return { ...c, officePick: { ...(c.officePick ?? {}), [r.key]: next } };
+    });
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1 text-[11.5px] text-muted" title={r.offices.note}>
+      Applying to
+      {r.offices.all.map((o) => (
+        <button
+          key={o}
+          onClick={() => toggle(o)}
+          aria-pressed={r.offices.picked.includes(o)}
+          className={cn(
+            "rounded border px-1.5 py-0 text-[11px]",
+            r.offices.picked.includes(o) ? "border-navy bg-navy text-white" : "border-line-2 text-ink-2 hover:border-navy/50",
+          )}
+        >
+          {o === "TX" ? "Texas" : o}
+        </button>
+      ))}
+      <span>
+        ({r.offices.picked.length} of {r.offices.all.length} offices{r.offices.note ? ` · ${r.offices.note}` : ""})
+      </span>
     </div>
   );
 }

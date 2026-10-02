@@ -1,14 +1,16 @@
 "use client";
 
 import { blobs, useStore } from "./store";
-import { allocateRow, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseWorkbook, splitLocationTeamPatches } from "./workbook";
+import { allocateRow, applyPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseWorkbook, splitLocationTeamPatches, type Patches } from "./workbook";
 import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
 import { reconcileTitle } from "./titles";
 import { callApi } from "./api";
 import { canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHandle, writeToHandle } from "./files";
-import { chunk, download, guessDomain, splitName, uid } from "./util";
+import { chunk, download, guessDomain, linkedinSlug, splitName, uid } from "./util";
+import { canonBank, cleanBankName } from "./banks";
+import { tabLinkPatches } from "./sheetLinks";
 import type { EnrichResult } from "@/app/api/enrich/route";
-import type { CellRef, Contact, Prospect, Region } from "./types";
+import type { CellRef, Contact, Prospect, Region, SheetSnapshot } from "./types";
 
 export async function importFile(file: File, handle?: FileSystemFileHandle, opts: { keepManualEdits?: boolean; buffer?: ArrayBuffer } = {}) {
   const buf = opts.buffer ?? (await readFile(file));
@@ -112,6 +114,8 @@ export async function enrichContacts(ids: string[], onProgress?: (done: number, 
             bank: c.bank,
             domain: s.banks[`${c.bank}|${c.region}`]?.domain || guessDomain(c.bank),
             linkedin: c.linkedin || undefined,
+            region: c.region,
+            location: c.location || undefined,
           })),
         },
         useStore.getState().settings,
@@ -202,12 +206,15 @@ export function addManualContact(input: NewContact, toSheet: boolean, row?: Cell
   if (!name || !bank) throw new Error("Name and bank are required.");
   if (linkedin && !/linkedin\.com\/in\//i.test(linkedin)) throw new Error("That LinkedIn link should look like linkedin.com/in/…");
   if (email && !/^\S+@\S+\.\S+$/.test(email)) throw new Error("That email address doesn't look right.");
+  // Never re-contact anyone: duplicates by email, LinkedIn slug, or name + bank.
+  const slug = linkedin ? linkedinSlug(linkedin) : "";
   const dup = s.contacts.find(
     (c) =>
-      (linkedin && c.linkedin.toLowerCase().replace(/\/$/, "") === linkedin.toLowerCase().replace(/\/$/, "")) ||
-      (c.name.toLowerCase() === name.toLowerCase() && c.bank.toLowerCase() === bank.toLowerCase()),
+      (email && c.email.toLowerCase() === email.toLowerCase()) ||
+      (slug && linkedinSlug(c.linkedin) === slug) ||
+      (c.name.toLowerCase() === name.toLowerCase() && canonBank(c.bank) === canonBank(bank)),
   );
-  if (dup) throw new Error(`${dup.name} (${dup.bank}) is already in your contacts.`);
+  if (dup) throw new Error(`${dup.name} (${dup.bank}) is already in your contacts${dup.sentAt || dup.status !== "new" ? `, status ${dup.status.replace("_", " ")}` : ""}.`);
 
   const taken = new Set(s.contacts.filter((c) => c.ref).map((c) => `${c.ref!.sheet}:${c.ref!.row}`));
   // A grid row turned into a contact keeps pointing at that row; otherwise take the bank's next free slot.
@@ -238,6 +245,18 @@ export function addManualContact(input: NewContact, toSheet: boolean, row?: Cell
 }
 
 /** Split every combined "Location/Team" column into Location + Team (as unsaved edits you can review in the grid). */
+/** Links between tabs that an older save stripped (OVERVIEW ↔ bank tabs), as pending cell edits to review and save. */
+export function restorableTabLinks(snapshots: SheetSnapshot[], patches: Patches) {
+  return tabLinkPatches(applyPatches(snapshots, patches), (n) => canonBank(cleanBankName(n)));
+}
+
+export function restoreTabLinks() {
+  const s = useStore.getState();
+  const { patches, count } = restorableTabLinks(s.snapshots, s.patches);
+  if (count) s.applyCellEdits(patches);
+  return count;
+}
+
 export function splitLocationTeamColumns() {
   const s = useStore.getState();
   const { patches, tables } = splitLocationTeamPatches(s.snapshots, s.tables);

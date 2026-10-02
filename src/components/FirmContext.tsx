@@ -18,7 +18,7 @@ const BUCKET_LABEL = { reached: ["Reached", "green"], ready: ["Not reached yet",
 export function useFirmRows(banks: string[]) {
   const { contacts, tables, targets, coverage, banks: meta, settings } = useStore();
   const all = useMemo(
-    () => buildCoverage({ contacts, tables, targets, coverage, banks: meta, followUp: settings.followUp }),
+    () => buildCoverage({ contacts, tables, targets, coverage: { ...coverage, plan: undefined }, banks: meta, followUp: settings.followUp }),
     [contacts, tables, targets, coverage, meta, settings.followUp],
   );
   const keys = banks.map(canonBank);

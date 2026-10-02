@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ExternalLink, Plus, Search } from "lucide-react";
+import { Check, ExternalLink, Plus, Search, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { REGIONS, STATUS_LABEL, type Contact, type Status } from "@/lib/types";
 import { cn } from "@/lib/util";
+import { teamGuess, teamOf } from "@/lib/locationTeam";
 import { Badge, Button, Card, Checkbox, Empty, Input, Select, StatusBadge } from "./ui";
 import { ContactModal } from "./ContactModal";
 import { AddContactModal } from "./AddContact";
@@ -31,14 +32,14 @@ export function useContactFilter(contacts: Contact[], f: Filters) {
         (!f.region || c.region === f.region) &&
         (!f.status || c.status === f.status) &&
         (!f.email || (f.email === "noemail" ? !c.email : !!c.email)) &&
-        (!f.team || (f.team === NO_TEAM ? !c.team : (c.team ?? "").toLowerCase() === f.team.toLowerCase())),
+        (!f.team || (f.team === NO_TEAM ? !teamOf(c) : teamOf(c).toLowerCase() === f.team.toLowerCase())),
     );
   }, [contacts, f]);
 }
 
 export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: Filters) => void; contacts: Contact[]; extra?: ReactNode }) {
   const banks = useMemo(() => [...new Set(contacts.map((c) => c.bank))].sort(), [contacts]);
-  const teams = useMemo(() => [...new Set(contacts.map((c) => c.team).filter((t): t is string => !!t))].sort(), [contacts]);
+  const teams = useMemo(() => [...new Set(contacts.map((c) => teamOf(c)).filter(Boolean))].sort(), [contacts]);
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
       <div className="relative w-56">
@@ -97,6 +98,16 @@ export function ContactsTable({
   initialBank?: string;
 }) {
   const contacts = useStore((s) => s.contacts);
+  const updateContacts = useStore((s) => s.updateContacts);
+  // Teams guessed from a title / notes / headline that haven't been accepted into the sheet yet.
+  const pendingHigh = useMemo(
+    () =>
+      contacts.flatMap((c) => {
+        const g = teamGuess(c);
+        return g && g.source !== "sheet" && g.source !== "manual" && g.confidence === "high" && c.teamRejected !== g.team ? [{ c, g }] : [];
+      }),
+    [contacts],
+  );
   const [f, setF] = useState<Filters>({ q: "", bank: initialBank ?? "", region: "", status: "", email: initialFilter === "noemail" ? "noemail" : "", team: initialFilter === "noteam" ? NO_TEAM : "" });
   const [open, setOpen] = useState<Contact | null>(null);
   const [adding, setAdding] = useState(false);
@@ -111,6 +122,18 @@ export function ContactsTable({
         contacts={contacts}
         extra={
           <>
+            {pendingHigh.length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                title={pendingHigh.slice(0, 8).map(({ c, g }) => `${c.name}: ${g.team} (from ${g.source}: "${g.match}")`).join("\n")}
+                onClick={() =>
+                  updateContacts(pendingHigh.map(({ c, g }) => ({ id: c.id, patch: { team: g.team, teamSource: g.source } })))
+                }
+              >
+                Accept {pendingHigh.length} inferred team{pendingHigh.length > 1 ? "s" : ""}
+              </Button>
+            )}
             <span className="text-[12px] text-muted">{selected.size ? `${selected.size} selected · ` : ""}{rows.length} shown</span>
             <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setAdding(true)}>
               Add contact
@@ -138,6 +161,7 @@ export function ContactsTable({
                 </th>
                 <th className="px-2 py-2 font-medium">Name</th>
                 <th className="px-2 py-2 font-medium">Bank</th>
+                <th className="px-2 py-2 font-medium">Team</th>
                 <th className="px-2 py-2 font-medium">Position</th>
                 <th className="px-2 py-2 font-medium">Email</th>
                 <th className="px-2 py-2 font-medium">Status</th>
@@ -171,7 +195,10 @@ export function ContactsTable({
                     </div>
                   </td>
                   <td className="px-2 py-2 whitespace-nowrap">
-                    {c.bank} <span className="text-[11px] text-muted">{[c.region !== "Other" ? c.region : "", c.team].filter(Boolean).join(" · ")}</span>
+                    {c.bank} <span className="text-[11px] text-muted">{c.region !== "Other" ? c.region : ""}</span>
+                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    <TeamCell c={c} />
                   </td>
                   <td className="px-2 py-2 text-ink-2">{c.position}</td>
                   <td className="px-2 py-2">
@@ -196,5 +223,39 @@ export function ContactsTable({
       <ContactModal contact={open} onClose={() => setOpen(null)} />
       <AddContactModal open={adding} onClose={() => setAdding(false)} defaultBank={f.bank || undefined} />
     </Card>
+  );
+}
+
+/** The sheet's team, or an inferred one (italic) with accept ✓ / reject ✗. Accepting writes the Team cell like any edit. */
+function TeamCell({ c }: { c: Contact }) {
+  const updateContact = useStore((s) => s.updateContact);
+  const g = teamGuess(c);
+  if (!g) return <span className="text-[12px] text-muted">not set</span>;
+  if (g.source === "sheet" || g.source === "manual") return <span className="text-[12.5px]">{g.team}</span>;
+  if (c.teamRejected === g.team) return <span className="text-[12px] text-muted" title={`Rejected guess: ${g.team}`}>not set</span>;
+  const from = g.source === "position" ? "title" : g.source === "comment" ? "notes" : g.source === "office" ? "the COVERAGE tab" : "LinkedIn headline";
+  return (
+    <span className="inline-flex items-center gap-1">
+      <i className={cn("text-[12.5px]", g.confidence === "low" ? "text-muted" : "text-ink-2")} title={`Inferred from ${from}: "${g.match}"${g.confidence === "low" ? " (low confidence, not counted until accepted)" : ""}`}>
+        {g.team}
+        {g.confidence === "low" && "?"}
+      </i>
+      <button
+        className="rounded p-0.5 text-green hover:bg-green-soft"
+        title={`Accept ${g.team} (writes the Team cell)`}
+        aria-label={`Accept team ${g.team} for ${c.name}`}
+        onClick={() => updateContact(c.id, { team: g.team, teamSource: g.source })}
+      >
+        <Check className="size-3" />
+      </button>
+      <button
+        className="rounded p-0.5 text-muted hover:bg-[#efede5] hover:text-red"
+        title="Not their team"
+        aria-label={`Reject team ${g.team} for ${c.name}`}
+        onClick={() => updateContact(c.id, { teamRejected: g.team })}
+      >
+        <X className="size-3" />
+      </button>
+    </span>
   );
 }
