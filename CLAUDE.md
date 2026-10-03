@@ -327,6 +327,20 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **The owner's desks (`DESK_PRESETS`, "Add all my desks"):** Tech SF + LA, Generalist NY + LA, Energy Texas, over IB tiers only.
   `teamMatches`: Tech ⊇ TMT, Energy ⊇ power/utilities/oil & gas, Generalist ⊇ M&A. Team guesses fall back to the office's team
   (`teamSource: "office"`). Team cells with a URL or "?" are blank; "FIG?" is FIG. Credit Suisse = UBS, Mizuho Greenhill = Greenhill.
+- **Missing bank tabs (`src/lib/bankTabs.ts`, `actions.ts#ensureBankTabs`):** every IB-tier bank on the coverage list (contacts,
+  OVERVIEW / WALL STREET / COVERAGE lists, banks added on /coverage; not the starter list, not PE) without a tab (`bankTabIndex`:
+  "X Application Tracker" title, else the tab name) gets a new tab copied from the emptiest bank tab (`templateTab`: labels, banners,
+  "#" numbers kept, people dropped) titled "X Application Tracker" → OVERVIEW, placed after the last bank tab, plus a linked row in a
+  "MORE FIRMS (added by Coverage)" block under everything on OVERVIEW (its own list is followed by banners + formulas, so rows are
+  never shifted). Runs on every import (so banks added in Excel get tabs) and when a bank is added on /coverage. Pending until save:
+  values are manual patches, structure is `state.sheetOps` (`clones`, `rowStyles`), applied by `buildWorkbook` (`cloneLayout`,
+  `copyRowStyle`; tab order via ExcelJS `orderNo`). Clone snapshots are inserted into `state.snapshots` (template format) and
+  re-attached after a save rebase. Sheet toolbar: "N new bank tabs (unsaved) · Undo" (`undoBankTabs` → `coverage.skipTabs`, not
+  recreated automatically; "Add missing bank tabs" ignores the skip list). Verified in Excel (merges, fills, links, Follow).
+- **Private equity** is its own segment: desks never apply to PE (`targetAppliesTo`), /coverage has an "Investment banks | Private
+  equity" switch (PE view: no plan, coverage without desks), the sheet tab bar and the contacts list have a firm-type filter
+  (`components/useFirmKinds.ts`, tier from the workbook's lists).
+- The 9-30 workbook's "BNP" tab is a half-made copy (Oppenheimer title text, a contact in the Conversation table). It's left as is.
 - **Restore tab links** (sheet toolbar, `sheetLinks.ts#tabLinkPatches`): rebuilds OVERVIEW ↔ bank-tab links an older save stripped,
   as manual patches (the 9-30 workbook had 0; 92 restorable = the original 45 + 47).
 

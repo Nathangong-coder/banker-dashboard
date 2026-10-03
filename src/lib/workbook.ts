@@ -7,6 +7,7 @@ import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 import { isInternalLink, readInternalLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
 import { detectRegion } from "./region";
+import { EMPTY_OPS, type SheetOps } from "./bankTabs";
 
 const MAX_ROWS = 1500;
 const MAX_COLS = 40;
@@ -46,6 +47,8 @@ export function cellText(v: CellValue | undefined): string {
     if ("text" in v && v.text !== undefined) return cellText(v.text as CellValue);
     if ("result" in v) return cellText(v.result as CellValue);
     if ("error" in v) return "";
+    // A formula Excel never calculated (no cached result): blank, not "[object Object]".
+    if ("formula" in v || "sharedFormula" in v) return "";
   }
   return String(v);
 }
@@ -861,10 +864,57 @@ export function draftFromRow(sheet: string, row: number, maxCol: number, cell: (
   };
 }
 
-export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropdowns: Dropdown[] = []): Promise<ArrayBuffer> {
+/** A new tab with `from`'s layout (column widths, row heights, cell styles, merges, view), no values, placed after `after`. */
+function cloneLayout(wb: Workbook, from: string, name: string, after?: string) {
+  const src = wb.getWorksheet(from);
+  if (!src || wb.getWorksheet(name)) return;
+  const ws = wb.addWorksheet(name, {
+    properties: { ...src.properties },
+    views: src.views.map((v) => ({ ...v })),
+    pageSetup: { ...src.pageSetup },
+  });
+  src.columns?.forEach((col, i) => {
+    const c = ws.getColumn(i + 1);
+    if (col.width) c.width = col.width;
+    if (col.hidden) c.hidden = true;
+  });
+  src.eachRow({ includeEmpty: true }, (row, r) => {
+    const nr = ws.getRow(r);
+    if (row.height) nr.height = row.height;
+    if (row.hidden) nr.hidden = true;
+    row.eachCell({ includeEmpty: true }, (cell, c) => {
+      nr.getCell(c).style = JSON.parse(JSON.stringify(cell.style ?? {}));
+    });
+  });
+  for (const m of (src.model as { merges?: string[] }).merges ?? []) ws.mergeCells(m);
+  // Tab order is `orderNo` (not in ExcelJS's types): shift everything after the anchor along by one.
+  type Ordered = { orderNo: number };
+  const anchor = (after ? wb.getWorksheet(after) : undefined) as unknown as Ordered | undefined;
+  if (anchor) {
+    for (const w of wb.worksheets as unknown as Ordered[]) if (w !== (ws as unknown as Ordered) && w.orderNo > anchor.orderNo) w.orderNo++;
+    (ws as unknown as Ordered).orderNo = anchor.orderNo + 1;
+  }
+}
+
+/** Give a row the look (cell styles, height) of another row on the same tab. */
+function copyRowStyle(wb: Workbook, sheet: string, row: number, from: number) {
+  const ws = wb.getWorksheet(sheet);
+  if (!ws) return;
+  const src = ws.getRow(from);
+  const dst = ws.getRow(row);
+  if (src.height) dst.height = src.height;
+  src.eachCell({ includeEmpty: true }, (cell, c) => {
+    dst.getCell(c).style = JSON.parse(JSON.stringify(cell.style ?? {}));
+  });
+}
+
+export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropdowns: Dropdown[] = [], ops: SheetOps = EMPTY_OPS): Promise<ArrayBuffer> {
   const ExcelJS = await loadExcel();
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
+  // New bank tabs and OVERVIEW rows first, so dropdowns and patches land on them.
+  for (const c of ops.clones) cloneLayout(wb, c.from, c.name, c.after);
+  for (const s of ops.rowStyles) copyRowStyle(wb, s.sheet, s.row, s.from);
   for (const d of dropdowns) {
     const ws = wb.getWorksheet(d.sheet);
     if (!ws) continue;

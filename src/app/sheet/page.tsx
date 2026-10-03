@@ -2,9 +2,9 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Columns2, Link2, Sparkles, Table2, Users } from "lucide-react";
+import { Columns2, Link2, Plus, Sparkles, Table2, Users } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { enrichContacts, restorableTabLinks, restoreTabLinks, splitLocationTeamColumns } from "@/lib/actions";
+import { enrichContacts, ensureBankTabs, restorableTabLinks, restoreTabLinks, splitLocationTeamColumns, undoBankTabs } from "@/lib/actions";
 import { contactPatches, mergePatches, splitLocationTeamPatches } from "@/lib/workbook";
 import { Button, PageHeader, Progress, toast } from "@/components/ui";
 import { SaveButtons, UploadButton, WorkbookEmpty } from "@/components/WorkbookControls";
@@ -45,6 +45,18 @@ function SheetInner() {
 
   const tables = useStore((s) => s.tables);
   const combinedTables = useMemo(() => splitLocationTeamPatches(snapshots, tables).tables, [snapshots, tables]);
+  // New bank tabs waiting to be saved (made automatically for firms on your lists with no tab).
+  const newTabs = useStore((s) => s.sheetOps?.clones) ?? [];
+  const skippedTabs = useStore((s) => s.coverage.skipTabs) ?? [];
+  const runAddTabs = () => {
+    const added = ensureBankTabs({ all: true });
+    if (added.length) toast.ok(`Added ${added.length} bank tab${added.length > 1 ? "s" : ""}: ${added.map((t) => t.tab).join(", ")}. Save to write them.`);
+    else toast.info("Every bank on your lists already has a tab.");
+  };
+  const runUndoTabs = () => {
+    const n = undoBankTabs();
+    toast.info(`Removed ${n} new tab${n === 1 ? "" : "s"}. They won't be added again automatically ("Add missing bank tabs" brings them back).`);
+  };
   const linksToRestore = useMemo(() => restorableTabLinks(snapshots, patches).count, [snapshots, patches]);
   const runRestoreLinks = () => {
     const n = restoreTabLinks();
@@ -133,6 +145,19 @@ function SheetInner() {
           ))}
         </div>
         <div className="flex-1" />
+        {view === "grid" && newTabs.length > 0 && (
+          <span className="flex items-center gap-1.5 rounded-md border border-brass/40 bg-brass/10 px-2 py-1 text-[12px] text-ink-2" title={newTabs.map((t) => `${t.name}: ${t.bank}`).join("\n")}>
+            {newTabs.length} new bank tab{newTabs.length > 1 ? "s" : ""} (unsaved)
+            <button className="font-medium text-navy hover:underline" onClick={runUndoTabs}>
+              Undo
+            </button>
+          </span>
+        )}
+        {view === "grid" && !newTabs.length && skippedTabs.length > 0 && (
+          <Button icon={<Plus className="size-3.5" />} onClick={runAddTabs} title="Make a tab (and a linked OVERVIEW row) for every bank on your lists that doesn't have one">
+            Add missing bank tabs
+          </Button>
+        )}
         {view === "grid" && linksToRestore > 0 && (
           <Button icon={<Link2 className="size-3.5" />} onClick={runRestoreLinks} title="An older save dropped the links between OVERVIEW and the bank tabs. This puts them back as edits you can review, then save.">
             Restore tab links ({linksToRestore})

@@ -253,3 +253,47 @@ console.log("location/team split OK");
   }
   console.log("team inference OK");
 }
+
+// Banks on the workbook's lists with no tab get one (copied layout, no people) plus a linked OVERVIEW row; saving
+// writes real tabs the parser reads as bank tabs, and running again adds nothing.
+{
+  const { planBankTabs, bankTabIndex, isPrivateEquity } = await import("../src/lib/bankTabs");
+  const { buildCoverage } = await import("../src/lib/coverage");
+  const { readOfficeMap, setOfficeMap } = await import("../src/lib/offices");
+  const { DEFAULT_SETTINGS } = await import("../src/lib/defaults");
+  setOfficeMap(readOfficeMap(p.snapshots));
+  const listed = (q: typeof p) =>
+    buildCoverage({ contacts: q.contacts, tables: q.tables, targets: q.targets, coverage: { hidden: [], added: [], includeStarter: false }, banks: {}, followUp: DEFAULT_SETTINGS.followUp });
+  const plan = planBankTabs({ snaps: p.snapshots, tables: p.tables, banks: listed(p) });
+  console.log(`missing bank tabs: ${plan.added.length}`, plan.added.map((a) => `${a.bank} → ${a.tab}`).join(", "));
+  if (plan.added.length) {
+    const saved = await parseWorkbook(await buildWorkbook(ab, plan.patches, [], plan.ops));
+    const tabs = bankTabIndex(saved.snapshots);
+    const problems: string[] = [];
+    for (const a of plan.added) {
+      const snap = saved.snapshots.find((s) => s.name === a.tab);
+      const tables = saved.tables.filter((t) => t.sheet === a.tab);
+      if (!snap) problems.push(`${a.tab}: not written`);
+      else {
+        if (!snap.cells["1:1"]?.link?.startsWith("#")) problems.push(`${a.tab}: title not linked`);
+        if (tables.length < 2 || !tables.some((t) => t.cols.linkedin)) problems.push(`${a.tab}: tables not found (${tables.length})`);
+        if (saved.contacts.some((c) => c.ref?.sheet === a.tab)) problems.push(`${a.tab}: has people in it`);
+        if (!snap.format?.merges.length) problems.push(`${a.tab}: lost the merges`);
+      }
+      const ov = saved.snapshots.find((s) => s.name === "OVERVIEW");
+      if (ov && !Object.values(ov.cells).some((c) => c.link === `#${/^[A-Za-z_][\w.]*$/.test(a.tab) ? a.tab : `'${a.tab}'`}!A1`)) problems.push(`${a.tab}: no OVERVIEW link`);
+    }
+    if (plan.added.some((a) => isPrivateEquity(listed(p).find((r) => r.name === a.bank)?.tier))) problems.push("a PE firm got a tab");
+    if (saved.contacts.length !== p.contacts.length) problems.push(`contacts ${p.contacts.length} → ${saved.contacts.length}`);
+    const again = planBankTabs({ snaps: saved.snapshots, tables: saved.tables, banks: listed(saved) });
+    if (again.added.length) problems.push(`second run adds ${again.added.map((x) => x.bank).join(", ")}`);
+    const order = saved.snapshots.map((s) => s.name);
+    console.log(`after save: ${tabs.size} bank tabs; new tabs at positions ${plan.added.map((a) => order.indexOf(a.tab)).join(",")} of ${order.length}`);
+    if (problems.length) {
+      console.error("BANK TABS FAILED", problems.slice(0, 8));
+      process.exit(1);
+    }
+    if (process.env.SAVE_TO) fs.writeFileSync(process.env.SAVE_TO, Buffer.from(await buildWorkbook(ab, plan.patches, [], plan.ops)));
+    console.log("bank tabs OK");
+  }
+}

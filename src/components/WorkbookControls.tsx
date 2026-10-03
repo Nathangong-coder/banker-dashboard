@@ -11,8 +11,13 @@ export function UploadButton({ variant = "secondary", label }: { variant?: "prim
   const [busy, setBusy] = useState(false);
   const hasBook = useStore((s) => !!s.workbook);
 
-  const report = (r: { added: number; updated: number }) =>
+  const report = (r: { added: number; updated: number; tabs?: { bank: string; tab: string }[] }) => {
     toast.ok(`Imported — ${r.added} new contact${r.added === 1 ? "" : "s"}, ${r.updated} refreshed.`);
+    if (r.tabs?.length)
+      toast.info(
+        `Added ${r.tabs.length} bank tab${r.tabs.length > 1 ? "s" : ""} for firms on your lists with no tab (${r.tabs.slice(0, 4).map((t) => t.bank).join(", ")}${r.tabs.length > 4 ? "…" : ""}), each with a linked OVERVIEW row. Review on the Spreadsheet page, then save.`,
+      );
+  };
 
   const onClick = async () => {
     setBusy(true);

@@ -28,6 +28,7 @@ import { detectRegion } from "./workbook";
 import { DEFAULT_CRITERIA, DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_CRITERIA_V1, LEGACY_QUERIES_V1, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "./defaults";
 import type { TargetBank } from "./banks";
 import type { CoverageSettings } from "./coverage";
+import { EMPTY_OPS, type SheetOps } from "./bankTabs";
 import { readOfficeMap, setOfficeMap } from "./offices";
 
 const idbStorage: StateStorage = {
@@ -70,6 +71,8 @@ interface State {
   /** Coverage page: banks the user hid, added by hand, and whether to include the starter IB list. */
   /** Coverage page: banks hidden / added by hand, the starter IB list toggle, and the recruiting plan (desks to cover). */
   coverage: CoverageSettings;
+  /** Pending structural changes (new bank tabs, OVERVIEW rows) applied on save, alongside `patches`. */
+  sheetOps: SheetOps;
   lastGmailSync?: string;
   /** AI model+key pairs out of quota, skipped until the time given (see keys.ts#aiHeader). */
   aiCooldowns: Record<string, string>;
@@ -153,6 +156,7 @@ export const useStore = create<State>()(
       snapshots: [],
       targets: [],
       coverage: { hidden: [], added: [], includeStarter: false },
+      sheetOps: EMPTY_OPS,
       aiCooldowns: {},
       gridUndo: [],
 
@@ -207,7 +211,7 @@ export const useStore = create<State>()(
           banks[k] ??= { key: k, name: c.bank, region: c.region, status: "active" };
         }
         blobs.setSnapshots(snapshots);
-        set({ contacts: [...merged, ...kept], tables, snapshots, workbook: meta, banks, patches: {}, targets: targets ?? get().targets, gridUndo: [] });
+        set({ contacts: [...merged, ...kept], tables, snapshots, workbook: meta, banks, patches: {}, sheetOps: EMPTY_OPS, targets: targets ?? get().targets, gridUndo: [] });
         return { added, updated };
       },
 
@@ -352,6 +356,7 @@ export const useStore = create<State>()(
           banks: {},
           tables: [],
           patches: {},
+          sheetOps: EMPTY_OPS,
           prospects: [],
           scheduled: {},
           snapshots: [],

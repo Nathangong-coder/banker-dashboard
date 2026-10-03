@@ -6,6 +6,8 @@ import type { CellStyle, Contact, SheetSnapshot } from "@/lib/types";
 import { draftFromRow, type CellPatch, type Patches, type RowDraft } from "@/lib/workbook";
 import { canonBank } from "@/lib/banks";
 import { parseSheetLink } from "@/lib/sheetLinks";
+import { bankTabIndex } from "@/lib/bankTabs";
+import { useFirmKinds } from "./useFirmKinds";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/util";
 import { Card, toast } from "./ui";
@@ -102,6 +104,7 @@ export function SheetGrid({
   const [menu, setMenu] = useState<Menu | null>(null);
   const [onlyContacts, setOnlyContacts] = useState(false);
   const [tabQuery, setTabQuery] = useState("");
+  const [firms, setFirms] = useState<"all" | "bank" | "pe">("all");
   const [making, setMaking] = useState<RowDraft | null>(null);
   const hinted = useRef(false);
   const dragging = useRef(false);
@@ -180,14 +183,24 @@ export function SheetGrid({
     for (const c of contacts) if (c.ref) add(c.ref.sheet, c.bank);
     return m;
   }, [tables, contacts]);
+  // Banks and private equity are separate: firm tabs filter by kind, overview / list tabs always show.
+  const firmKind = useFirmKinds();
+  const tabKind = useMemo(() => {
+    const m = new Map<string, "bank" | "pe">();
+    for (const [key, tab] of bankTabIndex(snapshots)) m.set(tab, firmKind(key));
+    return m;
+  }, [snapshots, firmKind]);
+  const hasPE = [...tabKind.values()].includes("pe");
   const q = tabQuery.trim().toLowerCase();
-  const tabs = q
-    ? allTabs.filter((name) => {
-        if (name.toLowerCase().includes(q)) return true;
-        const banks = [...(tabBanks.get(name) ?? [])];
-        return banks.some((b) => b.includes(q) || (q.length >= 2 && canonBank(b) === canonBank(q)));
-      })
-    : allTabs;
+  const tabs = (
+    q
+      ? allTabs.filter((name) => {
+          if (name.toLowerCase().includes(q)) return true;
+          const banks = [...(tabBanks.get(name) ?? [])];
+          return banks.some((b) => b.includes(q) || (q.length >= 2 && canonBank(b) === canonBank(q)));
+        })
+      : allTabs
+  ).filter((name) => firms === "all" || !tabKind.has(name) || tabKind.get(name) === firms);
   const openTab = (name: string) => {
     onSelectSheet(name);
     setLimit(PAGE);
@@ -493,6 +506,18 @@ export function SheetGrid({
             );
           })}
         </div>
+        {hasPE && (
+          <select
+            value={firms}
+            onChange={(e) => setFirms(e.target.value as typeof firms)}
+            aria-label="Firm type"
+            className="h-7 shrink-0 rounded-md border border-line-2 bg-panel px-1.5 text-[12px] text-ink-2"
+          >
+            <option value="all">All firms</option>
+            <option value="bank">Banks</option>
+            <option value="pe">Private equity</option>
+          </select>
+        )}
         <label className="flex shrink-0 items-center gap-1.5 px-2 text-[12px] text-ink-2">
           <input type="checkbox" className="accent-navy" checked={onlyContacts} onChange={(e) => setOnlyContacts(e.target.checked)} />
           Contact rows only

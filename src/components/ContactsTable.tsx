@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import { REGIONS, STATUS_LABEL, type Contact, type Status } from "@/lib/types";
 import { cn } from "@/lib/util";
 import { teamGuess, teamOf } from "@/lib/locationTeam";
+import { useFirmKinds } from "./useFirmKinds";
 import { Badge, Button, Card, Checkbox, Empty, Input, Select, StatusBadge } from "./ui";
 import { ContactModal } from "./ContactModal";
 import { AddContactModal } from "./AddContact";
@@ -18,11 +19,14 @@ export interface Filters {
   email: string;
   /** "" = any, NO_TEAM = team not set, else a team name. */
   team?: string;
+  /** "" = any, "bank" or "pe" (private equity is tracked separately from banks). */
+  firm?: "" | "bank" | "pe";
 }
 
 export const NO_TEAM = "__none";
 
 export function useContactFilter(contacts: Contact[], f: Filters) {
+  const kind = useFirmKinds();
   return useMemo(() => {
     const q = f.q.toLowerCase();
     return contacts.filter(
@@ -32,9 +36,10 @@ export function useContactFilter(contacts: Contact[], f: Filters) {
         (!f.region || c.region === f.region) &&
         (!f.status || c.status === f.status) &&
         (!f.email || (f.email === "noemail" ? !c.email : !!c.email)) &&
-        (!f.team || (f.team === NO_TEAM ? !teamOf(c) : teamOf(c).toLowerCase() === f.team.toLowerCase())),
+        (!f.team || (f.team === NO_TEAM ? !teamOf(c) : teamOf(c).toLowerCase() === f.team.toLowerCase())) &&
+        (!f.firm || kind(c.bank) === f.firm),
     );
-  }, [contacts, f]);
+  }, [contacts, f, kind]);
 }
 
 export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: Filters) => void; contacts: Contact[]; extra?: ReactNode }) {
@@ -66,6 +71,11 @@ export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: 
         {teams.map((t) => (
           <option key={t}>{t}</option>
         ))}
+      </Select>
+      <Select className="h-8" value={f.firm ?? ""} onChange={(e) => setF({ ...f, firm: e.target.value as Filters["firm"] })} aria-label="Firm type">
+        <option value="">Banks + PE</option>
+        <option value="bank">Banks</option>
+        <option value="pe">Private equity</option>
       </Select>
       <Select className="h-8" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} aria-label="Status">
         <option value="">Any status</option>

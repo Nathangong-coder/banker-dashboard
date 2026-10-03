@@ -109,6 +109,8 @@ export function locationMatches(want: string, c: Pick<Contact, "region" | "locat
 }
 
 export function targetAppliesTo(t: DeskTarget, bank: { name: string; tier?: string }) {
+  // Desks (office × banking team) are an investment-bank idea: private equity firms are tracked separately.
+  if (bank.tier === "Private Equity") return false;
   if (t.scope === "all") return true;
   if (t.scope === "tiers") return !!bank.tier && t.tiers.includes(bank.tier);
   const k = canonBank(bank.name);

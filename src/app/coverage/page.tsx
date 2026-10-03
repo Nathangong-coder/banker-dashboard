@@ -10,8 +10,10 @@ import { coverageInsights, type Insight } from "@/lib/insights";
 import { STARTER_TARGETS } from "@/lib/banks";
 import { REGIONS } from "@/lib/types";
 import { parseWorkbook } from "@/lib/workbook";
+import { ensureBankTabs } from "@/lib/actions";
+import { isPrivateEquity } from "@/lib/bankTabs";
 import { DAY, cn, relDays } from "@/lib/util";
-import { Badge, Button, Card, Checkbox, Empty, Input, PageHeader, Select } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, Empty, Input, PageHeader, Select, toast } from "@/components/ui";
 import { DeskChecklist, DeskChips, OfficePicker, RecruitingPlan } from "@/components/RecruitingPlan";
 
 const COLS: { bucket: Exclude<Bucket, "hidden">; title: string; sub: string; tone: string; dot: string }[] = [
@@ -44,12 +46,19 @@ export default function CoveragePage() {
     };
   }, [targets.length, workbook]);
 
+  // Investment banks and private equity are separate views: desks (office × team) only mean something at a bank.
+  const [segment, setSegment] = useState<"ib" | "pe">("ib");
+  const pe = segment === "pe";
   const rows = useMemo(
-    () => buildCoverage({ contacts, tables, targets, coverage, banks, followUp: settings.followUp }),
-    [contacts, tables, targets, coverage, banks, settings.followUp],
+    () =>
+      buildCoverage({ contacts, tables, targets, coverage: pe ? { ...coverage, plan: undefined } : coverage, banks, followUp: settings.followUp }).filter(
+        (r) => isPrivateEquity(r.tier) === pe,
+      ),
+    [contacts, tables, targets, coverage, banks, settings.followUp, pe],
   );
+  const peCount = useMemo(() => targets.filter((t) => isPrivateEquity(t.tier)).length + coverage.added.filter((t) => isPrivateEquity(t.tier)).length, [targets, coverage.added]);
   // The desks checked in the plan scope everything below it (nothing checked = the whole list).
-  const active = useMemo(() => activeDesks(coverage.plan), [coverage.plan]);
+  const active = useMemo(() => (pe ? [] : activeDesks(coverage.plan)), [coverage.plan, pe]);
   const [unitPick, setUnit] = useState<ScoreUnit | null>(null);
   const unit: ScoreUnit = !active.length ? "banks" : (unitPick ?? (active.length > 1 ? "desks" : "banks"));
   const visible = rows.filter((r) => r.bucket !== "hidden" && !r.notOffered);
@@ -61,17 +70,18 @@ export default function CoveragePage() {
   const counts = { reached: sb.reached, ready: sb.ready, cold: sb.cold };
   const { total, pct } = sb;
   const bankCounts = scoreboard(rows, "banks");
-  const noun = unit === "desks" ? "desk" : "bank";
+  const noun = pe ? "firm" : unit === "desks" ? "desk" : "bank";
   const [now] = useState(() => Date.now());
-  const scopedContacts = useMemo(() => (active.length ? rows.flatMap((r) => r.contacts) : contacts), [active.length, rows, contacts]);
+  // Only this view's firms (banks or PE), and only the checked desks when there are any.
+  const scopedContacts = useMemo(() => rows.flatMap((r) => r.contacts), [rows]);
   const { thisWeek, lastWeek } = useMemo(() => {
     const weekStart = now - 7 * DAY;
     return { thisWeek: outreachBetween(scopedContacts, weekStart, now + DAY), lastWeek: outreachBetween(scopedContacts, weekStart - 7 * DAY, weekStart) };
   }, [scopedContacts, now]);
   const repliedBanks = sb.replied;
   const insights = useMemo(
-    () => coverageInsights(rows, coverage.plan ?? [], scopedContacts, settings.followUp.livePerBank),
-    [rows, coverage.plan, scopedContacts, settings.followUp.livePerBank],
+    () => coverageInsights(rows, pe ? [] : (coverage.plan ?? []), scopedContacts, settings.followUp.livePerBank).filter((i) => !pe || i.kind === "quiet"),
+    [rows, coverage.plan, scopedContacts, settings.followUp.livePerBank, pe],
   );
   const oneDesk = active.length === 1 ? `&desk=${enc(`${active[0].location}|${active[0].team}`)}` : "";
   const clearDesks = () => setCoverage((c) => ({ ...c, plan: (c.plan ?? []).map((t) => ({ ...t, enabled: false })) }));
@@ -104,10 +114,30 @@ export default function CoveragePage() {
     <>
       <PageHeader
         title="Bank coverage"
-        sub="Every bank you could be recruiting at, sorted by how far along you are. Emptying the cold column is the job."
+        sub={
+          pe
+            ? "Private equity firms on your lists, tracked on their own (desks don't apply)."
+            : "Every bank you could be recruiting at, sorted by how far along you are. Emptying the cold column is the job."
+        }
+        right={
+          peCount > 0 ? (
+            <div className="flex overflow-hidden rounded-md border border-line-2 text-[12.5px]" role="group" aria-label="Firm type">
+              {(
+                [
+                  ["ib", "Investment banks"],
+                  ["pe", "Private equity"],
+                ] as const
+              ).map(([k, label]) => (
+                <button key={k} onClick={() => setSegment(k)} aria-pressed={segment === k} className={cn("px-3 py-1.5", segment === k ? "bg-navy text-white" : "bg-panel text-ink-2 hover:bg-[#efede5]")}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : undefined
+        }
       />
 
-      <RecruitingPlan rows={rows} />
+      {!pe && <RecruitingPlan rows={rows} />}
 
       {active.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-[12.5px]">
@@ -171,7 +201,7 @@ export default function CoveragePage() {
             <div className="mt-1.5 text-[12px] text-muted">{lastWeek} the week before</div>
           </div>
           <div className="p-5">
-            <div className="text-[11.5px] font-medium uppercase tracking-[0.06em] text-muted">{unit === "desks" ? "Desks" : "Banks"} that replied</div>
+            <div className="text-[11.5px] font-medium uppercase tracking-[0.06em] text-muted">{pe ? "Firms" : unit === "desks" ? "Desks" : "Banks"} that replied</div>
             <div className="num mt-1 text-[32px] leading-none text-green">{repliedBanks}</div>
             <div className="mt-1.5 text-[12px] text-muted">{counts.reached ? `${Math.round((repliedBanks / counts.reached) * 100)}% of ${noun}s reached` : "—"}</div>
           </div>
@@ -213,7 +243,7 @@ export default function CoveragePage() {
         )}
       </div>
 
-      <DeskChecklist rows={rows} />
+      {!pe && <DeskChecklist rows={rows} />}
 
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -271,6 +301,9 @@ export default function CoveragePage() {
               if (!name) return;
               setCoverage((c) => ({ ...c, added: [...c.added, { name, tier: newTier, source: "manual" }] }));
               setNewBank("");
+              // A bank added here gets its own tab (and OVERVIEW row) in the spreadsheet too.
+              const tabs = ensureBankTabs();
+              if (tabs.length) toast.ok(`Added a "${tabs[0].tab}" tab and an OVERVIEW row for ${name}. Save the spreadsheet to write them.`);
             }}
           >
             <Input className="h-8 w-56" placeholder="Add a bank to track…" value={newBank} onChange={(e) => setNewBank(e.target.value)} />

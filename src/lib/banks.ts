@@ -51,6 +51,9 @@ const STOP = /\b(the|and|co|company|companies|partners|group|advisors|advisory|c
 export function canonBank(name: string): string {
   let s = name
     .toLowerCase()
+    // "Société Générale" → "societe generale" (accents would otherwise turn into spaces below).
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/‍/g, "")
     .replace(/\([^)]*\)?/g, " ")
     .replace(/&/g, " and ")

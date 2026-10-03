@@ -1,14 +1,16 @@
 "use client";
 
 import { blobs, useStore } from "./store";
-import { allocateRow, applyPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseWorkbook, splitLocationTeamPatches, type Patches } from "./workbook";
+import { allocateRow, applyPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, splitLocationTeamPatches, type Patches } from "./workbook";
 import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
 import { reconcileTitle } from "./titles";
 import { callApi } from "./api";
 import { canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHandle, writeToHandle } from "./files";
 import { chunk, download, guessDomain, linkedinSlug, splitName, uid } from "./util";
 import { canonBank, cleanBankName } from "./banks";
-import { tabLinkPatches } from "./sheetLinks";
+import { tabLink, tabLinkPatches } from "./sheetLinks";
+import { EMPTY_OPS, planBankTabs } from "./bankTabs";
+import { buildCoverage } from "./coverage";
 import type { EnrichResult } from "@/app/api/enrich/route";
 import type { CellRef, Contact, Prospect, Region, SheetSnapshot } from "./types";
 
@@ -18,6 +20,7 @@ export async function importFile(file: File, handle?: FileSystemFileHandle, opts
   await blobs.setWorkbook(buf);
   await blobs.setFileHandle(handle);
   const manual = useStore.getState().patches;
+  const ops = useStore.getState().sheetOps;
   const r = useStore.getState().importWorkbook({
     meta: {
       fileName: file.name,
@@ -31,8 +34,86 @@ export async function importFile(file: File, handle?: FileSystemFileHandle, opts
     snapshots: parsed.snapshots,
     targets: parsed.targets,
   });
-  if (opts.keepManualEdits) useStore.setState({ patches: manual });
-  return r;
+  if (opts.keepManualEdits) useStore.setState({ patches: manual, sheetOps: ops });
+  // Banks listed in the workbook (or added on /coverage) without a tab get one, with a linked OVERVIEW row.
+  const tabs = ensureBankTabs();
+  return { ...r, tabs };
+}
+
+/**
+ * Give every bank on the coverage list that has no tab a new tab (a copy of a bank tab's layout, no people) and a
+ * linked OVERVIEW row, as pending edits. Runs on every import, so banks added in Excel get tabs automatically.
+ * `all` also includes banks whose auto-created tab was undone before. Also re-attaches pending tabs after a rebase.
+ */
+export function ensureBankTabs(opts: { all?: boolean } = {}) {
+  const s = useStore.getState();
+  if (!s.workbook || !s.snapshots.length) return [];
+  let snaps = s.snapshots;
+  const lost = (s.sheetOps?.clones ?? []).filter((c) => !snaps.some((x) => x.name === c.name));
+  for (const c of lost) {
+    const tpl = snaps.find((x) => x.name === c.from);
+    if (tpl) snaps = insertAfter(snaps, { name: c.name, rows: tpl.rows, cols: tpl.cols, cells: {}, format: tpl.format }, c.after);
+  }
+  const banks = buildCoverage({
+    contacts: s.contacts,
+    tables: s.tables,
+    targets: s.targets,
+    coverage: { ...s.coverage, plan: undefined, includeStarter: false },
+    banks: s.banks,
+    followUp: s.settings.followUp,
+  }).filter((r) => r.bucket !== "hidden");
+  const plan = planBankTabs({ snaps: applyPatches(snaps, s.patches), tables: s.tables, banks, skip: opts.all ? [] : s.coverage.skipTabs });
+  if (!lost.length && !plan.added.length) return [];
+  plan.ops.clones.forEach((c, i) => (snaps = insertAfter(snaps, plan.snapshots[i], c.after)));
+  // Show the new OVERVIEW rows with the look they'll have in Excel.
+  for (const x of plan.ops.rowStyles)
+    snaps = snaps.map((sn) => {
+      if (sn.name !== x.sheet || !sn.format) return sn;
+      const cellStyle = { ...sn.format.cellStyle };
+      for (let c = 1; c <= sn.cols; c++) {
+        const st = sn.format.cellStyle[`${x.from}:${c}`];
+        if (st !== undefined) cellStyle[`${x.row}:${c}`] = st;
+      }
+      const rowHeights = { ...sn.format.rowHeights };
+      if (rowHeights[x.from]) rowHeights[x.row] = rowHeights[x.from];
+      return { ...sn, format: { ...sn.format, cellStyle, rowHeights } };
+    });
+  const ops = s.sheetOps ?? EMPTY_OPS;
+  useStore.setState({ snapshots: snaps, sheetOps: { clones: [...ops.clones, ...plan.ops.clones], rowStyles: [...ops.rowStyles, ...plan.ops.rowStyles] } });
+  void blobs.setSnapshots(snaps);
+  if (plan.added.length) useStore.getState().applyCellEdits(plan.patches);
+  return plan.added;
+}
+
+function insertAfter(list: SheetSnapshot[], item: SheetSnapshot, after?: string) {
+  const i = after ? list.findIndex((x) => x.name === after) : -1;
+  return i < 0 ? [...list, item] : [...list.slice(0, i + 1), item, ...list.slice(i + 1)];
+}
+
+/** Drop the pending new tabs and their OVERVIEW rows, and don't create them automatically again. */
+export function undoBankTabs() {
+  const s = useStore.getState();
+  const ops = s.sheetOps ?? EMPTY_OPS;
+  if (!ops.clones.length) return 0;
+  const gone = new Set(ops.clones.map((c) => c.name));
+  const rows = new Map<string, Set<number>>();
+  for (const x of ops.rowStyles) (rows.get(x.sheet) ?? rows.set(x.sheet, new Set()).get(x.sheet)!).add(x.row);
+  const patches: Patches = {};
+  for (const [sheet, cells] of Object.entries(s.patches)) {
+    if (gone.has(sheet)) continue;
+    const keep = Object.entries(cells).filter(([k, p]) => {
+      if (rows.get(sheet)?.has(Number(k.split(":")[0]))) return false;
+      // A link to a removed tab (an OVERVIEW name that was already listed).
+      return !(p.link && [...gone].some((t) => p.link === tabLink(t)));
+    });
+    if (keep.length) patches[sheet] = Object.fromEntries(keep);
+  }
+  const skip = [...new Set([...(s.coverage.skipTabs ?? []), ...ops.clones.map((c) => canonBank(c.bank))])];
+  const snapshots = s.snapshots.filter((x) => !gone.has(x.name));
+  const parsed = parseSnapshots(applyPatches(snapshots, patches));
+  useStore.setState({ snapshots, patches, tables: parsed.tables, sheetOps: EMPTY_OPS, coverage: { ...s.coverage, skipTabs: skip }, gridUndo: [] });
+  void blobs.setSnapshots(snapshots);
+  return gone.size;
 }
 
 /** Returns true if a file was chosen via the native picker; false means fall back to <input type=file>. */
@@ -68,7 +149,10 @@ export async function saveWorkbook(mode: "in-place" | "download") {
   if (!buf) throw new Error("Upload a spreadsheet first.");
   const now = useStore.getState();
   const dropdowns = locationTeamDropdowns(now.tables, locationTeamOptions(now.contacts));
-  const out = await buildWorkbook(buf, currentPatches(), dropdowns);
+  // New tabs whose content was undone (grid Ctrl+Z) aren't created empty.
+  const pending = currentPatches();
+  const ops = now.sheetOps ?? EMPTY_OPS;
+  const out = await buildWorkbook(buf, pending, dropdowns, { ...ops, clones: ops.clones.filter((c) => pending[c.name]) });
   let name: string;
   const cur = useStore.getState().workbook!;
   if (mode === "in-place") {
@@ -88,6 +172,7 @@ export async function saveWorkbook(mode: "in-place" | "download") {
     tables: parsed.tables,
     targets: parsed.targets,
     patches: {},
+    sheetOps: EMPTY_OPS,
     gridUndo: [],
     workbook: { ...cur, sheetNames: parsed.snapshots.map((x) => x.name), lastModified },
   });

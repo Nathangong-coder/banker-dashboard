@@ -48,6 +48,8 @@ export type CoverageSettings = {
   officesPerBank?: number;
   /** Offices picked by hand per bank (canonBank key → ["SF", "NY"]); otherwise picked automatically. */
   officePick?: Record<string, string[]>;
+  /** Banks whose auto-created tab was undone: not created again automatically (canonBank keys). */
+  skipTabs?: string[];
 };
 
 const REACHED = new Set(["sent", "followed_up", "replied", "call_scheduled", "done"]);
