@@ -28,7 +28,7 @@ import { detectRegion } from "./workbook";
 import { DEFAULT_CRITERIA, DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, LEGACY_CRITERIA_V1, LEGACY_QUERIES_V1, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "./defaults";
 import type { TargetBank } from "./banks";
 import type { CoverageSettings } from "./coverage";
-import { EMPTY_OPS, type SheetOps } from "./bankTabs";
+import { EMPTY_OPS, type SheetOps } from "./sheetOps";
 import { readOfficeMap, setOfficeMap } from "./offices";
 
 const idbStorage: StateStorage = {

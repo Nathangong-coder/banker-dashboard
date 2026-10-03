@@ -303,7 +303,7 @@ export default function CoveragePage() {
               setNewBank("");
               // A bank added here gets its own tab (and OVERVIEW row) in the spreadsheet too.
               const tabs = ensureBankTabs();
-              if (tabs.length) toast.ok(`Added a "${tabs[0].tab}" tab and an OVERVIEW row for ${name}. Save the spreadsheet to write them.`);
+              if (tabs.added.length) toast.ok(`Added a "${tabs.added[0].tab}" tab and an OVERVIEW row for ${name}. Save the spreadsheet to write them.`);
             }}
           >
             <Input className="h-8 w-56" placeholder="Add a bank to track…" value={newBank} onChange={(e) => setNewBank(e.target.value)} />

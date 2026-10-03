@@ -160,3 +160,22 @@ export function tabLinkPatches(snaps: Snap[], canon: (name: string) => string): 
   }
   return { patches, count };
 }
+
+/** "#OLD!A1" / "#'OLD NAME'!B3" → the same cell on the renamed tab. Other links unchanged. */
+export function renameLink(link: string, from: string, to: string): string {
+  const t = parseSheetLink(link);
+  if (!t?.sheet || t.sheet !== from) return link;
+  const m = link.match(/!(.+)$/);
+  return tabLink(to, m?.[1] ?? "A1");
+}
+
+/** Apply tab renames to a link map: links on a renamed tab move with it, links pointing at it follow it. */
+export function renameLinks(links: InternalLinks, renames: { from: string; to: string }[]): InternalLinks {
+  if (!renames.length) return links;
+  const out: InternalLinks = {};
+  for (const [sheet, cells] of Object.entries(links)) {
+    const name = renames.find((r) => r.from === sheet)?.to ?? sheet;
+    out[name] = Object.fromEntries(Object.entries(cells).map(([k, l]) => [k, renames.reduce((acc, r) => renameLink(acc, r.from, r.to), l)]));
+  }
+  return out;
+}

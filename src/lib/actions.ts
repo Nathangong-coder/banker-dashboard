@@ -9,7 +9,9 @@ import { canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHan
 import { chunk, download, guessDomain, linkedinSlug, splitName, uid } from "./util";
 import { canonBank, cleanBankName } from "./banks";
 import { tabLink, tabLinkPatches } from "./sheetLinks";
-import { EMPTY_OPS, planBankTabs } from "./bankTabs";
+import { computeTabChanges, describeTabChanges, type TabChanges } from "./tabChanges";
+import { planBankTabs } from "./bankTabs";
+import { EMPTY_OPS, opsOf } from "./sheetOps";
 import { buildCoverage } from "./coverage";
 import type { EnrichResult } from "@/app/api/enrich/route";
 import type { CellRef, Contact, Prospect, Region, SheetSnapshot } from "./types";
@@ -40,80 +42,94 @@ export async function importFile(file: File, handle?: FileSystemFileHandle, opts
   return { ...r, tabs };
 }
 
-/**
- * Give every bank on the coverage list that has no tab a new tab (a copy of a bank tab's layout, no people) and a
- * linked OVERVIEW row, as pending edits. Runs on every import, so banks added in Excel get tabs automatically.
- * `all` also includes banks whose auto-created tab was undone before. Also re-attaches pending tabs after a rebase.
- */
-export function ensureBankTabs(opts: { all?: boolean } = {}) {
+export type { TabChanges };
+export { describeTabChanges };
+
+type TabUndo = { state: Pick<ReturnType<typeof useStore.getState>, "patches" | "snapshots" | "sheetOps" | "contacts" | "tables">; skip: string[] };
+// The state before the last automatic tab change (this session), so Undo can put everything back.
+let tabUndo: TabUndo | null = null;
+
+/** The banks on the coverage list (hidden ones flagged), for tab planning. */
+function listedBanks() {
   const s = useStore.getState();
-  if (!s.workbook || !s.snapshots.length) return [];
-  let snaps = s.snapshots;
-  const lost = (s.sheetOps?.clones ?? []).filter((c) => !snaps.some((x) => x.name === c.name));
-  for (const c of lost) {
-    const tpl = snaps.find((x) => x.name === c.from);
-    if (tpl) snaps = insertAfter(snaps, { name: c.name, rows: tpl.rows, cols: tpl.cols, cells: {}, format: tpl.format }, c.after);
-  }
-  const banks = buildCoverage({
+  return buildCoverage({
     contacts: s.contacts,
     tables: s.tables,
     targets: s.targets,
     coverage: { ...s.coverage, plan: undefined, includeStarter: false },
     banks: s.banks,
     followUp: s.settings.followUp,
-  }).filter((r) => r.bucket !== "hidden");
-  const plan = planBankTabs({ snaps: applyPatches(snaps, s.patches), tables: s.tables, banks, skip: opts.all ? [] : s.coverage.skipTabs });
-  if (!lost.length && !plan.added.length) return [];
-  plan.ops.clones.forEach((c, i) => (snaps = insertAfter(snaps, plan.snapshots[i], c.after)));
-  // Show the new OVERVIEW rows with the look they'll have in Excel.
-  for (const x of plan.ops.rowStyles)
-    snaps = snaps.map((sn) => {
-      if (sn.name !== x.sheet || !sn.format) return sn;
-      const cellStyle = { ...sn.format.cellStyle };
-      for (let c = 1; c <= sn.cols; c++) {
-        const st = sn.format.cellStyle[`${x.from}:${c}`];
-        if (st !== undefined) cellStyle[`${x.row}:${c}`] = st;
-      }
-      const rowHeights = { ...sn.format.rowHeights };
-      if (rowHeights[x.from]) rowHeights[x.row] = rowHeights[x.from];
-      return { ...sn, format: { ...sn.format, cellStyle, rowHeights } };
-    });
-  const ops = s.sheetOps ?? EMPTY_OPS;
-  useStore.setState({ snapshots: snaps, sheetOps: { clones: [...ops.clones, ...plan.ops.clones], rowStyles: [...ops.rowStyles, ...plan.ops.rowStyles] } });
-  void blobs.setSnapshots(snaps);
-  if (plan.added.length) useStore.getState().applyCellEdits(plan.patches);
-  return plan.added;
+  }).map((r) => ({ name: r.name, tier: r.tier, hidden: r.bucket === "hidden" }));
 }
 
-function insertAfter(list: SheetSnapshot[], item: SheetSnapshot, after?: string) {
-  const i = after ? list.findIndex((x) => x.name === after) : -1;
-  return i < 0 ? [...list, item] : [...list.slice(0, i + 1), item, ...list.slice(i + 1)];
+/** Banks on the coverage list with no tab that won't get one automatically, and why (for the Spreadsheet page). */
+export function bankTabsSkipped() {
+  const s = useStore.getState();
+  if (!s.workbook || !s.snapshots.length) return [];
+  return planBankTabs({ snaps: applyPatches(s.snapshots, s.patches), tables: s.tables, banks: listedBanks(), skip: s.coverage.skipTabs }).skipped;
 }
 
-/** Drop the pending new tabs and their OVERVIEW rows, and don't create them automatically again. */
+/**
+ * Keep the workbook's bank tabs complete, as pending edits (runs on every import, so banks added in Excel get tabs):
+ * ticker names for tabs this app made, malformed bank tabs rebuilt, a tab for every bank on the coverage list, and
+ * every bank tab on OVERVIEW (lib/tabChanges.ts). `all` also includes banks whose new tab was undone before.
+ */
+export function ensureBankTabs(opts: { all?: boolean } = {}): TabChanges {
+  const s = useStore.getState();
+  if (!s.workbook || !s.snapshots.length) return { added: [], renamed: [], repaired: [], listed: [], skipped: [] };
+  const before: TabUndo["state"] = { patches: s.patches, snapshots: s.snapshots, sheetOps: s.sheetOps, contacts: s.contacts, tables: s.tables };
+  const r = computeTabChanges(
+    { snapshots: s.snapshots, patches: s.patches, contacts: s.contacts, tables: s.tables, ops: opsOf(s.sheetOps) },
+    listedBanks(),
+    opts.all ? [] : s.coverage.skipTabs,
+  );
+  if (!r.changed) return r.changes;
+  const { snapshots, patches, contacts, tables, ops } = r.state;
+  useStore.setState({ snapshots, patches, contacts, tables, sheetOps: ops });
+  void blobs.setSnapshots(snapshots);
+  if (Object.keys(r.planPatches).length) useStore.getState().applyCellEdits(r.planPatches);
+  const c = r.changes;
+  if (c.added.length || c.renamed.length || c.repaired.length || c.listed.length) tabUndo = { state: before, skip: r.undoSkip };
+  return c;
+}
+
+/**
+ * Undo the last automatic tab change (new tabs, renames, rebuilt tabs, OVERVIEW rows): everything goes back to how
+ * it was, and those banks don't get new tabs automatically again. After a page reload only new tabs can be removed;
+ * re-import the file to discard the rest.
+ */
 export function undoBankTabs() {
   const s = useStore.getState();
-  const ops = s.sheetOps ?? EMPTY_OPS;
-  if (!ops.clones.length) return 0;
+  if (tabUndo) {
+    const { state, skip } = tabUndo;
+    tabUndo = null;
+    useStore.setState({ ...state, coverage: { ...s.coverage, skipTabs: [...new Set([...(s.coverage.skipTabs ?? []), ...skip])] }, gridUndo: [] });
+    void blobs.setSnapshots(state.snapshots);
+    return true;
+  }
+  const ops = opsOf(s.sheetOps);
+  if (!ops.clones.length) return false;
   const gone = new Set(ops.clones.map((c) => c.name));
   const rows = new Map<string, Set<number>>();
   for (const x of ops.rowStyles) (rows.get(x.sheet) ?? rows.set(x.sheet, new Set()).get(x.sheet)!).add(x.row);
   const patches: Patches = {};
   for (const [sheet, cells] of Object.entries(s.patches)) {
     if (gone.has(sheet)) continue;
-    const keep = Object.entries(cells).filter(([k, p]) => {
-      if (rows.get(sheet)?.has(Number(k.split(":")[0]))) return false;
-      // A link to a removed tab (an OVERVIEW name that was already listed).
-      return !(p.link && [...gone].some((t) => p.link === tabLink(t)));
-    });
+    const keep = Object.entries(cells).filter(([k, p]) => !rows.get(sheet)?.has(Number(k.split(":")[0])) && !(p.link && [...gone].some((t) => p.link === tabLink(t))));
     if (keep.length) patches[sheet] = Object.fromEntries(keep);
   }
-  const skip = [...new Set([...(s.coverage.skipTabs ?? []), ...ops.clones.map((c) => canonBank(c.bank))])];
+  const skipTabs = [...new Set([...(s.coverage.skipTabs ?? []), ...ops.clones.map((c) => canonBank(c.bank))])];
   const snapshots = s.snapshots.filter((x) => !gone.has(x.name));
-  const parsed = parseSnapshots(applyPatches(snapshots, patches));
-  useStore.setState({ snapshots, patches, tables: parsed.tables, sheetOps: EMPTY_OPS, coverage: { ...s.coverage, skipTabs: skip }, gridUndo: [] });
+  useStore.setState({
+    snapshots,
+    patches,
+    tables: parseSnapshots(applyPatches(snapshots, patches)).tables,
+    sheetOps: { ...ops, clones: [], rowStyles: [] },
+    coverage: { ...s.coverage, skipTabs },
+    gridUndo: [],
+  });
   void blobs.setSnapshots(snapshots);
-  return gone.size;
+  return true;
 }
 
 /** Returns true if a file was chosen via the native picker; false means fall back to <input type=file>. */

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Download, FileSpreadsheet, Save, Upload } from "lucide-react";
-import { currentPatches, importFile, pickAndImport, saveWorkbook } from "@/lib/actions";
+import { type TabChanges, currentPatches, describeTabChanges, importFile, pickAndImport, saveWorkbook } from "@/lib/actions";
 import { useStore } from "@/lib/store";
 import { Button, toast } from "./ui";
 
@@ -11,12 +11,10 @@ export function UploadButton({ variant = "secondary", label }: { variant?: "prim
   const [busy, setBusy] = useState(false);
   const hasBook = useStore((s) => !!s.workbook);
 
-  const report = (r: { added: number; updated: number; tabs?: { bank: string; tab: string }[] }) => {
+  const report = (r: { added: number; updated: number; tabs?: TabChanges }) => {
     toast.ok(`Imported — ${r.added} new contact${r.added === 1 ? "" : "s"}, ${r.updated} refreshed.`);
-    if (r.tabs?.length)
-      toast.info(
-        `Added ${r.tabs.length} bank tab${r.tabs.length > 1 ? "s" : ""} for firms on your lists with no tab (${r.tabs.slice(0, 4).map((t) => t.bank).join(", ")}${r.tabs.length > 4 ? "…" : ""}), each with a linked OVERVIEW row. Review on the Spreadsheet page, then save.`,
-      );
+    const tabs = r.tabs && describeTabChanges(r.tabs);
+    if (tabs) toast.info(`Spreadsheet tabs: ${tabs}`);
   };
 
   const onClick = async () => {

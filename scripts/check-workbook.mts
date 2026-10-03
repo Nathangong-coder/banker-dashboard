@@ -254,46 +254,90 @@ console.log("location/team split OK");
   console.log("team inference OK");
 }
 
-// Banks on the workbook's lists with no tab get one (copied layout, no people) plus a linked OVERVIEW row; saving
-// writes real tabs the parser reads as bank tabs, and running again adds nothing.
+// Bank tabs (lib/tabChanges.ts, the same function the app runs on import): every bank on the lists gets a tab named by a
+// ticker, a malformed bank tab is rebuilt (people kept), every bank tab is linked from OVERVIEW, and tabs saved by the
+// first version with long names (KEYBANC) are renamed. Running again on the saved file changes nothing.
 {
-  const { planBankTabs, bankTabIndex, isPrivateEquity } = await import("../src/lib/bankTabs");
+  const { computeTabChanges } = await import("../src/lib/tabChanges");
+  const { bankTabIndex } = await import("../src/lib/bankTabs");
+  const { EMPTY_OPS } = await import("../src/lib/sheetOps");
   const { buildCoverage } = await import("../src/lib/coverage");
   const { readOfficeMap, setOfficeMap } = await import("../src/lib/offices");
   const { DEFAULT_SETTINGS } = await import("../src/lib/defaults");
-  setOfficeMap(readOfficeMap(p.snapshots));
-  const listed = (q: typeof p) =>
-    buildCoverage({ contacts: q.contacts, tables: q.tables, targets: q.targets, coverage: { hidden: [], added: [], includeStarter: false }, banks: {}, followUp: DEFAULT_SETTINGS.followUp });
-  const plan = planBankTabs({ snaps: p.snapshots, tables: p.tables, banks: listed(p) });
-  console.log(`missing bank tabs: ${plan.added.length}`, plan.added.map((a) => `${a.bank} → ${a.tab}`).join(", "));
-  if (plan.added.length) {
-    const saved = await parseWorkbook(await buildWorkbook(ab, plan.patches, [], plan.ops));
-    const tabs = bankTabIndex(saved.snapshots);
-    const problems: string[] = [];
-    for (const a of plan.added) {
-      const snap = saved.snapshots.find((s) => s.name === a.tab);
-      const tables = saved.tables.filter((t) => t.sheet === a.tab);
-      if (!snap) problems.push(`${a.tab}: not written`);
-      else {
-        if (!snap.cells["1:1"]?.link?.startsWith("#")) problems.push(`${a.tab}: title not linked`);
-        if (tables.length < 2 || !tables.some((t) => t.cols.linkedin)) problems.push(`${a.tab}: tables not found (${tables.length})`);
-        if (saved.contacts.some((c) => c.ref?.sheet === a.tab)) problems.push(`${a.tab}: has people in it`);
-        if (!snap.format?.merges.length) problems.push(`${a.tab}: lost the merges`);
-      }
-      const ov = saved.snapshots.find((s) => s.name === "OVERVIEW");
-      if (ov && !Object.values(ov.cells).some((c) => c.link === `#${/^[A-Za-z_][\w.]*$/.test(a.tab) ? a.tab : `'${a.tab}'`}!A1`)) problems.push(`${a.tab}: no OVERVIEW link`);
+  const { canonBank } = await import("../src/lib/banks");
+  const { renameLink, tabLink } = await import("../src/lib/sheetLinks");
+  type Parsed = Awaited<ReturnType<typeof parseWorkbook>>;
+  const banksOf = (q: Parsed) =>
+    buildCoverage({ contacts: q.contacts, tables: q.tables, targets: q.targets, coverage: { hidden: [], added: [], includeStarter: false }, banks: {}, followUp: DEFAULT_SETTINGS.followUp }).map(
+      (r) => ({ name: r.name, tier: r.tier }),
+    );
+  const run = (q: Parsed) => {
+    setOfficeMap(readOfficeMap(q.snapshots));
+    return computeTabChanges({ snapshots: q.snapshots, patches: {}, contacts: q.contacts, tables: q.tables, ops: EMPTY_OPS }, banksOf(q));
+  };
+  const save = async (buf: ArrayBuffer, r: ReturnType<typeof run>, rename?: (tab: string) => string) => {
+    let patches = mergePatches(r.state.patches, r.planPatches);
+    let ops = r.state.ops;
+    if (rename) {
+      // Simulate the first version: same tabs, long names.
+      const map = new Map(ops.clones.map((c) => [c.name, rename(c.name)]));
+      const relink = (l?: string) => (l ? [...map].reduce((acc, [a, b]) => renameLink(acc, a, b), l) : l);
+      patches = Object.fromEntries(Object.entries(patches).map(([sh, cells]) => [map.get(sh) ?? sh, Object.fromEntries(Object.entries(cells).map(([k, x]) => [k, { ...x, link: relink(x.link) }]))]));
+      ops = { ...ops, clones: ops.clones.map((c) => ({ ...c, name: map.get(c.name)!, after: c.after && (map.get(c.after) ?? c.after) })) };
     }
-    if (plan.added.some((a) => isPrivateEquity(listed(p).find((r) => r.name === a.bank)?.tier))) problems.push("a PE firm got a tab");
-    if (saved.contacts.length !== p.contacts.length) problems.push(`contacts ${p.contacts.length} → ${saved.contacts.length}`);
-    const again = planBankTabs({ snaps: saved.snapshots, tables: saved.tables, banks: listed(saved) });
-    if (again.added.length) problems.push(`second run adds ${again.added.map((x) => x.bank).join(", ")}`);
-    const order = saved.snapshots.map((s) => s.name);
-    console.log(`after save: ${tabs.size} bank tabs; new tabs at positions ${plan.added.map((a) => order.indexOf(a.tab)).join(",")} of ${order.length}`);
-    if (problems.length) {
-      console.error("BANK TABS FAILED", problems.slice(0, 8));
-      process.exit(1);
+    const out = await buildWorkbook(buf, patches, [], ops);
+    return { out, parsed: await parseWorkbook(out) };
+  };
+  const problems: string[] = [];
+  const checkSaved = (q: Parsed, label: string) => {
+    const ov = q.snapshots.find((s) => s.name === "OVERVIEW");
+    const links = new Set(Object.values(ov?.cells ?? {}).map((c) => c.link));
+    for (const [, tab] of bankTabIndex(q.snapshots)) {
+      if (/\(NY\)/.test(tab)) continue;
+      const snap = q.snapshots.find((s) => s.name === tab)!;
+      if (!/application tracker/i.test(snap.cells["1:1"]?.v ?? "")) problems.push(`${label}: ${tab} has no tracker title`);
+      if (ov && !links.has(tabLink(tab))) problems.push(`${label}: ${tab} not linked from OVERVIEW`);
     }
-    if (process.env.SAVE_TO) fs.writeFileSync(process.env.SAVE_TO, Buffer.from(await buildWorkbook(ab, plan.patches, [], plan.ops)));
-    console.log("bank tabs OK");
+    if (q.contacts.length !== p.contacts.length) problems.push(`${label}: contacts ${p.contacts.length} → ${q.contacts.length}`);
+  };
+
+  // A: the workbook as it is.
+  const a = run(p);
+  console.log(`bank tabs: +${a.changes.added.length} (${a.changes.added.map((x) => x.tab).join(", ")}); rebuilt: ${a.changes.repaired.join(", ") || "none"}; OVERVIEW rows: ${a.changes.listed.length}; skipped: ${a.changes.skipped.map((x) => `${x.bank} (${x.why})`).join(", ") || "none"}`);
+  const savedA = await save(ab, a);
+  checkSaved(savedA.parsed, "A");
+  for (const t of a.changes.added) if (t.tab.length > 4) problems.push(`A: ${t.tab} isn't a ticker`);
+  if (a.changes.repaired.includes("BNP")) {
+    const bnp = savedA.parsed.contacts.filter((c) => c.ref?.sheet === "BNP");
+    console.log("BNP after rebuild:", bnp.map((c) => `${c.id} ${c.name} ${c.location} ${c.linkedin ? "linkedin" : ""} ${c.sheetStatus ?? ""}`).join("; "));
+    if (!bnp.length || !bnp.every((c) => c.linkedin && c.ref!.row > 18)) problems.push("A: BNP's people didn't land in Contact Information");
+    // The dashboard's record of a moved person is refreshed from the rebuilt row (no junk team, right region) and
+    // writes nothing extra back.
+    const moved = a.state.contacts.filter((c) => c.ref?.sheet === "BNP");
+    const writes = contactPatches(moved, a.state.snapshots).BNP ?? {};
+    if (moved.some((c) => (c.team && /linkedin|justinshue/i.test(c.team)) || c.region !== "NY")) problems.push(`A: moved BNP contact not refreshed: ${JSON.stringify(moved.map((c) => [c.team, c.region]))}`);
+    if (Object.keys(writes).some((k) => Number(k.split(":")[1]) === 7)) problems.push(`A: moved BNP contact writes a Team cell: ${JSON.stringify(writes)}`);
   }
+  const againA = run(savedA.parsed);
+  if (againA.changed) problems.push(`A: second run changes things: ${JSON.stringify(againA.changes).slice(0, 200)}`);
+
+  // B: a file saved by the first version (long tab names) gets tickers, links follow.
+  const legacy = (tab: string) => (canonBank(a.state.ops.clones.find((c) => c.name === tab)!.bank) || tab).toUpperCase();
+  const savedLegacy = await save(ab, a, legacy);
+  if (process.env.LEGACY_TO) fs.writeFileSync(process.env.LEGACY_TO, Buffer.from(savedLegacy.out));
+  const b = run(savedLegacy.parsed);
+  console.log(`legacy names: ${b.changes.renamed.map((r) => `${r.from}→${r.to}`).join(", ")}`);
+  const savedB = await save(savedLegacy.out, b);
+  checkSaved(savedB.parsed, "B");
+  const names = new Set(savedB.parsed.snapshots.map((s) => s.name));
+  for (const t of a.changes.added) if (!names.has(t.tab)) problems.push(`B: ${t.tab} missing after renaming`);
+  if (names.has("KEYBANC") || names.has("SOCIETE GENERALE")) problems.push("B: long names still there");
+  if (run(savedB.parsed).changed) problems.push("B: second run changes things");
+
+  if (problems.length) {
+    console.error("BANK TABS FAILED", problems.slice(0, 10));
+    process.exit(1);
+  }
+  if (process.env.SAVE_TO) fs.writeFileSync(process.env.SAVE_TO, Buffer.from(savedB.out));
+  console.log("bank tabs OK");
 }

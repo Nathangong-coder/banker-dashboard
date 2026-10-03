@@ -5,9 +5,9 @@ import type { CellRef, CellStyle, Contact, ContactField, Region, SheetFormat, Sh
 import { contactId, splitName } from "./util";
 import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
-import { isInternalLink, readInternalLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
+import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
 import { detectRegion } from "./region";
-import { EMPTY_OPS, type SheetOps } from "./bankTabs";
+import { EMPTY_OPS, opsOf, type SheetOps } from "./sheetOps";
 
 const MAX_ROWS = 1500;
 const MAX_COLS = 40;
@@ -912,8 +912,27 @@ export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropd
   const ExcelJS = await loadExcel();
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
-  // New bank tabs and OVERVIEW rows first, so dropdowns and patches land on them.
-  for (const c of ops.clones) cloneLayout(wb, c.from, c.name, c.after);
+  // Tab renames, rebuilt tabs, new tabs and OVERVIEW rows first, so dropdowns and patches land on them.
+  const o = opsOf(ops);
+  for (const r of o.renames) {
+    const ws = wb.getWorksheet(r.from);
+    if (ws && !wb.getWorksheet(r.to)) ws.name = r.to;
+  }
+  type Ordered = { orderNo: number; id: number };
+  for (const r of o.replaces) {
+    const old = wb.getWorksheet(r.name) as unknown as (Ordered & { name: string }) | undefined;
+    if (!old || r.from === r.name) continue;
+    const order = old.orderNo;
+    wb.removeWorksheet(old.id);
+    cloneLayout(wb, r.from, r.name);
+    const fresh = wb.getWorksheet(r.name) as unknown as Ordered | undefined;
+    const anchor = (r.after ? wb.getWorksheet(r.after) : undefined) as unknown as Ordered | undefined;
+    if (fresh && anchor) {
+      for (const w of wb.worksheets as unknown as Ordered[]) if (w !== fresh && w.orderNo > anchor.orderNo) w.orderNo++;
+      fresh.orderNo = anchor.orderNo + 1;
+    } else if (fresh) fresh.orderNo = order;
+  }
+  for (const c of o.clones) cloneLayout(wb, c.from, c.name, c.after);
   for (const s of ops.rowStyles) copyRowStyle(wb, s.sheet, s.row, s.from);
   for (const d of dropdowns) {
     const ws = wb.getWorksheet(d.sheet);
@@ -925,7 +944,9 @@ export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropd
   }
   // ExcelJS can't read or write links between tabs, so they're carried over from the original file (plus any set by
   // patches) and written into the saved XML afterwards.
-  const links = await readInternalLinks(buffer);
+  const links = renameLinks(await readInternalLinks(buffer), o.renames);
+  // A rebuilt tab's old links went with it.
+  for (const r of o.replaces) delete links[r.name];
   for (const [sheet, cells] of Object.entries(patches)) {
     const ws = wb.getWorksheet(sheet) ?? wb.addWorksheet(sheet);
     for (const [addr, p] of Object.entries(cells)) {
