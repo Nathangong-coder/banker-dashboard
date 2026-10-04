@@ -8,7 +8,8 @@
  */
 import type { Contact, SheetSnapshot } from "./types";
 import { canonBank } from "./banks";
-import { planBankTabs, planTabFixes } from "./bankTabs";
+import { planBankTabs, planCoverageRows, planTabFixes } from "./bankTabs";
+import type { Application } from "./banks";
 import { renameLink } from "./sheetLinks";
 import { opsOf, type SheetOps } from "./sheetOps";
 import { contactId } from "./util";
@@ -21,6 +22,8 @@ export interface TabChanges {
   repaired: string[];
   /** Bank tabs given an OVERVIEW row. */
   listed: string[];
+  /** Firms you applied to, added to the COVERAGE tab. */
+  coverageRows: string[];
   /** Banks with no tab that weren't given one, and why. */
   skipped: { bank: string; why: string }[];
 }
@@ -77,7 +80,7 @@ function styleRows(snaps: SheetSnapshot[], rowStyles: SheetOps["rowStyles"]) {
  * the cell patches for new tabs / OVERVIEW rows separately (`planPatches`, applied as grid edits so contacts sync),
  * what changed, and whether anything did.
  */
-export function computeTabChanges(input: TabState, banks: { name: string; tier?: string; hidden?: boolean }[], skip: string[] = []) {
+export function computeTabChanges(input: TabState, banks: { name: string; tier?: string; hidden?: boolean; applied?: Application[] }[], skip: string[] = []) {
   const ops = opsOf(structuredClone(input.ops));
   const st = { snaps: input.snapshots, patches: input.patches, contacts: input.contacts };
   const blank = (name: string, from: string) => {
@@ -150,7 +153,20 @@ export function computeTabChanges(input: TabState, banks: { name: string; tier?:
   ops.clones.push(...plan.ops.clones);
   ops.rowStyles.push(...plan.ops.rowStyles);
 
-  const changes: TabChanges = { added: plan.added, renamed: fixes.renames, repaired: fixes.repairs.map((r) => r.tab), listed: plan.listed, skipped: plan.skipped };
+  // 4. Firms you submitted a summer analyst application to get rows on the COVERAGE tab.
+  const cov = planCoverageRows({ snaps: applyPatches(st.snaps, st.patches), banks, contacts: st.contacts });
+  for (const [sheet, cells] of Object.entries(cov.patches)) plan.patches[sheet] = { ...(plan.patches[sheet] ?? {}), ...cells };
+  st.snaps = styleRows(st.snaps, cov.rowStyles);
+  ops.rowStyles.push(...cov.rowStyles);
+
+  const changes: TabChanges = {
+    added: plan.added,
+    renamed: fixes.renames,
+    repaired: fixes.repairs.map((r) => r.tab),
+    listed: plan.listed,
+    coverageRows: cov.added,
+    skipped: plan.skipped,
+  };
   const changed = restructured || Object.keys(plan.patches).length > 0;
   return {
     changed,
@@ -169,6 +185,7 @@ export function describeTabChanges(t: TabChanges): string {
     t.renamed.length && `renamed ${t.renamed.map((r) => `${r.from} → ${r.to}`).join(", ")}`,
     t.repaired.length && `rebuilt ${t.repaired.join(", ")} like the other bank tabs`,
     t.listed.length && `${t.listed.length} new OVERVIEW row${t.listed.length > 1 ? "s" : ""}`,
+    t.coverageRows.length && `added ${t.coverageRows.join(", ")} to COVERAGE (you applied)`,
   ].filter(Boolean);
   if (!parts.length) return "";
   const text = parts.join(" · ");

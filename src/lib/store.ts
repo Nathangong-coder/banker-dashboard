@@ -391,8 +391,9 @@ export const useStore = create<State>()(
 );
 
 // The COVERAGE tab's office map follows the sheets: team guesses and "not offered" desks read it (lib/offices.ts).
+// Pending edits count too (rows added to COVERAGE for a new application are in `patches` until save).
 useStore.subscribe((s, prev) => {
-  if (s.snapshots !== prev.snapshots) setOfficeMap(readOfficeMap(s.snapshots));
+  if (s.snapshots !== prev.snapshots || s.patches !== prev.patches) setOfficeMap(readOfficeMap(applyPatches(s.snapshots, s.patches)));
 });
 
 function deepMerge(base: object, over: object): object {

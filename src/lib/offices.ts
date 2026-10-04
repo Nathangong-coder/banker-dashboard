@@ -74,9 +74,16 @@ const BUILT_IN_BY_KEY = new Map(Object.entries(BUILT_IN).map(([name, v]) => [can
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
-/** Read every sheet that looks like the coverage map (a header row with Bank, Office and "SA seats"). */
-export function readOfficeMap(snapshots: SheetSnapshot[]): Map<string, BankOffices> {
-  const out = new Map<string, BankOffices>();
+export interface CoverageSheet {
+  sheet: string;
+  header: number;
+  /** bank, office, tier, hires, teams, count, contacts, status, apply, confidence, notes → column. */
+  cols: Map<string, number>;
+}
+
+/** Every sheet that looks like the coverage map: a header row (in the first 30) with Bank, Office and "SA seats". */
+export function findCoverageSheets(snapshots: SheetSnapshot[]): CoverageSheet[] {
+  const out: CoverageSheet[] = [];
   for (const s of snapshots) {
     const at = (r: number, c: number) => (s.cells[`${r}:${c}`]?.v ?? "").trim();
     for (let r = 1; r <= Math.min(s.rows, 30); r++) {
@@ -88,29 +95,43 @@ export function readOfficeMap(snapshots: SheetSnapshot[]): Map<string, BankOffic
         else if (h === "tier") cols.set("tier", c);
         else if (/sa seats|summer analyst seats|hires/.test(h)) cols.set("hires", c);
         else if (/^teams|groups recruiting/.test(h)) cols.set("teams", c);
+        else if (/^# your contacts|^# contacts/.test(h)) cols.set("count", c);
+        else if (/^your contacts|^contacts$/.test(h)) cols.set("contacts", c);
+        else if (h === "status") cols.set("status", c);
         else if (/offices.*apply|can apply/.test(h)) cols.set("apply", c);
         else if (h === "confidence") cols.set("confidence", c);
         else if (/^notes/.test(h)) cols.set("notes", c);
       }
-      if (!cols.has("bank") || !cols.has("office") || !cols.has("hires")) continue;
-      const get = (row: number, k: string) => (cols.has(k) ? at(row, cols.get(k)!) : "");
-      for (let row = r + 1; row <= s.rows; row++) {
-        const name = get(row, "bank");
-        const office = officeOf(get(row, "office"));
-        if (!name || !office) continue;
-        const key = canonBank(name);
-        const b = out.get(key) ?? { name, tier: normalizeTier(get(row, "tier")), offices: {} };
-        const seats = get(row, "hires");
-        b.offices[office] = {
-          hires: /^yes/i.test(seats) ? true : /^no/i.test(seats) ? false : undefined,
-          teams: get(row, "teams").replace(/^—$/, "") || undefined,
-          confidence: get(row, "confidence") || undefined,
-          notes: get(row, "notes") || undefined,
-        };
-        b.applyNote ||= get(row, "apply") || undefined;
-        out.set(key, b);
+      if (cols.has("bank") && cols.has("office") && cols.has("hires")) {
+        out.push({ sheet: s.name, header: r, cols });
+        break;
       }
-      break;
+    }
+  }
+  return out;
+}
+
+/** Read the coverage map: per bank, per office (SF / LA / NY), whether it hires and which teams recruit there. */
+export function readOfficeMap(snapshots: SheetSnapshot[]): Map<string, BankOffices> {
+  const out = new Map<string, BankOffices>();
+  for (const { sheet, header, cols } of findCoverageSheets(snapshots)) {
+    const s = snapshots.find((x) => x.name === sheet)!;
+    const get = (row: number, k: string) => (cols.has(k) ? (s.cells[`${row}:${cols.get(k)}`]?.v ?? "").trim() : "");
+    for (let row = header + 1; row <= s.rows; row++) {
+      const name = get(row, "bank");
+      const office = officeOf(get(row, "office"));
+      if (!name || !office) continue;
+      const key = canonBank(name);
+      const b = out.get(key) ?? { name, tier: normalizeTier(get(row, "tier")), offices: {} };
+      const seats = get(row, "hires");
+      b.offices[office] = {
+        hires: /^yes/i.test(seats) ? true : /^no/i.test(seats) ? false : undefined,
+        teams: get(row, "teams").replace(/^—$/, "") || undefined,
+        confidence: get(row, "confidence") || undefined,
+        notes: get(row, "notes") || undefined,
+      };
+      b.applyNote ||= get(row, "apply") || undefined;
+      out.set(key, b);
     }
   }
   return out;

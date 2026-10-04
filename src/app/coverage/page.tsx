@@ -80,7 +80,7 @@ export default function CoveragePage() {
   }, [scopedContacts, now]);
   const repliedBanks = sb.replied;
   const insights = useMemo(
-    () => coverageInsights(rows, pe ? [] : (coverage.plan ?? []), scopedContacts, settings.followUp.livePerBank).filter((i) => !pe || i.kind === "quiet"),
+    () => coverageInsights(rows, pe ? [] : (coverage.plan ?? []), scopedContacts, settings.followUp.livePerBank).filter((i) => !pe || i.kind === "quiet" || i.kind === "applied"),
     [rows, coverage.plan, scopedContacts, settings.followUp.livePerBank, pe],
   );
   const oneDesk = active.length === 1 ? `&desk=${enc(`${active[0].location}|${active[0].team}`)}` : "";
@@ -438,6 +438,13 @@ function BankCard({ r, onHide }: { r: CoverageRow; onHide: () => void }) {
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-medium">{r.name}</span>
             {r.tier && <span className="text-[11px] text-muted">{r.tier}</span>}
+            {r.applied?.length ? (
+              <span title={r.applied.map((a) => `${a.program}${a.submitted ? ` · submitted ${a.submitted}` : ""}${a.status ? ` · ${a.status}` : ""}${a.location ? ` · ${a.location}` : ""}`).join("\n")}>
+                <Badge tone="green" className="px-1.5 py-0 text-[10.5px]">
+                  Applied{r.applied.length > 1 ? ` ×${r.applied.length}` : ""}
+                </Badge>
+              </span>
+            ) : null}
             {regions.map((x) => (
               <Badge key={x.id} tone="neutral" className="px-1 py-0 text-[10.5px]">
                 {x.short} {r.regions[x.id]}

@@ -4,7 +4,7 @@ import { DESK_PRESETS, deskStatus, targetAppliesTo, targetLabel, type DeskStatus
 import { LIVE_STATUSES } from "./followups";
 import { teamOf } from "./locationTeam";
 
-export type InsightKind = "uncovered" | "no_email" | "thin" | "quiet" | "unsorted" | "not_offered";
+export type InsightKind = "applied" | "uncovered" | "no_email" | "thin" | "quiet" | "unsorted" | "not_offered";
 
 export interface Insight {
   kind: InsightKind;
@@ -25,7 +25,17 @@ export function coverageInsights(rows: CoverageRow[], plan: DeskTarget[], contac
   const checked = plan.filter((t) => t.enabled);
   const desks: DeskTarget[] = checked.length ? checked : DESK_PRESETS.map((p, i) => ({ ...p, id: `preset-${i}`, enabled: true }));
   const shown = rows.filter((r) => r.bucket !== "hidden");
-  const out: Record<InsightKind, Insight[]> = { uncovered: [], no_email: [], thin: [], quiet: [], unsorted: [], not_offered: [] };
+  const out: Record<InsightKind, Insight[]> = { applied: [], uncovered: [], no_email: [], thin: [], quiet: [], unsorted: [], not_offered: [] };
+
+  // Applied to a summer analyst program, but nobody there has been emailed: networking is what moves an application.
+  const appliedCold = shown.filter((r) => r.applied?.length && !r.allContacts.some((c) => !!c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status))).sort(byTier);
+  if (appliedCold.length)
+    out.applied.push({
+      kind: "applied",
+      text: `You applied to ${names(appliedCold)} but haven't emailed anyone there yet.`,
+      href: `/find?banks=${enc(appliedCold.slice(0, 8).map((r) => r.name).join("|"))}`,
+      cta: "Find people",
+    });
 
   for (const t of desks) {
     const label = targetLabel(t);
@@ -89,5 +99,5 @@ export function coverageInsights(rows: CoverageRow[], plan: DeskTarget[], contac
       cta: "Sort teams",
     });
 
-  return [...out.uncovered, ...out.no_email, ...out.thin, ...out.quiet, ...out.unsorted, ...out.not_offered];
+  return [...out.applied, ...out.uncovered, ...out.no_email, ...out.thin, ...out.quiet, ...out.unsorted, ...out.not_offered];
 }

@@ -9,6 +9,7 @@ import { parseSheetLink } from "@/lib/sheetLinks";
 import { bankTabIndex } from "@/lib/bankTabs";
 import { useFirmKinds } from "./useFirmKinds";
 import { useStore } from "@/lib/store";
+import { describeTabChanges, syncApplications } from "@/lib/actions";
 import { cn } from "@/lib/util";
 import { Card, toast } from "./ui";
 import { AddContactModal } from "./AddContact";
@@ -126,6 +127,18 @@ export function SheetGrid({
 
   const snap = snapshots.find((s) => s.name === active);
   const sp = (active && patches[active]) || {};
+  // On an applications tab, a newly submitted summer analyst application (Program Type + a submitted date or status)
+  // makes its firm a tracked bank: tab, OVERVIEW row, COVERAGE rows. Checked shortly after edits stop.
+  const sheetPatches = active ? patches[active] : undefined;
+  const isApplications = useMemo(() => !!snap && Object.values(snap.cells).some((c) => /^program type$/i.test(c.v.trim())), [snap]);
+  useEffect(() => {
+    if (!isApplications || !sheetPatches) return;
+    const t = setTimeout(() => {
+      const text = describeTabChanges(syncApplications() ?? { added: [], renamed: [], repaired: [], listed: [], coverageRows: [], skipped: [] });
+      if (text) toast.info(`New application: ${text}`);
+    }, 800);
+    return () => clearTimeout(t);
+  }, [isApplications, sheetPatches]);
   const contactRows = useMemo(
     () => new Map(contacts.filter((c) => c.ref?.sheet === active).map((c) => [c.ref!.row, c])),
     [contacts, active],

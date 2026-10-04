@@ -81,6 +81,18 @@ export interface TargetBank {
   name: string;
   tier?: string;
   source: string;
+  /** Submitted summer analyst applications to this firm, from the applications tab(s). */
+  applied?: Application[];
+}
+
+export interface Application {
+  program: string;
+  submitted: string;
+  status: string;
+  /** "Target Location" as written ("SF/NY"). */
+  location: string;
+  sheet: string;
+  row: number;
 }
 
 export function normalizeTier(raw?: string): string | undefined {

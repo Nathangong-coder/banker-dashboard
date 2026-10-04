@@ -12,10 +12,11 @@
  * OVERVIEW's own list is followed by merged banners and formulas, so new firms go in a "MORE FIRMS" block below
  * everything else instead of shifting rows (which would break those formulas and merges).
  */
-import type { SheetSnapshot } from "./types";
+import type { Contact, SheetSnapshot } from "./types";
+import type { Application } from "./banks";
 import { canonBank, cleanBankName } from "./banks";
 import { draftFromRow, type ContactTable } from "./workbook";
-import { officeInfo, type Office } from "./offices";
+import { findCoverageSheets, officeInfo, officeOf, type Office } from "./offices";
 import { tabLink } from "./sheetLinks";
 import { EMPTY_OPS, type SheetOps } from "./sheetOps";
 
@@ -25,7 +26,7 @@ export const isPrivateEquity = (tier?: string) => tier === "Private Equity";
 
 type Patch = { v: string; link?: string };
 type Patches = Record<string, Record<string, Patch>>;
-type Bank = { name: string; tier?: string; hidden?: boolean };
+type Bank = { name: string; tier?: string; hidden?: boolean; applied?: Application[] };
 
 const TRACKER = /application tracker/i;
 const NON_BANK_TAB = /^(sheet\d*|overview|coverage|wall street|active bay|apps?\b.*|app \(.*|prospects)$/i;
@@ -394,4 +395,90 @@ export function planBankTabs(args: { snaps: SheetSnapshot[]; tables: ContactTabl
     plan.listed.push(t.tab);
   }
   return plan;
+}
+
+/* ---------------- 4. COVERAGE rows for firms you applied to ---------------- */
+
+const TIER_ABBR: Record<string, string> = { "Bulge Bracket": "BB", "Elite Boutique": "EB", "Middle Market": "MM", "Investment Bank": "IB" };
+
+/** Offices named in an application's "Target Location" ("SF/NY", "New York, San Francisco"). */
+export function officesIn(location: string): Office[] {
+  const found = location
+    .split(/[/,&;+]|\band\b|\bor\b/i)
+    .map((x) => officeOf(x.trim()))
+    .filter((o): o is Office => !!o);
+  return [...new Set(found)];
+}
+
+/**
+ * A bank you submitted a summer analyst application to that isn't on the COVERAGE tab gets its SF / LA / NY rows there
+ * (in its layout, after the last row): seats "Yes" where the application's target location says so, else "Unclear";
+ * your contacts per office; a GAP / Thin / OK status like the rest of the tab; a note saying where the row came from.
+ */
+export function planCoverageRows(args: { snaps: SheetSnapshot[]; banks: Bank[]; contacts: Pick<Contact, "bank" | "location" | "region" | "name">[] }) {
+  const out = { patches: {} as Patches, rowStyles: [] as SheetOps["rowStyles"], added: [] as string[] };
+  const cov = findCoverageSheets(args.snaps)[0];
+  if (!cov) return out;
+  const s = args.snaps.find((x) => x.name === cov.sheet)!;
+  const col = (k: string) => cov.cols.get(k);
+  const listed = new Set<string>();
+  // Rows this app added for an application (its note says so): kept in step with the application (office, contacts).
+  const ours = new Map<string, number[]>();
+  let last = cov.header;
+  for (let r = cov.header + 1; r <= s.rows; r++) {
+    const name = (s.cells[`${r}:${col("bank")}`]?.v ?? "").trim();
+    if (name) {
+      listed.add(canonBank(name));
+      if (/^added by coverage from your/i.test(s.cells[`${r}:${col("notes")}`]?.v ?? "")) ours.set(canonBank(name), [...(ours.get(canonBank(name)) ?? []), r]);
+      last = r;
+    }
+  }
+  const styleRow = last > cov.header ? last : cov.header;
+  let next = last + 1;
+  const put = (r: number, k: string, v: string) => {
+    const c = col(k);
+    if (c && v) (out.patches[cov.sheet] ??= {})[`${r}:${c}`] = { v };
+  };
+  const seen = new Set<string>();
+  const cellsFor = (b: Bank, office: Office) => {
+    const key = canonBank(b.name);
+    const here = args.contacts.filter((c) => canonBank(c.bank) === key && officeOf(c.location || (c.region !== "Other" ? c.region : "")) === office);
+    const hires = new Set(b.applied!.flatMap((a) => officesIn(a.location))).has(office);
+    return {
+      hires: hires ? "Yes" : "Unclear",
+      count: String(here.length),
+      contacts: here.map((c) => c.name).join(", "),
+      status: hires ? (here.length === 0 ? "GAP – 0 contacts" : here.length === 1 ? "Thin – 1 contact" : "OK") : "",
+    };
+  };
+  for (const b of args.banks) {
+    const key = canonBank(b.name);
+    if (b.applied?.length && ours.has(key)) {
+      for (const r of ours.get(key)!) {
+        const office = officeOf(s.cells[`${r}:${col("office")}`]?.v ?? "");
+        if (!office) continue;
+        for (const [k, v] of Object.entries(cellsFor(b, office))) {
+          const c = col(k);
+          if (c && (s.cells[`${r}:${c}`]?.v ?? "") !== v) (out.patches[cov.sheet] ??= {})[`${r}:${c}`] = { v };
+        }
+      }
+      continue;
+    }
+    if (!b.applied?.length || listed.has(key) || seen.has(key) || isPrivateEquity(b.tier)) continue;
+    seen.add(key);
+    const app = b.applied[0];
+    for (const office of ["SF", "LA", "NY"] as Office[]) {
+      const r = next++;
+      const cells = cellsFor(b, office);
+      put(r, "bank", cleanBankName(b.name));
+      put(r, "tier", (b.tier && TIER_ABBR[b.tier]) ?? b.tier ?? "");
+      put(r, "office", office);
+      for (const [k, v] of Object.entries(cells)) put(r, k, v);
+      put(r, "confidence", "low");
+      put(r, "notes", `Added by Coverage from your ${app.program} application${app.submitted ? ` (submitted ${app.submitted})` : app.status ? ` (${app.status})` : ""}. Check which offices and teams take summer analysts.`);
+      out.rowStyles.push({ sheet: cov.sheet, row: r, from: styleRow });
+    }
+    out.added.push(cleanBankName(b.name));
+  }
+  return out;
 }

@@ -59,7 +59,7 @@ function listedBanks() {
     coverage: { ...s.coverage, plan: undefined, includeStarter: false },
     banks: s.banks,
     followUp: s.settings.followUp,
-  }).map((r) => ({ name: r.name, tier: r.tier, hidden: r.bucket === "hidden" }));
+  }).map((r) => ({ name: r.name, tier: r.tier, hidden: r.bucket === "hidden", applied: r.applied }));
 }
 
 /** Banks on the coverage list with no tab that won't get one automatically, and why (for the Spreadsheet page). */
@@ -76,7 +76,7 @@ export function bankTabsSkipped() {
  */
 export function ensureBankTabs(opts: { all?: boolean } = {}): TabChanges {
   const s = useStore.getState();
-  if (!s.workbook || !s.snapshots.length) return { added: [], renamed: [], repaired: [], listed: [], skipped: [] };
+  if (!s.workbook || !s.snapshots.length) return { added: [], renamed: [], repaired: [], listed: [], coverageRows: [], skipped: [] };
   const before: TabUndo["state"] = { patches: s.patches, snapshots: s.snapshots, sheetOps: s.sheetOps, contacts: s.contacts, tables: s.tables };
   const r = computeTabChanges(
     { snapshots: s.snapshots, patches: s.patches, contacts: s.contacts, tables: s.tables, ops: opsOf(s.sheetOps) },
@@ -89,8 +89,23 @@ export function ensureBankTabs(opts: { all?: boolean } = {}): TabChanges {
   void blobs.setSnapshots(snapshots);
   if (Object.keys(r.planPatches).length) useStore.getState().applyCellEdits(r.planPatches);
   const c = r.changes;
-  if (c.added.length || c.renamed.length || c.repaired.length || c.listed.length) tabUndo = { state: before, skip: r.undoSkip };
+  if (c.added.length || c.renamed.length || c.repaired.length || c.listed.length || c.coverageRows.length) tabUndo = { state: before, skip: r.undoSkip };
   return c;
+}
+
+/**
+ * After edits on an applications tab: re-read the firm lists (a newly submitted summer analyst application adds its
+ * firm), then keep tabs / OVERVIEW / COVERAGE up to date. Returns what changed (nothing if the lists didn't).
+ */
+export function syncApplications(): TabChanges | undefined {
+  const s = useStore.getState();
+  if (!s.workbook || !s.snapshots.length) return undefined;
+  const { targets } = parseSnapshots(applyPatches(s.snapshots, s.patches));
+  const sig = (list: typeof targets) =>
+    JSON.stringify(list.map((t) => [canonBank(t.name), t.tier, (t.applied ?? []).map((a) => [a.program, a.submitted, a.status, a.location])]).sort());
+  if (sig(targets) === sig(s.targets)) return undefined;
+  useStore.setState({ targets });
+  return ensureBankTabs();
 }
 
 /**

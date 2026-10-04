@@ -341,3 +341,72 @@ console.log("location/team split OK");
   if (process.env.SAVE_TO) fs.writeFileSync(process.env.SAVE_TO, Buffer.from(savedB.out));
   console.log("bank tabs OK");
 }
+
+// Applications: a submitted summer analyst application to a firm on no list makes it a tracked bank (tab, OVERVIEW row,
+// COVERAGE rows with the applied office marked); an unsubmitted one adds nothing.
+{
+  const appsSheet = p.snapshots.find((s) => Object.values(s.cells).some((c) => /^program type$/i.test(c.v.trim())));
+  if (appsSheet) {
+    const { computeTabChanges } = await import("../src/lib/tabChanges");
+    const { EMPTY_OPS } = await import("../src/lib/sheetOps");
+    const { buildCoverage } = await import("../src/lib/coverage");
+    const { readOfficeMap, setOfficeMap, findCoverageSheets } = await import("../src/lib/offices");
+    const { DEFAULT_SETTINGS } = await import("../src/lib/defaults");
+    const hasCoverage = findCoverageSheets(p.snapshots).length > 0;
+    const head = Object.entries(appsSheet.cells).find(([, c]) => /^institution name$/i.test(c.v.trim()))!;
+    const hr = Number(head[0].split(":")[0]);
+    const col = (re: RegExp) => Number(Object.entries(appsSheet.cells).find(([k, c]) => Number(k.split(":")[0]) === hr && re.test(c.v.trim().toLowerCase()))![0].split(":")[1]);
+    const c = { program: col(/^program/), name: col(/^institution name$/), type: col(/^institution type$/), submitted: col(/submitted/), loc: col(/target location/) };
+    let free = hr + 1;
+    while (appsSheet.cells[`${free}:${c.name}`]?.v.trim() || appsSheet.cells[`${free + 1}:${c.name}`]?.v.trim()) free++;
+    const apps = {
+      [appsSheet.name]: {
+        [`${free}:${c.program}`]: { v: "Summer Analyst" },
+        [`${free}:${c.name}`]: { v: "Intrepid Investment Bankers" },
+        [`${free}:${c.type}`]: { v: "Investment Bank" },
+        [`${free}:${c.submitted}`]: { v: "2026-10-04" },
+        [`${free}:${c.loc}`]: { v: "LA" },
+        [`${free + 1}:${c.program}`]: { v: "Summer Analyst" },
+        [`${free + 1}:${c.name}`]: { v: "Not Submitted Capital" },
+      },
+    };
+    // Typed left to right: the row counts as submitted once the date is in, and the location comes after.
+    const loc = `${free}:${c.loc}`;
+    const step1 = { [appsSheet.name]: Object.fromEntries(Object.entries(apps[appsSheet.name]).filter(([k]) => k !== loc)) };
+    const banksFor = (q: { tables: typeof p.tables; targets: typeof p.targets }) =>
+      buildCoverage({ contacts: p.contacts, tables: q.tables, targets: q.targets, coverage: { hidden: [], added: [], includeStarter: false }, banks: {}, followUp: DEFAULT_SETTINGS.followUp }).map((r) => ({ name: r.name, tier: r.tier, applied: r.applied }));
+    setOfficeMap(readOfficeMap(p.snapshots));
+    const live1 = parseSnapshots(applyPatches(p.snapshots, step1));
+    const r1 = computeTabChanges({ snapshots: p.snapshots, patches: step1, contacts: p.contacts, tables: live1.tables, ops: EMPTY_OPS }, banksFor(live1));
+    const after1 = mergePatches(mergePatches(r1.state.patches, r1.planPatches), { [appsSheet.name]: { [loc]: { v: "LA" } } });
+    const live = parseSnapshots(applyPatches(r1.state.snapshots, after1));
+    const intrepid = live.targets.find((t) => /intrepid/i.test(t.name));
+    const r = computeTabChanges({ ...r1.state, patches: after1, tables: live.tables }, banksFor(live));
+    r.changes.added.push(...r1.changes.added);
+    r.changes.coverageRows.push(...r1.changes.coverageRows);
+    const tab = r.changes.added.find((a) => /intrepid/i.test(a.bank))?.tab;
+    console.log(`applications: Intrepid applied=${!!intrepid?.applied} tab=${tab}; COVERAGE rows for: ${r.changes.coverageRows.join(", ")}`);
+    const saved = await parseWorkbook(await buildWorkbook(ab, mergePatches(r.state.patches, r.planPatches), [], r.state.ops));
+    const map = readOfficeMap(saved.snapshots).get("intrepid investment bankers");
+    const ov = saved.snapshots.find((s) => s.name === "OVERVIEW");
+    const problems = [
+      !intrepid?.applied && "the application wasn't read",
+      live.targets.some((t) => /not submitted/i.test(t.name)) && "an unsubmitted application was counted",
+      !tab && "no tab for Intrepid",
+      tab && !saved.snapshots.some((s) => s.name === tab) && "Intrepid tab not saved",
+      // Only workbooks with a COVERAGE tab get rows there.
+      hasCoverage && !r.changes.coverageRows.some((x) => /intrepid/i.test(x)) && "Intrepid not added to COVERAGE",
+      hasCoverage && map?.offices.LA?.hires !== true && `COVERAGE LA not "Yes" (${JSON.stringify(map?.offices)})`,
+      hasCoverage && map?.offices.SF?.hires !== undefined && "COVERAGE SF should be unclear",
+      ov && !Object.values(ov.cells).some((x) => /intrepid/i.test(x.v) && x.link) && "no linked OVERVIEW row",
+    ].filter(Boolean);
+    const savedBanks = buildCoverage({ contacts: saved.contacts, tables: saved.tables, targets: saved.targets, coverage: { hidden: [], added: [], includeStarter: false }, banks: {}, followUp: DEFAULT_SETTINGS.followUp }).map((x) => ({ name: x.name, tier: x.tier, applied: x.applied }));
+    setOfficeMap(readOfficeMap(saved.snapshots));
+    if (computeTabChanges({ snapshots: saved.snapshots, patches: {}, contacts: saved.contacts, tables: saved.tables, ops: EMPTY_OPS }, savedBanks).changed) problems.push("second run changes things");
+    if (problems.length) {
+      console.error("APPLICATIONS FAILED", problems);
+      process.exit(1);
+    }
+    console.log("applications OK");
+  }
+}

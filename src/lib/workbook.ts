@@ -416,13 +416,16 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
     });
   }
 
-  // One entry per firm; the first tier seen wins.
+  // One entry per firm; the first tier seen wins, and every application to it is kept.
   const seen = new Map<string, TargetBank>();
   for (const t of targets) {
     const k = canonBank(t.name);
     const prev = seen.get(k);
-    if (!prev) seen.set(k, t);
-    else if (!prev.tier && t.tier) prev.tier = t.tier;
+    if (!prev) seen.set(k, { ...t, applied: t.applied && [...t.applied] });
+    else {
+      if (!prev.tier && t.tier) prev.tier = t.tier;
+      if (t.applied) prev.applied = [...(prev.applied ?? []), ...t.applied];
+    }
   }
   return { tables, contacts: dedupe(contacts), targets: [...seen.values()] };
 }
@@ -975,6 +978,24 @@ const CATEGORY_HEADER = /bank|bracket|boutique|middle market|equity|fund|firms|t
  *  - columns: a header row of categories ("Investment Banks (Bulge Bracket)", "Private Equity Firms", …) with firms listed below.
  * Only IB / PE categories are kept from column lists so VC/hedge-fund lists don't flood the "cold" bucket.
  */
+const SA_PROGRAM = /summer\s*(analyst|associate|intern(ship)?)|\bSA\b|\b20\d\d analyst\b/i;
+const NOT_SUBMITTED = /^(oops|n\/?a|no|not yet|tbd|-+|planning|to ?do|not started|draft(ing)?)$/i;
+const SUBMITTED_STATUS = /submitted|in process|pending|accepted|rejected|declined|interview|superday|hirevue|offer|wait ?list|review|applied|complete/i;
+
+/** A summer analyst application that was submitted (a submitted date, or a status that implies it), else undefined. */
+function applicationOf(program: string, submitted: string, status: string) {
+  if (!SA_PROGRAM.test(program)) return undefined;
+  const sent = (submitted && !NOT_SUBMITTED.test(submitted)) || SUBMITTED_STATUS.test(status);
+  return sent ? { program, submitted, status } : undefined;
+}
+
+/** Tier for a firm on the applications list: its type if it says, else a bank (it runs a summer analyst program). */
+function applicationTier(type: string) {
+  if (/private equity|growth equity|venture|\bvc\b|\bpe\b|hedge|asset management/i.test(type)) return "Private Equity";
+  const t = normalizeTier(type);
+  return t && ["Bulge Bracket", "Elite Boutique", "Middle Market", "Investment Bank"].includes(t) ? t : "Investment Bank";
+}
+
 function extractTargets(sheet: string, cells: SheetSnapshot["cells"], rowText: Map<number, Map<number, string>>, maxR: number): TargetBank[] {
   const out: TargetBank[] = [];
   const get = (r: number, c: number) => (cells[`${r}:${c}`]?.v ?? "").trim();
@@ -989,6 +1010,11 @@ function extractTargets(sheet: string, cells: SheetSnapshot["cells"], rowText: M
     if (nameCol) {
       const typeCol = entries.find(([, t]) => TARGET_TYPE_HEADERS.has(norm(t)))?.[0];
       const numCol = entries.find(([, t]) => norm(t) === "#")?.[0];
+      // An applications list ("Program Type", "Application Submitted Date", "Application Status", "Target Location").
+      const programCol = entries.find(([, t]) => /^program( type)?$/.test(norm(t)))?.[0];
+      const submittedCol = entries.find(([, t]) => /submitted/.test(norm(t)))?.[0];
+      const statusCol = entries.find(([, t]) => /application\s*status|^status$/.test(norm(t)))?.[0];
+      const locCol = entries.find(([, t]) => /target location/.test(norm(t)))?.[0];
       let blanks = 0;
       for (let rr = r + 1; rr <= maxR && blanks < 3; rr++) {
         const raw = get(rr, nameCol);
@@ -998,6 +1024,14 @@ function extractTargets(sheet: string, cells: SheetSnapshot["cells"], rowText: M
         }
         blanks = 0;
         const type = typeCol ? get(rr, typeCol) : "";
+        const app = programCol && (submittedCol || statusCol) ? applicationOf(get(rr, programCol), submittedCol ? get(rr, submittedCol) : "", statusCol ? get(rr, statusCol) : "") : undefined;
+        if (app) {
+          // A submitted summer analyst application: the firm is tracked even if no other list has it.
+          const name = cleanBankName(raw);
+          if (name.length >= 2)
+            out.push({ name, tier: applicationTier(type), source: sheet, applied: [{ ...app, location: locCol ? get(rr, locCol) : "", sheet, row: rr }] });
+          continue;
+        }
         const numbered = numCol ? /^\d+$/.test(get(rr, numCol)) : true;
         // Keep banks / buy-side firms; skip helper rows and unrelated types.
         const typed = !typeCol || (!!type && isNaN(Number(type)) && /bank|bracket|boutique|market|equity|credit|advis|capital|fund|^(bb|eb|mm)$/i.test(type.trim()));

@@ -344,6 +344,18 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Sheet toolbar: "23 new bank tabs · BNP rebuilt (unsaved) · Undo" (session undo restores the pre-change state and skips those
   banks; after a reload only new tabs can be removed), and "N banks without a tab" with the reasons (`bankTabsSkipped`).
   `check:workbook` runs the whole thing on a workbook and on a simulated first-version save, then checks a second run is a no-op.
+- **Applications → tracked banks:** in an applications list (header with Institution Name + Program Type + Submitted Date /
+  Application Status, e.g. "Apps (general)"), a row whose Program Type is a summer analyst / associate / intern program and that
+  was submitted (a date that isn't "OOPS"/blank, or a status like pending / in process / rejected / accepted) is read by
+  `workbook.ts#extractTargets` as a target with `applied: Application[]` (tier from the type; blank / "Bank?" = Investment Bank;
+  PE/VC types = Private Equity). Applications are merged per firm, so firms already on OVERVIEW keep theirs. From there:
+  the coverage list includes the firm → `computeTabChanges` gives it a tab + OVERVIEW row, and step 4
+  (`bankTabs.ts#planCoverageRows`) adds SF / LA / NY rows to the COVERAGE tab (seats "Yes" for offices in the application's
+  Target Location, else "Unclear"; contacts; GAP/Thin/OK; a note "Added by Coverage from your … application"). Rows with that
+  note stay in step with the application (location typed after the date updates them). /coverage shows an "Applied" badge and a
+  "You applied to … but haven't emailed anyone there yet" insight (also in the PE view). Runs on import, and on the grid
+  (`SheetGrid` → `actions.ts#syncApplications`, 800 ms after edits stop on an applications tab; it re-reads targets and only
+  acts when the firms or applications changed). The store's office-map subscription includes pending patches.
 - **Private equity** is its own segment: desks never apply to PE (`targetAppliesTo`), /coverage has an "Investment banks | Private
   equity" switch (PE view: no plan, coverage without desks), the sheet tab bar and the contacts list have a firm-type filter
   (`components/useFirmKinds.ts`, tier from the workbook's lists).

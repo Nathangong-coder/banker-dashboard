@@ -1,6 +1,6 @@
 import type { BankMeta, Contact, Region, Settings } from "./types";
 import type { ContactTable } from "./workbook";
-import { STARTER_TARGETS, canonBank, type TargetBank } from "./banks";
+import { STARTER_TARGETS, canonBank, type Application, type TargetBank } from "./banks";
 import { LIVE_STATUSES, nextAction } from "./followups";
 import { DAY } from "./util";
 import { DEFAULT_OFFICES_PER_BANK, activeDesks, deskOffice, deskStatus, inScope, pickOffices, targetAppliesTo, type DeskStatus, type DeskTarget } from "./desks";
@@ -37,6 +37,8 @@ export interface CoverageRow {
    * `cap` (you can usually apply to 2). `note` = the COVERAGE tab's "# offices/groups you can apply to".
    */
   offices: { all: string[]; picked: string[]; cap: number; note?: string };
+  /** Submitted summer analyst applications to this firm (from the applications tab). */
+  applied?: Application[];
 }
 
 export type CoverageSettings = {
@@ -94,7 +96,10 @@ export function buildCoverage(args: {
   // Names from contacts win for display (that's how the user spells them).
   for (const c of contacts) ensure(c.bank).allContacts.push(c);
   for (const t of tables) if (!/^prospects$/i.test(t.sheet)) ensure(t.bank);
-  for (const t of targets) ensure(t.name, t.tier);
+  for (const t of targets) {
+    const r = ensure(t.name, t.tier);
+    if (t.applied?.length) r.applied = [...(r.applied ?? []), ...t.applied];
+  }
   for (const t of coverage.added) ensure(t.name, t.tier);
   if (coverage.includeStarter) for (const t of STARTER_TARGETS) ensure(t.name, t.tier);
 
