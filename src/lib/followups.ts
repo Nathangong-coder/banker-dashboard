@@ -1,7 +1,7 @@
 import type { BankMeta, Contact, Settings } from "./types";
 import { addDays } from "./util";
 
-export type ActionKind = "reach_out" | "send" | "follow_up" | "move_on" | "none";
+export type ActionKind = "reach_out" | "send" | "scheduled" | "follow_up" | "move_on" | "none";
 
 export interface NextAction {
   kind: ActionKind;
@@ -18,13 +18,21 @@ export function nextAction(c: Contact, s: Settings["followUp"], bank?: BankMeta)
   if (bank && (bank.status === "moved_on" || bank.status === "paused"))
     return { kind: "none", isDue: false, label: bank.status === "paused" ? "Bank paused" : "Bank moved on" };
   if (QUIET.has(c.status)) return { kind: "none", isDue: false, label: "" };
+  const now = new Date();
+  // Queued with Gmail's Schedule send: nothing to do until it goes out (the follow-up clock starts then).
+  if (c.scheduledAt && new Date(c.scheduledAt) > now && !QUIET.has(c.status))
+    return { kind: "scheduled", due: new Date(c.scheduledAt), isDue: false, label: `${c.sentAt ? "Follow-up" : "Email"} scheduled · ${sendLabel(c.scheduledAt)}` };
   if (c.status === "new") return { kind: "reach_out", isDue: false, label: c.email ? "Draft email" : "Find email" };
   if (c.status === "drafted") return { kind: "send", isDue: true, label: "Send draft" };
 
-  const last = c.lastTouchAt ?? c.sentAt;
+  // A scheduled send whose time has passed went out then (until a Gmail sync confirms the exact time).
+  const sent = c.sentAt ?? (c.scheduledAt && new Date(c.scheduledAt) <= now ? c.scheduledAt : undefined);
+  const last = c.lastTouchAt ?? sent;
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
-  if (!last) return { kind: "follow_up", isDue: true, label: "Follow up (sent date unknown)", unknownDate: true };
+  // No date: not "due" (that flooded the list with everyone ever emailed). Sync with Gmail or add the date to the
+  // Contacted column to time it.
+  if (!last) return { kind: "follow_up", isDue: false, label: "Sent date unknown", unknownDate: true };
 
   let due: Date;
   let kind: ActionKind;
@@ -38,6 +46,12 @@ export function nextAction(c: Contact, s: Settings["followUp"], bank?: BankMeta)
   if (c.snoozeUntil && new Date(c.snoozeUntil) > due) due = new Date(c.snoozeUntil);
   const label = kind === "follow_up" ? `Follow-up #${c.followUps + 1}` : "Move on?";
   return { kind, due, isDue: due <= endOfToday, label };
+}
+
+/** "Tue 10/6, 9:00 AM" in the viewer's time zone. */
+export function sendLabel(iso: string) {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" })}, ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 }
 
 export interface BankRollup {

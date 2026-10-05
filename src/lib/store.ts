@@ -18,7 +18,7 @@ import type {
   Template,
   WorkbookMeta,
 } from "./types";
-import { applyPatches, contactPatches, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
+import { applyPatches, contactPatches, followUpsFromSheet, statusFromSheet, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
 import { contactId } from "./util";
 import { isPlace, splitLocationTeam } from "./locationTeam";
 import { DEFAULT_HOOKS, LEGACY_TECH_HOOK_TEXT, TECH_HOOK_TEXT } from "./hooks";
@@ -200,7 +200,14 @@ export const useStore = create<State>()(
             emailSource: fresh.email ? fresh.emailSource : prev.emailSource,
             sheetStatus: fresh.sheetStatus,
             ref: fresh.ref,
-            status: prev.status === "new" ? fresh.status : prev.status,
+            // A Status cell changed outside the dashboard (edited in Excel, or fixed from Gmail) wins; otherwise the
+            // dashboard's own status stands.
+            status: prev.status === "new" || (fresh.sheetStatus ?? "") !== (prev.sheetStatus ?? "") ? fresh.status : prev.status,
+            followUps: (fresh.sheetStatus ?? "") !== (prev.sheetStatus ?? "") ? fresh.followUps : Math.max(prev.followUps, fresh.followUps),
+            // Dates from the Contacted column fill in or correct the dashboard's (both come from Gmail).
+            sentAt: fresh.sentAt ?? prev.sentAt,
+            lastTouchAt: fresh.sentAt ? fresh.lastTouchAt : prev.lastTouchAt,
+            scheduledAt: fresh.sentAt || fresh.scheduledAt ? fresh.scheduledAt : prev.sentAt ? undefined : prev.scheduledAt,
           };
         });
         // Contacts added in the dashboard (prospects) survive a re-import.
@@ -372,7 +379,7 @@ export const useStore = create<State>()(
     },
     {
       name: "banker-dashboard",
-      version: 8,
+      version: 9,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -486,6 +493,17 @@ function migrateState(p: Record<string, unknown>, version: number) {
   }
   if (version < 8 && Array.isArray(p?.templates) && !(p.templates as Template[]).some((t) => t.id === OUTREACH_TEMPLATE.id)) {
     p.templates = [OUTREACH_TEMPLATE, ...(p.templates as Template[])];
+  }
+  // Sheet statuses read wrong before 10/2026: a bare "Scheduled" (an email queued with Schedule send) counted as a call,
+  // "Removed"/"Bounced" as not contacted, and "Followed up (2x)" as 0 follow-ups.
+  if (version < 9 && Array.isArray(p?.contacts)) {
+    p.contacts = (p.contacts as Contact[]).map((c) => {
+      if (!c.sheetStatus) return c;
+      const fromSheet = statusFromSheet(c.sheetStatus);
+      const misread = (/^\s*scheduled\b/i.test(c.sheetStatus) && c.status === "call_scheduled") || (fromSheet === "ignored" && c.status === "new");
+      const followUps = c.status === "followed_up" ? Math.max(c.followUps, followUpsFromSheet(c.sheetStatus)) : c.followUps;
+      return misread || followUps !== c.followUps ? { ...c, status: misread ? fromSheet : c.status, followUps } : c;
+    });
   }
   return p;
 }

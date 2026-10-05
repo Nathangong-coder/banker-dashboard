@@ -8,6 +8,7 @@ import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocati
 import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
 import { detectRegion } from "./region";
 import { EMPTY_OPS, opsOf, type SheetOps } from "./sheetOps";
+import { CONTACTED_HEADERS, formatContacted, parseContacted, sameContacted } from "./contacted";
 
 const MAX_ROWS = 1500;
 const MAX_COLS = 40;
@@ -67,6 +68,7 @@ const HEADERS: Record<ContactField | "first" | "last", string[]> = {
   status: ["status"],
   comment: ["connection / comment", "connection/comment", "comments", "comment", "notes", "note"],
   company: ["company", "firm", "bank", "institution", "organization", "institution name"],
+  contacted: CONTACTED_HEADERS,
 };
 
 function matchHeaders(row: Map<number, string>) {
@@ -93,14 +95,24 @@ export { detectRegion };
 export function statusFromSheet(raw: string | undefined): Status {
   const s = norm(raw ?? "");
   if (!s) return "new";
-  if (/moved on|ignore|dead|no response/.test(s)) return "ignored";
-  if (/call|scheduled|coffee|meeting/.test(s)) return "call_scheduled";
+  if (/moved on|ignore|dead|no response|bounced|removed|left (the )?firm/.test(s)) return "ignored";
+  if (/call|coffee|meeting|chat/.test(s)) return "call_scheduled";
+  // A bare "Scheduled" is an email queued with Gmail's Schedule send (confirmed against the owner's Gmail): not sent yet.
+  if (/^scheduled\b/.test(s)) return "drafted";
   if (/repl|respond|responded/.test(s)) return "replied";
   if (/follow/.test(s)) return "followed_up";
   if (/sent|emailed|contacted|messaged/.test(s)) return "sent";
   if (/draft/.test(s)) return "drafted";
   if (/done|complete/.test(s)) return "done";
   return "new"; // "Pending", "*", etc. = queued, not yet sent
+}
+
+/** "Followed up (2x)" → 2. */
+export function followUpsFromSheet(raw: string | undefined) {
+  const s = norm(raw ?? "");
+  if (!/follow/.test(s)) return 0;
+  const n = s.match(/(\d+)\s*x|x\s*(\d+)|#\s*(\d+)/);
+  return n ? Number(n[1] ?? n[2] ?? n[3]) : 1;
 }
 
 export const STATUS_TO_SHEET: Record<Status, (c: Contact) => string> = {
@@ -351,7 +363,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
     headerRows.forEach(({ r: hr, h }, i) => {
       const end = i + 1 < headerRows.length ? headerRows[i + 1].r - 1 : maxR + 1;
       const cols: ContactTable["cols"] = {};
-      for (const k of ["name", "email", "linkedin", "position", "location", "team", "status", "comment", "company"] as const) {
+      for (const k of ["name", "email", "linkedin", "position", "location", "team", "status", "comment", "company", "contacted"] as const) {
         if (h[k] !== undefined) cols[k] = h[k];
       }
       const table: ContactTable = {
@@ -389,6 +401,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
         const ref: CellRef = { sheet: ws.name, row: r, cols };
         const { first, last } = splitName(name);
         const status = statusFromSheet(sheetStatus);
+        const dates = parseContacted(get(r, cols.contacted)?.v);
         contacts.push({
           id: contactId(ws.name, r),
           name: name.trim(),
@@ -407,8 +420,8 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
           status,
           source: "sheet",
           ref,
-          followUps: 0,
-          sentAt: undefined,
+          followUps: followUpsFromSheet(sheetStatus),
+          ...dates,
           history: [],
         });
       }
@@ -452,6 +465,9 @@ function dedupe(list: Contact[]): Contact[] {
       location: primary.location || other.location,
       team: primary.team || other.team,
       comment: [primary.comment, other.comment].filter(Boolean).join(" · "),
+      sentAt: primary.sentAt ?? other.sentAt,
+      lastTouchAt: primary.lastTouchAt ?? other.lastTouchAt,
+      scheduledAt: primary.scheduledAt ?? other.scheduledAt,
     });
   }
   return [...byKey.values()];
@@ -505,6 +521,12 @@ export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]):
       put(sheet, row, cols.location, { v: joinLocationTeam(c.location, c.team) });
     }
     if (c.position) put(sheet, row, cols.position, { v: c.position });
+    // Send dates (from Gmail sync or marked by hand) go to the Contacted column, added next to Status when missing.
+    const dates = { sentAt: c.sentAt, lastTouchAt: c.lastTouchAt, scheduledAt: c.sentAt ? undefined : c.scheduledAt };
+    if (dates.sentAt || dates.scheduledAt) {
+      const col = cols.contacted ?? (cols.status ? contactedColumn(snap.get(sheet), (out[sheet] ??= {}), ref) : undefined);
+      if (col && !sameContacted(parseContacted(cellAt(col)), dates)) put(sheet, row, col, { v: formatContacted(dates) });
+    }
     const linkCell = cols.linkedin ? snap.get(sheet)?.cells[`${row}:${cols.linkedin}`] : undefined;
     if (c.linkedin && !linkCell) put(sheet, row, cols.linkedin, { v: c.linkedin, link: c.linkedin });
     if (c.source !== "sheet") {
@@ -515,6 +537,29 @@ export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]):
     }
   }
   return out;
+}
+
+/**
+ * Where a table without a Contacted column gets one: the empty header cell just left of Status (column H on the
+ * owner's tabs), else the first empty one after the table's last column. Writes the header into `pending`.
+ */
+function contactedColumn(s: SheetSnapshot | undefined, pending: Record<string, CellPatch>, ref: CellRef): number | undefined {
+  if (!s) return undefined;
+  const known = Object.values(ref.cols).filter((c): c is number => !!c);
+  if (!ref.cols.name || !known.length) return undefined;
+  const text = (r: number, c: number) => pending[`${r}:${c}`]?.v ?? s.cells[`${r}:${c}`]?.v ?? "";
+  // The header row: nearest row above whose Name column says "Name".
+  let hr = 0;
+  for (let r = ref.row - 1; r >= 1 && !hr; r--) if (/^(full |contact )?name$/i.test(text(r, ref.cols.name).trim())) hr = r;
+  if (!hr) return undefined;
+  for (let c = 1; c <= Math.max(...known) + 3; c++) if (CONTACTED_HEADERS.includes(text(hr, c).trim().toLowerCase())) return c;
+  const status = ref.cols.status;
+  let col: number | undefined;
+  if (status && status > 1 && !text(hr, status - 1) && !known.includes(status - 1)) col = status - 1;
+  for (let c = Math.max(...known) + 1; !col && c <= Math.max(...known) + 3; c++) if (!text(hr, c)) col = c;
+  if (!col) return undefined;
+  pending[`${hr}:${col}`] = { v: "Contacted" };
+  return col;
 }
 
 /** Sheets as they look with pending cell edits applied (what the grid shows). */

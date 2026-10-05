@@ -7,7 +7,6 @@
  * plus the sheet ops buildWorkbook needs to write it. Pending changes a save rebase dropped are re-attached.
  */
 import type { Contact, SheetSnapshot } from "./types";
-import { canonBank } from "./banks";
 import { planBankTabs, planCoverageRows, planTabFixes } from "./bankTabs";
 import type { Application } from "./banks";
 import { renameLink } from "./sheetLinks";
@@ -173,8 +172,6 @@ export function computeTabChanges(input: TabState, banks: { name: string; tier?:
     state: { snapshots: st.snaps, patches: st.patches, contacts: st.contacts, tables, ops } as TabState,
     planPatches: plan.patches,
     changes,
-    /** Banks to skip next time if this change is undone. */
-    undoSkip: plan.added.map((a) => canonBank(a.bank)),
   };
 }
 

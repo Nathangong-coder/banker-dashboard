@@ -7,12 +7,15 @@ import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRou
 import { blobs, useStore } from "@/lib/store";
 import { FORMAT_VERSION, readFormats, withInternalLinks } from "@/lib/workbook";
 import { readInternalLinks } from "@/lib/sheetLinks";
+import { describeTabChanges, refreshBankTabs } from "@/lib/actions";
 import { useSaveShortcut } from "./WorkbookControls";
 import { nextAction } from "@/lib/followups";
 import { cn } from "@/lib/util";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
+import { whatsappDigest } from "@/lib/reminders";
+import { callApi } from "@/lib/api";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
@@ -33,6 +36,11 @@ function useHydrated() {
       const snaps = await blobs.snapshots();
       if (snaps) useStore.getState().setSnapshots(snaps);
       setReady(true);
+      // Every bank on the lists gets a tab and an OVERVIEW row (pending until saved), without needing a re-import.
+      if (snaps?.length) {
+        const text = describeTabChanges(refreshBankTabs() ?? { added: [], renamed: [], repaired: [], listed: [], coverageRows: [], skipped: [] });
+        if (text) toast.info(`Spreadsheet tabs: ${text}`);
+      }
       if (snaps?.length && snaps.some((s) => s.format?.version !== FORMAT_VERSION)) {
         const buf = await blobs.workbook();
         if (!buf) return;
@@ -66,6 +74,56 @@ function useDailyNudge(due: number) {
   }, [due]);
 }
 
+/**
+ * The 9am WhatsApp digest (CallMeBot), sent by this browser: once a day, the first time the dashboard is open at or
+ * after 9am (a tab left open fires at 9). There is no server cron yet (TODO.md), so a day the dashboard is never opened
+ * gets no message.
+ */
+function useDailyWhatsApp(ready: boolean) {
+  useEffect(() => {
+    if (!ready) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const run = async () => {
+      const s = useStore.getState();
+      const k = s.settings.keys;
+      if (!k.whatsappPhone || !k.whatsappApiKey || s.settings.alerts?.whatsappDaily === false) return;
+      const now = new Date();
+      const nine = new Date(now);
+      nine.setHours(9, 0, 0, 0);
+      if (now < nine) {
+        timer = setTimeout(run, nine.getTime() - now.getTime() + 1000);
+        return;
+      }
+      const digest = whatsappDigest(s.contacts, s.banks, s.settings.followUp);
+      const key = `whatsapp:${digest?.day ?? now.toLocaleDateString("en-CA")}`;
+      if (!digest || s.scheduled[key]) return;
+      // Other open tabs: only one sends.
+      try {
+        if (localStorage.getItem(key)) return;
+        localStorage.setItem(key, now.toISOString());
+      } catch {
+        /* no storage: the persisted marker below still stops repeats */
+      }
+      s.markScheduled(key, now.toISOString());
+      try {
+        await callApi("/api/notify", { channel: "whatsapp", title: "Follow-ups due", message: digest.text, whatsapp: { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } }, s.settings);
+        toast.ok(`WhatsApp: sent today's list${digest.count ? ` (${digest.count} follow-up${digest.count > 1 ? "s" : ""})` : ""}.`);
+      } catch (e) {
+        // Let a later page load retry today.
+        const rest = { ...useStore.getState().scheduled };
+        delete rest[key];
+        useStore.setState({ scheduled: rest });
+        try {
+          localStorage.removeItem(key);
+        } catch {}
+        toast.err(`WhatsApp reminder failed: ${(e as Error).message}`);
+      }
+    };
+    run();
+    return () => clearTimeout(timer);
+  }, [ready]);
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const ready = useHydrated();
@@ -83,6 +141,7 @@ export function Shell({ children }: { children: ReactNode }) {
     [contacts, banks, fu],
   );
   useDailyNudge(ready ? due : 0);
+  useDailyWhatsApp(ready);
   // The server switched to a backup model (primary hit a rate/quota limit): say so once per model.
   useEffect(() => {
     const seen = new Set<string>();

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, EyeOff, Flame, Lightbulb, Mail, Plus, Search, Snowflake, Sparkles, TrendingDown, TrendingUp, Undo2, X } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
-import { buildCoverage, outreachBetween, scoreboard, tierRank, type Bucket, type CoverageRow, type ScoreUnit } from "@/lib/coverage";
+import { buildCoverage, outreachBetween, scoreboard, tierRank, type Bucket, type CoverageRow, type ScoreUnit, type Stage } from "@/lib/coverage";
 import { activeDesks, targetLabel } from "@/lib/desks";
 import { coverageInsights, type Insight } from "@/lib/insights";
 import { STARTER_TARGETS } from "@/lib/banks";
@@ -16,10 +16,11 @@ import { DAY, cn, relDays } from "@/lib/util";
 import { Badge, Button, Card, Checkbox, Empty, Input, PageHeader, Select, toast } from "@/components/ui";
 import { DeskChecklist, DeskChips, OfficePicker, RecruitingPlan } from "@/components/RecruitingPlan";
 
-const COLS: { bucket: Exclude<Bucket, "hidden">; title: string; sub: string; tone: string; dot: string }[] = [
-  { bucket: "reached", title: "Reached out", sub: "At least one email sent", tone: "text-green", dot: "bg-green" },
-  { bucket: "ready", title: "Contacts, not reached yet", sub: "People found. Next step: draft emails", tone: "text-amber", dot: "bg-brass" },
-  { bucket: "cold", title: "Cold", sub: "No contacts yet. Next step: find people", tone: "text-ink-2", dot: "bg-line-2" },
+const COLS: { stage: Stage; title: string; sub: string; tone: string; dot: string }[] = [
+  { stage: "awaiting", title: "Awaiting responses", sub: "Emailed as many people as your cap allows. Wait, follow up", tone: "text-green", dot: "bg-green" },
+  { stage: "could_max", title: "Sent, could max", sub: "Emailed someone, room for more (e.g. 1 of 2)", tone: "text-navy", dot: "bg-navy" },
+  { stage: "not_reached", title: "Contacts, not reached", sub: "People found, nobody emailed. Next: draft emails", tone: "text-amber", dot: "bg-brass" },
+  { stage: "cold", title: "Cold", sub: "No contacts yet. Next: find people", tone: "text-ink-2", dot: "bg-line-2" },
 ];
 
 const enc = encodeURIComponent;
@@ -225,7 +226,7 @@ export default function CoveragePage() {
           body={
             active.length
               ? `Nobody yet on ${active.map(targetLabel).join(" / ")}: ${cold.slice(0, 4).map((r) => r.name).join(", ")}${cold.length > 4 ? "…" : ""}`
-              : "Find 2–3 people at each: UC grads, Washington, Tech/NY generalists."
+              : "Find 2–3 people at each, starting with people you have something in common with."
           }
           href={`/find?banks=${enc(cold.slice(0, 8).map((r) => r.name).join("|"))}${oneDesk}`}
           cta={`Find people at ${Math.min(cold.length, 8)}`}
@@ -262,17 +263,19 @@ export default function CoveragePage() {
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {COLS.map((col) => {
-          const list = by(col.bucket).sort((a, b) =>
-            col.bucket === "reached"
-              ? Number(b.due > 0) - Number(a.due > 0) || (b.lastOutreach ?? "").localeCompare(a.lastOutreach ?? "")
-              : col.bucket === "ready"
-                ? b.withEmail - a.withEmail || tierRank(a.tier) - tierRank(b.tier)
-                : tierRank(a.tier) - tierRank(b.tier) || a.name.localeCompare(b.name),
+          const list = shown.filter((r) => r.stage === col.stage).sort((a, b) =>
+            col.stage === "awaiting"
+              ? Number(b.due > 0) - Number(a.due > 0) || b.replied - a.replied || (b.lastOutreach ?? "").localeCompare(a.lastOutreach ?? "")
+              : col.stage === "could_max"
+                ? b.replied - a.replied || tierRank(a.tier) - tierRank(b.tier) || (b.lastOutreach ?? "").localeCompare(a.lastOutreach ?? "")
+                : col.stage === "not_reached"
+                  ? b.withEmail - a.withEmail || tierRank(a.tier) - tierRank(b.tier)
+                  : tierRank(a.tier) - tierRank(b.tier) || a.name.localeCompare(b.name),
           );
           return (
-            <section key={col.bucket} className="min-w-0">
+            <section key={col.stage} className="min-w-0">
               <header className="mb-2 flex items-center gap-2 px-1">
                 <span className={cn("size-2.5 rounded-full", col.dot)} />
                 <h2 className={cn("text-[14px] font-semibold", col.tone)}>{col.title}</h2>
@@ -414,6 +417,11 @@ function BankCard({ r, onHide }: { r: CoverageRow; onHide: () => void }) {
     );
     const next = r.contacts.find((c) => c.status === "new");
     if (r.due) action = { href: "/followups", label: `${r.due} follow-up${r.due > 1 ? "s" : ""} due` };
+    else if (r.stage === "could_max")
+      // Room under the cap: the next person to email here, or find one.
+      action = next
+        ? { href: `/drafts?bank=${enc(r.name)}`, label: `${r.slots.emailed} of ${r.slots.max} emailed. Email ${next.firstName || next.name}` }
+        : { href: `/find?banks=${enc(r.name)}`, label: `${r.slots.emailed} of ${r.slots.max} emailed. Find another person` };
     else if (r.quiet) action = next ? { href: `/drafts?bank=${enc(r.name)}`, label: `Gone quiet. Email ${next.firstName || next.name}` } : { href: `/find?banks=${enc(r.name)}`, label: "Gone quiet. Find someone new" };
   } else if (r.bucket === "ready") {
     const active = r.contacts.filter((c) => c.status !== "ignored");

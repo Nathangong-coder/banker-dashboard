@@ -57,18 +57,17 @@ function SheetInner() {
   ]
     .filter(Boolean)
     .join(" · ");
-  const skippedTabs = useStore((s) => s.coverage.skipTabs) ?? [];
   // Banks with no tab that won't get one, and why (hidden, PE, undone…). Recomputed when the sheets or lists change.
   const coverageState = useStore((s) => s.coverage);
   const targets = useStore((s) => s.targets);
   const skippedBanks = useMemo(() => bankTabsSkipped(), [snapshots, manual, contacts, targets, coverageState]); // eslint-disable-line react-hooks/exhaustive-deps
   const runAddTabs = () => {
-    const text = describeTabChanges(ensureBankTabs({ all: true }));
+    const text = describeTabChanges(ensureBankTabs());
     if (text) toast.ok(text);
     else toast.info("Every bank on your lists already has a tab.");
   };
   const runUndoTabs = () => {
-    if (undoBankTabs()) toast.info(`Tab changes undone. Those banks won't get new tabs automatically again ("Add missing bank tabs" brings them back).`);
+    if (undoBankTabs()) toast.info(`Tab changes undone for now. They come back on the next load or save; hide a bank on Bank coverage to leave it out.`);
     else toast.info("Nothing to undo here. Re-import the spreadsheet to discard the pending tab changes.");
   };
   const linksToRestore = useMemo(() => restorableTabLinks(snapshots, patches).count, [snapshots, patches]);
@@ -175,7 +174,7 @@ function SheetInner() {
             {skippedBanks.length} bank{skippedBanks.length > 1 ? "s" : ""} without a tab (hover for why)
           </span>
         )}
-        {view === "grid" && !newTabs.length && skippedTabs.length > 0 && (
+        {view === "grid" && !tabChangeText && skippedBanks.some((b) => !/private equity|hidden/.test(b.why)) && (
           <Button icon={<Plus className="size-3.5" />} onClick={runAddTabs} title="Make a tab (and a linked OVERVIEW row) for every bank on your lists that doesn't have one">
             Add missing bank tabs
           </Button>

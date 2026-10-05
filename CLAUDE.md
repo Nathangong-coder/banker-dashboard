@@ -111,7 +111,15 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   renumbered (`s:<tab>:<row>` ids) so a re-import after saving matches. A deleted row's contact is dropped, or kept as `source: "manual"` if it
   has dashboard work. Cells a moved contact writes itself are removed from the shifted manual patches so derived values win.
 - **Status mapping** (`statusFromSheet` / `STATUS_TO_SHEET`): "Sent" → `sent`. **"Pending" means queued, not sent yet** → `new`
-  (confirmed by the owner). A dashboard status is written to the sheet only when it differs from what the sheet already implies.
+  (confirmed by the owner). A dashboard status is written to the sheet only when it differs from what the sheet already implies. A bare **"Scheduled" = an email queued with Gmail's Schedule send** → `drafted` (checked against the owner's Gmail;
+  "Call scheduled"/coffee/meeting → `call_scheduled`). "Removed"/"Bounced" → `ignored`. `followUpsFromSheet` reads "(2x)".
+  On re-import (`store#importWorkbook`) a Status cell that changed since the last import (Excel edit, or a Gmail backfill) wins
+  over the dashboard's status; `saveWorkbook` re-baselines `sheetStatus` so the dashboard's own writes don't count as edits.
+- **Contacted column** (`src/lib/contacted.ts`): send dates live in the workbook ("9/17/2026 · last 9/25/2026",
+  "Scheduled 10/6/2026 9:00 AM"), read into `sentAt` / `lastTouchAt` / `scheduledAt`. `contactPatches` writes them, adding
+  the header in the empty column left of Status (H on the owner's tabs; GS already had "Contacted") when missing, and
+  compares by meaning so the owner's own formats aren't rewritten. Before this the sheet had no dates at all, so every
+  "Sent" person showed as due ("sent date unknown").
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
   from the dashboard that were already saved into the file) so workflow state (status, dates, drafts) survives a re-import.
 
@@ -251,6 +259,10 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   sent after the draft was made, it was sent; otherwise the user deleted it and it's back as an editable dashboard draft (`draftsReverted`).
   Sending to Gmail uses `upsertDraft` (updates the existing draft, never duplicates). The draft editor has Update / Unlink / Delete Gmail draft.
 
+- **Scheduled sends:** `syncContact` ignores messages without the SENT label or dated in the future, and reads
+  `in:scheduled to:X` into `scheduledAt`. A contact marked sent with nothing sent and a scheduled email goes back to `drafted`
+  (on 2026-10-04, 90 "Sent" rows were really Schedule-send emails for 10/6–10/9). If nothing went to the address on file,
+  `findEmailByName` looks for another address they were emailed at (dates come from it; the sheet email isn't changed).
 - `syncAllWithGmail({interactive})` is single-flight. Contacts with an email → `gmail.ts#syncContact` (first sent, follow-ups counted
   up to the first reply, reply date, thread/Message-ID for in-thread follow-ups). Contacts without one → `findEmailByName` (Sent-mail
   search by name, accepted only if `addressMatches` the display name or mailbox), throttled by `gmailCheckedAt` (12h).
@@ -274,6 +286,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   "Live" = drafted/sent/followed_up with no reply. Drafts warn (but don't block) when a desk goes over.
 - Reminders (`src/lib/reminders.ts`): one digest per day at 9am. Channels are browser Notification (only while the app is open), ntfy,
   Twilio, WhatsApp (CallMeBot, send-now), and .ics export. There is **no server cron**, because the server has no data. A true server-side scheduler would need a DB.
+- `nextAction`: a future `scheduledAt` → kind `scheduled` (not due; listed under "Scheduled in Gmail" on /followups). No
+  date at all → not due (`unknownDate`, banner asks for a Gmail sync), and it's left out of reminder digests.
+- **WhatsApp digest is automatic** (`Shell#useDailyWhatsApp`, `reminders.ts#whatsappDigest`): once a day the first time the
+  dashboard is open at/after 9am (an open tab fires at 9), marked in `state.scheduled["whatsapp:<day>"]` + localStorage so
+  tabs don't double-send. Toggle: `settings.alerts.whatsappDaily` (undefined = on) on /followups → Reminders. Before this,
+  only the manual button sent anything, which is why the owner got no texts.
 
 ## Conventions
 
@@ -344,6 +362,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Sheet toolbar: "23 new bank tabs · BNP rebuilt (unsaved) · Undo" (session undo restores the pre-change state and skips those
   banks; after a reload only new tabs can be removed), and "N banks without a tab" with the reasons (`bankTabsSkipped`).
   `check:workbook` runs the whole thing on a workbook and on a simulated first-version save, then checks a second run is a no-op.
+  It runs when the dashboard loads (`Shell` → `refreshBankTabs`, which also re-reads the lists from the stored sheets), on import,
+  **before every save** (`saveWorkbook`), and after applications-tab edits: an earlier version only ran it on import, so a save
+  without a re-import wrote no tabs. There is no permanent skip list: Undo is for now; hiding a bank on /coverage leaves it out.
+  `npm run fix:workbook -- "file.xlsx" [--dry-run]` applies it to a file directly (backup next to it; refuses if Excel has it open).
+  The owner's live file is `~/Downloads/IB Recruiting - Master Spreadsheet (Claude 9-30)_3.xlsx` (saved in place by the dashboard).
 - **Applications → tracked banks:** in an applications list (header with Institution Name + Program Type + Submitted Date /
   Application Status, e.g. "Apps (general)"), a row whose Program Type is a summer analyst / associate / intern program and that
   was submitted (a date that isn't "OOPS"/blank, or a status like pending / in process / rejected / accepted) is read by
@@ -356,6 +379,16 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   "You applied to … but haven't emailed anyone there yet" insight (also in the PE view). Runs on import, and on the grid
   (`SheetGrid` → `actions.ts#syncApplications`, 800 ms after edits stop on an applications tab; it re-reads targets and only
   acts when the firms or applications changed). The store's office-map subscription includes pending patches.
+- **Outreach rules are settings** (`settings.outreach: OutreachRules`, Settings → Outreach rules, `components/OutreachRules.tsx`;
+  defaults = the owner's in `outreach.ts#DEFAULT_OUTREACH_RULES`): your school / grad school / city / school system / state
+  (comma lists, "a+b" = both), hometown (demonym + places), heritage word (read only from the Comment column), volunteer hooks
+  (match / yours / theirs), and which ties make an MD+ OK (`seniorExceptions`). `affinityOf(c, rules)` kinds are generic:
+  volunteer > hometown > heritage > grad / school > city > system > state > standard. Subjects use `profile.schoolNickname`
+  and the group labels ("Fellow Big Ten Student"); `check:outreach` also renders a Michigan / Chicago / Korean profile.
+- **Bank coverage columns = `CoverageRow.stage`:** awaiting (emailed as many people as the cap allows on every desk being
+  applied to; cap = `followUp.livePerBank` per desk, or for the bank with no desks), could_max (emailed someone, room left;
+  card says "1 of 2 emailed. Email X"), not_reached (contacts, none emailed), cold. `slots = {emailed, max}`. `bucket`
+  (reached / ready / cold) still drives the scoreboard.
 - **Private equity** is its own segment: desks never apply to PE (`targetAppliesTo`), /coverage has an "Investment banks | Private
   equity" switch (PE view: no plan, coverage without desks), the sheet tab bar and the contacts list have a firm-type filter
   (`components/useFirmKinds.ts`, tier from the workbook's lists).

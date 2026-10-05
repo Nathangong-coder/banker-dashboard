@@ -212,6 +212,7 @@ type MsgMeta = {
   id: string;
   threadId: string;
   internalDate: string;
+  labelIds?: string[];
   snippet?: string;
   payload?: { headers?: { name: string; value: string }[] };
 };
@@ -241,6 +242,8 @@ export interface SyncResult {
   lastMessageId?: string;
   subject?: string;
   repliedAt?: string;
+  /** The next email queued with Gmail's Schedule send (not sent yet). */
+  scheduledAt?: string;
   /** A delivery-failure notice for our email came back. */
   bouncedAt?: string;
   /** An auto-reply says they've left (follow-ups stop; it isn't a reply). */
@@ -258,13 +261,20 @@ const when = (m: MsgMeta) => Number(m.internalDate);
  * reply, so back-and-forth scheduling emails don't inflate "follow-ups sent".
  */
 export async function syncContact(clientId: string, email: string): Promise<SyncResult> {
-  const [sent, replies, bounces] = await Promise.all([
+  const [sent, replies, bounces, scheduled] = await Promise.all([
     listMessages(clientId, `in:sent to:${email}`, 15),
     listMessages(clientId, `from:${email}`, 5),
     listMessages(clientId, `from:(mailer-daemon OR postmaster) "${email}"`, 2),
+    listMessages(clientId, `in:scheduled to:${email}`, 3),
   ]);
-  const out: SyncResult = { sentCount: sent.length, outreachCount: 0 };
-  const sentMeta = (await Promise.all(sent.map((m) => getMeta(clientId, m.id)))).sort((a, b) => when(a) - when(b));
+  const now = Date.now();
+  // A scheduled send carries its future send time and no SENT label; it isn't "emailed" until it goes out.
+  const sentMeta = (await Promise.all(sent.map((m) => getMeta(clientId, m.id))))
+    .filter((m) => (!m.labelIds || m.labelIds.includes("SENT")) && !m.labelIds?.includes("SCHEDULED") && when(m) <= now)
+    .sort((a, b) => when(a) - when(b));
+  const out: SyncResult = { sentCount: sentMeta.length, outreachCount: 0 };
+  const queued = (await Promise.all(scheduled.map((m) => getMeta(clientId, m.id)))).filter((m) => when(m) > now).sort((a, b) => when(a) - when(b));
+  if (queued.length) out.scheduledAt = new Date(when(queued[0])).toISOString();
   if (!sentMeta.length) {
     if (replies.length) out.repliedAt = new Date(when(await getMeta(clientId, replies[0].id))).toISOString();
     return out;

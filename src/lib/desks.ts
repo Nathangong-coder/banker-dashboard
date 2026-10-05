@@ -90,7 +90,7 @@ export function teamMatches(want: string, have?: string) {
   const h = normTeam(have ?? "").toLowerCase();
   if (!w || !h) return false;
   if (h === w || h.split(/[\s/&,]+/).includes(w)) return true;
-  if (w === "tech") return /\b(tmt|technology|tech)\b/.test(h);
+  if (w === "tech") return /\b(tmt|technology|tech|software|internet|semis|semiconductors?)\b/.test(h);
   if (w === "energy") return /\b(energy|power|utilities|oil|gas|natural resources|renewables?)\b/.test(h);
   if (w === "generalist") return /\b(m&a|generalist)\b/.test(h);
   return false;

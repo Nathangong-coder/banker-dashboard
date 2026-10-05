@@ -6,6 +6,9 @@
  */
 import fs from "node:fs";
 import ExcelJS from "exceljs";
+import { followUpsFromSheet, statusFromSheet } from "../src/lib/workbook";
+import { formatContacted, parseContacted } from "../src/lib/contacted";
+import { teamMatches } from "../src/lib/desks";
 import { allocateRow, applyPatches, buildWorkbook, contactPatches, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, shiftTableRows, splitLocationTeamPatches, syncGridEdits, type Patches } from "../src/lib/workbook";
 import { locationTeamOptions } from "../src/lib/locationTeam";
 
@@ -41,6 +44,63 @@ if (back?.email !== "roundtrip@example.com" || back.status !== "sent") {
   process.exit(1);
 }
 console.log("round-trip OK");
+
+// Send dates live in the Contacted column (added next to Status when missing) and come back on re-import; sheet
+// statuses mean what the owner means by them.
+{
+  const problems: string[] = [];
+  const sample = p.contacts.find((c) => c.ref?.cols.status && c.ref.cols.linkedin);
+  if (sample) {
+    const dated = { ...sample, status: "followed_up" as const, followUps: 1, sentAt: new Date(2026, 8, 17, 16).toISOString(), lastTouchAt: new Date(2026, 8, 25, 19).toISOString() };
+    const queued = p.contacts.find((c) => c.ref?.sheet === sample.ref!.sheet && c.id !== sample.id && c.ref?.cols.status);
+    const sched = queued && { ...queued, status: "drafted" as const, scheduledAt: new Date(2026, 9, 6, 9).toISOString() };
+    const pt = contactPatches([dated, ...(sched ? [sched] : [])], p.snapshots);
+    const back = await parseWorkbook(await buildWorkbook(ab, pt));
+    const d = back.contacts.find((c) => c.id === sample.id);
+    const q = sched && back.contacts.find((c) => c.id === sched.id);
+    const day = (s?: string) => (s ? new Date(s).toDateString() : "-");
+    console.log(`contacted: ${JSON.stringify(pt[sample.ref!.sheet])} → sent ${day(d?.sentAt)} last ${day(d?.lastTouchAt)} f/u ${d?.followUps}${q ? `; scheduled ${q.scheduledAt}` : ""}`);
+    if (day(d?.sentAt) !== day(dated.sentAt) || day(d?.lastTouchAt) !== day(dated.lastTouchAt)) problems.push("dates didn't round-trip");
+    if (d?.followUps !== 1 || d?.status !== "followed_up") problems.push(`follow-ups/status ${d?.followUps}/${d?.status}`);
+    if (q && (q.status !== "drafted" || new Date(q.scheduledAt ?? 0).getTime() !== new Date(sched!.scheduledAt).getTime())) problems.push(`scheduled send ${q.status} ${q.scheduledAt}`);
+    // Writing again changes nothing (dates compared by meaning).
+    const again2 = contactPatches([{ ...d!, ...dated, ref: d!.ref }], back.snapshots);
+    if (again2[sample.ref!.sheet] && Object.keys(again2[sample.ref!.sheet]).some((k) => k.endsWith(`:${d!.ref!.cols.contacted}`))) problems.push("Contacted cell rewritten with the same dates");
+  }
+  const expect: [string, string, number][] = [
+    ["Scheduled", "drafted", 0],
+    ["Call scheduled", "call_scheduled", 0],
+    ["Coffee chat 10/9", "call_scheduled", 0],
+    ["Followed up (2x)", "followed_up", 2],
+    ["Followed up", "followed_up", 1],
+    ["Removed", "ignored", 0],
+    ["Bounced", "ignored", 0],
+    ["Hold - backup", "new", 0],
+    ["Pending", "new", 0],
+  ];
+  for (const [text, status, fu] of expect) if (statusFromSheet(text) !== status || followUpsFromSheet(text) !== fu) problems.push(`"${text}" → ${statusFromSheet(text)}/${followUpsFromSheet(text)}`);
+  const parsed: [string, Partial<Record<"sentAt" | "lastTouchAt" | "scheduledAt", string>>][] = [
+    ["9/17/2026", { sentAt: "Thu Sep 17 2026" }],
+    ["9/17/2026 · last 9/25/2026", { sentAt: "Thu Sep 17 2026", lastTouchAt: "Fri Sep 25 2026" }],
+    ["Scheduled 10/6/2026 9:00 AM", { scheduledAt: "Tue Oct 06 2026 09:00" }],
+    ["2026-09-30", { sentAt: "Wed Sep 30 2026" }],
+    ["Sep 30, 2026", { sentAt: "Wed Sep 30 2026" }],
+  ];
+  for (const [text, want] of parsed) {
+    const got = parseContacted(text);
+    for (const [k, v] of Object.entries(want)) {
+      const d = got[k as keyof typeof got];
+      const shown = d ? (k === "scheduledAt" ? `${new Date(d).toDateString()} ${new Date(d).toTimeString().slice(0, 5)}` : new Date(d).toDateString()) : "-";
+      if (shown !== v) problems.push(`"${text}" ${k} = ${shown}, want ${v}`);
+    }
+  }
+  if (formatContacted({ sentAt: new Date(2026, 8, 17).toISOString(), lastTouchAt: new Date(2026, 8, 25).toISOString() }) !== "9/17/2026 · last 9/25/2026") problems.push("format");
+  if (problems.length) {
+    console.error("CONTACTED FAILED", problems);
+    process.exit(1);
+  }
+  console.log("contacted dates + sheet statuses OK");
+}
 
 // Typing a new person into the grid should create a contact immediately, then pick up the LinkedIn edit.
 const table = p.tables.find((t) => t.cols.name && t.cols.linkedin);
@@ -223,7 +283,7 @@ console.log("location/team split OK");
     .map((x) => `${x.c.name}: "${x.c.position}" → ${x.g!.team} [${x.g!.source}, ${x.g!.confidence}, "${x.g!.match}"]`);
   console.log(sample.join("\n"));
   if (low.length) console.log("lowest-confidence:\n  " + low.slice(0, 10).join("\n  "));
-  const wrong = p.contacts.filter((c) => /\b(tech|technology|tmt|software|internet)\b/i.test(c.position) && !["Tech", "TMT"].includes(teamOf(c)) && !/\b(tech|tmt|technology)\b/i.test(c.team ?? ""));
+  const wrong = p.contacts.filter((c) => /\b(tech|technology|tmt|software|internet)\b/i.test(c.position) && !["Tech", "TMT"].includes(teamOf(c)) && !teamMatches("Tech", c.team));
   if (wrong.length) {
     console.error("TECH TITLES NOT SORTED AS TECH/TMT:", wrong.slice(0, 5).map((c) => `${c.name}: ${c.position} → ${teamOf(c) || "none"} (sheet: ${c.team || "-"})`));
     process.exit(1);

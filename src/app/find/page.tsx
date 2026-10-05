@@ -15,7 +15,7 @@ import { DEFAULT_QUERIES, queryWordCount } from "@/lib/defaults";
 import { bookmarkletHref, captureIsProfile, guessBank, linkedinSearchUrl, parseCapture } from "@/lib/linkedinCapture";
 import { canonBank } from "@/lib/banks";
 import { reconcileTitle } from "@/lib/titles";
-import { seniorSkipReason } from "@/lib/outreach";
+import { rulesOf, seniorSkipReason, type OutreachRules } from "@/lib/outreach";
 
 type Verdict = {
   id: string;
@@ -32,9 +32,9 @@ type Verdict = {
   employer?: string;
 };
 
-/** Outreach rule: VPs and below. MD / Head / Partner only with a UCLA, Anderson or Seattle / Washington tie. */
-const seniorSkip = (p: Prospect) =>
-  seniorSkipReason({ position: p.position || p.title, headline: p.title, school: p.school, comment: p.snippet, location: p.location ?? "", profile: undefined });
+/** Outreach rule: VPs and below. MD / Head / Partner only with one of your senior-exception ties (Settings → Outreach rules). */
+const seniorSkip = (p: Prospect, rules: OutreachRules) =>
+  seniorSkipReason({ position: p.position || p.title, headline: p.title, school: p.school, comment: p.snippet, location: p.location ?? "", profile: undefined }, rules);
 
 export default function FindPage() {
   return (
@@ -204,8 +204,9 @@ function FindInner() {
   };
 
   // Senior people (MD+, no exception) are set aside in their own collapsed list, never deleted.
-  const senior = prospects.filter((p) => seniorSkip(p));
-  const eligible = prospects.filter((p) => !seniorSkip(p));
+  const rules = rulesOf(settings);
+  const senior = prospects.filter((p) => seniorSkip(p, rules));
+  const eligible = prospects.filter((p) => !seniorSkip(p, rules));
   const shown = eligible
     .filter((p) => (tab === "all" ? true : tab === "match" ? p.verdict === "match" : tab === "maybe" ? p.verdict === "maybe" || !p.verdict : p.verdict === "no"))
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
@@ -450,7 +451,7 @@ function FindInner() {
             <details className="border-b border-line px-3 py-2 text-[12.5px]">
               <summary className="cursor-pointer text-ink-2">
                 Senior (skipped) <span className="num text-muted">{senior.length}</span>
-                <span className="ml-1 text-muted">· MD / Head / Partner with no UCLA, Anderson or Washington tie</span>
+                <span className="ml-1 text-muted">· MD / Head / Partner without one of your senior-exception ties</span>
               </summary>
               <ul className="mt-2 space-y-1">
                 {senior.map((p) => (

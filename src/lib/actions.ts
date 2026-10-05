@@ -45,7 +45,7 @@ export async function importFile(file: File, handle?: FileSystemFileHandle, opts
 export type { TabChanges };
 export { describeTabChanges };
 
-type TabUndo = { state: Pick<ReturnType<typeof useStore.getState>, "patches" | "snapshots" | "sheetOps" | "contacts" | "tables">; skip: string[] };
+type TabUndo = { state: Pick<ReturnType<typeof useStore.getState>, "patches" | "snapshots" | "sheetOps" | "contacts" | "tables"> };
 // The state before the last automatic tab change (this session), so Undo can put everything back.
 let tabUndo: TabUndo | null = null;
 
@@ -66,22 +66,22 @@ function listedBanks() {
 export function bankTabsSkipped() {
   const s = useStore.getState();
   if (!s.workbook || !s.snapshots.length) return [];
-  return planBankTabs({ snaps: applyPatches(s.snapshots, s.patches), tables: s.tables, banks: listedBanks(), skip: s.coverage.skipTabs }).skipped;
+  return planBankTabs({ snaps: applyPatches(s.snapshots, s.patches), tables: s.tables, banks: listedBanks() }).skipped;
 }
 
 /**
- * Keep the workbook's bank tabs complete, as pending edits (runs on every import, so banks added in Excel get tabs):
- * ticker names for tabs this app made, malformed bank tabs rebuilt, a tab for every bank on the coverage list, and
- * every bank tab on OVERVIEW (lib/tabChanges.ts). `all` also includes banks whose new tab was undone before.
+ * Keep the workbook's bank tabs complete, as pending edits: ticker names for tabs this app made, malformed bank tabs
+ * rebuilt, a tab for every bank on the coverage list (hide a bank on Bank coverage to leave it out), and every bank tab
+ * on OVERVIEW (lib/tabChanges.ts). Runs when the dashboard loads, on every import, before every save, and after edits
+ * on an applications tab, so a save always writes them.
  */
-export function ensureBankTabs(opts: { all?: boolean } = {}): TabChanges {
+export function ensureBankTabs(): TabChanges {
   const s = useStore.getState();
   if (!s.workbook || !s.snapshots.length) return { added: [], renamed: [], repaired: [], listed: [], coverageRows: [], skipped: [] };
   const before: TabUndo["state"] = { patches: s.patches, snapshots: s.snapshots, sheetOps: s.sheetOps, contacts: s.contacts, tables: s.tables };
   const r = computeTabChanges(
     { snapshots: s.snapshots, patches: s.patches, contacts: s.contacts, tables: s.tables, ops: opsOf(s.sheetOps) },
     listedBanks(),
-    opts.all ? [] : s.coverage.skipTabs,
   );
   if (!r.changed) return r.changes;
   const { snapshots, patches, contacts, tables, ops } = r.state;
@@ -89,7 +89,7 @@ export function ensureBankTabs(opts: { all?: boolean } = {}): TabChanges {
   void blobs.setSnapshots(snapshots);
   if (Object.keys(r.planPatches).length) useStore.getState().applyCellEdits(r.planPatches);
   const c = r.changes;
-  if (c.added.length || c.renamed.length || c.repaired.length || c.listed.length || c.coverageRows.length) tabUndo = { state: before, skip: r.undoSkip };
+  if (c.added.length || c.renamed.length || c.repaired.length || c.listed.length || c.coverageRows.length) tabUndo = { state: before };
   return c;
 }
 
@@ -97,6 +97,18 @@ export function ensureBankTabs(opts: { all?: boolean } = {}): TabChanges {
  * After edits on an applications tab: re-read the firm lists (a newly submitted summer analyst application adds its
  * firm), then keep tabs / OVERVIEW / COVERAGE up to date. Returns what changed (nothing if the lists didn't).
  */
+/**
+ * When the dashboard loads: re-read the firm lists from the stored sheets (older versions stored fewer details) and
+ * make sure every bank has its tab and OVERVIEW row, so nothing depends on remembering to re-import.
+ */
+export function refreshBankTabs(): TabChanges | undefined {
+  const s = useStore.getState();
+  if (!s.workbook || !s.snapshots.length) return undefined;
+  const { targets } = parseSnapshots(applyPatches(s.snapshots, s.patches));
+  useStore.setState({ targets });
+  return ensureBankTabs();
+}
+
 export function syncApplications(): TabChanges | undefined {
   const s = useStore.getState();
   if (!s.workbook || !s.snapshots.length) return undefined;
@@ -109,16 +121,15 @@ export function syncApplications(): TabChanges | undefined {
 }
 
 /**
- * Undo the last automatic tab change (new tabs, renames, rebuilt tabs, OVERVIEW rows): everything goes back to how
- * it was, and those banks don't get new tabs automatically again. After a page reload only new tabs can be removed;
- * re-import the file to discard the rest.
+ * Undo the last automatic tab change (new tabs, renames, rebuilt tabs, OVERVIEW rows) for now. They come back on the
+ * next load / import / save unless the bank is hidden on Bank coverage.
  */
 export function undoBankTabs() {
   const s = useStore.getState();
   if (tabUndo) {
-    const { state, skip } = tabUndo;
+    const { state } = tabUndo;
     tabUndo = null;
-    useStore.setState({ ...state, coverage: { ...s.coverage, skipTabs: [...new Set([...(s.coverage.skipTabs ?? []), ...skip])] }, gridUndo: [] });
+    useStore.setState({ ...state, gridUndo: [] });
     void blobs.setSnapshots(state.snapshots);
     return true;
   }
@@ -133,14 +144,12 @@ export function undoBankTabs() {
     const keep = Object.entries(cells).filter(([k, p]) => !rows.get(sheet)?.has(Number(k.split(":")[0])) && !(p.link && [...gone].some((t) => p.link === tabLink(t))));
     if (keep.length) patches[sheet] = Object.fromEntries(keep);
   }
-  const skipTabs = [...new Set([...(s.coverage.skipTabs ?? []), ...ops.clones.map((c) => canonBank(c.bank))])];
   const snapshots = s.snapshots.filter((x) => !gone.has(x.name));
   useStore.setState({
     snapshots,
     patches,
     tables: parseSnapshots(applyPatches(snapshots, patches)).tables,
     sheetOps: { ...ops, clones: [], rowStyles: [] },
-    coverage: { ...s.coverage, skipTabs },
     gridUndo: [],
   });
   void blobs.setSnapshots(snapshots);
@@ -178,6 +187,8 @@ export async function saveWorkbook(mode: "in-place" | "download") {
   }
   const buf = await blobs.workbook();
   if (!buf) throw new Error("Upload a spreadsheet first.");
+  // Every bank on the lists gets its tab and OVERVIEW row in what's saved, even if nothing triggered the check yet.
+  ensureBankTabs();
   const now = useStore.getState();
   const dropdowns = locationTeamDropdowns(now.tables, locationTeamOptions(now.contacts));
   // New tabs whose content was undone (grid Ctrl+Z) aren't created empty.
@@ -198,7 +209,10 @@ export async function saveWorkbook(mode: "in-place" | "download") {
   await blobs.setWorkbook(out);
   await blobs.setSnapshots(parsed.snapshots);
   const lastModified = mode === "in-place" && handle ? (await readHandle(handle)).file.lastModified : cur.lastModified;
+  // The Status cells as saved are the new baseline too, so a later re-import only treats real outside edits as changes.
+  const savedStatus = new Map(parsed.contacts.map((c) => [c.id, c.sheetStatus]));
   useStore.setState({
+    contacts: useStore.getState().contacts.map((c) => (savedStatus.has(c.id) && savedStatus.get(c.id) !== c.sheetStatus ? { ...c, sheetStatus: savedStatus.get(c.id) } : c)),
     snapshots: parsed.snapshots,
     tables: parsed.tables,
     targets: parsed.targets,

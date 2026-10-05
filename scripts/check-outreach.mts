@@ -126,6 +126,41 @@ for (const [what, ok] of checks) {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
 }
 
+// Someone else's rules (Settings → Outreach rules): a Michigan student from Chicago, Korean heritage, only their own
+// school as a senior exception.
+{
+  const other: Settings = {
+    ...settings,
+    profile: { ...settings.profile, school: "Michigan", schoolNickname: "Wolverine", hometown: "Chicago, IL" },
+    outreach: {
+      school: { match: "University of Michigan, Michigan, Ross, Wolverine" },
+      grad: { name: "", match: "" },
+      city: { label: "Midwest", match: "Notre Dame, Northwestern, UChicago" },
+      system: { label: "Big Ten", match: "Ohio State, Penn State, Wisconsin, Purdue" },
+      state: { label: "Michigan", match: "Michigan State, Wayne State" },
+      hometown: { demonym: "Chicagoan", match: "Chicago, Evanston, Naperville" },
+      heritage: { word: "Korean" },
+      volunteer: [],
+      seniorExceptions: ["school"],
+    },
+  };
+  const subjectFor = (c: Contact) => composeOutreach(c, other).subject;
+  const otherChecks: [string, boolean][] = [
+    ["Michigan alum → Fellow Wolverine", subjectFor(person({ school: "University of Michigan" })) === "Fellow Wolverine Seeking to Connect"],
+    ["Ohio State → Fellow Big Ten Student", subjectFor(person({ school: "Ohio State" })) === "Fellow Big Ten Student Seeking to Connect"],
+    ["'a Big Ten' in the hook", /went to a Big Ten/.test(composeOutreach(person({ school: "Ohio State" }), other).hook)],
+    ["Evanston → Fellow Chicagoan", subjectFor(person({ comment: "grew up in Evanston" })) === "Fellow Chicagoan Seeking to Connect"],
+    ["Korean (notes) → Korean Student", subjectFor(person({ comment: "Korean" })) === "Korean Student Seeking to Connect"],
+    ["UCLA means nothing to them", subjectFor(person({ comment: "UCLA" })) === "Michigan Student Seeking to Connect"],
+    ["MD from Michigan is allowed", !seniorSkipReason(person({ position: "Managing Director", school: "University of Michigan" }), other.outreach)],
+    ["MD from Chicago isn't (not an exception for them)", !!seniorSkipReason(person({ position: "Managing Director", comment: "Evanston" }), other.outreach)],
+  ];
+  for (const [what, ok] of otherChecks) {
+    if (!ok) failed++;
+    console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
+  }
+}
+
 if (failed) {
   console.error(`\n${failed} outreach check(s) failed`);
   process.exit(1);

@@ -13,7 +13,7 @@ import { chunk, cn, pool, uid } from "@/lib/util";
 import { teamOf } from "@/lib/locationTeam";
 import { overCapDesks } from "@/lib/desks";
 import { assignTrial, pickBase, pickVariant, trialTally, usageTally } from "@/lib/experiments";
-import { assignOutreachArms, composeOutreach, emailVerified, leftFirm, seniorSkipReason, sendTimeFor, settleOutreachArms } from "@/lib/outreach";
+import { assignOutreachArms, composeOutreach, emailVerified, leftFirm, rulesOf, seniorSkipReason, sendTimeFor, settleOutreachArms } from "@/lib/outreach";
 import { autoHook, hookFor, hooksOf } from "@/lib/hooks";
 import { HooksCard } from "@/components/Hooks";
 import { REQUIRED_FACTS, guessSchool, missingFacts } from "@/lib/template";
@@ -107,9 +107,9 @@ function DraftsInner() {
         `${unverified.length} skipped: no verified email (${unverified.slice(0, 3).map((c) => c.firstName || c.name).join(", ")}${unverified.length > 3 ? "…" : ""}). Enrich them, or add an address you've confirmed.`,
       );
     if (!list.length) return toast.err(skip.size || unverified.length ? "Nothing left to draft." : "Select contacts first.");
-    const senior = list.filter((c) => seniorSkipReason(c));
+    const senior = list.filter((c) => seniorSkipReason(c, rulesOf(settings)));
     if (senior.length)
-      toast.info(`Heads up: ${senior.map((c) => c.name).join(", ")} ${senior.length > 1 ? "are" : "is"} MD / Head / Partner with no UCLA or Washington tie. The rule is VPs and below.`);
+      toast.info(`Heads up: ${senior.map((c) => c.name).join(", ")} ${senior.length > 1 ? "are" : "is"} MD / Head / Partner with none of your senior-exception ties (Settings → Outreach rules). The rule is VPs and below.`);
     // Templates like "Non-target school" can't be written without a fact (their university): ask instead of guessing.
     const latest = useStore.getState().contacts;
     const blocked = list
@@ -541,14 +541,15 @@ function DraftsInner() {
 
 /** Outreach-rule checks for one row: seniority, left the firm, unverified email, when to send. */
 function RowChecks({ c, onLeft }: { c: Contact; onLeft: (employer: string) => void }) {
-  const senior = seniorSkipReason(c);
+  const rules = useStore((s) => s.settings.outreach);
+  const senior = seniorSkipReason(c, rules);
   const left = leftFirm(c);
   const verified = emailVerified(c);
   const send = sendTimeFor(c);
   return (
     <div className="mt-0.5 space-y-0.5 text-[11.5px]">
       {senior && (
-        <div className="text-amber" title="Rule: only VPs and below, unless they went to UCLA / Anderson or are from Seattle / Washington.">
+        <div className="text-amber" title="Rule: only VPs and below, unless they share one of your senior-exception ties (Settings → Outreach rules).">
           Senior: {senior}
         </div>
       )}

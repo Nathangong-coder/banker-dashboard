@@ -2,6 +2,9 @@
 
 ## 1. Real 9am "what's due today" WhatsApp ping (Vercel Cron) — requested, not built yet
 
+**Built so far (10/2026):** the browser sends the WhatsApp digest itself (`Shell#useDailyWhatsApp`), once a day the first
+time the dashboard is open at/after 9am. A day the dashboard is never opened gets no text; that's what this item fixes.
+
 **Goal:** every morning around 9am (user's timezone) a WhatsApp message lists who to follow up with today, even if the
 dashboard isn't open. Only the ping is wanted, not pre-scheduled "planned" messages (ntfy/Twilio scheduling can be
 demoted in the UI once this ships).

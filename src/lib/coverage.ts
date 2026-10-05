@@ -8,6 +8,13 @@ import { applyNote } from "./offices";
 
 export type Bucket = "reached" | "ready" | "cold" | "hidden";
 
+/**
+ * The four columns on Bank coverage. Reached banks split by whether there's room to email more people:
+ * awaiting = as many people emailed as the cap allows (on every desk you're applying to), could_max = room left
+ * (e.g. 1 of 2), not_reached = contacts but nobody emailed, cold = no contacts.
+ */
+export type Stage = "awaiting" | "could_max" | "not_reached" | "cold";
+
 export interface CoverageRow {
   key: string;
   name: string;
@@ -39,6 +46,10 @@ export interface CoverageRow {
   offices: { all: string[]; picked: string[]; cap: number; note?: string };
   /** Submitted summer analyst applications to this firm (from the applications tab). */
   applied?: Application[];
+  /** Which of the four columns it's in (hidden banks keep the stage they'd have). */
+  stage: Stage;
+  /** People emailed vs. how many the cap allows here (cap × desks being applied to; just the cap with no desks). */
+  slots: { emailed: number; max: number };
 }
 
 export type CoverageSettings = {
@@ -50,8 +61,6 @@ export type CoverageSettings = {
   officesPerBank?: number;
   /** Offices picked by hand per bank (canonBank key → ["SF", "NY"]); otherwise picked automatically. */
   officePick?: Record<string, string[]>;
-  /** Banks whose auto-created tab was undone: not created again automatically (canonBank keys). */
-  skipTabs?: string[];
 };
 
 const REACHED = new Set(["sent", "followed_up", "replied", "call_scheduled", "done"]);
@@ -86,6 +95,7 @@ export function buildCoverage(args: {
         key, name, tier, bucket: "cold", contacts: [], allContacts: [], all: { reached: 0, contacts: 0 }, reached: 0, replied: 0, live: 0, withEmail: 0,
         regions: { SF: 0, LA: 0, NY: 0, CHI: 0, Other: 0 }, due: 0, quiet: false, desks: [], notOffered: false,
         offices: { all: [], picked: [], cap: DEFAULT_OFFICES_PER_BANK },
+        stage: "cold", slots: { emailed: 0, max: 0 },
       };
       rows.set(key, r);
     }
@@ -138,6 +148,14 @@ export function buildCoverage(args: {
     r.notOffered = r.desks.length > 0 && r.desks.every((d) => d.state === "not_offered" || d.state === "not_applying");
     const working = r.contacts.filter((c) => c.status !== "ignored");
     r.bucket = hidden.has(r.key) ? "hidden" : r.reached > 0 ? "reached" : working.length > 0 ? "ready" : "cold";
+    // Room to email more? Per desk being applied to when desks are checked (the cap is per desk), else for the bank.
+    const perDesk = Math.max(1, followUp.livePerBank);
+    const open = r.desks.filter((d) => d.state !== "not_offered" && d.state !== "not_applying");
+    const emailedOn = (people: Contact[]) => people.filter(wasReached).length;
+    r.slots = open.length
+      ? { emailed: open.reduce((n, d) => n + Math.min(perDesk, emailedOn(d.people)), 0), max: perDesk * open.length }
+      : { emailed: Math.min(r.reached, perDesk), max: perDesk };
+    r.stage = r.reached > 0 ? (r.slots.emailed >= r.slots.max ? "awaiting" : "could_max") : working.length > 0 ? "not_reached" : "cold";
     out.push(r);
   }
   return out;

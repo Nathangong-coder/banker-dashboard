@@ -10,11 +10,11 @@ import { connectGmail, createDraft } from "@/lib/gmail";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
-import { digestText, upcomingDigests } from "@/lib/reminders";
+import { digestText, upcomingDigests, whatsappDigest } from "@/lib/reminders";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Empty, Field, Input, PageHeader, Progress, Select, StatusBadge, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, PageHeader, Progress, Select, StatusBadge, toast } from "@/components/ui";
 import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
@@ -161,15 +161,21 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
   const { contacts, banks, settings } = useStore();
   const act = useActions();
   const [busy, setBusy] = useState<string | null>(null);
-  const { due, upcoming } = useMemo(() => {
+  const { due, upcoming, scheduled, unknown } = useMemo(() => {
     const all = contacts
       .map((c) => ({ c, a: nextAction(c, settings.followUp, banks[bankKey(c.bank, c.region)]) }))
-      .filter(({ a }) => ["follow_up", "move_on", "send"].includes(a.kind));
+      .filter(({ a }) => ["follow_up", "move_on", "send", "scheduled"].includes(a.kind));
     const sorted = all.sort((x, y) => (x.a.due?.getTime() ?? 0) - (y.a.due?.getTime() ?? 0));
-    return { due: sorted.filter((x) => x.a.isDue), upcoming: sorted.filter((x) => !x.a.isDue).slice(0, 15) };
+    const dated = sorted.filter((x) => !x.a.unknownDate && x.a.kind !== "scheduled");
+    return {
+      due: dated.filter((x) => x.a.isDue),
+      upcoming: dated.filter((x) => !x.a.isDue).slice(0, 15),
+      scheduled: sorted.filter((x) => x.a.kind === "scheduled"),
+      unknown: sorted.filter((x) => x.a.unknownDate).length,
+    };
   }, [contacts, banks, settings.followUp]);
 
-  if (!due.length && !upcoming.length)
+  if (!due.length && !upcoming.length && !scheduled.length && !unknown)
     return (
       <Card>
         <Empty icon={<Check className="size-6" />} title="No follow-ups pending">
@@ -178,15 +184,14 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
       </Card>
     );
 
-  const unknown = due.filter(({ a }) => a.unknownDate).length;
-
   return (
     <div className="space-y-6">
       {unknown > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber/30 bg-amber-soft/50 px-4 py-3 text-[13px]">
           <span className="flex-1">
-            <b>{unknown}</b> contact{unknown > 1 ? "s are" : " is"} marked sent without a date. Gmail can fill in when you actually emailed them,
-            how many follow-ups went out, and whether they replied.
+            <b>{unknown}</b> contact{unknown > 1 ? "s are" : " is"} marked sent without a date, so {unknown > 1 ? "they aren't" : "it isn't"} timed
+            yet. Gmail can fill in when you actually emailed them, how many follow-ups went out, and whether they replied (the
+            dates are saved to the sheet&apos;s Contacted column).
           </span>
           <Button size="sm" variant="primary" loading={syncing} onClick={onSync}>
             Fill in from Gmail
@@ -254,6 +259,22 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
         )}
       </Card>
 
+      {scheduled.length > 0 && (
+        <Card>
+          <CardHeader title={`Scheduled in Gmail · ${scheduled.length}`} sub="Queued with Schedule send. Follow-ups are timed from when each one actually goes out." />
+          <ul className="max-h-[320px] divide-y divide-line overflow-y-auto">
+            {scheduled.map(({ c, a }) => (
+              <li key={c.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
+                <button onClick={() => onOpen(c)} className="flex-1 text-left hover:underline">
+                  {c.name} <span className="text-muted">· {c.bank}</span>
+                </button>
+                <span className="num text-ink-2">{a.label.replace(/^.*scheduled · /, "")}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {upcoming.length > 0 && (
         <Card>
           <CardHeader title="Coming up" />
@@ -312,7 +333,7 @@ function BankerTable({ onOpen }: { onOpen: (c: Contact) => void }) {
                     <td className="px-2 py-2">
                       <StatusBadge status={c.status} />
                     </td>
-                    <td className="num px-2 py-2 text-right text-[12px]">{fmtDate(c.sentAt)}</td>
+                    <td className="num px-2 py-2 text-right text-[12px]">{c.sentAt ? fmtDate(c.sentAt) : c.scheduledAt ? <span className="text-muted">sched. {fmtDate(c.scheduledAt)}</span> : "—"}</td>
                     <td className="num px-2 py-2 text-right text-[12px]">{fmtDate(c.lastTouchAt)}</td>
                     <td className="num px-2 py-2 text-right text-[12px]">{c.followUps}</td>
                     <td className="px-4 py-2 text-[12px]">
@@ -461,7 +482,7 @@ function confirmMoveOn(bank: string, n: number) {
 }
 
 function Reminders() {
-  const { contacts, banks, settings, scheduled, markScheduled } = useStore();
+  const { contacts, banks, settings, scheduled, markScheduled, setSettings } = useStore();
   const k = settings.keys;
   const [busy, setBusy] = useState<string | null>(null);
   const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
@@ -510,7 +531,8 @@ function Reminders() {
   const test = async (channel: "ntfy" | "twilio" | "whatsapp") => {
     setBusy(`test-${channel}`);
     try {
-      await send(channel, todayDigest ? digestText(todayDigest) : "Test from your networking dashboard ✔", undefined, "Coverage test");
+      const wa = channel === "whatsapp" ? whatsappDigest(contacts, banks, settings.followUp) : null;
+      await send(channel, wa?.text ?? (todayDigest ? digestText(todayDigest) : "Test from your networking dashboard ✔ (nothing due today)"), undefined, wa ? "Follow-ups due" : "Coverage test");
       toast.ok("Sent. Check your phone.");
     } catch (e) {
       toast.err((e as Error).message);
@@ -619,14 +641,24 @@ function Reminders() {
         <Card>
           <CardHeader
             title="WhatsApp (CallMeBot)"
-            sub="Free. Sends today's list to your own WhatsApp right now. It can't schedule, so pair it with ntfy or the calendar."
+            sub="Free. Today's list goes to your own WhatsApp once a day, the first time the dashboard is open after 9am. CallMeBot can't schedule and there's no server yet, so a day you don't open the dashboard gets no text: pair it with ntfy or the calendar."
             right={<MessageSquare className="size-4 text-muted" />}
           />
-          <div className="flex flex-wrap items-center gap-2 p-4">
+          <div className="flex flex-wrap items-center gap-3 p-4">
             {whatsappReady ? (
-              <Button size="sm" loading={busy === "test-whatsapp"} onClick={() => test("whatsapp")}>
-                WhatsApp me today’s list
-              </Button>
+              <>
+                <label className="flex items-center gap-1.5 text-[12.5px]">
+                  <Checkbox
+                    checked={settings.alerts?.whatsappDaily !== false}
+                    onChange={(on) => setSettings((x) => ({ ...x, alerts: { ...x.alerts, whatsappDaily: on } }))}
+                  />
+                  Send automatically each day
+                </label>
+                {scheduled[`whatsapp:${new Date().toLocaleDateString("en-CA")}`] && <Badge tone="green">sent today</Badge>}
+                <Button size="sm" loading={busy === "test-whatsapp"} onClick={() => test("whatsapp")}>
+                  WhatsApp me today’s list
+                </Button>
+              </>
             ) : (
               <SetupHint text="Message +34 694 23 41 84 on WhatsApp: “I allow callmebot to send me messages”, then paste the API key it replies with into Settings." />
             )}

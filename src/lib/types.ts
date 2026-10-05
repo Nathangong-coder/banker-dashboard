@@ -47,7 +47,9 @@ export type ContactField =
   | "linkedin"
   | "status"
   | "comment"
-  | "company";
+  | "company"
+  /** When they were emailed (lib/contacted.ts). */
+  | "contacted";
 
 export interface HistoryEvent {
   at: string;
@@ -86,6 +88,8 @@ export interface Contact {
   draft?: { subject: string; body: string; gmailDraftId?: string; createdAt: string };
   sentAt?: string;
   lastTouchAt?: string;
+  /** A send queued in Gmail ("Schedule send") that hasn't gone out yet. Follow-ups are timed from the real send. */
+  scheduledAt?: string;
   followUps: number;
   repliedAt?: string;
   threadId?: string;
@@ -281,6 +285,10 @@ export interface Settings {
   hooks: EmailHook[];
   /** Self-run experiments (Email lab), e.g. which font gets more replies. */
   experiments: Experiment[];
+  /** Who you have in common with people (your school, city, hometown, heritage, volunteering) and the senior exceptions. */
+  outreach: import("./outreach").OutreachRules;
+  /** Automatic reminders. `whatsappDaily` undefined = on once WhatsApp is connected. */
+  alerts?: { whatsappDaily?: boolean };
 }
 
 export interface Prospect {

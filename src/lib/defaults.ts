@@ -1,6 +1,6 @@
 import type { EmailBase, Settings, Template } from "./types";
 import { DEFAULT_HOOKS } from "./hooks";
-import { OUTREACH_EXPERIMENTS } from "./outreach";
+import { DEFAULT_OUTREACH_RULES, OUTREACH_EXPERIMENTS } from "./outreach";
 
 const CRITERIA_GROUPS = `1) ROLE: Works in investment banking at the target bank, in a Technology coverage group (Tech / TMT / Technology, Media & Telecom) anywhere, OR is a Generalist banker based in New York. EXCLUDE anyone in a Healthcare group.
 
@@ -162,6 +162,7 @@ export const DEFAULT_SETTINGS: Settings = {
   emailBases: DEFAULT_BASES,
   hooks: DEFAULT_HOOKS,
   experiments: OUTREACH_EXPERIMENTS,
+  outreach: DEFAULT_OUTREACH_RULES,
 };
 
 /*

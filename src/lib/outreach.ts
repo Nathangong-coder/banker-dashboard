@@ -15,36 +15,88 @@ import { canonBank } from "./banks";
 import { hookFor } from "./hooks";
 import { currentTitle } from "./titles";
 
-/* ---------------- affinity ---------------- */
+/* ---------------- affinity (your own rules: Settings → Outreach rules) ---------------- */
 
-export type Affinity = "volunteer" | "washington" | "chinese" | "ucla" | "anderson" | "la" | "uc" | "california" | "standard";
-export type School = "ucla" | "anderson" | "la" | "uc" | "california";
+/**
+ * What you might have in common with someone, in priority order: a volunteer activity > hometown > heritage > your
+ * school / grad school > schools in your city > your school system > your state > nothing (standard).
+ */
+export type Affinity = "volunteer" | "hometown" | "heritage" | "school" | "grad" | "city" | "system" | "state" | "standard";
+export type SchoolGroup = "school" | "grad" | "city" | "system" | "state";
 
-const SCHOOLS: [School, RegExp][] = [
-  ["anderson", /\bucla anderson\b|\banderson school\b|\banderson (?:grad|mba)\b/i],
-  ["ucla", /\bucla\b|\buniversity of california,? los angeles\b|\bbruins?\b/i],
-  ["la", /\busc\b|\buniversity of southern california\b|\blmu\b|\bloyola marymount\b|\boccidental\b|\bcal state (?:la|los angeles|long beach|northridge)\b|\bcsulb\b|\bcsun\b/i],
-  ["uc", /\buc ?berkeley\b|\bberke?ley\b|\bucsd\b|\buc san diego\b|\buci\b|\buc irvine\b|\buc davis\b|\bucsb\b|\buc santa barbara\b|\bucsc\b|\buc santa cruz\b|\bucr\b|\buc riverside\b|\buc merced\b|\buniversity of california\b/i],
-  ["california", /\bstanford\b|\bsanta clara\b|\bpepperdine\b|\bcaltech\b|\bclaremont\b|\bpomona college\b|\bharvey mudd\b|\buniversity of san francisco\b|\busf\b|\bsan diego state\b|\bsdsu\b|\bsan jose state\b|\bcal poly\b|\bchapman\b|\buniversity of san diego\b/i],
-];
-const SCHOOL_NAME: Record<School, RegExp> = {
-  anderson: /UCLA Anderson[\w ]*/,
-  ucla: /UCLA|University of California,? Los Angeles/i,
-  la: /University of Southern California|USC|Loyola Marymount University|LMU|Occidental College|Cal State [A-Z][a-z]+(?: [A-Z][a-z]+)?/,
-  uc: /UC [A-Z][a-z]+(?: [A-Z][a-z]+)?|University of California,? [A-Z][a-z]+(?: [A-Z][a-z]+)?|UCSD|UCSB|UCI|UCSC|Berkeley/,
-  california: /Stanford University|Santa Clara University|Pepperdine University|Caltech|Claremont McKenna|Pomona College|Harvey Mudd|University of San Francisco|San Diego State|San Jose State|Cal Poly|Chapman University|University of San Diego/,
+/** Comma-separated words or phrases; "a+b" means both must appear. */
+export type MatchList = string;
+
+export interface OutreachRules {
+  /** Your undergrad, as people write it (the subject uses Settings → Profile → school nickname, e.g. "Fellow Bruin"). */
+  school: { match: MatchList };
+  /** Your grad / business school, if any ("Anderson" → "a fellow Bruin from Anderson"). */
+  grad: { name: string; match: MatchList };
+  /** Other schools in your city ("Fellow LA Student", "went to school in LA"). */
+  city: { label: string; match: MatchList };
+  /** Your school system ("Fellow UC Student", "went to a UC"). */
+  system: { label: string; match: MatchList };
+  /** Other schools in your state ("Fellow California Student"). */
+  state: { label: string; match: MatchList };
+  /** Where you're from: schools and towns there ("Fellow Washingtonian"; the hook uses Settings → Profile → hometown). */
+  hometown: { demonym: string; match: MatchList };
+  /** A heritage you share, read only from your own notes (Comment column), never guessed from a name. Empty = off. */
+  heritage: { word: string };
+  /** Volunteer experiences of yours that make a hook when their profile mentions the same thing. */
+  volunteer: { match: MatchList; mine: string; theirs: string }[];
+  /** Ties that make an MD / Head / Partner OK to email (otherwise the rule is VPs and below). */
+  seniorExceptions: ("school" | "grad" | "hometown" | "heritage" | "city" | "system" | "state")[];
+}
+
+/** The owner's rules (docs/outreach-rules.md): UCLA, Anderson, LA schools, the UCs, California, Seattle / Washington. */
+export const DEFAULT_OUTREACH_RULES: OutreachRules = {
+  school: { match: "UCLA, University of California Los Angeles, University of California, Los Angeles, Bruin, Bruins" },
+  grad: { name: "Anderson", match: "UCLA Anderson, Anderson School, Anderson grad, Anderson MBA" },
+  city: {
+    label: "LA",
+    match: "USC, University of Southern California, LMU, Loyola Marymount, Occidental, Cal State LA, Cal State Los Angeles, Cal State Long Beach, Cal State Northridge, CSULB, CSUN",
+  },
+  system: {
+    label: "UC",
+    match: "UC Berkeley, Berkeley, Berkley, UCSD, UC San Diego, UCI, UC Irvine, UC Davis, UCSB, UC Santa Barbara, UCSC, UC Santa Cruz, UCR, UC Riverside, UC Merced, University of California",
+  },
+  state: {
+    label: "California",
+    match: "Stanford, Santa Clara, Pepperdine, Caltech, Claremont, Pomona College, Harvey Mudd, University of San Francisco, USF, San Diego State, SDSU, San Jose State, Cal Poly, Chapman, University of San Diego",
+  },
+  hometown: {
+    demonym: "Washingtonian",
+    match: "University of Washington, Washington State University, Washington State, Seattle, Bellevue, Redmond, Kirkland, Tacoma, Spokane, Gonzaga",
+  },
+  heritage: { word: "Chinese" },
+  volunteer: [
+    { match: "tutor+volunteer, tutoring+volunteer", mine: "tutoring SAT math to underprivileged children", theirs: "volunteer tutoring experience" },
+    { match: "soup kitchen", mine: "working at a soup kitchen", theirs: "volunteer experience" },
+  ],
+  seniorExceptions: ["school", "grad", "hometown"],
 };
-const WA = /\buniversity of washington\b|\bwashington state university\b|\bseattle\b|\bbellevue\b|\bredmond\b|\bkirkland\b|\btacoma\b|\bspokane\b|\bgonzaga\b|\bseattle (?:pacific )?university\b|\b(?:wa|washington) state\b/i;
-const WA_SCHOOL = /University of Washington|Washington State University|Seattle University|Seattle Pacific University|Gonzaga University|[A-Z][A-Za-z.' ]{2,40} High School/;
+
+export const rulesOf = (s?: Pick<Settings, "outreach">): OutreachRules => s?.outreach ?? DEFAULT_OUTREACH_RULES;
+
+const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+/** The first phrase of the list found in the text (as written there), or undefined. "a+b" needs both parts. */
+export function findMatch(list: MatchList, text: string): string | undefined {
+  for (const phrase of list.split(",").map((x) => x.trim()).filter(Boolean)) {
+    const parts = phrase.split("+").map((x) => x.trim()).filter(Boolean);
+    const hits = parts.map((part) => text.match(new RegExp(`\\b${escape(part)}\\b`, "i"))?.[0]);
+    if (hits.length && hits.every(Boolean)) return hits[0];
+  }
+  return undefined;
+}
 
 export interface AffinityInfo {
   kind: Affinity;
-  /** The shared-school group, kept for the Chinese subject line ("Fellow Chinese Bruin") and E4. */
-  school?: School;
-  /** Their school's name as written, for "{UC school}" / "{WA school}". Empty = the AI fills it from the profile. */
+  /** The shared-school group, kept for the heritage subject line ("Fellow Chinese Bruin") and E4. */
+  school?: SchoolGroup;
+  /** Their school's name as written, for "your time at {school}" / "graduated from {school}". Empty = the AI fills it. */
   schoolName?: string;
-  chinese: boolean;
-  volunteer?: "tutoring" | "soup_kitchen";
+  heritage: boolean;
+  volunteer?: OutreachRules["volunteer"][number];
   /** They volunteer in some other way: no hook, flag it for the owner. */
   volunteerOther?: boolean;
 }
@@ -59,22 +111,37 @@ function evidence(c: Pick<Contact, "school" | "comment" | "headline" | "profile"
   };
 }
 
+const looksLikeSchool = (t: string) => /\b(university|college|school|institute)\b/i.test(t);
+
 /**
- * Pick the hook (priority: volunteer > Washington > Chinese > UCLA/Anderson > USC & LA schools > other UC > other
- * California > standard). Seattle/WA people get the WA hook, never the Chinese one. "Chinese" is only ever taken from
- * the owner's own notes (the Comment column), never guessed from a name.
+ * Pick the hook by the rules' priority. Hometown people get the hometown hook, never the heritage one. Heritage is only
+ * ever taken from the owner's own notes (the Comment column), never guessed from a name.
  */
-export function affinityOf(c: Pick<Contact, "school" | "comment" | "headline" | "profile">): AffinityInfo {
+export function affinityOf(c: Pick<Contact, "school" | "comment" | "headline" | "profile">, rules: OutreachRules = DEFAULT_OUTREACH_RULES): AffinityInfo {
   const ev = evidence(c);
-  const school = SCHOOLS.find(([, re]) => re.test(ev.education))?.[0];
-  const schoolName = school ? (ev.education.match(SCHOOL_NAME[school])?.[0]?.trim() ?? "") : undefined;
-  const chinese = /\bchinese\b/i.test(c.comment ?? "");
-  const volunteer = /\btutor(?:ing|ed)?\b/i.test(ev.all) && /\bvolunteer/i.test(ev.all) ? "tutoring" : /\bsoup kitchen\b/i.test(ev.all) ? "soup_kitchen" : undefined;
+  const groups: SchoolGroup[] = ["grad", "school", "city", "system", "state"];
+  let school: SchoolGroup | undefined;
+  let schoolName: string | undefined;
+  for (const g of groups) {
+    const hit = findMatch(rules[g].match, ev.education);
+    if (hit) {
+      school = g;
+      schoolName = hit;
+      break;
+    }
+  }
+  const word = rules.heritage.word.trim();
+  const heritage = !!word && new RegExp(`\\b${escape(word)}\\b`, "i").test(c.comment ?? "");
+  const volunteer = rules.volunteer.find((v) => v.mine.trim() && findMatch(v.match, ev.all));
   const volunteerOther = !volunteer && /\bvolunteer(?:ing|ed)?\b/i.test(ev.all);
-  const base = { school, schoolName, chinese, volunteerOther };
+  const base = { school, schoolName, heritage, volunteerOther };
   if (volunteer) return { ...base, kind: "volunteer", volunteer };
-  if (WA.test(ev.all)) return { ...base, kind: "washington", schoolName: ev.all.match(WA_SCHOOL)?.[0]?.trim() ?? "" };
-  if (chinese) return { ...base, kind: "chinese" };
+  const home = findMatch(rules.hometown.match, ev.all);
+  if (home) {
+    const named = ev.all.match(/[A-Z][A-Za-z.' ]{2,40} High School/)?.[0];
+    return { ...base, kind: "hometown", schoolName: looksLikeSchool(home) ? home : (named?.trim() ?? "") };
+  }
+  if (heritage) return { ...base, kind: "heritage" };
   return { ...base, kind: school ?? "standard" };
 }
 
@@ -96,19 +163,33 @@ export function isSeniorWording(title: string | undefined): boolean {
   return isTopSenior(title) || ["Vice President", "Senior Vice President", "Director", "Executive Director", "Associate Director", "Principal", "Managing Director", "Partner"].includes(t ?? "");
 }
 
-/** The exception that lets an MD+ be emailed: UCLA / UCLA Anderson, or Seattle / Washington. */
-export function seniorException(c: Pick<Contact, "school" | "comment" | "headline" | "profile" | "location">): string | undefined {
-  const a = affinityOf(c);
-  if (a.school === "ucla" || a.school === "anderson") return a.school === "anderson" ? "UCLA Anderson" : "UCLA";
-  if (a.kind === "washington" || /\b(seattle|washington state|wa)\b/i.test(c.location ?? "")) return "Seattle / Washington";
+const TIE_LABEL: Record<OutreachRules["seniorExceptions"][number], (r: OutreachRules) => string> = {
+  school: () => "your school",
+  grad: (r) => r.grad.name || "your grad school",
+  hometown: (r) => r.hometown.demonym || "your hometown",
+  heritage: (r) => r.heritage.word || "heritage",
+  city: (r) => `${r.city.label} schools`,
+  system: (r) => `${r.system.label} schools`,
+  state: (r) => `${r.state.label} schools`,
+};
+
+/** The tie that lets an MD+ be emailed (Settings → Outreach rules → senior exceptions), or undefined. */
+export function seniorException(c: Pick<Contact, "school" | "comment" | "headline" | "profile" | "location">, rules: OutreachRules = DEFAULT_OUTREACH_RULES): string | undefined {
+  const a = affinityOf(c, rules);
+  const ok = new Set(rules.seniorExceptions);
+  if (a.school && ok.has(a.school)) return a.schoolName || TIE_LABEL[a.school](rules);
+  if (ok.has("hometown") && (a.kind === "hometown" || findMatch(rules.hometown.match, c.location ?? ""))) return TIE_LABEL.hometown(rules);
+  if (ok.has("heritage") && a.heritage) return TIE_LABEL.heritage(rules);
   return undefined;
 }
 
 /** Why an MD+ shouldn't be emailed (undefined = fine). */
-export function seniorSkipReason(c: Pick<Contact, "position" | "headline" | "school" | "comment" | "profile" | "location">): string | undefined {
+export function seniorSkipReason(c: Pick<Contact, "position" | "headline" | "school" | "comment" | "profile" | "location">, rules: OutreachRules = DEFAULT_OUTREACH_RULES): string | undefined {
   const title = c.position || c.headline;
   if (!isTopSenior(title)) return undefined;
-  return seniorException(c) ? undefined : `${title} (MD / Head / Partner, no UCLA or Washington tie)`;
+  if (seniorException(c, rules)) return undefined;
+  const ties = rules.seniorExceptions.map((t) => TIE_LABEL[t](rules)).join(" / ");
+  return `${title} (MD / Head / Partner${ties ? `, no ${ties} tie` : ""})`;
 }
 
 /* ---------------- experiments ---------------- */
@@ -180,7 +261,8 @@ export function pickWeighted<T extends { id: string; weight?: number }>(arms: T[
 
 /* ---------------- composing the email ---------------- */
 
-const BRUIN_UC_LA = new Set<Affinity>(["ucla", "anderson", "la", "uc"]);
+/** School ties that get the "shaped that journey" line (E4). */
+const JOURNEY = new Set<Affinity>(["school", "grad", "city", "system"]);
 
 /** The "{X} to {Y}" career-path fact, written by the AI from the captured LinkedIn Experience section only. */
 const PATH =
@@ -192,6 +274,9 @@ export function emailBankName(c: Pick<Contact, "bank" | "position" | "team">): s
   if (k === "greenhill" || (k === "mizuho" && /\bM&A\b/.test(`${c.position} ${c.team ?? ""}`))) return "Greenhill-Mizuho";
   return c.bank;
 }
+
+/** "a UC", "an SEC school", "an Ivy": acronyms go by how the first letter is said, words by their first letter. */
+const article = (w: string) => (/^[A-Z]{2,}\b/.test(w) ? (/^[AEFHILMNORSX]/.test(w) ? "an" : "a") : /^[aeiou]/i.test(w) ? "an" : "a");
 
 export interface OutreachPlan {
   affinity: AffinityInfo;
@@ -209,14 +294,15 @@ export interface OutreachPlan {
 }
 
 /**
- * Build paragraph 2 + 3 for a first email from the contact and the experiment arms already assigned to them
- * (`c.trial.arms`; missing arms use the majority arm). Arms that couldn't apply are corrected, e.g. E1-A on a
- * two-hook email becomes E1-B, so results reflect what was really sent.
+ * Build paragraph 2 + 3 for a first email from the contact, your outreach rules, and the experiment arms already
+ * assigned to them (`c.trial.arms`; missing arms use the majority arm). Arms that couldn't apply are corrected, e.g.
+ * E1-A on a two-hook email becomes E1-B, so results reflect what was really sent.
  */
 export function composeOutreach(c: Contact, s: Settings): OutreachPlan {
   const X = OUTREACH_EXPERIMENT_IDS;
+  const rules = rulesOf(s);
   const want = c.trial?.arms ?? {};
-  const a = affinityOf(c);
+  const a = affinityOf(c, rules);
   const flags: string[] = [];
   const tailoredOk = !!c.profile?.text?.trim();
   // Paragraph 1's tech hook comes from the Hooks (Tech/TMT/software teams); a volunteer email carries only the volunteer hook.
@@ -224,67 +310,69 @@ export function composeOutreach(c: Contact, s: Settings): OutreachPlan {
   const senior = isSeniorWording(c.position);
   const arms: Record<string, string> = {};
   const p = s.profile;
-  const my = { school: p.school || "UCLA", nick: p.schoolNickname || "Bruin", home: p.hometown || "Seattle, WA" };
+  const my = { school: p.school || "my school", nick: p.schoolNickname || `${p.school || "school"} student`, home: p.hometown || "my hometown" };
   const bank = emailBankName(c);
+  const own = (k?: SchoolGroup) => k === "school" || k === "grad";
 
   // E3: tailored only with a verified path fact (a captured profile); otherwise it's the template wording, untagged.
   const tailored = tailoredOk && (want[X.tailored] ?? "tailored") === "tailored";
-  if (tailoredOk && !["volunteer", "washington"].includes(a.kind) && !senior) arms[X.tailored] = tailored ? "tailored" : "template";
+  if (tailoredOk && !["volunteer", "hometown"].includes(a.kind) && !senior) arms[X.tailored] = tailored ? "tailored" : "template";
   if (!tailoredOk) flags.push("No LinkedIn profile captured: the template hook was used. Capture their profile to write a career-path hook.");
-  if (a.volunteerOther) flags.push("Their profile mentions volunteering (not tutoring / a soup kitchen): no volunteer hook. Worth a look.");
+  if (a.volunteerOther) flags.push("Their profile mentions volunteering (none of your volunteer hooks match): no volunteer hook. Worth a look.");
 
-  const schoolLabel = a.school === "uc" ? a.schoolName || "[[AI: the UC campus they attended, from the facts]]" : a.schoolName || "[[AI: the LA school they attended, from the facts]]";
-  const journeyA = tailored && BRUIN_UC_LA.has(a.kind) && !senior && (want[X.journey] ?? "A") === "A";
-  if (tailored && BRUIN_UC_LA.has(a.kind) && !senior) arms[X.journey] = journeyA ? "A" : "B";
+  const theirSchool = (label: string) => a.schoolName || `[[AI: the ${label} school they attended, from the facts]]`;
+  const journeyA = tailored && JOURNEY.has(a.kind) && !senior && (want[X.journey] ?? "A") === "A";
+  if (tailored && JOURNEY.has(a.kind) && !senior) arms[X.journey] = journeyA ? "A" : "B";
+
+  const { city, system, state, grad, hometown, heritage } = rules;
+  const fellow: Partial<Record<Affinity, string>> = {
+    school: `Fellow ${my.nick} Seeking to Connect`,
+    grad: `Fellow ${my.nick} Seeking to Connect`,
+    city: `Fellow ${city.label} Student Seeking to Connect`,
+    system: `Fellow ${system.label} Student Seeking to Connect`,
+    state: `Fellow ${state.label} Student Seeking to Connect`,
+  };
+  const why: Partial<Record<Affinity, string>> = {
+    school: `seeing how you also went to ${my.school}`,
+    grad: `seeing how you're a fellow ${my.nick} from ${grad.name}`,
+    city: `seeing how you also went to school in ${city.label}`,
+    system: `seeing how you also went to ${article(system.label)} ${system.label}`,
+    state: `seeing how you also went to school in ${state.label}`,
+  };
+  const shaped: Partial<Record<Affinity, string>> = {
+    school: `as a fellow ${my.nick}, I'd love to hear how your time at ${my.school} shaped that journey.`,
+    grad: `as a fellow ${my.nick}, I'd love to hear how your time at ${my.school} shaped that journey.`,
+    system: `as a fellow ${system.label} student, I'd love to hear how your time at ${theirSchool(system.label)} shaped that journey.`,
+    city: `as a fellow ${city.label} student, I'd love to hear how your time at ${theirSchool(city.label)} shaped that journey.`,
+  };
+  const standardSubject = `${my.school} Student Seeking to Connect`;
 
   let hook: string;
   let subject: string;
-  const fellow: Partial<Record<Affinity, string>> = {
-    ucla: `Fellow ${my.nick} Seeking to Connect`,
-    anderson: `Fellow ${my.nick} Seeking to Connect`,
-    la: "Fellow LA Student Seeking to Connect",
-    uc: "Fellow UC Student Seeking to Connect",
-    california: "Fellow California Student Seeking to Connect",
-  };
-  const why: Partial<Record<Affinity, string>> = {
-    ucla: `seeing how you also went to ${my.school}`,
-    anderson: `seeing how you're a fellow ${my.nick} from Anderson`,
-    la: "seeing how you also went to school in LA",
-    uc: "seeing how you also went to a UC",
-    california: "seeing how you also went to school in California",
-  };
-  const shaped: Partial<Record<Affinity, string>> = {
-    ucla: `as a fellow ${my.nick}, I'd love to hear how your time at ${my.school} shaped that journey.`,
-    anderson: `as a fellow ${my.nick}, I'd love to hear how your time at ${my.school} shaped that journey.`,
-    uc: `as a fellow UC student, I'd love to hear how your time at ${schoolLabel} shaped that journey.`,
-    la: `as a fellow LA student, I'd love to hear how your time at ${schoolLabel} shaped that journey.`,
-  };
-
-  if (a.kind === "volunteer") {
-    const at = a.school === "ucla" || a.school === "anderson" ? `journey at ${my.school}` : `journey to ${bank}`;
-    const what = a.volunteer === "tutoring" ? "tutoring SAT math to underprivileged children" : "working at a soup kitchen";
-    const theirs = a.volunteer === "tutoring" ? "volunteer tutoring experience" : "volunteer experience";
-    hook = `One of my most meaningful high school experiences was ${what}. I'd love to learn more about your ${theirs} and ${at}. If you happen to be available, I would love the chance to connect for a quick call. I can send my availability, and I've attached my resume for your reference.`;
-    subject = fellow[a.school ?? "standard"] ?? `${my.school} Student Seeking to Connect`;
+  if (a.kind === "volunteer" && a.volunteer) {
+    const at = own(a.school) ? `journey at ${my.school}` : `journey to ${bank}`;
+    hook = `One of my most meaningful high school experiences was ${a.volunteer.mine}. I'd love to learn more about your ${a.volunteer.theirs || "volunteer experience"} and ${at}. If you happen to be available, I would love the chance to connect for a quick call. I can send my availability, and I've attached my resume for your reference.`;
+    subject = fellow[a.school ?? "standard"] ?? standardSubject;
   } else if (senior) {
     // VP / Director / approved exception: the seniority line folds into the hook, humble and bare-bones.
     hook = tailored
       ? `I know you are extremely busy as a {{position}}, but your path from ${PATH} really stood out to me and made me feel that you would have differentiated insights into building a career in investment banking.`
       : `I know you are extremely busy as a {{position}}, but I felt that you would have differentiated insights into building a career in investment banking.`;
-    subject = a.kind === "washington" ? "Fellow Washingtonian Seeking to Connect" : (fellow[a.school ?? "standard"] ?? `${my.school} Student Seeking to Connect`);
-  } else if (a.kind === "washington") {
-    const school = a.schoolName || "[[AI: the Washington school they graduated from, from the facts]]";
+    subject = a.kind === "hometown" && hometown.demonym ? `Fellow ${hometown.demonym} Seeking to Connect` : (fellow[a.school ?? "standard"] ?? standardSubject);
+  } else if (a.kind === "hometown") {
+    const school = a.schoolName || `[[AI: the school near ${my.home} they graduated from, from the facts]]`;
     hook = `While looking through your profile, I noticed that you graduated from ${school}. Being from ${my.home} myself, I thought it would be great to speak with someone else who lived in my hometown.`;
-    subject = "Fellow Washingtonian Seeking to Connect";
-  } else if (a.kind === "chinese") {
+    subject = hometown.demonym ? `Fellow ${hometown.demonym} Seeking to Connect` : standardSubject;
+  } else if (a.kind === "heritage") {
+    const word = heritage.word;
     hook = tailored
-      ? `Being Chinese myself, your path from ${PATH} really stood out, and I wanted to reach out to learn more.`
-      : `Being Chinese myself, I wanted to reach out to you specifically to hear more about your journey and how you found yourself at ${bank}.`;
-    const shared = a.school === "ucla" || a.school === "anderson" ? `Fellow Chinese ${my.nick}` : a.school === "uc" ? "Fellow Chinese UC Student" : a.school === "la" ? "Fellow Chinese LA Student" : "";
-    subject = shared ? `${shared} Seeking to Connect` : "Chinese Student Seeking to Connect";
+      ? `Being ${word} myself, your path from ${PATH} really stood out, and I wanted to reach out to learn more.`
+      : `Being ${word} myself, I wanted to reach out to you specifically to hear more about your journey and how you found yourself at ${bank}.`;
+    const shared = own(a.school) ? `Fellow ${word} ${my.nick}` : a.school === "system" ? `Fellow ${word} ${system.label} Student` : a.school === "city" ? `Fellow ${word} ${city.label} Student` : "";
+    subject = shared ? `${shared} Seeking to Connect` : `${word} Student Seeking to Connect`;
   } else if (a.kind === "standard") {
     hook = tailored ? `Your path from ${PATH} stood out to me, and I wanted to reach out to learn more.` : `I wanted to reach out to you because I'm interested in learning more about investment banking at ${bank}.`;
-    subject = `${my.school} Student Seeking to Connect`;
+    subject = standardSubject;
   } else {
     hook = journeyA
       ? `Your path from ${PATH} really stood out to me, and ${shaped[a.kind]}`

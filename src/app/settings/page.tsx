@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { OutreachRulesEditor } from "@/components/OutreachRules";
 import { HooksEditor } from "@/components/Hooks";
 import { useStore } from "@/lib/store";
 import { EMAIL_FONTS, type EmailFont, type Settings } from "@/lib/types";
@@ -222,6 +223,8 @@ export default function SettingsPage() {
             </div>
           </div>
         </Card>
+
+        <OutreachRulesEditor />
 
         <Card>
           <CardHeader
