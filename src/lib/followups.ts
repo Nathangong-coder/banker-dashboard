@@ -1,5 +1,6 @@
 import type { BankMeta, Contact, Settings } from "./types";
 import { addDays } from "./util";
+import { sendTimeFor } from "./outreach";
 
 export type ActionKind = "reach_out" | "send" | "scheduled" | "follow_up" | "move_on" | "none";
 
@@ -90,3 +91,20 @@ export function rollupBanks(contacts: Contact[], banks: Record<string, BankMeta>
 
 /** Outreach in flight: emailed (or about to be) with no reply yet. Counts toward the per-desk cap (see desks.ts). */
 export const LIVE_STATUSES = new Set(["drafted", "sent", "followed_up"]);
+
+/** The follow-up draft waiting in Gmail for this person's next follow-up, if any. */
+export function pendingFollowUpDraft(c: Contact) {
+  return c.followUpDraft && c.followUpDraft.step > c.followUps ? c.followUpDraft : undefined;
+}
+
+/**
+ * The next slot the outreach rules allow (NY 5 PM PT, else 7 PM PT; docs/outreach-rules.md A5): today if it hasn't
+ * passed yet in Pacific time, else tomorrow. Returned as a label, e.g. "today 7:00 PM PT".
+ */
+export function nextSendSlot(c: Pick<Contact, "region">, now = new Date()) {
+  const t = sendTimeFor(c);
+  const ptHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" }).format(now));
+  const today = ptHour < t.hourPT;
+  const day = today ? "today" : new Date(now.getTime() + 86_400_000).toLocaleDateString("en-US", { weekday: "short", timeZone: "America/Los_Angeles" });
+  return { today, label: `${day} ${t.label}` };
+}

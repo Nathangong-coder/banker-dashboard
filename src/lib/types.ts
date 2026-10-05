@@ -86,6 +86,8 @@ export interface Contact {
   ref?: CellRef;
   templateId?: string;
   draft?: { subject: string; body: string; gmailDraftId?: string; createdAt: string };
+  /** The next follow-up, waiting as a Gmail draft (made from Follow-ups). Stale once `followUps` reaches `step`. */
+  followUpDraft?: { gmailDraftId: string; messageId: string; step: number; createdAt: string };
   sentAt?: string;
   lastTouchAt?: string;
   /** A send queued in Gmail ("Schedule send") that hasn't gone out yet. Follow-ups are timed from the real send. */

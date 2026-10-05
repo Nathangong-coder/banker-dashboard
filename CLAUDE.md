@@ -115,6 +115,8 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   "Call scheduled"/coffee/meeting → `call_scheduled`). "Removed"/"Bounced" → `ignored`. `followUpsFromSheet` reads "(2x)".
   On re-import (`store#importWorkbook`) a Status cell that changed since the last import (Excel edit, or a Gmail backfill) wins
   over the dashboard's status; `saveWorkbook` re-baselines `sheetStatus` so the dashboard's own writes don't count as edits.
+- Re-import: an email that came from the sheet follows the sheet (clearing a wrong address in Excel clears it in the
+  dashboard); emails the dashboard found (Apollo/Hunter/Gmail) are kept until saved.
 - **Contacted column** (`src/lib/contacted.ts`): send dates live in the workbook ("9/17/2026 · last 9/25/2026",
   "Scheduled 10/6/2026 9:00 AM"), read into `sentAt` / `lastTouchAt` / `scheduledAt`. `contactPatches` writes them, adding
   the header in the empty column left of Status (H on the owner's tabs; GS already had "Contacted") when missing, and
@@ -288,9 +290,17 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Twilio, WhatsApp (CallMeBot, send-now), and .ics export. There is **no server cron**, because the server has no data. A true server-side scheduler would need a DB.
 - `nextAction`: a future `scheduledAt` → kind `scheduled` (not due; listed under "Scheduled in Gmail" on /followups). No
   date at all → not due (`unknownDate`, banner asks for a Gmail sync), and it's left out of reminder digests.
+- **/followups "Due now"** is two cards: "Follow-ups due" (follow_up / move_on) and "Drafted, not sent yet" (kind `send`,
+  oldest draft first). "Draft all N in Gmail" runs `draftFollowUp` per person: the step-n template, AI fill if needed,
+  `upsertDraft` in the original thread, recorded as `contact.followUpDraft {gmailDraftId, messageId, step}` (stale once
+  `followUps >= step`; Gmail sync clears it). Rows then show "Draft #n ready · schedule <nextSendSlot>" (NY 5 PM PT, else
+  7 PM PT, today or tomorrow). **The Gmail API has no Schedule send**, so scheduling is the user's click in Gmail; truly
+  automatic sending needs the server + refresh-token work in TODO.md #1.
 - **WhatsApp digest is automatic** (`Shell#useDailyWhatsApp`, `reminders.ts#whatsappDigest`): once a day the first time the
   dashboard is open at/after 9am (an open tab fires at 9), marked in `state.scheduled["whatsapp:<day>"]` + localStorage so
-  tabs don't double-send. Toggle: `settings.alerts.whatsappDaily` (undefined = on) on /followups → Reminders. Before this,
+  tabs don't double-send. The text is sectioned by action ("*Move on?* (3)", "*Follow-up #2* (5)", one
+  "• Name: email" line each, no bank/region) and split into numbered messages of ≤900 chars, sent 4 s apart
+  (`sendWhatsAppDigest`; also used by the manual button). Toggle: `settings.alerts.whatsappDaily` (undefined = on) on /followups → Reminders. Before this,
   only the manual button sent anything, which is why the owner got no texts.
 
 ## Conventions

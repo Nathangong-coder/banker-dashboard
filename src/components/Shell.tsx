@@ -14,7 +14,7 @@ import { cn } from "@/lib/util";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
-import { whatsappDigest } from "@/lib/reminders";
+import { sendWhatsAppDigest, whatsappDigest } from "@/lib/reminders";
 import { callApi } from "@/lib/api";
 
 const NAV = [
@@ -106,8 +106,10 @@ function useDailyWhatsApp(ready: boolean) {
       }
       s.markScheduled(key, now.toISOString());
       try {
-        await callApi("/api/notify", { channel: "whatsapp", title: "Follow-ups due", message: digest.text, whatsapp: { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } }, s.settings);
-        toast.ok(`WhatsApp: sent today's list${digest.count ? ` (${digest.count} follow-up${digest.count > 1 ? "s" : ""})` : ""}.`);
+        const n = await sendWhatsAppDigest(digest, (title, message) =>
+          callApi("/api/notify", { channel: "whatsapp", title, message, whatsapp: { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } }, s.settings),
+        );
+        toast.ok(`WhatsApp: sent today's list${digest.count ? ` (${digest.count} follow-up${digest.count > 1 ? "s" : ""}${n > 1 ? `, ${n} messages` : ""})` : ""}.`);
       } catch (e) {
         // Let a later page load retry today.
         const rest = { ...useStore.getState().scheduled };

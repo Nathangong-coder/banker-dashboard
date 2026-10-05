@@ -38,6 +38,8 @@ function patchFrom(c: Contact, r: SyncResult): Partial<Contact> | null {
     const next = p.followUps > 0 ? "followed_up" : "sent";
     const rank = { new: 0, drafted: 1, sent: 2, followed_up: 3 } as Record<string, number>;
     if (c.status in rank && rank[next] >= rank[c.status]) p.status = next;
+    // The follow-up draft made from Follow-ups went out.
+    if (c.followUpDraft && p.followUps >= c.followUpDraft.step) p.followUpDraft = undefined;
   }
   if ((r.scheduledAt ?? "") !== (c.scheduledAt ?? "")) p.scheduledAt = r.scheduledAt;
   // Marked sent, but Gmail has nothing sent to them and an email queued with Schedule send: it hasn't gone out yet,

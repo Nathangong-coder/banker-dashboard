@@ -4,13 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, CalendarPlus, Check, Clock, MailPlus, MessageSquare, RefreshCw, Smartphone, UserX } from "lucide-react";
 import { blobs, bankKey, useStore } from "@/lib/store";
-import { nextAction, rollupBanks, type BankRollup } from "@/lib/followups";
+import { nextAction, nextSendSlot, pendingFollowUpDraft, rollupBanks, type BankRollup, type NextAction } from "@/lib/followups";
 import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
-import { connectGmail, createDraft } from "@/lib/gmail";
+import { connectGmail, upsertDraft } from "@/lib/gmail";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
-import { digestText, upcomingDigests, whatsappDigest } from "@/lib/reminders";
+import { digestText, sendWhatsAppDigest, upcomingDigests, whatsappDigest } from "@/lib/reminders";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
@@ -94,53 +94,66 @@ function useActions() {
   const s = useStore();
   const now = () => new Date().toISOString();
 
-  const followUpDraft = async (c: Contact) => {
+  /**
+   * Write follow-up #n for one person and put it in Gmail as a draft in the original thread (updating the one made
+   * earlier, if any). Throws with a user-facing message. Returns false when there's no Gmail (mailto fallback opened).
+   */
+  const draftFollowUp = async (c: Contact, opts: { mailtoFallback: boolean }) => {
     const t = followUpTemplate(c, s.templates);
-    if (!t) return toast.err("Create a follow-up template on the Drafts page first.");
-    if (!c.email) return toast.err(`${c.name} has no email yet.`);
+    if (!t) throw new Error("Create a follow-up template on the Drafts page first.");
+    if (!c.email) throw new Error(`${c.name} has no email yet.`);
     let subject = fillPlaceholders(t.subject, c, s.settings);
     // In-thread replies keep the original subject; without one, fall back to a neutral subject.
     if (/\{\{\s*original_subject\s*\}\}/.test(subject)) subject = c.threadId ? "Re:" : `Following up: ${s.settings.profile.school || "networking"}`;
     let body = fillPlaceholders(t.body, c, s.settings);
     if (hasAiSlots(body) || missingPlaceholders(body).length) {
       if (aiReady(s.settings)) {
-        try {
-          const r = await callApi<{ subject: string; body: string }>(
-            "/api/draft",
-            {
-              mode: "fill",
-              contact: { id: c.id, name: c.name, bank: c.bank, position: c.position, location: [c.location, c.team].filter(Boolean).join(" · "), region: c.region, school: c.school, comment: c.comment },
-              sender: { name: s.settings.profile.name, school: s.settings.profile.school },
-              subject,
-              body,
-            },
-            s.settings,
-          );
-          body = r.body;
-        } catch (e) {
-          return toast.err((e as Error).message);
-        }
+        const r = await callApi<{ subject: string; body: string }>(
+          "/api/draft",
+          {
+            mode: "fill",
+            contact: { id: c.id, name: c.name, bank: c.bank, position: c.position, location: [c.location, c.team].filter(Boolean).join(" · "), region: c.region, school: c.school, comment: c.comment },
+            sender: { name: s.settings.profile.name, school: s.settings.profile.school },
+            subject,
+            body,
+          },
+          s.settings,
+        );
+        body = r.body;
       } else body = body.replace(new RegExp(AI_SLOT.source, "g"), "");
     }
     body = withSignature(body, s.settings.profile);
-    if (!googleClientId(s.settings)) {
+    const clientId = googleClientId(s.settings);
+    if (!clientId) {
+      if (!opts.mailtoFallback) throw new Error("Connect Gmail in Settings to draft follow-ups in bulk.");
       window.location.href = `mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyToPlain(body))}`;
-      return;
+      return false;
     }
+    await connectGmail(clientId);
+    const step = c.followUps + 1;
+    const prev = pendingFollowUpDraft(c);
+    const d = await upsertDraft(clientId, prev?.step === step ? prev.gmailDraftId : undefined, {
+      to: c.email,
+      subject,
+      body,
+      threadId: c.threadId,
+      inReplyTo: c.lastMessageId,
+      attachment: t.attachResume ? await blobs.resume() : undefined,
+      // Same font as the first email (keeps font experiments clean and the thread consistent).
+      font: EMAIL_FONTS[c.trial?.font ?? s.settings.emailStyle.font]?.css,
+    });
+    s.updateContact(
+      c.id,
+      { followUpDraft: { gmailDraftId: d.id, messageId: d.message.id, step, createdAt: new Date().toISOString() } },
+      { at: now(), type: "note", note: `Follow-up #${step} drafted in Gmail` },
+    );
+    return true;
+  };
+
+  const followUpDraft = async (c: Contact) => {
     try {
-      await connectGmail(googleClientId(s.settings));
-      const resume = t.attachResume ? await blobs.resume() : undefined;
-      await createDraft(googleClientId(s.settings), {
-        to: c.email,
-        subject,
-        body,
-        threadId: c.threadId,
-        inReplyTo: c.lastMessageId,
-        attachment: resume,
-        // Same font as the first email (keeps font experiments clean and the thread consistent).
-        font: EMAIL_FONTS[c.trial?.font ?? s.settings.emailStyle.font]?.css,
-      });
-      toast.ok(`Follow-up draft for ${c.name} is in Gmail${c.threadId ? " (same thread)" : ""}. Mark it followed up once it's sent.`);
+      if (await draftFollowUp(c, { mailtoFallback: true }))
+        toast.ok(`Follow-up draft for ${c.name} is in Gmail${c.threadId ? " (same thread)" : ""}. Schedule it for ${nextSendSlot(c).label}.`);
     } catch (e) {
       toast.err((e as Error).message);
     }
@@ -148,6 +161,7 @@ function useActions() {
 
   return {
     followUpDraft,
+    draftFollowUp,
     markFollowed: (c: Contact) => s.setStatus([c.id], "followed_up", `Follow-up #${c.followUps + 1} sent`),
     markSent: (c: Contact) => s.setStatus([c.id], "sent"),
     replied: (c: Contact) => s.setStatus([c.id], "replied"),
@@ -161,19 +175,116 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
   const { contacts, banks, settings } = useStore();
   const act = useActions();
   const [busy, setBusy] = useState<string | null>(null);
-  const { due, upcoming, scheduled, unknown } = useMemo(() => {
+  const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
+  const { behind, drafted, due, upcoming, scheduled, unknown } = useMemo(() => {
     const all = contacts
       .map((c) => ({ c, a: nextAction(c, settings.followUp, banks[bankKey(c.bank, c.region)]) }))
       .filter(({ a }) => ["follow_up", "move_on", "send", "scheduled"].includes(a.kind));
     const sorted = all.sort((x, y) => (x.a.due?.getTime() ?? 0) - (y.a.due?.getTime() ?? 0));
     const dated = sorted.filter((x) => !x.a.unknownDate && x.a.kind !== "scheduled");
+    const due = dated.filter((x) => x.a.isDue);
     return {
-      due: dated.filter((x) => x.a.isDue),
+      due,
+      behind: due.filter((x) => x.a.kind !== "send"),
+      // Oldest draft first.
+      drafted: due.filter((x) => x.a.kind === "send").sort((x, y) => (x.c.draft?.createdAt ?? "").localeCompare(y.c.draft?.createdAt ?? "")),
       upcoming: dated.filter((x) => !x.a.isDue).slice(0, 15),
       scheduled: sorted.filter((x) => x.a.kind === "scheduled"),
       unknown: sorted.filter((x) => x.a.unknownDate).length,
     };
   }, [contacts, banks, settings.followUp]);
+
+  // Follow-ups that still need a Gmail draft (move-on rows have nothing to send).
+  const toDraft = behind.filter(({ c, a }) => a.kind === "follow_up" && c.email && !pendingFollowUpDraft(c));
+  const draftAll = async () => {
+    setBulk({ done: 0, total: toDraft.length });
+    let made = 0;
+    const failed: string[] = [];
+    for (const { c } of toDraft) {
+      try {
+        await draftFollowUp(c, { mailtoFallback: false });
+        made++;
+      } catch (e) {
+        const msg = (e as Error).message;
+        failed.push(`${c.name}: ${msg}`);
+        // No template / Gmail / expired session: the rest would fail the same way.
+        if (/template|connect gmail|session expired/i.test(msg)) break;
+      }
+      setBulk((b) => b && { ...b, done: b.done + 1 });
+    }
+    setBulk(null);
+    if (made) toast.ok(`${made} follow-up draft${made > 1 ? "s" : ""} in Gmail, each in its original thread. Schedule them for the times shown here.`);
+    if (failed.length) toast.err(`Not drafted: ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? ` (+${failed.length - 3} more)` : ""}`);
+  };
+  const { draftFollowUp } = act;
+
+  const row = ({ c, a }: { c: Contact; a: NextAction }) => {
+    const fu = pendingFollowUpDraft(c);
+    const slot = nextSendSlot(c);
+    return (
+      <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+        <button onClick={() => onOpen(c)} className="min-w-[220px] flex-1 text-left">
+          <div className="font-medium hover:underline">{c.name}</div>
+          <div className="text-[12px] text-muted">
+            {c.position || "—"} · {c.bank} {c.region !== "Other" && `(${c.region})`} ·{" "}
+            {a.kind === "send" ? `drafted ${fmtDate(c.draft?.createdAt)}` : `emailed ${fmtDate(c.sentAt)}`}
+            {c.followUps > 0 && ` · ${c.followUps} follow-up${c.followUps > 1 ? "s" : ""}`}
+          </div>
+        </button>
+        {a.kind === "send" ? (
+          <Badge tone="neutral">Send · {slot.label}</Badge>
+        ) : fu ? (
+          <a href={`https://mail.google.com/mail/u/0/#drafts?compose=${fu.messageId}`} target="_blank" rel="noreferrer" title="Open the draft and use Schedule send">
+            <Badge tone="green">Draft #{fu.step} ready · schedule {slot.label}</Badge>
+          </a>
+        ) : (
+          <Badge tone={a.kind === "move_on" ? "neutral" : "red"}>
+            {a.label} {a.due && `· ${relDays(a.due)}`}
+          </Badge>
+        )}
+        <div className="flex gap-1">
+          {a.kind === "send" ? (
+            <Button size="sm" onClick={() => act.markSent(c)} icon={<Check className="size-3.5" />}>
+              Mark sent
+            </Button>
+          ) : a.kind === "follow_up" ? (
+            <>
+              <Button
+                size="sm"
+                variant={fu ? "ghost" : "brass"}
+                loading={busy === c.id}
+                icon={<MailPlus className="size-3.5" />}
+                onClick={async () => {
+                  setBusy(c.id);
+                  await act.followUpDraft(c);
+                  setBusy(null);
+                }}
+              >
+                {fu ? "Redraft" : "Draft follow-up"}
+              </Button>
+              <Button size="sm" onClick={() => act.markFollowed(c)} icon={<Check className="size-3.5" />}>
+                Followed up
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={() => act.moveOn(c)} icon={<UserX className="size-3.5" />}>
+              Move on
+            </Button>
+          )}
+          {a.kind !== "send" && (
+            <Button size="sm" variant="ghost" onClick={() => act.replied(c)} icon={<MessageSquare className="size-3.5" />}>
+              Replied
+            </Button>
+          )}
+          {a.kind !== "send" && (
+            <Button size="sm" variant="ghost" onClick={() => act.snooze(c, 3)} icon={<Clock className="size-3.5" />}>
+              3d
+            </Button>
+          )}
+        </div>
+      </li>
+    );
+  };
 
   if (!due.length && !upcoming.length && !scheduled.length && !unknown)
     return (
@@ -199,65 +310,43 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
         </div>
       )}
       <Card>
-        <CardHeader title={`Due now · ${due.length}`} sub="Overdue first" />
-        {due.length === 0 ? (
+        <CardHeader
+          title={`Follow-ups due · ${behind.length}`}
+          sub={`Emailed ${settings.followUp.firstAfterDays}+ days ago with no reply. Overdue first.`}
+          right={
+            toDraft.length > 0 &&
+            (bulk ? (
+              <div className="w-56">
+                <Progress value={bulk.done} max={bulk.total} label={`Drafting ${bulk.done}/${bulk.total}`} />
+              </div>
+            ) : (
+              <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={draftAll} title="Writes each follow-up into its original Gmail thread">
+                Draft all {toDraft.length} in Gmail
+              </Button>
+            ))
+          }
+        />
+        {behind.length === 0 ? (
           <div className="px-4 py-8 text-center text-[13px] text-muted">You’re caught up.</div>
         ) : (
-          <ul className="divide-y divide-line">
-            {due.map(({ c, a }) => (
-              <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <button onClick={() => onOpen(c)} className="min-w-[220px] flex-1 text-left">
-                  <div className="font-medium hover:underline">{c.name}</div>
-                  <div className="text-[12px] text-muted">
-                    {c.position || "—"} · {c.bank} {c.region !== "Other" && `(${c.region})`} · emailed {c.sentAt ? fmtDate(c.sentAt) : "date unknown"}
-                    {c.followUps > 0 && ` · ${c.followUps} follow-up${c.followUps > 1 ? "s" : ""}`}
-                  </div>
-                </button>
-                <StatusBadge status={c.status} />
-                <Badge tone={a.kind === "move_on" ? "neutral" : "red"}>
-                  {a.label} {!a.unknownDate && a.due && `· ${relDays(a.due)}`}
-                </Badge>
-                <div className="flex gap-1">
-                  {a.kind === "send" ? (
-                    <Button size="sm" onClick={() => act.markSent(c)} icon={<Check className="size-3.5" />}>
-                      Mark sent
-                    </Button>
-                  ) : a.kind === "follow_up" ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="brass"
-                        loading={busy === c.id}
-                        icon={<MailPlus className="size-3.5" />}
-                        onClick={async () => {
-                          setBusy(c.id);
-                          await act.followUpDraft(c);
-                          setBusy(null);
-                        }}
-                      >
-                        Draft follow-up
-                      </Button>
-                      <Button size="sm" onClick={() => act.markFollowed(c)} icon={<Check className="size-3.5" />}>
-                        Followed up
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="sm" onClick={() => act.moveOn(c)} icon={<UserX className="size-3.5" />}>
-                      Move on
-                    </Button>
-                  )}
-                  <Button size="sm" variant="ghost" onClick={() => act.replied(c)} icon={<MessageSquare className="size-3.5" />}>
-                    Replied
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => act.snooze(c, 3)} icon={<Clock className="size-3.5" />}>
-                    3d
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <ul className="divide-y divide-line">{behind.map(row)}</ul>
         )}
       </Card>
+
+      {drafted.length > 0 && (
+        <Card>
+          <CardHeader
+            title={`Drafted, not sent yet · ${drafted.length}`}
+            sub="First emails written but not sent or scheduled. Send or schedule them in Gmail, then sync."
+            right={
+              <Link href="/drafts" className="text-[12.5px] font-medium text-navy underline">
+                Open drafts
+              </Link>
+            }
+          />
+          <ul className="max-h-[420px] divide-y divide-line overflow-y-auto">{drafted.map(row)}</ul>
+        </Card>
+      )}
 
       {scheduled.length > 0 && (
         <Card>
@@ -532,8 +621,13 @@ function Reminders() {
     setBusy(`test-${channel}`);
     try {
       const wa = channel === "whatsapp" ? whatsappDigest(contacts, banks, settings.followUp) : null;
-      await send(channel, wa?.text ?? (todayDigest ? digestText(todayDigest) : "Test from your networking dashboard ✔ (nothing due today)"), undefined, wa ? "Follow-ups due" : "Coverage test");
-      toast.ok("Sent. Check your phone.");
+      if (wa) {
+        const n = await sendWhatsAppDigest(wa, (title, message) => send("whatsapp", message, undefined, title));
+        toast.ok(`Sent${n > 1 ? ` as ${n} messages` : ""}. Check your phone.`);
+      } else {
+        await send(channel, todayDigest ? digestText(todayDigest) : "Test from your networking dashboard ✔ (nothing due today)", undefined, "Coverage test");
+        toast.ok("Sent. Check your phone.");
+      }
     } catch (e) {
       toast.err((e as Error).message);
     }

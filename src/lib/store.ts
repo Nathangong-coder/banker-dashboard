@@ -196,8 +196,10 @@ export const useStore = create<State>()(
             team: fresh.team || prev.team,
             linkedin: fresh.linkedin || prev.linkedin,
             comment: fresh.comment,
-            email: fresh.email || prev.email,
-            emailSource: fresh.email ? fresh.emailSource : prev.emailSource,
+            // An email the dashboard found (Apollo, Gmail…) survives until it's saved; one that came from the sheet follows
+            // the sheet, so clearing a wrong address in Excel clears it here too.
+            email: fresh.email || (prev.emailSource === "sheet" ? "" : prev.email),
+            emailSource: fresh.email ? fresh.emailSource : prev.emailSource === "sheet" ? undefined : prev.emailSource,
             sheetStatus: fresh.sheetStatus,
             ref: fresh.ref,
             // A Status cell changed outside the dashboard (edited in Excel, or fixed from Gmail) wins; otherwise the

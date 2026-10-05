@@ -44,14 +44,51 @@ export function todayDigest(contacts: Contact[], banks: Record<string, BankMeta>
   return d?.date === localDay(new Date()) ? d : undefined;
 }
 
-/** The daily WhatsApp text: who to follow up with today, plus the sends Gmail will make today. */
-export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"]) {
+/** Section order in the WhatsApp digest: last chances first. */
+const sectionRank = (label: string) => (/move on/i.test(label) ? 0 : Number(label.match(/#(\d+)/)?.[1] ?? 9));
+
+/**
+ * The daily WhatsApp digest, sectioned by what to do ("Move on?", "Follow-up #2", …) with one "Name: email" line per
+ * person, split into as many messages as needed (CallMeBot sends one text per call; each stays under `maxLen`).
+ */
+export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], maxLen = 900) {
   const d = todayDigest(contacts, banks, s);
   const today = localDay(new Date());
   const queued = contacts.filter((c) => c.scheduledAt && localDay(new Date(c.scheduledAt)) === today && !["replied", "call_scheduled", "done", "ignored"].includes(c.status));
   if (!d && !queued.length) return null;
-  const parts: string[] = [];
-  if (d) parts.push(`Follow up today (${d.items.length}):\n${digestText(d)}`);
-  if (queued.length) parts.push(`Going out today via Schedule send: ${queued.length}`);
-  return { day: today, count: d?.items.length ?? 0, text: parts.join("\n\n") };
+  const sections = new Map<string, string[]>();
+  for (const { c, label } of d?.items ?? []) sections.set(label, [...(sections.get(label) ?? []), c.email ? `• ${c.name}: ${c.email}` : `• ${c.name}`]);
+  const blocks = [...sections.entries()].sort((a, b) => sectionRank(a[0]) - sectionRank(b[0]));
+  if (queued.length) blocks.push([`Going out today (Schedule send): ${queued.length}`, []]);
+
+  const messages: string[] = [];
+  let cur = "";
+  const flush = () => {
+    if (cur.trim()) messages.push(cur.trim());
+    cur = "";
+  };
+  for (const [header, lines] of blocks) {
+    const head = lines.length ? `*${header}* (${lines.length})` : header;
+    if (cur && cur.length + head.length + (lines[0]?.length ?? 0) + 4 > maxLen) flush();
+    cur += `${cur ? "\n\n" : ""}${head}`;
+    for (const line of lines) {
+      if (cur.length + line.length + 1 > maxLen) {
+        flush();
+        cur = `*${header}* (cont.)`;
+      }
+      cur += `\n${line}`;
+    }
+  }
+  flush();
+  return { day: today, count: d?.items.length ?? 0, messages };
+}
+
+/** Send the digest as numbered WhatsApp messages, a few seconds apart (CallMeBot drops rapid-fire messages). */
+export async function sendWhatsAppDigest(digest: { messages: string[] }, send: (title: string, message: string) => Promise<unknown>) {
+  const n = digest.messages.length;
+  for (let i = 0; i < n; i++) {
+    if (i) await new Promise((r) => setTimeout(r, 4000));
+    await send(n > 1 ? `Follow-ups due (${i + 1}/${n})` : "Follow-ups due", digest.messages[i]);
+  }
+  return n;
 }
