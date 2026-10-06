@@ -16,6 +16,7 @@ import { GmailSyncWidget } from "./GmailSyncWidget";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 import { sendWhatsAppDigest, whatsappDigest } from "@/lib/reminders";
 import { callApi } from "@/lib/api";
+import { syncServer } from "@/lib/serverSync";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
@@ -87,6 +88,8 @@ function useDailyWhatsApp(ready: boolean) {
       const s = useStore.getState();
       const k = s.settings.keys;
       if (!k.whatsappPhone || !k.whatsappApiKey || s.settings.alerts?.whatsappDaily === false) return;
+      // The server sends it (at 9 even with the dashboard closed); don't double up.
+      if (s.settings.server?.email) return;
       const now = new Date();
       const nine = new Date(now);
       nine.setHours(9, 0, 0, 0);
@@ -126,6 +129,27 @@ function useDailyWhatsApp(ready: boolean) {
   }, [ready]);
 }
 
+/**
+ * Keep the server's copy current (lib/serverSync.ts): the send queue and the next two weeks of 9am texts, pushed a few
+ * seconds after anything changes and every 10 minutes (which also pulls in sends the server made while away).
+ */
+function useServerSync(ready: boolean) {
+  const connected = useStore((s) => !!s.settings.server?.email);
+  const contacts = useStore((s) => s.contacts);
+  const settings = useStore((s) => s.settings);
+  useEffect(() => {
+    if (!ready || !connected) return;
+    const run = () => syncServer().catch(() => undefined);
+    const t = setTimeout(run, 4000);
+    return () => clearTimeout(t);
+  }, [ready, connected, contacts, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
+  useEffect(() => {
+    if (!ready || !connected) return;
+    const i = setInterval(() => syncServer().catch(() => undefined), 10 * 60_000);
+    return () => clearInterval(i);
+  }, [ready, connected]);
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const ready = useHydrated();
@@ -144,6 +168,7 @@ export function Shell({ children }: { children: ReactNode }) {
   );
   useDailyNudge(ready ? due : 0);
   useDailyWhatsApp(ready);
+  useServerSync(ready);
   // The server switched to a backup model (primary hit a rate/quota limit): say so once per model.
   useEffect(() => {
     const seen = new Set<string>();

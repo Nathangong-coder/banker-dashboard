@@ -47,3 +47,6 @@ next-env.d.ts
 
 # owner template source doc
 Follow up Templates.docx
+
+.vercel
+.env*

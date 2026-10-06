@@ -151,7 +151,7 @@ export default function SettingsPage() {
       exportedAt: new Date().toISOString(),
       settings: withKeys
         ? st.settings
-        : { ...st.settings, vault: { apollo: [], hunter: [], serper: [], brave: [], ai: [] }, keys: { ...st.settings.keys, twilioToken: "", whatsappApiKey: "" } },
+        : { ...st.settings, vault: { apollo: [], hunter: [], serper: [], brave: [], ai: [] }, keys: { ...st.settings.keys, twilioToken: "", whatsappApiKey: "" }, server: undefined },
       contacts: st.contacts,
       templates: st.templates,
       banks: st.banks,

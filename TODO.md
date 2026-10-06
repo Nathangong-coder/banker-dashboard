@@ -1,6 +1,9 @@
 # TODO
 
-## 1. Real 9am "what's due today" WhatsApp ping (Vercel Cron) — requested, not built yet
+## 1. Real 9am "what's due today" WhatsApp ping — BUILT 2026-10-06 (QStash + Upstash Redis; see CLAUDE.md "Automatic sending")
+
+Left: watch the first real sends/texts in Vercel logs; Google app verification if more than ~100 people use it.
+Original plan, kept for reference:
 
 **Built so far (10/2026):** the browser sends the WhatsApp digest itself (`Shell#useDailyWhatsApp`), once a day the first
 time the dashboard is open at/after 9am. A day the dashboard is never opened gets no text; that's what this item fixes.

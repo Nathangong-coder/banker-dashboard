@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Agent skills installed by `vercel integration add` (vendored docs, not app code).
+    ".agents/**",
+    ".claude/**",
   ]),
 ]);
 

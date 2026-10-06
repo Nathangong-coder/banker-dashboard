@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, CalendarPlus, Check, Clock, MailPlus, MessageSquare, RefreshCw, Smartphone, UserX } from "lucide-react";
 import { blobs, bankKey, useStore } from "@/lib/store";
@@ -19,11 +19,26 @@ import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
+import { cancelSend, connectServer, disconnectServer, markServerConnected, queueSends, sendableDraft, syncServer, useServerStatus } from "@/lib/serverSync";
 
 type Tab = "due" | "bankers" | "banks" | "reminders";
 
 export default function FollowupsPage() {
-  const [tab, setTab] = useState<Tab>("due");
+  // ?tab=reminders (where Google sends you back after connecting automatic sending).
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("tab");
+    return t === "reminders" || t === "bankers" || t === "banks" ? t : "due";
+  });
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const t = q.get("tab");
+    if (q.get("server") === "connected" && q.get("email")) {
+      markServerConnected(q.get("email")!);
+      toast.ok(`Automatic sending is on for ${q.get("email")}.`);
+      syncServer().catch((e: Error) => toast.err(e.message));
+    } else if (q.get("server") === "error") toast.err(`Automatic sending wasn't connected: ${q.get("reason") ?? "unknown error"}`);
+    if (q.get("server")) window.history.replaceState(null, "", "/followups" + (t ? `?tab=${t}` : ""));
+  }, []);
   const [open, setOpen] = useState<Contact | null>(null);
   const [sync, setSync] = useState<{ done: number; total: number } | null>(null);
   const s = useStore();
@@ -78,7 +93,7 @@ export default function FollowupsPage() {
         ))}
       </div>
 
-      {tab === "due" && <DueList onOpen={setOpen} onSync={runSync} syncing={!!sync} />}
+      {tab === "due" && <DueList onOpen={setOpen} onSync={runSync} syncing={!!sync} onAuto={() => setTab("reminders")} />}
       {tab === "bankers" && <BankerTable onOpen={setOpen} />}
       {tab === "banks" && <BankBoard onOpen={setOpen} />}
       {tab === "reminders" && <Reminders />}
@@ -171,7 +186,7 @@ function useActions() {
   };
 }
 
-function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; onSync: () => void; syncing: boolean }) {
+function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => void; onSync: () => void; syncing: boolean; onAuto: () => void }) {
   const { contacts, banks, settings } = useStore();
   const act = useActions();
   const [busy, setBusy] = useState<string | null>(null);
@@ -217,6 +232,45 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
     if (failed.length) toast.err(`Not drafted: ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? ` (+${failed.length - 3} more)` : ""}`);
   };
   const { draftFollowUp } = act;
+
+  // Automatic sending (the server sends queued Gmail drafts at each person's slot; lib/serverSync.ts).
+  const auto = !!settings.server?.email;
+  const toSchedule = behind.filter(({ c, a }) => a.kind === "follow_up" && c.email);
+  const draftAndSchedule = async () => {
+    const need = toSchedule.filter(({ c }) => !pendingFollowUpDraft(c));
+    setBulk({ done: 0, total: need.length });
+    const failed: string[] = [];
+    for (const { c } of need) {
+      try {
+        await draftFollowUp(c, { mailtoFallback: false });
+      } catch (e) {
+        failed.push(`${c.name}: ${(e as Error).message}`);
+        if (/template|connect gmail|session expired/i.test((e as Error).message)) break;
+      }
+      setBulk((b) => b && { ...b, done: b.done + 1 });
+    }
+    try {
+      // Re-read: drafting just recorded each followUpDraft.
+      const ids = new Set(toSchedule.map(({ c }) => c.id));
+      const n = await queueSends(useStore.getState().contacts.filter((c) => ids.has(c.id)));
+      if (n) toast.ok(`${n} follow-up${n > 1 ? "s" : ""} drafted and scheduled. Each goes out at its slot (NY 5 PM PT, everyone else 7 PM PT), even with the dashboard closed.`);
+    } catch (e) {
+      failed.push((e as Error).message);
+    }
+    setBulk(null);
+    if (failed.length) toast.err(`Not scheduled: ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? ` (+${failed.length - 3} more)` : ""}`);
+  };
+  const schedulable = drafted.filter(({ c }) => sendableDraft(c));
+  const scheduleDrafted = async () => {
+    setBusy("schedule-drafted");
+    try {
+      const n = await queueSends(schedulable.map(({ c }) => c));
+      toast.ok(`${n} email${n > 1 ? "s" : ""} scheduled for their send slots.`);
+    } catch (e) {
+      toast.err((e as Error).message);
+    }
+    setBusy(null);
+  };
 
   const row = ({ c, a }: { c: Contact; a: NextAction }) => {
     const fu = pendingFollowUpDraft(c);
@@ -314,16 +368,28 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
           title={`Follow-ups due · ${behind.length}`}
           sub={`Emailed ${settings.followUp.firstAfterDays}+ days ago with no reply. Overdue first.`}
           right={
-            toDraft.length > 0 &&
-            (bulk ? (
+            bulk ? (
               <div className="w-56">
                 <Progress value={bulk.done} max={bulk.total} label={`Drafting ${bulk.done}/${bulk.total}`} />
               </div>
+            ) : auto ? (
+              toSchedule.length > 0 && (
+                <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={draftAndSchedule} title="Writes each follow-up into its original Gmail thread, then sends it at the person's slot">
+                  Draft &amp; schedule all {toSchedule.length}
+                </Button>
+              )
             ) : (
-              <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={draftAll} title="Writes each follow-up into its original Gmail thread">
-                Draft all {toDraft.length} in Gmail
-              </Button>
-            ))
+              <div className="flex items-center gap-3">
+                <button onClick={onAuto} className="text-[12px] font-medium text-navy underline">
+                  Send them automatically
+                </button>
+                {toDraft.length > 0 && (
+                  <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={draftAll} title="Writes each follow-up into its original Gmail thread">
+                    Draft all {toDraft.length} in Gmail
+                  </Button>
+                )}
+              </div>
+            )
           }
         />
         {behind.length === 0 ? (
@@ -337,11 +403,18 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
         <Card>
           <CardHeader
             title={`Drafted, not sent yet · ${drafted.length}`}
-            sub="First emails written but not sent or scheduled. Send or schedule them in Gmail, then sync."
+            sub={auto ? "First emails written but not sent. Schedule sends each one at the person's slot." : "First emails written but not sent or scheduled. Send or schedule them in Gmail, then sync."}
             right={
-              <Link href="/drafts" className="text-[12.5px] font-medium text-navy underline">
-                Open drafts
-              </Link>
+              <div className="flex items-center gap-3">
+                <Link href="/drafts" className="text-[12.5px] font-medium text-navy underline">
+                  Open drafts
+                </Link>
+                {auto && schedulable.length > 0 && (
+                  <Button size="sm" variant="brass" loading={busy === "schedule-drafted"} icon={<Clock className="size-3.5" />} onClick={scheduleDrafted} title="Only drafts already in Gmail can be scheduled">
+                    Schedule {schedulable.length}
+                  </Button>
+                )}
+              </div>
             }
           />
           <ul className="max-h-[420px] divide-y divide-line overflow-y-auto">{drafted.map(row)}</ul>
@@ -350,14 +423,20 @@ function DueList({ onOpen, onSync, syncing }: { onOpen: (c: Contact) => void; on
 
       {scheduled.length > 0 && (
         <Card>
-          <CardHeader title={`Scheduled in Gmail · ${scheduled.length}`} sub="Queued with Schedule send. Follow-ups are timed from when each one actually goes out." />
+          <CardHeader title={`Scheduled · ${scheduled.length}`} sub="Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out." />
           <ul className="max-h-[320px] divide-y divide-line overflow-y-auto">
             {scheduled.map(({ c, a }) => (
               <li key={c.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
                 <button onClick={() => onOpen(c)} className="flex-1 text-left hover:underline">
                   {c.name} <span className="text-muted">· {c.bank}</span>
                 </button>
+                {c.serverSend && <Badge tone="neutral">{c.serverSend.step ? `Follow-up #${c.serverSend.step}` : "First email"} · by Coverage</Badge>}
                 <span className="num text-ink-2">{a.label.replace(/^.*scheduled · /, "")}</span>
+                {c.serverSend && (
+                  <Button size="sm" variant="ghost" onClick={() => cancelSend(c).then(() => toast.info("Cancelled. The draft stays in Gmail."), (e: Error) => toast.err(e.message))}>
+                    Cancel
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
@@ -682,6 +761,7 @@ function Reminders() {
       </Card>
 
       <div className="space-y-6">
+        <AutoSendCard />
         <Card>
           <CardHeader title="Browser notifications" sub="A daily alert whenever this dashboard is open" right={<Bell className="size-4 text-muted" />} />
           <div className="flex items-center gap-3 p-4 text-[13px]">
@@ -780,5 +860,77 @@ function SetupHint({ text }: { text: string }) {
         Settings
       </Link>
     </p>
+  );
+}
+
+/** Automatic sending: the server sends queued Gmail drafts at each person's slot and the 9am WhatsApp text. */
+function AutoSendCard() {
+  const server = useStore((s) => s.settings.server);
+  const queued = useStore((s) => s.contacts.filter((c) => c.serverSend).length);
+  const status = useServerStatus((s) => s.status);
+  const [busy, setBusy] = useState(false);
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await fn();
+    } catch (e) {
+      toast.err((e as Error).message);
+    }
+    setBusy(false);
+  };
+  return (
+    <Card>
+      <CardHeader
+        title="Automatic sending"
+        sub="Coverage sends the follow-ups you schedule at each person's slot (NY 5 PM PT, everyone else 7 PM PT) and texts your 9am WhatsApp list, even when this dashboard is closed."
+        right={<Clock className="size-4 text-muted" />}
+      />
+      <div className="space-y-2 p-4 text-[13px]">
+        {server?.email ? (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="green">On</Badge>
+              <span>
+                Sends from <b>{server.email}</b> · {queued} queued
+              </span>
+            </div>
+            {status?.whatsapp && <div className="text-[12px] text-muted">WhatsApp 9am text: on{status.lastDigestDay ? ` · last sent ${status.lastDigestDay}` : ""}</div>}
+            {status?.lastDigestError && <div className="text-[12px] text-red">WhatsApp: {status.lastDigestError}</div>}
+            {status?.error && <div className="text-[12px] text-red">{status.error}</div>}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button size="sm" loading={busy} onClick={() => run(async () => toast.ok((await syncServer()) ? "Synced with the server." : "Nothing to sync."))}>
+                Sync now
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => run(() => connectServer())}>
+                Reconnect Gmail
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  window.confirm("Turn off automatic sending? Queued sends are cancelled (the drafts stay in Gmail) and the server forgets your Gmail access.") &&
+                  run(async () => {
+                    await disconnectServer();
+                    toast.ok("Automatic sending is off.");
+                  })
+                }
+              >
+                Turn off
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-ink-2">
+              One Google sign-in gives Coverage permission to <b>send drafts you&apos;ve made</b> (Gmail &ldquo;compose&rdquo; access, nothing else).
+              It sends only what you schedule here, and you can turn it off any time.
+            </p>
+            <Button size="sm" variant="primary" loading={busy} onClick={() => run(() => connectServer())}>
+              Turn on automatic sending
+            </Button>
+          </>
+        )}
+      </div>
+    </Card>
   );
 }

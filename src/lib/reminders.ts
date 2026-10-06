@@ -2,6 +2,7 @@
 
 import type { BankMeta, Contact, Settings } from "./types";
 import { nextAction } from "./followups";
+import { digestMessages, digestTitle, type DigestItem } from "./digestFormat";
 
 export interface DayDigest {
   date: string; // YYYY-MM-DD (local)
@@ -44,43 +45,39 @@ export function todayDigest(contacts: Contact[], banks: Record<string, BankMeta>
   return d?.date === localDay(new Date()) ? d : undefined;
 }
 
-/** Section order in the WhatsApp digest: last chances first. */
-const sectionRank = (label: string) => (/move on/i.test(label) ? 0 : Number(label.match(/#(\d+)/)?.[1] ?? 9));
+const QUIET_STATUSES = ["replied", "call_scheduled", "done", "ignored"];
+/** Emails going out on a local day: Gmail Schedule send, or queued on the server. */
+const queuedOn = (contacts: Contact[], day: string) =>
+  contacts.filter((c) => !QUIET_STATUSES.includes(c.status) && [c.scheduledAt, c.serverSend?.sendAt].some((t) => t && localDay(new Date(t)) === day)).length;
 
-/**
- * The daily WhatsApp digest, sectioned by what to do ("Move on?", "Follow-up #2", …) with one "Name: email" line per
- * person, split into as many messages as needed (CallMeBot sends one text per call; each stays under `maxLen`).
- */
+/** The daily WhatsApp digest (lib/digestFormat.ts): sections by action, "• Name: email" lines, split into messages. */
 export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], maxLen = 900) {
   const d = todayDigest(contacts, banks, s);
   const today = localDay(new Date());
-  const queued = contacts.filter((c) => c.scheduledAt && localDay(new Date(c.scheduledAt)) === today && !["replied", "call_scheduled", "done", "ignored"].includes(c.status));
-  if (!d && !queued.length) return null;
-  const sections = new Map<string, string[]>();
-  for (const { c, label } of d?.items ?? []) sections.set(label, [...(sections.get(label) ?? []), c.email ? `• ${c.name}: ${c.email}` : `• ${c.name}`]);
-  const blocks = [...sections.entries()].sort((a, b) => sectionRank(a[0]) - sectionRank(b[0]));
-  if (queued.length) blocks.push([`Going out today (Schedule send): ${queued.length}`, []]);
+  const queued = queuedOn(contacts, today);
+  if (!d && !queued) return null;
+  const items: DigestItem[] = (d?.items ?? []).map(({ c, label }) => ({ contactId: c.id, name: c.name, email: c.email || undefined, label }));
+  return { day: today, count: items.length, messages: digestMessages(items, queued, maxLen) };
+}
 
-  const messages: string[] = [];
-  let cur = "";
-  const flush = () => {
-    if (cur.trim()) messages.push(cur.trim());
-    cur = "";
-  };
-  for (const [header, lines] of blocks) {
-    const head = lines.length ? `*${header}* (${lines.length})` : header;
-    if (cur && cur.length + head.length + (lines[0]?.length ?? 0) + 4 > maxLen) flush();
-    cur += `${cur ? "\n\n" : ""}${head}`;
-    for (const line of lines) {
-      if (cur.length + line.length + 1 > maxLen) {
-        flush();
-        cur = `*${header}* (cont.)`;
-      }
-      cur += `\n${line}`;
-    }
+/**
+ * What the server's 9am text should say on each of the next `days` days if nothing changes: everyone due by that
+ * day (overdue keeps rolling forward) plus that day's queued sends. The dashboard re-sends this whenever it's open,
+ * and the server drops people its own sends have since followed up with.
+ */
+export function digestPlan(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], days = 14) {
+  const out: Record<string, { items: DigestItem[]; queued: number }> = {};
+  const actions = contacts.map((c) => ({ c, a: nextAction(c, s, banks[`${c.bank}|${c.region}`]) })).filter(({ a }) => (a.kind === "follow_up" || a.kind === "move_on") && !a.unknownDate && a.due);
+  for (let i = 0; i < days; i++) {
+    const end = new Date();
+    end.setDate(end.getDate() + i);
+    end.setHours(23, 59, 59, 999);
+    const day = localDay(end);
+    const items = actions.filter(({ a }) => a.due! <= end).map(({ c, a }) => ({ contactId: c.id, name: c.name, email: c.email || undefined, label: a.label }));
+    const queued = queuedOn(contacts, day);
+    if (items.length || queued) out[day] = { items, queued };
   }
-  flush();
-  return { day: today, count: d?.items.length ?? 0, messages };
+  return out;
 }
 
 /** Send the digest as numbered WhatsApp messages, a few seconds apart (CallMeBot drops rapid-fire messages). */
@@ -88,7 +85,7 @@ export async function sendWhatsAppDigest(digest: { messages: string[] }, send: (
   const n = digest.messages.length;
   for (let i = 0; i < n; i++) {
     if (i) await new Promise((r) => setTimeout(r, 4000));
-    await send(n > 1 ? `Follow-ups due (${i + 1}/${n})` : "Follow-ups due", digest.messages[i]);
+    await send(digestTitle(i, n), digest.messages[i]);
   }
   return n;
 }

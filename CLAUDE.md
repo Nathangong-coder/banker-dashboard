@@ -22,12 +22,13 @@ There is no unit test suite. `check:workbook` and `check:templates` are the regr
 Open work is tracked in **TODO.md**. The next big item is the real 9am WhatsApp ping (Vercel Cron + storage).
 The owner's real workbook (`IB Recruiting - Master Spreadsheet vF.xlsx`) sits in the repo root locally but is **git-ignored and must
 never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for `Follow up Templates.docx` (the owner's template source; commit it only if asked).
-`.env` holds the owner's Google CLIENT_ID/CLIENT_SECRET. The secret is **not used anywhere and must never be exposed**. `.env.local` sets
+`.env` holds the owner's Google CLIENT_ID/CLIENT_SECRET. The secret is used **only server-side** for automatic sending (Vercel env
+`GOOGLE_CLIENT_SECRET`, sensitive, never sent to the browser) and **must never be printed, logged or committed**. `.env.local` sets
 `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (not secret) as the deployment's default Gmail client.
 
 ## Architecture: where things live
 
-- **All user data is client-side.** A Zustand store (`src/lib/store.ts`) is persisted to IndexedDB via `idb-keyval`. Large blobs (the
+- **All user data is client-side** (except the automatic-sending slice below). A Zustand store (`src/lib/store.ts`) is persisted to IndexedDB via `idb-keyval`. Large blobs (the
   original workbook ArrayBuffer, parsed sheet snapshots, the resume, the File System Access handle) are stored under separate
   `blob:*` keys through the `blobs` helper, not inside the JSON-persisted state. There is no database and no auth.
 - **Bring your own keys, several per service.** `settings.vault.{apollo,hunter,serper,ai}` are ordered `ApiKeyEntry[]` lists.
@@ -124,6 +125,31 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   "Sent" person showed as due ("sent date unknown").
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
   from the dashboard that were already saved into the file) so workflow state (status, dates, drafts) survives a re-import.
+
+## Automatic sending (server; `app/api/server/*`, `lib/server/{accounts,google,jobs}.ts`, `lib/serverSync.ts`)
+
+- Provisioned on Vercel (team claude-hackathon, project banker-dashboard): **Upstash Redis** (`KV_REST_API_URL/TOKEN`) and
+  **Upstash QStash** (`QSTASH_*`), both free plan, Redis auto-upgrade off. Env also has `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+  `SERVER_ENC_KEY` (32-byte base64, AES-256-GCM for the refresh token and CallMeBot key). QStash, not Vercel Cron: Hobby cron is daily only.
+- **Accounts:** the browser makes `settings.server = {id, token}` (random) and calls with `Authorization: Bearer id.token`; the server keeps
+  only sha256(token) (`authAccount`, created on first call). Redis: `acct:<id>` (tz, sealed Google refresh token + email, sealed WhatsApp,
+  14-day digest plan), `sends:<id>` hash (one field per Gmail draft, so sync and jobs don't clobber each other), `digestday:<id>`, `accts` set.
+- **Gmail:** "Turn on automatic sending" (/followups → Reminders) → `google/start` (state in Redis, 10 min) → Google consent (scope
+  `gmail.compose` only, offline, prompt=consent) → `google/callback` stores the sealed refresh token → back to `/followups?tab=reminders&server=connected`.
+  The Google client needs redirect URI `https://banker-dashboard-three.vercel.app/api/server/google/callback` (added 2026-10-06) and the
+  consent screen **In production** (Testing = refresh tokens die after 7 days). Users never touch Google Cloud: they all use this client.
+  Unverified app with a restricted Gmail scope: users click through Google's warning, and Google caps it at 100 users until verified.
+- **Queue:** `contact.serverSend {draftId, step, sendAt}` (0 = first email, n = follow-up #n), set by "Draft & schedule all" / "Schedule N"
+  (`queueSends`, slot = `followups.ts#nextSendSlot().at`). `syncServer` (Shell `useServerSync`: 4 s after changes + every 10 min) pushes the
+  queue + `reminders.ts#digestPlan`; `sync` publishes one QStash job per send (`notBefore`, dedup id) and drops cancelled ones. `run-send`
+  (signature-verified) sends the draft via `drafts.send` unless it was cancelled/rescheduled (sendAt mismatch); 404 = "missing". Results go back
+  in the sync response, `applyFinished` moves the contact on (sent / followed_up, dates, threadId) and acks them. `nextAction` treats a
+  future `serverSend.sendAt` like Gmail Schedule send (`queuedAt`).
+- **9am text:** QStash hourly schedule → `tick`: accounts at local 9:00–20:59 without today's text get `digestMessages` (shared
+  `lib/digestFormat.ts`) of the synced plan minus people the server followed up since, via CallMeBot. `getset` on `digestday` prevents doubles;
+  failures roll back and show on the card. With the server on, the browser's own 9am send (`useDailyWhatsApp`) stands down.
+- Tested 2026-10-06 against the real Redis with a local `next start` (create/auth/401/cancel/unsigned-job/disconnect) and Google's auth
+  endpoint (prod redirect accepted, unregistered → redirect_uri_mismatch). The full send path needs the deployment.
 
 ## Email formatting & signature (`src/lib/emailFormat.ts`)
 
@@ -287,7 +313,7 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `desks.ts#liveByDesk/overCapDesks/nextUpByDesk`). SF Tech, NY Tech and NY Generalist at one bank each get their own 2 slots (owner's rule).
   "Live" = drafted/sent/followed_up with no reply. Drafts warn (but don't block) when a desk goes over.
 - Reminders (`src/lib/reminders.ts`): one digest per day at 9am. Channels are browser Notification (only while the app is open), ntfy,
-  Twilio, WhatsApp (CallMeBot, send-now), and .ics export. There is **no server cron**, because the server has no data. A true server-side scheduler would need a DB.
+  Twilio, WhatsApp (CallMeBot, send-now), and .ics export. Server-side sending and the server's 9am text: see Automatic sending.
 - `nextAction`: a future `scheduledAt` → kind `scheduled` (not due; listed under "Scheduled in Gmail" on /followups). No
   date at all → not due (`unknownDate`, banner asks for a Gmail sync), and it's left out of reminder digests.
 - **/followups "Due now"** is two cards: "Follow-ups due" (follow_up / move_on) and "Drafted, not sent yet" (kind `send`,

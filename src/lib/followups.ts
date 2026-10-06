@@ -20,9 +20,10 @@ export function nextAction(c: Contact, s: Settings["followUp"], bank?: BankMeta)
     return { kind: "none", isDue: false, label: bank.status === "paused" ? "Bank paused" : "Bank moved on" };
   if (QUIET.has(c.status)) return { kind: "none", isDue: false, label: "" };
   const now = new Date();
-  // Queued with Gmail's Schedule send: nothing to do until it goes out (the follow-up clock starts then).
-  if (c.scheduledAt && new Date(c.scheduledAt) > now && !QUIET.has(c.status))
-    return { kind: "scheduled", due: new Date(c.scheduledAt), isDue: false, label: `${c.sentAt ? "Follow-up" : "Email"} scheduled · ${sendLabel(c.scheduledAt)}` };
+  // Queued with Gmail's Schedule send or on the server: nothing to do until it goes out (the follow-up clock starts then).
+  const queued = queuedAt(c);
+  if (queued && new Date(queued) > now && !QUIET.has(c.status))
+    return { kind: "scheduled", due: new Date(queued), isDue: false, label: `${c.sentAt ? "Follow-up" : "Email"} scheduled · ${sendLabel(queued)}` };
   if (c.status === "new") return { kind: "reach_out", isDue: false, label: c.email ? "Draft email" : "Find email" };
   if (c.status === "drafted") return { kind: "send", isDue: true, label: "Send draft" };
 
@@ -47,6 +48,12 @@ export function nextAction(c: Contact, s: Settings["followUp"], bank?: BankMeta)
   if (c.snoozeUntil && new Date(c.snoozeUntil) > due) due = new Date(c.snoozeUntil);
   const label = kind === "follow_up" ? `Follow-up #${c.followUps + 1}` : "Move on?";
   return { kind, due, isDue: due <= endOfToday, label };
+}
+
+/** When the next email to this person goes out by itself: Gmail Schedule send, or a send queued on the server. */
+export function queuedAt(c: Pick<Contact, "scheduledAt" | "serverSend">) {
+  const t = [c.scheduledAt, c.serverSend?.sendAt].filter((x): x is string => !!x).sort();
+  return t[0];
 }
 
 /** "Tue 10/6, 9:00 AM" in the viewer's time zone. */
@@ -106,5 +113,18 @@ export function nextSendSlot(c: Pick<Contact, "region">, now = new Date()) {
   const ptHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" }).format(now));
   const today = ptHour < t.hourPT;
   const day = today ? "today" : new Date(now.getTime() + 86_400_000).toLocaleDateString("en-US", { weekday: "short", timeZone: "America/Los_Angeles" });
-  return { today, label: `${day} ${t.label}` };
+  return { today, label: `${day} ${t.label}`, at: ptSlot(now, t.hourPT, today ? 0 : 1) };
+}
+
+/** `hourPT`:00 Pacific on today + `addDaysPT` (Pacific calendar), as a Date. */
+function ptSlot(now: Date, hourPT: number, addDaysPT: number) {
+  const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const [y, m, d] = ymd.split("-").map(Number);
+  // Try both Pacific offsets (PDT -7, PST -8) and keep the one that reads back as the wanted hour.
+  for (const off of [7, 8]) {
+    const at = new Date(Date.UTC(y, m - 1, d + addDaysPT, hourPT + off));
+    const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" }).format(at));
+    if (h === hourPT) return at;
+  }
+  return new Date(Date.UTC(y, m - 1, d + addDaysPT, hourPT + 8));
 }

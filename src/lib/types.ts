@@ -88,6 +88,11 @@ export interface Contact {
   draft?: { subject: string; body: string; gmailDraftId?: string; createdAt: string };
   /** The next follow-up, waiting as a Gmail draft (made from Follow-ups). Stale once `followUps` reaches `step`. */
   followUpDraft?: { gmailDraftId: string; messageId: string; step: number; createdAt: string };
+  /**
+   * A Gmail draft the server will send at `sendAt` (api/server). step 0 = the first email, n = follow-up #n.
+   * Cleared when the server reports it sent (then status / dates move on) or when it's cancelled.
+   */
+  serverSend?: { draftId: string; sendAt: string; step: number; queuedAt: string };
   sentAt?: string;
   lastTouchAt?: string;
   /** A send queued in Gmail ("Schedule send") that hasn't gone out yet. Follow-ups are timed from the real send. */
@@ -291,6 +296,11 @@ export interface Settings {
   outreach: import("./outreach").OutreachRules;
   /** Automatic reminders. `whatsappDaily` undefined = on once WhatsApp is connected. */
   alerts?: { whatsappDaily?: boolean };
+  /**
+   * This browser's account on the dashboard's server (api/server): random id + secret token, made in the browser.
+   * The server keeps Gmail access (to send queued drafts) and the 9am WhatsApp text for it. Never exported.
+   */
+  server?: { id: string; token: string; email?: string; connectedAt?: string };
 }
 
 export interface Prospect {
