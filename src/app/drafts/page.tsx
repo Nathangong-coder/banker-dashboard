@@ -13,7 +13,8 @@ import { chunk, cn, pool, uid } from "@/lib/util";
 import { teamOf } from "@/lib/locationTeam";
 import { overCapDesks } from "@/lib/desks";
 import { assignTrial, pickBase, pickVariant, trialTally, usageTally } from "@/lib/experiments";
-import { assignOutreachArms, composeOutreach, emailVerified, leftFirm, rulesOf, seniorSkipReason, sendTimeFor, settleOutreachArms } from "@/lib/outreach";
+import { assignOutreachArms, composeOutreach, emailVerified, leftFirm, rulesOf, seniorSkipReason, settleOutreachArms } from "@/lib/outreach";
+import { windowLabel, windowOf } from "@/lib/sendWindow";
 import { autoHook, hookFor, hooksOf } from "@/lib/hooks";
 import { HooksCard } from "@/components/Hooks";
 import { REQUIRED_FACTS, guessSchool, missingFacts } from "@/lib/template";
@@ -545,7 +546,8 @@ function RowChecks({ c, onLeft }: { c: Contact; onLeft: (employer: string) => vo
   const senior = seniorSkipReason(c, rules);
   const left = leftFirm(c);
   const verified = emailVerified(c);
-  const send = sendTimeFor(c);
+  const w = useStore((s) => windowOf(s.settings));
+  const send = { label: windowLabel(w), hourPT: w.start };
   return (
     <div className="mt-0.5 space-y-0.5 text-[11.5px]">
       {senior && (

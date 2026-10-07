@@ -12,7 +12,8 @@
     "check:templates": "tsx scripts/check-templates.mts",
     "check:coverage": "tsx scripts/check-coverage.mts",
     "check:outreach": "tsx scripts/check-outreach.mts",
-    "fix:workbook": "tsx scripts/fix-workbook.mts"
+    "fix:workbook": "tsx scripts/fix-workbook.mts",
+    "check:firms": "tsx scripts/check-firms.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.62",

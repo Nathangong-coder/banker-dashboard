@@ -1,5 +1,30 @@
 # TODO
 
+## 0. Owner's next priorities (2026-10-06)
+
+**a) Desks per bank (specialty firms). DONE 2026-10-06** (`lib/specialty.ts`, see CLAUDE.md). Open question: should NY TMT
+shops (LionTree, Raine, Allen) count for the NY Generalist desk? Today they don't. Today a desk is "not offered" only when the COVERAGE tab says the office doesn't
+hire, or names exactly one other team (`desks.ts#deskStatus` → `offices.ts#officeTeam`). A specialist firm with no
+COVERAGE detail (Leerink = healthcare; the owner applied anyway) still counts as a Tech / Generalist gap everywhere.
+Plan: a bank-level specialty (`banks.ts`: Leerink → Healthcare, Qatalyst / Tidal → Tech, Houlihan RX, …, editable on
+/coverage) that marks desks of other teams `not_offered`, unless the owner opts a desk in. An application to a specialist
+firm adds the firm without implying the owner's desks apply there.
+
+**b) Redesign for general users.** The sidebar has 9 items and the pages are dense. Simplify the nav (e.g. Today /
+People / Emails / Banks / Settings), hide power features (Email lab, sheet grid tools) behind "Advanced", and add a real
+user guide: screenshots plus a guided tour (Clippy-style, step by step over the live UI), along with the owner's "20
+essentials" (to be written by the owner).
+
+**c) Calendar-aware outreach (requested 2026-10-06, later).** Read the owner's Google Calendar (read-only scope, through the
+same server Google connection as automatic sending) for info sessions / coffee chats / recruiting events:
+- Match events to banks (title, organizer domain, attendees' domains → `canonBank`) and to contacts (attendee emails).
+- People the owner just met at an info session: "no need to cold-email" (suppress on Drafts / Find / coverage insights).
+- Banks with an info session today/yesterday: a WhatsApp nudge to follow up with the people met, then a reminder ~1 week later
+  to "bug them" (same 9am digest, new section, e.g. "*Info session follow-ups*").
+- Log the event on the bank (coverage card: "Info session 10/3") and count it as a touch for the desk.
+
+**d) Later: "browser use".** An agent layer on top of the existing infra (Claude driving the dashboard / Gmail). Not now.
+
 ## 1. Real 9am "what's due today" WhatsApp ping — BUILT 2026-10-06 (QStash + Upstash Redis; see CLAUDE.md "Automatic sending")
 
 Left: watch the first real sends/texts in Vercel logs; Google app verification if more than ~100 people use it.

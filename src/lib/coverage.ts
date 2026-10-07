@@ -4,6 +4,8 @@ import { STARTER_TARGETS, canonBank, type Application, type TargetBank } from ".
 import { LIVE_STATUSES, nextAction } from "./followups";
 import { DAY } from "./util";
 import { DEFAULT_OFFICES_PER_BANK, activeDesks, deskOffice, deskStatus, inScope, pickOffices, targetAppliesTo, type DeskStatus, type DeskTarget } from "./desks";
+import { specialtyOf, type Specialty } from "./specialty";
+import { inferTeam } from "./locationTeam";
 import { applyNote } from "./offices";
 
 export type Bucket = "reached" | "ready" | "cold" | "hidden";
@@ -46,6 +48,8 @@ export interface CoverageRow {
   offices: { all: string[]; picked: string[]; cap: number; note?: string };
   /** Submitted summer analyst applications to this firm (from the applications tab). */
   applied?: Application[];
+  /** A specialist firm's teams (lib/specialty.ts); desks for other teams are "not offered". */
+  specialty?: Specialty;
   /** Which of the four columns it's in (hidden banks keep the stage they'd have). */
   stage: Stage;
   /** People emailed vs. how many the cap allows here (cap × desks being applied to; just the cap with no desks). */
@@ -61,6 +65,8 @@ export type CoverageSettings = {
   officesPerBank?: number;
   /** Offices picked by hand per bank (canonBank key → ["SF", "NY"]); otherwise picked automatically. */
   officePick?: Record<string, string[]>;
+  /** Specialist-firm teams set by hand (canonBank key → teams; null = full-service, overriding the built-in list). */
+  specialty?: Record<string, string[] | null>;
 };
 
 const REACHED = new Set(["sent", "followed_up", "replied", "call_scheduled", "done"]);
@@ -122,7 +128,8 @@ export function buildCoverage(args: {
     const applicable = active.filter((t) => targetAppliesTo(t, r));
     if (active.length && !applicable.length && !hidden.has(r.key)) continue;
     // Only ~2 offices per bank: desks at offices you aren't applying to drop out of the scope and the counts.
-    const statuses = applicable.map((t) => deskStatus(t, r.allContacts, r.name));
+    r.specialty = withEvidence(specialtyOf(r.name, coverage.specialty), r.applied);
+    const statuses = applicable.map((t) => deskStatus(t, r.allContacts, r.name, r.specialty?.teams));
     // A desk that isn't offered here (no seats, or the office recruits another team) doesn't use up an office pick.
     const offered = applicable.filter((_, i) => statuses[i].state !== "not_offered");
     const picked = pickOffices(offered, r.allContacts, cap, coverage.officePick?.[r.key]);
@@ -203,4 +210,18 @@ export function outreachBetween(contacts: Contact[], from: number, to: number) {
     if (c.followUps > 0 && c.lastTouchAt !== c.sentAt && inside(c.lastTouchAt)) n++;
   }
   return n;
+}
+
+/**
+ * Guardrail on the built-in specialty list: a team your own data shows at the firm always counts. Applying to a
+ * "Technology Investment Banking" program at a firm listed as Healthcare means it has a Tech desk for you.
+ */
+export function withEvidence(sp: Specialty | undefined, applied?: Application[]): Specialty | undefined {
+  if (!sp) return sp;
+  const evidence: { team: string; from: string }[] = [];
+  for (const a of applied ?? []) {
+    const t = inferTeam(a.program);
+    if (t && t.confidence === "high" && !sp.teams.includes(t.team) && t.team !== "M&A") evidence.push({ team: t.team, from: `your application (${a.program})` });
+  }
+  return evidence.length ? { ...sp, teams: [...new Set([...sp.teams, ...evidence.map((e) => e.team)])], evidence } : sp;
 }

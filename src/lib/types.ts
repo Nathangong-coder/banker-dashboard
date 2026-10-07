@@ -301,6 +301,14 @@ export interface Settings {
    * The server keeps Gmail access (to send queued drafts) and the 9am WhatsApp text for it. Never exported.
    */
   server?: { id: string; token: string; email?: string; connectedAt?: string };
+  /**
+   * How drafts made on Follow-ups go out: "coverage" = the server sends them at each person's slot (needs `server`);
+   * "gmail" = you open each draft and use Gmail's Schedule send (the Gmail API can't schedule for you).
+   * undefined = coverage when automatic sending is on, else gmail.
+   */
+  sendMode?: "coverage" | "gmail";
+  /** When sends go out (lib/sendWindow.ts). undefined = 9–11 AM the recipient's time, weekdays. */
+  sendWindow?: import("./sendWindow").SendWindow;
 }
 
 export interface Prospect {

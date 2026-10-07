@@ -1,6 +1,6 @@
 import type { Contact } from "./types";
 import { tierRank, type CoverageRow } from "./coverage";
-import { DESK_PRESETS, deskStatus, targetAppliesTo, targetLabel, type DeskStatus, type DeskTarget } from "./desks";
+import { DESK_PRESETS, deskStatus, targetAppliesTo, targetLabel, teamMatches, type DeskStatus, type DeskTarget } from "./desks";
 import { LIVE_STATUSES } from "./followups";
 import { teamOf } from "./locationTeam";
 
@@ -28,7 +28,8 @@ export function coverageInsights(rows: CoverageRow[], plan: DeskTarget[], contac
   const out: Record<InsightKind, Insight[]> = { applied: [], uncovered: [], no_email: [], thin: [], quiet: [], unsorted: [], not_offered: [] };
 
   // Applied to a summer analyst program, but nobody there has been emailed: networking is what moves an application.
-  const appliedCold = shown.filter((r) => r.applied?.length && !r.allContacts.some((c) => !!c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status))).sort(byTier);
+  // Not for specialists outside your desks (applying to Leerink doesn't make it a Tech target).
+  const appliedCold = shown.filter((r) => r.applied?.length && !(r.notOffered && r.specialty) && !r.allContacts.some((c) => !!c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status))).sort(byTier);
   if (appliedCold.length)
     out.applied.push({
       kind: "applied",
@@ -42,7 +43,7 @@ export function coverageInsights(rows: CoverageRow[], plan: DeskTarget[], contac
     const deskParam = enc(`${t.location}|${t.team}`);
     const list = shown
       .filter((r) => targetAppliesTo(t, r))
-      .map((r) => ({ r, st: r.desks.find((d) => d.target.id === t.id) ?? deskStatus(t, r.allContacts, r.name) }));
+      .map((r) => ({ r, st: r.desks.find((d) => d.target.id === t.id) ?? deskStatus(t, r.allContacts, r.name, r.specialty?.teams) }));
     const where = (f: (st: DeskStatus) => boolean) => list.filter((x) => f(x.st)).map((x) => x.r).sort(byTier);
 
     const empty = where((st) => st.state === "empty");
@@ -74,10 +75,18 @@ export function coverageInsights(rows: CoverageRow[], plan: DeskTarget[], contac
       });
 
     const notOffered = where((st) => st.state === "not_offered");
-    if (notOffered.length)
+    // Two reasons: a specialist firm that doesn't cover this team, or an office with no summer seats for it.
+    const specialist = notOffered.filter((r) => r.specialty && !r.specialty.teams.some((x) => teamMatches(t.team, x)));
+    const office = notOffered.filter((r) => !specialist.includes(r));
+    if (office.length)
       out.not_offered.push({
         kind: "not_offered",
-        text: `${label}: ${names(notOffered)} ${notOffered.length === 1 ? "doesn't" : "don't"} hire summer analysts into ${t.location}. Shown as "not offered", not cold.`,
+        text: `${label}: ${names(office)} ${office.length === 1 ? "doesn't" : "don't"} hire summer analysts into ${t.location}. Shown as "not offered", not cold.`,
+      });
+    if (specialist.length)
+      out.not_offered.push({
+        kind: "not_offered",
+        text: `${label}: ${specialist.map((r) => `${r.name} (${r.specialty!.teams.join("/")})`).slice(0, 6).join(", ")}${specialist.length > 6 ? "…" : ""} ${specialist.length === 1 ? "is a specialist" : "are specialists"} with no ${t.team} desk. Shown as "not offered", not cold.`,
       });
   }
 

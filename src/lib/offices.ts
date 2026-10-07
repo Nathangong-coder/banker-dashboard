@@ -62,6 +62,9 @@ const BUILT_IN: Record<string, Partial<Record<Office, OfficeInfo>>> = {
   Rothschild: { SF: { hires: false }, TX: { hires: true, teams: "Energy" } },
   "Piper Sandler": { TX: { hires: true, teams: "Energy (Simmons)" } },
   "Raymond James": { TX: { hires: true, teams: "Energy" } },
+  // Houston energy specialist (Perella Weinberg's energy arm; often listed on its own).
+  "Tudor, Pickering, Holt & Co.": { TX: { hires: true, teams: "Energy" } },
+  TPH: { TX: { hires: true, teams: "Energy" } },
   Centerview: { LA: { hires: false } },
   Qatalyst: { LA: { hires: false } },
   Raine: { LA: { hires: false }, SF: { hires: false } },
@@ -154,6 +157,18 @@ export function officeInfo(bank: string, location: string): OfficeInfo | undefin
   if (!info && o === "TX") return { hires: false, notes: "Not on the Texas energy list (src/lib/offices.ts)" };
   return info;
 }
+
+/** Only what the owner's COVERAGE tab says (no built-in fallback): the evidence that outranks the built-in lists. */
+export function sheetOfficeInfo(bank: string, location: string): OfficeInfo | undefined {
+  const o = officeOf(location);
+  return o ? current.get(canonBank(bank))?.offices[o] : undefined;
+}
+
+/** Built-in office facts, for checks (scripts/check-firms.mts). */
+export const BUILT_IN_OFFICES = BUILT_IN;
+
+/** When the built-in office facts were last checked by hand. `check:firms` warns once this is a year old. */
+export const OFFICE_FACTS_REVIEWED = "2026-10-06";
 
 export function applyNote(bank: string): string | undefined {
   return current.get(canonBank(bank))?.applyNote;

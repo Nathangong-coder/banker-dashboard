@@ -15,7 +15,8 @@ npm run typecheck && npm run lint
 npm run check:workbook -- "path/to/file.xlsx" # parser + write-back round-trip on a real workbook (no browser needed)
 npm run check:templates -- "file.docx" ["Sender Name"]  # template-doc importer output (PROFILE='{"school":"UCLA",...}' to generalize)
 npm run check:coverage -- "path/to/file.xlsx" # scoreboard for no desks / SF Tech / NY Generalist / both (must all differ)
-npm run check:outreach                        # outreach rules: one rendered email per affinity, 80/20 + 70/30 shares, checks
+npm run check:outreach                        # outreach rules: one rendered email per affinity, 80/20 + 70/30 shares, send window
+npm run check:firms [-- "file.xlsx"]           # built-in firm facts: collisions, golden cases, guardrails, freshness, tab vs lists
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -145,6 +146,9 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (signature-verified) sends the draft via `drafts.send` unless it was cancelled/rescheduled (sendAt mismatch); 404 = "missing". Results go back
   in the sync response, `applyFinished` moves the contact on (sent / followed_up, dates, threadId) and acks them. `nextAction` treats a
   future `serverSend.sendAt` like Gmail Schedule send (`queuedAt`).
+- **Send mode** (`settings.sendMode`, switch above "Follow-ups due"): "Coverage sends them" (server queue) or "Gmail Schedule
+  send (I click)" (drafts only; the user schedules each in Gmail, since the Gmail API has no Schedule send). Undefined = Coverage
+  when connected. Switching modes doesn't cancel sends already queued (they keep their Cancel button under Scheduled).
 - **9am text:** QStash hourly schedule → `tick`: accounts at local 9:00–20:59 without today's text get `digestMessages` (shared
   `lib/digestFormat.ts`) of the synced plan minus people the server followed up since, via CallMeBot. `getset` on `digestday` prevents doubles;
   failures roll back and show on the card. With the server on, the browser's own 9am send (`useDailyWhatsApp`) stands down.
@@ -329,6 +333,27 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (`sendWhatsAppDigest`; also used by the manual button). Toggle: `settings.alerts.whatsappDaily` (undefined = on) on /followups → Reminders. Before this,
   only the manual button sent anything, which is why the owner got no texts.
 
+## Settings (`app/settings/page.tsx`) and send window
+
+- **One Settings page, tabbed** (`?tab=profile|email|outreach|data|reminders|backup`, Email has `&sub=writing|sending|experiments`;
+  the old `#alerts` hash opens Reminders). Email → Writing = hooks, font, signature. Sending = `SendWindowEditor`, `SendModeSwitch`,
+  follow-up rules. Experiments = `components/LabSetup.tsx` (experiments, shared wording, generator, moved out of /lab, which now
+  shows results only; `/lab?view=setup` forwards). Reminders = `AutoSendCard` (components/AutoSend.tsx) + alert channels.
+- **Send window** (`settings.sendWindow`, `lib/sendWindow.ts`): default 9–11 AM in the recipient's zone (`recipientTz`: NY Eastern,
+  Chicago/Texas Central, else Pacific), weekdays only. `planSends` gives a batch spots 6 min apart (+0–2 min jitter) around sends already
+  queued, overflowing to the next weekday; `zonedDate` is DST-safe. `queueSends` uses it; `rescheduleQueued` ("Move N queued emails
+  into this window") re-plans everything queued. check:outreach covers zones, weekends, spreading, overflow and DST.
+
+## Firm facts: where they come from and the guardrails
+
+- No live source exists (banks don't publish their summer-analyst desks via any API). Order of authority: anyone the owner has found
+  on a desk > the owner's COVERAGE tab (`sheetOfficeInfo`) and applications (`coverage.ts#withEvidence`: a "Technology IB" program
+  opens the Tech desk at a listed specialist) > the owner's per-firm override on /coverage > the hand-checked built-in lists
+  (`offices.ts` BUILT_IN, `specialty.ts` BUILT_IN, both stamped `*_REVIEWED`).
+- `npm run check:firms` fails on name collisions, non-standard teams, built-in contradictions, broken golden cases (Leerink SF Tech
+  not offered, Qatalyst NY Generalist not offered, TPH Texas Energy offered…) or broken guardrails; warns when a list is >1 year
+  since review; with a workbook, lists where the COVERAGE tab disagrees with the lists (compared by `inferTeam`, not text).
+
 ## Conventions
 
 - Client pages are `"use client"` and render only after store hydration (`Shell` → `useHydrated`). Server routes import `server-only`.
@@ -355,7 +380,7 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `pickWeighted` (target share) replaces least-used for alternate experiments and weighted template variants.
 - **Who / when:** `seniorSkipReason` (MD/Head/Partner without a UCLA/Anderson/WA tie) hides people on Find (collapsed "Senior (skipped)")
   and warns on Drafts. `emailVerified` (Apollo "verified", Hunter "valid", sheet/manual/Gmail addresses) gates drafting and Gmail drafts.
-  `leftFirm` (headline employer ≠ bank) offers "Mark as left firm". `sendTimeFor`: NY 5 PM PT, else 7 PM PT.
+  `leftFirm` (headline employer ≠ bank) offers "Mark as left firm". Send times: `lib/sendWindow.ts` (below), not the old NY 5 PM / else 7 PM PT rule.
 - **Enrichment** (`api/enrich`): a match is discarded (with the reason in the note) if its LinkedIn slug, last name, firm or city
   disagrees with ours. `detectRegion` moved to `lib/region.ts` so server routes can use it (workbook.ts re-exports it).
 - **Gmail sync:** out-of-office auto-replies aren't replies. A bounce (mailer-daemon) or an auto-reply saying they left sets `ignored`.
@@ -375,6 +400,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   tab lacks, incl. Texas (Houston energy banks; a bank not on that list = not offered in Texas). A desk is `not_offered` when the
   office doesn't hire ("No / unclear") or clearly recruits one other team (`officeTeam`: Moelis SF = Generalist, Qatalyst NY = Tech).
   `officeOf` maps Menlo Park / Palo Alto / Burlingame → SF, Santa Monica → LA, Houston / Dallas / Austin → TX.
+- **Specialist firms (`src/lib/specialty.ts`):** `specialtyOf(bank, coverage.specialty)` = the owner's setting (canonBank key →
+  [team], or null = full-service) else a conservative built-in list (Leerink / Cain / MTS = Healthcare; Qatalyst / Tidal /
+  Union Square / FT Partners = Tech; LionTree / Allen / Raine = TMT; Ducera = RX; TPH = Energy). `deskStatus(…, specialty)` marks an
+  empty desk outside those teams `not_offered` (someone already found on it still counts), so a firm with none of the checked desks
+  is `notOffered` and leaves the counts, the columns and the "you applied to…" nudge. /coverage: `SpecialtyPicker` on each card
+  (hover on full-service banks) and a "Specialists outside your desks" list to change them back. TMT matches the Tech desk only.
 - **Office cap:** you can usually apply to 2 offices per bank (`coverage.officesPerBank`). `desks.ts#pickOffices` picks offices
   already emailed, then with contacts, then plan order; `coverage.officePick[bankKey]` overrides (OfficePicker on the bank card).
   Desks elsewhere are `not_applying` and leave the scope and counts. Not-offered desks don't use a pick.

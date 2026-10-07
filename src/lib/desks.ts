@@ -1,7 +1,7 @@
 import { REGIONS, regionInfo, type Contact, type Region } from "./types";
 import { canonBank } from "./banks";
-import { officeInfo, officeOf, officeTeam } from "./offices";
-import { normLocation, normTeam, teamOf } from "./locationTeam";
+import { officeInfo, officeOf, officeTeam, sheetOfficeInfo } from "./offices";
+import { inferTeam, normLocation, normTeam, teamOf } from "./locationTeam";
 import { LIVE_STATUSES } from "./followups";
 
 /**
@@ -131,8 +131,12 @@ export interface DeskStatus {
 const REACHED = new Set(["sent", "followed_up", "replied", "call_scheduled", "done"]);
 const REPLIED = new Set(["replied", "call_scheduled", "done"]);
 
-/** Where one bank stands on one desk of the plan. With `bank`, an office the bank doesn't hire into is "not_offered" instead of empty. */
-export function deskStatus(target: DeskTarget, bankContacts: Contact[], bank?: string): DeskStatus {
+/**
+ * Where one bank stands on one desk of the plan. With `bank`, an office the bank doesn't hire into is "not_offered"
+ * instead of empty; so is a desk outside a specialist firm's teams (`specialty`, lib/specialty.ts: no SF · Tech at
+ * Leerink). Someone already found on the desk always counts.
+ */
+export function deskStatus(target: DeskTarget, bankContacts: Contact[], bank?: string, specialty?: string[]): DeskStatus {
   const here = bankContacts.filter((c) => c.status !== "ignored" && locationMatches(target.location, c));
   const people = here.filter((c) => teamMatches(target.team, teamOf(c)));
   const unsorted = here.filter((c) => !teamOf(c)).length;
@@ -146,6 +150,10 @@ export function deskStatus(target: DeskTarget, bankContacts: Contact[], bank?: s
     // (Moelis SF = Generalist, so no "SF · Tech" there; Qatalyst NY = Tech M&A, so no "NY · Generalist").
     const only = officeTeam(bank, target.location);
     if (officeInfo(bank, target.location)?.hires === false || (only?.confidence === "high" && !teamMatches(target.team, only.team))) state = "not_offered";
+    // A specialty never outranks the owner's own COVERAGE tab: if it lists this team at this office, it's offered.
+    const sheet = sheetOfficeInfo(bank, target.location);
+    const sheetSays = sheet?.hires !== false && !!sheet?.teams && sheet.teams.split(/[;,/]|\band\b/).some((p) => teamMatches(target.team, inferTeam(p)?.team ?? p));
+    if (specialty?.length && !specialty.some((t) => teamMatches(target.team, t)) && !sheetSays) state = "not_offered";
   }
   return { target, state, people, unsorted };
 }

@@ -16,7 +16,8 @@ import {
   type DeskTarget,
 } from "@/lib/desks";
 import { cn, uid } from "@/lib/util";
-import { teamOf } from "@/lib/locationTeam";
+import { DEFAULT_TEAMS, teamOf } from "@/lib/locationTeam";
+import { SPECIALTY_REVIEWED, hasBuiltInSpecialty } from "@/lib/specialty";
 import { Badge, Button, Card, Checkbox, Input } from "./ui";
 import { useLocationTeamOptions } from "./LocationTeam";
 
@@ -696,5 +697,49 @@ export function OfficePicker({ r }: { r: CoverageRow }) {
         ({r.offices.picked.length} of {r.offices.all.length} offices{r.offices.note ? ` · ${r.offices.note}` : ""})
       </span>
     </div>
+  );
+}
+
+/**
+ * A firm's specialty (lib/specialty.ts): "Specialist · Healthcare" with a picker, or a quiet "set specialty" for
+ * full-service banks. Desks for other teams at a specialist are "not offered".
+ */
+export function SpecialtyPicker({ r, compact }: { r: CoverageRow; compact?: boolean }) {
+  const setCoverage = useStore((s) => s.setCoverage);
+  const set = (v: string) =>
+    setCoverage((c) => {
+      const next = { ...(c.specialty ?? {}) };
+      // "auto" = back to the built-in list; "" = full-service (overrides it); else one team.
+      if (v === "auto") delete next[r.key];
+      else next[r.key] = v ? [v] : null;
+      return { ...c, specialty: next };
+    });
+  const current = r.specialty?.teams[0] ?? "";
+  const builtIn = hasBuiltInSpecialty(r.name);
+  return (
+    <label
+      className={cn("mt-1 inline-flex items-center gap-1 text-[11.5px]", r.specialty ? "text-ink-2" : "text-muted", !r.specialty && !compact && "opacity-0 group-hover:opacity-100 focus-within:opacity-100")}
+      title={
+        r.specialty
+          ? `Specialist (${r.specialty.why}${r.specialty.source === "built-in" ? `; built-in list, checked ${SPECIALTY_REVIEWED}` : ""}): desks for other teams count as "not offered" here.${r.specialty.evidence?.length ? ` Also counted because of ${r.specialty.evidence.map((e) => `${e.team} (${e.from})`).join(", ")}.` : ""} Your COVERAGE tab and anyone you've found on a desk always win.`
+          : "Full-service: every desk counts. Pick a team if this firm only covers one industry."
+      }
+    >
+      {r.specialty ? "Specialist ·" : "Full-service ·"}
+      <select
+        value={current}
+        onChange={(e) => set(e.target.value)}
+        className="rounded border border-line-2 bg-panel px-1 py-0 text-[11.5px]"
+        aria-label={`${r.name} specialty`}
+      >
+        <option value="">{r.specialty ? "full-service" : "set specialty"}</option>
+        {DEFAULT_TEAMS.filter((t) => t !== "M&A" && t !== "Generalist").map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+        {builtIn && r.specialty?.source === "yours" && <option value="auto">reset to default</option>}
+      </select>
+    </label>
   );
 }

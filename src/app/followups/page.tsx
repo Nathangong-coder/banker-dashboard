@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, CalendarPlus, Check, Clock, MailPlus, MessageSquare, RefreshCw, Smartphone, UserX } from "lucide-react";
 import { blobs, bankKey, useStore } from "@/lib/store";
-import { nextAction, nextSendSlot, pendingFollowUpDraft, rollupBanks, type BankRollup, type NextAction } from "@/lib/followups";
+import { nextAction, pendingFollowUpDraft, rollupBanks, type BankRollup, type NextAction } from "@/lib/followups";
+import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
 import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
 import { connectGmail, upsertDraft } from "@/lib/gmail";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
@@ -19,7 +20,8 @@ import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
-import { cancelSend, connectServer, disconnectServer, markServerConnected, queueSends, sendableDraft, syncServer, useServerStatus } from "@/lib/serverSync";
+import { cancelSend, markServerConnected, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
+import { AutoSendCard, SendModeSwitch } from "@/components/AutoSend";
 
 type Tab = "due" | "bankers" | "banks" | "reminders";
 
@@ -168,7 +170,7 @@ function useActions() {
   const followUpDraft = async (c: Contact) => {
     try {
       if (await draftFollowUp(c, { mailtoFallback: true }))
-        toast.ok(`Follow-up draft for ${c.name} is in Gmail${c.threadId ? " (same thread)" : ""}. Schedule it for ${nextSendSlot(c).label}.`);
+        toast.ok(`Follow-up draft for ${c.name} is in Gmail${c.threadId ? " (same thread)" : ""}. Schedule it for ${nextSendSlot(c, windowOf(s.settings)).label}.`);
     } catch (e) {
       toast.err((e as Error).message);
     }
@@ -234,7 +236,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const { draftFollowUp } = act;
 
   // Automatic sending (the server sends queued Gmail drafts at each person's slot; lib/serverSync.ts).
-  const auto = !!settings.server?.email;
+  const auto = !!settings.server?.email && settings.sendMode !== "gmail";
   const toSchedule = behind.filter(({ c, a }) => a.kind === "follow_up" && c.email);
   const draftAndSchedule = async () => {
     const need = toSchedule.filter(({ c }) => !pendingFollowUpDraft(c));
@@ -253,7 +255,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
       // Re-read: drafting just recorded each followUpDraft.
       const ids = new Set(toSchedule.map(({ c }) => c.id));
       const n = await queueSends(useStore.getState().contacts.filter((c) => ids.has(c.id)));
-      if (n) toast.ok(`${n} follow-up${n > 1 ? "s" : ""} drafted and scheduled. Each goes out at its slot (NY 5 PM PT, everyone else 7 PM PT), even with the dashboard closed.`);
+      if (n) toast.ok(`${n} follow-up${n > 1 ? "s" : ""} drafted and scheduled. Each goes out ${windowLabel(windowOf(settings))}, even with the dashboard closed.`);
     } catch (e) {
       failed.push((e as Error).message);
     }
@@ -274,7 +276,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
 
   const row = ({ c, a }: { c: Contact; a: NextAction }) => {
     const fu = pendingFollowUpDraft(c);
-    const slot = nextSendSlot(c);
+    const slot = nextSendSlot(c, windowOf(settings));
     return (
       <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
         <button onClick={() => onOpen(c)} className="min-w-[220px] flex-1 text-left">
@@ -289,7 +291,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           <Badge tone="neutral">Send · {slot.label}</Badge>
         ) : fu ? (
           <a href={`https://mail.google.com/mail/u/0/#drafts?compose=${fu.messageId}`} target="_blank" rel="noreferrer" title="Open the draft and use Schedule send">
-            <Badge tone="green">Draft #{fu.step} ready · schedule {slot.label}</Badge>
+            <Badge tone="green">Draft #{fu.step} ready · open &amp; Schedule send for {slot.label}</Badge>
           </a>
         ) : (
           <Badge tone={a.kind === "move_on" ? "neutral" : "red"}>
@@ -363,6 +365,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           </Button>
         </div>
       )}
+      <SendModeSwitch onAuto={onAuto} />
       <Card>
         <CardHeader
           title={`Follow-ups due · ${behind.length}`}
@@ -856,81 +859,9 @@ function SetupHint({ text }: { text: string }) {
   return (
     <p className="text-[12.5px] text-muted">
       {text}{" "}
-      <Link href="/settings#alerts" className="font-medium text-navy underline">
+      <Link href="/settings?tab=reminders" className="font-medium text-navy underline">
         Settings
       </Link>
     </p>
-  );
-}
-
-/** Automatic sending: the server sends queued Gmail drafts at each person's slot and the 9am WhatsApp text. */
-function AutoSendCard() {
-  const server = useStore((s) => s.settings.server);
-  const queued = useStore((s) => s.contacts.filter((c) => c.serverSend).length);
-  const status = useServerStatus((s) => s.status);
-  const [busy, setBusy] = useState(false);
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    try {
-      await fn();
-    } catch (e) {
-      toast.err((e as Error).message);
-    }
-    setBusy(false);
-  };
-  return (
-    <Card>
-      <CardHeader
-        title="Automatic sending"
-        sub="Coverage sends the follow-ups you schedule at each person's slot (NY 5 PM PT, everyone else 7 PM PT) and texts your 9am WhatsApp list, even when this dashboard is closed."
-        right={<Clock className="size-4 text-muted" />}
-      />
-      <div className="space-y-2 p-4 text-[13px]">
-        {server?.email ? (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="green">On</Badge>
-              <span>
-                Sends from <b>{server.email}</b> · {queued} queued
-              </span>
-            </div>
-            {status?.whatsapp && <div className="text-[12px] text-muted">WhatsApp 9am text: on{status.lastDigestDay ? ` · last sent ${status.lastDigestDay}` : ""}</div>}
-            {status?.lastDigestError && <div className="text-[12px] text-red">WhatsApp: {status.lastDigestError}</div>}
-            {status?.error && <div className="text-[12px] text-red">{status.error}</div>}
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Button size="sm" loading={busy} onClick={() => run(async () => toast.ok((await syncServer()) ? "Synced with the server." : "Nothing to sync."))}>
-                Sync now
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => run(() => connectServer())}>
-                Reconnect Gmail
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  window.confirm("Turn off automatic sending? Queued sends are cancelled (the drafts stay in Gmail) and the server forgets your Gmail access.") &&
-                  run(async () => {
-                    await disconnectServer();
-                    toast.ok("Automatic sending is off.");
-                  })
-                }
-              >
-                Turn off
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="text-ink-2">
-              One Google sign-in gives Coverage permission to <b>send drafts you&apos;ve made</b> (Gmail &ldquo;compose&rdquo; access, nothing else).
-              It sends only what you schedule here, and you can turn it off any time.
-            </p>
-            <Button size="sm" variant="primary" loading={busy} onClick={() => run(() => connectServer())}>
-              Turn on automatic sending
-            </Button>
-          </>
-        )}
-      </div>
-    </Card>
   );
 }

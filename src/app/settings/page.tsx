@@ -6,11 +6,14 @@ import { OutreachRulesEditor } from "@/components/OutreachRules";
 import { HooksEditor } from "@/components/Hooks";
 import { useStore } from "@/lib/store";
 import { EMAIL_FONTS, type EmailFont, type Settings } from "@/lib/types";
-import { download } from "@/lib/util";
+import { cn, download } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, PageHeader, Select, Textarea, toast } from "@/components/ui";
 import { AiVault, KeyVault, testKey } from "@/components/KeyVault";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 import { GmailSetup } from "@/components/GmailSetup";
+import { LabSetup } from "@/components/LabSetup";
+import { AutoSendCard, SendModeSwitch } from "@/components/AutoSend";
+import { SendWindowEditor } from "@/components/SendWindowEditor";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
@@ -134,8 +137,66 @@ function TestedFields<K extends string>({
   );
 }
 
+type Tab = "profile" | "email" | "outreach" | "data" | "reminders" | "backup";
+type Sub = "writing" | "sending" | "experiments";
+const TABS: [Tab, string][] = [
+  ["profile", "Profile"],
+  ["email", "Email"],
+  ["outreach", "Outreach rules"],
+  ["data", "Data & AI"],
+  ["reminders", "Reminders"],
+  ["backup", "Backup"],
+];
+const SUBS: [Sub, string, string][] = [
+  ["writing", "Writing", "Hooks, font, signature"],
+  ["sending", "Sending", "Send window, who sends, follow-up rules"],
+  ["experiments", "Experiments", "A/B tests, shared wording, new angles (results: Email lab)"],
+];
+
+function readTab(): { tab: Tab; sub: Sub } {
+  if (typeof window === "undefined") return { tab: "profile", sub: "writing" };
+  const q = new URLSearchParams(window.location.search);
+  const t = (q.get("tab") ?? (window.location.hash === "#alerts" ? "reminders" : "")) as Tab;
+  const sub = q.get("sub") as Sub;
+  return { tab: TABS.some(([k]) => k === t) ? t : "profile", sub: SUBS.some(([k]) => k === sub) ? sub : "writing" };
+}
+
+function SettingsTabs({ tab, sub, onTab }: { tab: Tab; sub: Sub; onTab: (t: Tab, s?: Sub) => void }) {
+  return (
+    <div className="mb-5 space-y-2">
+      <div className="inline-flex flex-wrap rounded-md border border-line-2 bg-panel p-0.5">
+        {TABS.map(([t, label]) => (
+          <button key={t} onClick={() => onTab(t)} className={cn("rounded px-3.5 py-1.5 text-[13px]", tab === t ? "bg-navy text-white" : "text-ink-2 hover:bg-[#f0eee7]")}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "email" && (
+        <div className="flex flex-wrap gap-1.5">
+          {SUBS.map(([k, label, hint]) => (
+            <button
+              key={k}
+              onClick={() => onTab("email", k)}
+              title={hint}
+              className={cn("rounded-full border px-3 py-1 text-[12.5px]", sub === k ? "border-navy bg-navy/5 font-medium text-navy" : "border-line-2 text-ink-2 hover:border-navy/40")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { settings, setSettings, clearAll, replaceAll } = useStore();
+  const [{ tab, sub }, setTabState] = useState(readTab);
+  const go = (t: Tab, s?: Sub) => {
+    const next = { tab: t, sub: s ?? (t === "email" ? sub : "writing") };
+    setTabState(next);
+    window.history.replaceState(null, "", `/settings?tab=${next.tab}${next.tab === "email" ? `&sub=${next.sub}` : ""}`);
+  };
   const importRef = useRef<HTMLInputElement>(null);
   const p = settings.profile;
   const k = settings.keys;
@@ -163,12 +224,15 @@ export default function SettingsPage() {
   return (
     <>
       <PageHeader
-        title="Settings & keys"
-        sub="Keys live only in this browser's local storage. Each request sends them to the service that needs them and nothing else. Nothing is saved on the server."
+        title="Settings"
+        sub="Your data and API keys live in this browser. Each request sends a key only to the service that needs it. Turning on automatic sending (Reminders) is the one thing stored on the server: your Gmail permission and the send queue, encrypted."
         right={<Badge tone="green"><ShieldCheck className="size-3" /> Bring your own keys</Badge>}
       />
 
+      <SettingsTabs tab={tab} sub={sub} onTab={go} />
       <div className="space-y-6">
+        {tab === "profile" && (
+          <>
         <Card>
           <CardHeader title="Your profile" sub="Fills the {{my_*}} placeholders in templates" />
           <div className="grid gap-3 p-4 md:grid-cols-3">
@@ -183,6 +247,15 @@ export default function SettingsPage() {
             <Field label="School nickname" hint="“Fellow Bruin…”"><Input value={p.schoolNickname} placeholder="Bruin" onChange={(e) => setP({ schoolNickname: e.target.value })} /></Field>
             <Field label="School city" hint="“…went to college in LA”"><Input value={p.schoolCity} placeholder="LA" onChange={(e) => setP({ schoolCity: e.target.value })} /></Field>
             <Field label="Club"><Input value={p.club} placeholder="e.g. Bruin Finance Society" onChange={(e) => setP({ club: e.target.value })} /></Field>
+          </div>
+        </Card>
+          </>
+        )}
+        {tab === "email" && sub === "writing" && (
+          <>
+        <Card>
+          <CardHeader title="Writing" sub="Your hooks ({{my_pitch}}), the font drafts are made in, and your signature" />
+          <div className="grid gap-3 p-4 md:grid-cols-3">
             <div className="md:col-span-3">
               <div className="mb-1 text-[12.5px] font-medium text-ink-2">Hooks ({"{{my_pitch}}"})</div>
               <HooksEditor />
@@ -223,9 +296,34 @@ export default function SettingsPage() {
             </div>
           </div>
         </Card>
+          </>
+        )}
+        {tab === "email" && sub === "sending" && (
+          <>
+            <SendWindowEditor />
+            <Card>
+              <CardHeader title="Who sends" sub="Coverage sends scheduled drafts itself, or you schedule each one in Gmail" />
+              <div className="p-4">
+                <SendModeSwitch onAuto={() => go("reminders")} />
+              </div>
+            </Card>
+        <Card>
+          <CardHeader title="Follow-up rules" />
+          <div className="grid gap-3 p-4 md:grid-cols-5">
+            <Field label="First follow-up after (days)"><Input type="number" min={1} value={fu.firstAfterDays} onChange={(e) => setFu({ firstAfterDays: Number(e.target.value) || 1 })} /></Field>
+            <Field label="Next follow-ups every (days)"><Input type="number" min={1} value={fu.nextAfterDays} onChange={(e) => setFu({ nextAfterDays: Number(e.target.value) || 1 })} /></Field>
+            <Field label="Max follow-ups"><Input type="number" min={0} max={5} value={fu.maxFollowUps} onChange={(e) => setFu({ maxFollowUps: Number(e.target.value) || 0 })} /></Field>
+            <Field label="Suggest moving on after (days)"><Input type="number" min={1} value={fu.moveOnAfterDays} onChange={(e) => setFu({ moveOnAfterDays: Number(e.target.value) || 1 })} /></Field>
+            <Field label="Live people per team" hint="Emailed, no reply yet. Counted per bank + office + team (SF Tech and NY Tech are separate)"><Input type="number" min={1} max={20} value={fu.livePerBank} onChange={(e) => setFu({ livePerBank: Number(e.target.value) || 1 })} /></Field>
+          </div>
+        </Card>
 
-        <OutreachRulesEditor />
-
+          </>
+        )}
+        {tab === "email" && sub === "experiments" && <LabSetup />}
+        {tab === "outreach" && <OutreachRulesEditor />}
+        {tab === "data" && (
+          <>
         <Card>
           <CardHeader
             title="Data & AI services"
@@ -288,6 +386,11 @@ export default function SettingsPage() {
           </KeyRow>
         </Card>
 
+          </>
+        )}
+        {tab === "reminders" && (
+          <>
+            <AutoSendCard />
         <Card id="alerts">
           <CardHeader title="Reminders & alerts" sub="Each one sends a real test message before it's saved." />
           <KeyRow
@@ -367,17 +470,10 @@ export default function SettingsPage() {
           </KeyRow>
         </Card>
 
-        <Card>
-          <CardHeader title="Follow-up rules" />
-          <div className="grid gap-3 p-4 md:grid-cols-5">
-            <Field label="First follow-up after (days)"><Input type="number" min={1} value={fu.firstAfterDays} onChange={(e) => setFu({ firstAfterDays: Number(e.target.value) || 1 })} /></Field>
-            <Field label="Next follow-ups every (days)"><Input type="number" min={1} value={fu.nextAfterDays} onChange={(e) => setFu({ nextAfterDays: Number(e.target.value) || 1 })} /></Field>
-            <Field label="Max follow-ups"><Input type="number" min={0} max={5} value={fu.maxFollowUps} onChange={(e) => setFu({ maxFollowUps: Number(e.target.value) || 0 })} /></Field>
-            <Field label="Suggest moving on after (days)"><Input type="number" min={1} value={fu.moveOnAfterDays} onChange={(e) => setFu({ moveOnAfterDays: Number(e.target.value) || 1 })} /></Field>
-            <Field label="Live people per team" hint="Emailed, no reply yet. Counted per bank + office + team (SF Tech and NY Tech are separate)"><Input type="number" min={1} max={20} value={fu.livePerBank} onChange={(e) => setFu({ livePerBank: Number(e.target.value) || 1 })} /></Field>
-          </div>
-        </Card>
-
+          </>
+        )}
+        {tab === "backup" && (
+          <>
         <Card>
           <CardHeader title="Backup & data" sub="Everything is stored in this browser. Export a backup to move to another computer." />
           <div className="flex flex-wrap gap-2 p-4">
@@ -423,6 +519,8 @@ export default function SettingsPage() {
             </Button>
           </div>
         </Card>
+          </>
+        )}
       </div>
     </>
   );

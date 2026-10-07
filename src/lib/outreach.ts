@@ -452,7 +452,4 @@ export function leftFirm(c: Pick<Contact, "bank" | "headline">): string | undefi
   return x === y || x.includes(y) || y.includes(x) ? undefined : employer;
 }
 
-/** When to send, by the recipient's office: New York at 5:00 PM PT (8 PM ET), everyone else at 7:00 PM PT. */
-export function sendTimeFor(c: Pick<Contact, "region">): { hourPT: number; label: string } {
-  return c.region === "NY" ? { hourPT: 17, label: "5:00 PM PT (8 PM ET)" } : { hourPT: 19, label: "7:00 PM PT" };
-}
+// Send times: lib/sendWindow.ts (a window in Settings; it replaced the fixed NY 5 PM / else 7 PM PT rule).

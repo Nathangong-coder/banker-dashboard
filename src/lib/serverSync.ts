@@ -3,7 +3,8 @@
 import { create } from "zustand";
 import { useStore } from "./store";
 import { digestPlan } from "./reminders";
-import { nextSendSlot, pendingFollowUpDraft } from "./followups";
+import { pendingFollowUpDraft } from "./followups";
+import { planSends, windowOf } from "./sendWindow";
 import type { Contact } from "./types";
 
 /**
@@ -137,18 +138,35 @@ export function sendableDraft(c: Contact): { draftId: string; step: number } | n
   return null;
 }
 
-/** Queue these people's Gmail drafts for their next send slot (NY 5 PM PT, else 7 PM PT). Returns how many. */
+/**
+ * Queue these people's Gmail drafts in your send window (Settings → Email → Sending; default 9–11 AM their time,
+ * weekdays), spread a few minutes apart around sends already queued. Returns how many.
+ */
 export async function queueSends(contacts: Contact[]) {
   const st = useStore.getState();
-  let n = 0;
-  for (const c of contacts) {
-    const d = sendableDraft(c);
-    if (!d) continue;
-    st.updateContact(c.id, { serverSend: { draftId: d.draftId, step: d.step, sendAt: nextSendSlot(c).at.toISOString(), queuedAt: new Date().toISOString() } });
-    n++;
+  const ids = new Set(contacts.map((c) => c.id));
+  const ready = contacts.map((c) => ({ c, d: sendableDraft(c) })).filter((x): x is { c: Contact; d: { draftId: string; step: number } } => !!x.d);
+  const taken = st.contacts.filter((c) => c.serverSend && !ids.has(c.id)).map((c) => new Date(c.serverSend!.sendAt));
+  const plan = planSends(ready.map((x) => x.c), windowOf(st.settings), { taken });
+  for (const { c, d } of ready) {
+    const at = plan.get(c.id);
+    if (at) st.updateContact(c.id, { serverSend: { draftId: d.draftId, step: d.step, sendAt: at.toISOString(), queuedAt: new Date().toISOString() } });
   }
-  if (n) await syncServer();
-  return n;
+  if (plan.size) await syncServer();
+  return plan.size;
+}
+
+/** Move every queued send into the current send window (after changing it in Settings). Returns how many moved. */
+export async function rescheduleQueued() {
+  const st = useStore.getState();
+  const queued = st.contacts.filter((c) => c.serverSend && new Date(c.serverSend.sendAt) > new Date());
+  const plan = planSends(queued, windowOf(st.settings));
+  for (const c of queued) {
+    const at = plan.get(c.id);
+    if (at) st.updateContact(c.id, { serverSend: { ...c.serverSend!, sendAt: at.toISOString() } });
+  }
+  if (plan.size) await syncServer();
+  return plan.size;
 }
 
 export async function cancelSend(c: Contact) {

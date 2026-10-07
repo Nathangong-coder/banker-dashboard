@@ -8,7 +8,8 @@
 import { DEFAULT_SETTINGS, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "../src/lib/defaults";
 import { fillPlaceholders } from "../src/lib/template";
 import { normalizeBody, withSignature, signatureLine, unwrapRedirects } from "../src/lib/emailFormat";
-import { OUTREACH_EXPERIMENT_IDS as X, assignOutreachArms, composeOutreach, emailVerified, isTopSenior, leftFirm, pickWeighted, seniorSkipReason, sendTimeFor, settleOutreachArms } from "../src/lib/outreach";
+import { OUTREACH_EXPERIMENT_IDS as X, assignOutreachArms, composeOutreach, emailVerified, isTopSenior, leftFirm, pickWeighted, seniorSkipReason, settleOutreachArms } from "../src/lib/outreach";
+import { DEFAULT_SEND_WINDOW, planSends, recipientTz, zonedDate } from "../src/lib/sendWindow";
 import type { Contact, Settings } from "../src/lib/types";
 
 const settings: Settings = {
@@ -116,8 +117,7 @@ const checks: [string, boolean][] = [
   ["Apollo extrapolated isn't verified", !emailVerified({ email: "a@b.com", emailSource: "apollo", emailStatus: "extrapolated" })],
   ["Apollo verified is verified", emailVerified({ email: "a@b.com", emailSource: "apollo", emailStatus: "verified" })],
   ["Sheet email counts as verified", emailVerified({ email: "a@b.com", emailSource: "sheet" })],
-  ["NY sends at 5 PM PT", sendTimeFor({ region: "NY" }).hourPT === 17],
-  ["SF sends at 7 PM PT", sendTimeFor({ region: "SF" }).hourPT === 19],
+
   ["Redirect unwrapped", unwrapRedirects("https://www.google.com/url?q=https://www.linkedin.com/in/x/&sa=D&ust=1") === "https://www.linkedin.com/in/x/"],
   ["Signature has class year + phone | LinkedIn | email", /UCLA Class of 2029\nEconomics & Applied Mathematics\n555-010-0000 \| \[LinkedIn\]\(https:\/\/www\.linkedin\.com\/in\/example\/\) \| student@example\.edu/.test(signatureLine(settings.profile))],
 ];
@@ -156,6 +156,45 @@ for (const [what, ok] of checks) {
     ["MD from Chicago isn't (not an exception for them)", !!seniorSkipReason(person({ position: "Managing Director", comment: "Evanston" }), other.outreach)],
   ];
   for (const [what, ok] of otherChecks) {
+    if (!ok) failed++;
+    console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
+  }
+}
+
+// Send window: 9–11 AM in the recipient's zone, weekdays, spread out, DST-safe.
+{
+  const hourIn = (d: Date, tz: string) => Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" }).format(d));
+  const dayIn = (d: Date, tz: string) => new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(d);
+  const w = DEFAULT_SEND_WINDOW;
+  // Friday 2026-10-09 3 PM PT: NY's and SF's windows have passed, so both go Monday (weekend skipped).
+  const friPm = zonedDate(2026, 10, 9, 15, 0, "America/Los_Angeles");
+  const people = [
+    person({ id: "ny1", region: "NY", location: "NY" }),
+    person({ id: "ny2", region: "NY", location: "NY" }),
+    person({ id: "sf1", region: "SF", location: "SF" }),
+    person({ id: "tx1", region: "Other", location: "Houston" }),
+  ];
+  const plan = planSends(people, w, { now: friPm, jitter: () => 0 });
+  // Tuesday 8 AM PT: NY (11 AM ET) has closed, SF (8 AM PT) opens at 9 the same day.
+  const tue = zonedDate(2026, 10, 13, 8, 0, "America/Los_Angeles");
+  const plan2 = planSends(people, w, { now: tue, jitter: () => 0 });
+  // Across the November DST change (Sun 11/1): a Monday 11/2 slot is still 9 AM local.
+  const dst = planSends([people[0]], w, { now: zonedDate(2026, 10, 31, 12, 0, "America/New_York"), jitter: () => 0 }).get("ny1")!;
+  // A big batch overflows into the next weekday instead of leaving after 11.
+  const many = Array.from({ length: 30 }, (_, i) => person({ id: `b${i}`, region: "NY", location: "NY" }));
+  const big = planSends(many, w, { now: zonedDate(2026, 10, 12, 6, 0, "America/New_York"), jitter: () => 0 });
+  const windowChecks: [string, boolean][] = [
+    ["NY gets 9–11 AM Eastern", [...plan].filter(([id]) => id.startsWith("ny")).every(([, d]) => hourIn(d, "America/New_York") >= 9 && hourIn(d, "America/New_York") < 11)],
+    ["SF gets 9–11 AM Pacific", hourIn(plan.get("sf1")!, "America/Los_Angeles") === 9],
+    ["Houston uses Central time", recipientTz({ region: "Other", location: "Houston" }) === "America/Chicago" && hourIn(plan.get("tx1")!, "America/Chicago") === 9],
+    ["Friday afternoon → Monday, not Saturday", [...plan.values()].every((d) => dayIn(d, "America/New_York") === "Mon")],
+    ["Two NY sends are spread out", Math.abs(plan.get("ny1")!.getTime() - plan.get("ny2")!.getTime()) >= 5 * 60_000],
+    ["Tue 8 AM PT: NY → Wed, SF → today 9 AM", dayIn(plan2.get("ny1")!, "America/New_York") === "Wed" && dayIn(plan2.get("sf1")!, "America/Los_Angeles") === "Tue"],
+    ["DST week: still 9 AM Eastern", hourIn(dst, "America/New_York") === 9 && dayIn(dst, "America/New_York") === "Mon"],
+    ["30 at once: all inside 9–11, some on the next day", [...big.values()].every((d) => hourIn(d, "America/New_York") >= 9 && hourIn(d, "America/New_York") < 11) && new Set([...big.values()].map((d) => dayIn(d, "America/New_York"))).size > 1],
+    ["Your-time basis uses your zone", (() => { const d = planSends([people[0]], { ...w, basis: "mine" }, { now: friPm, jitter: () => 0 }).get("ny1")!; const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; return hourIn(d, tz) === 9; })()],
+  ];
+  for (const [what, ok] of windowChecks) {
     if (!ok) failed++;
     console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
   }

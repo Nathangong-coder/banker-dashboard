@@ -114,6 +114,8 @@ Model these with the existing lab machinery (`settings.experiments`, `assignTria
   assign by target share, not "least-used arm".
 
 ### A5. Send timing and follow-ups
+- **Superseded 2026-10-06 by the owner:** sends go out **9–11 AM in the recipient's time zone, weekdays** (Settings → Email → Sending,
+  `lib/sendWindow.ts`). The original rule, kept for history:
 - **Send times (by the recipient's office):** NY → **5:00 PM PT (8 PM ET)**; SF / LA → **7:00 PM PT**. Drafts shows "send at" by region,
   and the Gmail scheduled-send helper (if built) uses it. Don't send NY at 7 PM PT.
 - **Follow-ups:** #1 after 7 days, #2 7 days after #1, then stop (`maxFollowUps: 2`). Same send-time rule. Never follow up after a reply,

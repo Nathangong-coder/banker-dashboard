@@ -1,6 +1,5 @@
 import type { BankMeta, Contact, Settings } from "./types";
 import { addDays } from "./util";
-import { sendTimeFor } from "./outreach";
 
 export type ActionKind = "reach_out" | "send" | "scheduled" | "follow_up" | "move_on" | "none";
 
@@ -102,29 +101,4 @@ export const LIVE_STATUSES = new Set(["drafted", "sent", "followed_up"]);
 /** The follow-up draft waiting in Gmail for this person's next follow-up, if any. */
 export function pendingFollowUpDraft(c: Contact) {
   return c.followUpDraft && c.followUpDraft.step > c.followUps ? c.followUpDraft : undefined;
-}
-
-/**
- * The next slot the outreach rules allow (NY 5 PM PT, else 7 PM PT; docs/outreach-rules.md A5): today if it hasn't
- * passed yet in Pacific time, else tomorrow. Returned as a label, e.g. "today 7:00 PM PT".
- */
-export function nextSendSlot(c: Pick<Contact, "region">, now = new Date()) {
-  const t = sendTimeFor(c);
-  const ptHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" }).format(now));
-  const today = ptHour < t.hourPT;
-  const day = today ? "today" : new Date(now.getTime() + 86_400_000).toLocaleDateString("en-US", { weekday: "short", timeZone: "America/Los_Angeles" });
-  return { today, label: `${day} ${t.label}`, at: ptSlot(now, t.hourPT, today ? 0 : 1) };
-}
-
-/** `hourPT`:00 Pacific on today + `addDaysPT` (Pacific calendar), as a Date. */
-function ptSlot(now: Date, hourPT: number, addDaysPT: number) {
-  const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-  const [y, m, d] = ymd.split("-").map(Number);
-  // Try both Pacific offsets (PDT -7, PST -8) and keep the one that reads back as the wanted hour.
-  for (const off of [7, 8]) {
-    const at = new Date(Date.UTC(y, m - 1, d + addDaysPT, hourPT + off));
-    const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" }).format(at));
-    if (h === hourPT) return at;
-  }
-  return new Date(Date.UTC(y, m - 1, d + addDaysPT, hourPT + 8));
 }

@@ -27,7 +27,7 @@ const NAV = [
   { href: "/lab", label: "Email lab", icon: FlaskConical },
   { href: "/followups", label: "Follow-ups", icon: BellRing },
   { href: "/prep", label: "Coffee chat prep", icon: Coffee },
-  { href: "/settings", label: "Settings & keys", icon: Settings2 },
+  { href: "/settings", label: "Settings", icon: Settings2 },
 ];
 
 function useHydrated() {
