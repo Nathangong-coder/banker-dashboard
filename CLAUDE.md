@@ -19,6 +19,7 @@ npm run check:outreach                        # outreach rules: one rendered ema
 npm run check:firms [-- "file.xlsx"]           # built-in firm facts: collisions, golden cases, guardrails, freshness, tab vs lists
 npm run check:contrast                        # WCAG AA contrast of the palette pairs the UI uses (globals.css tokens)
 npm run check:scheduling                      # availability → their time zone, calendar busy, phones, invite text
+npm run check:selectors                       # no zustand selector returns a fresh object/array (React #185 "This page couldn't load")
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -285,7 +286,7 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   all banks, tiers, or picked firms. `buildCoverage` fills `CoverageRow.desks` via `deskStatus` (replied / emailed / ready / needs_email / empty).
   SF/NY match `region` and other offices match the location text. "Tech" also matches TMT/Technology. Contacts with no team count toward no desk,
   and the UI links to the no-team filter. Select the plan with `useStore((s) => s.coverage.plan)` and default outside the selector: `?? []`
-  inside it returns a new array every call, which re-renders forever in zustand v5.
+  inside it returns a new array every call, which re-renders forever in zustand v5. This crashed /drafts and /followups on 2026-10-07 (`useStore((s) => windowOf(s.settings))`); `check:selectors` now catches it.
 
 ## Gmail sync (`src/lib/gmailSync.ts`, `components/GmailSyncWidget.tsx`)
 

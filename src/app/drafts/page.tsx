@@ -567,7 +567,9 @@ function RowChecks({ c, onLeft }: { c: Contact; onLeft: (employer: string) => vo
   const senior = vpPlusWarning(c, rules);
   const left = leftFirm(c);
   const verified = emailVerified(c);
-  const w = useStore((s) => windowOf(s.settings));
+  // Select the stored value and derive outside: windowOf returns a new object each call, which loops forever in zustand v5.
+  const saved = useStore((s) => s.settings.sendWindow);
+  const w = windowOf({ sendWindow: saved });
   const send = { label: windowLabel(w), hourPT: w.start };
   return (
     <div className="mt-0.5 space-y-0.5 text-[11.5px]">

@@ -15,7 +15,8 @@
     "fix:workbook": "tsx scripts/fix-workbook.mts",
     "check:firms": "tsx scripts/check-firms.mts",
     "check:contrast": "tsx scripts/check-contrast.mts",
-    "check:scheduling": "tsx scripts/check-scheduling.mts"
+    "check:scheduling": "tsx scripts/check-scheduling.mts",
+    "check:selectors": "tsx scripts/check-selectors.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.62",

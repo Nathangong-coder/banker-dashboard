@@ -16,7 +16,9 @@ const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6
  * entered in your zone and shown in theirs. Gmail Schedule-send emails can only be changed in Gmail (no API for it).
  */
 export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Contact; label: string; onOpen: (c: Contact) => void; selected?: boolean; onSelect?: () => void }) {
-  const w = useStore((s) => windowOf(s.settings));
+  // Select the stored value and derive outside: windowOf returns a new object each call, which loops forever in zustand v5.
+  const saved = useStore((s) => s.settings.sendWindow);
+  const w = windowOf({ sendWindow: saved });
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(() => (c.serverSend ? localInput(new Date(c.serverSend.sendAt)) : ""));
   const [busy, setBusy] = useState(false);
