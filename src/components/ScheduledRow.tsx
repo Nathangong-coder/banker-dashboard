@@ -15,7 +15,7 @@ const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6
  * One email in Follow-ups → Scheduled. Sends queued with Coverage can be moved to any time (or cancelled); the time is
  * entered in your zone and shown in theirs. Gmail Schedule-send emails can only be changed in Gmail (no API for it).
  */
-export function ScheduledRow({ c, label, onOpen }: { c: Contact; label: string; onOpen: (c: Contact) => void }) {
+export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Contact; label: string; onOpen: (c: Contact) => void; selected?: boolean; onSelect?: () => void }) {
   const w = useStore((s) => windowOf(s.settings));
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(() => (c.serverSend ? localInput(new Date(c.serverSend.sendAt)) : ""));
@@ -25,7 +25,8 @@ export function ScheduledRow({ c, label, onOpen }: { c: Contact; label: string; 
   const theirTime = picked && !Number.isNaN(picked.getTime()) ? picked.toLocaleString("en-US", { timeZone: theirTz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 
   return (
-    <li className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-[13px]">
+    <li className={`flex flex-wrap items-center gap-3 px-4 py-2.5 text-[13px] ${selected ? "bg-navy/[0.04]" : ""}`}>
+      {onSelect && <input type="checkbox" className="size-4 accent-navy" aria-label={`Select ${c.name}`} checked={!!selected} onChange={onSelect} />}
       <button onClick={() => onOpen(c)} className="min-w-[160px] flex-1 text-left hover:underline">
         {c.name} <span className="text-muted">· {c.bank}</span>
       </button>

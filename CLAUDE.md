@@ -394,6 +394,13 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `SendWindowEditor`. **Per-email time:** Follow-ups → Scheduled → "Change time" (`ScheduledRow`, `serverSync#rescheduleOne`; entered
   in your zone, shown in theirs). Gmail Schedule-send emails can only be changed in Gmail.
 
+- **Follow-ups selection:** every row in Follow-ups due / Drafted / Scheduled has a checkbox (and "select all" per list). Bulk buttons
+  ("Draft & schedule", "Draft … in Gmail", "Schedule") act on the ticked rows of that list, else the whole list. A sticky bar acts on
+  the selection: cancel scheduled sends, discard drafts (deletes the Gmail draft, clears `draft`/`followUpDraft`/`serverSend`, a
+  drafted first email goes back to `new`), snooze 3 days, stop following up (status ignored = "Moved on", persists to the sheet), delete
+  (confirm; sheet contacts return on re-import unless their row is deleted). Rows also have single "Schedule" / "Draft & schedule" /
+  "Discard" buttons.
+
 ## Launch hygiene (10/2026): legal, security, SEO, analytics
 
 - **Legal:** `/privacy` and `/terms` (server components, `components/LegalPage.tsx`, facts in `lib/site.ts`: name, URL, contact email,

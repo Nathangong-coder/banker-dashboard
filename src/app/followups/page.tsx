@@ -8,7 +8,7 @@ import { isVpPlus } from "@/lib/seniority";
 import { nextAction, pendingFollowUpDraft, rollupBanks, type BankRollup, type NextAction } from "@/lib/followups";
 import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
 import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
-import { connectGmail, upsertDraft } from "@/lib/gmail";
+import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
@@ -198,6 +198,10 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const act = useActions();
   const [busy, setBusy] = useState<string | null>(null);
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
+  // Ticked rows: bulk actions use only these (nothing ticked in a list = the whole list).
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setSel((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const setAll = (ids: string[], on: boolean) => setSel((x) => { const n = new Set(x); for (const id of ids) if (on) n.add(id); else n.delete(id); return n; });
   const { behind, drafted, due, upcoming, scheduled, unknown } = useMemo(() => {
     const all = contacts
       .map((c) => ({ c, a: nextAction(c, settings.followUp, banks[bankKey(c.bank, c.region)]) }))
@@ -217,7 +221,10 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   }, [contacts, banks, settings.followUp]);
 
   // Follow-ups that still need a Gmail draft (move-on rows have nothing to send).
-  const toDraft = behind.filter(({ c, a }) => a.kind === "follow_up" && c.email && !pendingFollowUpDraft(c));
+  const picked = <T extends { c: Contact }>(list: T[]) => (list.some(({ c }) => sel.has(c.id)) ? list.filter(({ c }) => sel.has(c.id)) : list);
+  const behindPick = picked(behind);
+  const behindSelected = behind.some(({ c }) => sel.has(c.id));
+  const toDraft = behindPick.filter(({ c, a }) => a.kind === "follow_up" && c.email && !pendingFollowUpDraft(c));
   const draftAll = async () => {
     setBulk({ done: 0, total: toDraft.length });
     let made = 0;
@@ -242,9 +249,10 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
 
   // Automatic sending (the server sends queued Gmail drafts at each person's slot; lib/serverSync.ts).
   const auto = !!settings.server?.email && settings.sendMode !== "gmail";
-  const toSchedule = behind.filter(({ c, a }) => a.kind === "follow_up" && c.email);
-  const draftAndSchedule = async () => {
-    const need = toSchedule.filter(({ c }) => !pendingFollowUpDraft(c));
+  const toSchedule = behindPick.filter(({ c, a }) => a.kind === "follow_up" && c.email);
+  const draftAndSchedule = async (only?: { c: Contact }[]) => {
+    const list = only ?? toSchedule;
+    const need = list.filter(({ c }) => !pendingFollowUpDraft(c));
     setBulk({ done: 0, total: need.length });
     const failed: string[] = [];
     for (const { c } of need) {
@@ -258,20 +266,23 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     }
     try {
       // Re-read: drafting just recorded each followUpDraft.
-      const ids = new Set(toSchedule.map(({ c }) => c.id));
+      const ids = new Set(list.map(({ c }) => c.id));
       const n = await queueSends(useStore.getState().contacts.filter((c) => ids.has(c.id)));
       if (n) toast.ok(`${n} follow-up${n > 1 ? "s" : ""} drafted and scheduled. Each goes out ${windowLabel(windowOf(settings))}, even with the dashboard closed.`);
+      const held = list.length - n;
+      if (held > 0) toast.info(`${held} not scheduled: VP or above (your rule), or no Gmail draft yet. They're still in the list.`);
     } catch (e) {
       failed.push((e as Error).message);
     }
     setBulk(null);
     if (failed.length) toast.err(`Not scheduled: ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? ` (+${failed.length - 3} more)` : ""}`);
   };
-  const schedulable = drafted.filter(({ c }) => sendableDraft(c));
-  const scheduleDrafted = async () => {
-    setBusy("schedule-drafted");
+  const draftedSelected = drafted.some(({ c }) => sel.has(c.id));
+  const schedulable = picked(drafted).filter(({ c }) => sendableDraft(c));
+  const scheduleDrafted = async (only?: Contact[]) => {
+    setBusy(only?.length === 1 ? only[0].id : "schedule-drafted");
     try {
-      const n = await queueSends(schedulable.map(({ c }) => c));
+      const n = await queueSends(only ?? schedulable.map(({ c }) => c));
       toast.ok(`${n} email${n > 1 ? "s" : ""} scheduled for their send slots.`);
     } catch (e) {
       toast.err((e as Error).message);
@@ -279,12 +290,78 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     setBusy(null);
   };
 
+  const selected = contacts.filter((c) => sel.has(c.id));
+  const store = useStore.getState;
+  const noteNow = () => new Date().toISOString();
+  /** Throw away the draft waiting in Gmail (first email or follow-up) and anything queued to send it. */
+  const discardDrafts = async (list: Contact[]) => {
+    const clientId = googleClientId(settings);
+    let gmailGone = 0;
+    for (const c of list) {
+      const ids = [c.status === "drafted" ? c.draft?.gmailDraftId : undefined, pendingFollowUpDraft(c)?.gmailDraftId].filter((x): x is string => !!x);
+      for (const id of ids) {
+        try {
+          if (clientId) {
+            await connectGmail(clientId);
+            await deleteDraft(clientId, id);
+            gmailGone++;
+          }
+        } catch {
+          /* already gone */
+        }
+      }
+      store().updateContact(
+        c.id,
+        {
+          serverSend: undefined,
+          followUpDraft: undefined,
+          ...(c.status === "drafted" ? { status: "new" as const, draft: undefined, draftMeta: undefined } : {}),
+        },
+        { at: noteNow(), type: "note", note: "Draft discarded (Follow-ups)" },
+      );
+    }
+    await syncServer().catch(() => undefined);
+    toast.ok(`Discarded ${list.length} draft${list.length === 1 ? "" : "s"}${gmailGone ? ` (${gmailGone} deleted from Gmail)` : ""}.`);
+  };
+  const cancelSends = async (list: Contact[]) => {
+    const q = list.filter((c) => c.serverSend);
+    for (const c of q) store().updateContact(c.id, { serverSend: undefined }, { at: noteNow(), type: "note", note: "Scheduled send cancelled" });
+    await syncServer().catch(() => undefined);
+    toast.ok(q.length ? `Cancelled ${q.length} scheduled send${q.length === 1 ? "" : "s"}. The drafts stay in Gmail.` : "None of those were scheduled by Coverage (Gmail Schedule send can only be cancelled in Gmail).");
+  };
+  const stopFollowingUp = (list: Contact[]) => {
+    store().setStatus(list.map((c) => c.id), "ignored", "Stopped following up (Follow-ups)");
+    for (const c of list) if (c.serverSend) store().updateContact(c.id, { serverSend: undefined });
+    void syncServer().catch(() => undefined);
+    toast.ok(`${list.length} moved to "Moved on": no more follow-ups (saved to your spreadsheet as Moved on).`);
+  };
+  const deleteContacts = (list: Contact[]) => {
+    const fromSheet = list.filter((c) => c.source === "sheet").length;
+    const ok = window.confirm(
+      `Delete ${list.length} contact${list.length === 1 ? "" : "s"} from the dashboard?${fromSheet ? `\n\n${fromSheet} ${fromSheet === 1 ? "is" : "are"} in your spreadsheet and will come back on the next import unless you delete the row there too (or use "Stop following up" instead).` : ""}`,
+    );
+    if (!ok) return;
+    for (const c of list) if (c.serverSend) store().updateContact(c.id, { serverSend: undefined });
+    store().removeContacts(list.map((c) => c.id));
+    setSel(new Set());
+    void syncServer().catch(() => undefined);
+    toast.ok(`Deleted ${list.length} contact${list.length === 1 ? "" : "s"}.`);
+  };
+
+  /** "Select all" for one list. */
+  const selectAll = (list: { c: Contact }[]) => {
+    const ids = list.map(({ c }) => c.id);
+    const all = ids.length > 0 && ids.every((id) => sel.has(id));
+    return <input type="checkbox" className="mr-2 size-4 accent-navy align-[-3px]" aria-label="Select all" checked={all} onChange={(e) => setAll(ids, e.target.checked)} />;
+  };
+
   const row = ({ c, a }: { c: Contact; a: NextAction }) => {
     const fu = pendingFollowUpDraft(c);
     const slot = nextSendSlot(c, windowOf(settings));
     return (
-      <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-        <button onClick={() => onOpen(c)} className="min-w-[220px] flex-1 text-left">
+      <li key={c.id} className={cn("flex flex-wrap items-center gap-3 px-4 py-3", sel.has(c.id) && "bg-navy/[0.04]")}>
+        <input type="checkbox" className="size-4 accent-navy" aria-label={`Select ${c.name}`} checked={sel.has(c.id)} onChange={() => toggle(c.id)} />
+        <button onClick={() => onOpen(c)} className="min-w-[200px] flex-1 text-left">
           <div className="font-medium hover:underline">
             {c.name}
             {isVpPlus(c.position || c.headline) && <span className="ml-1.5 rounded bg-red-soft px-1 py-px text-[10.5px] font-semibold text-red" title="VP or above">VP+</span>}
@@ -308,14 +385,40 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
         )}
         <div className="flex gap-1">
           {a.kind === "send" ? (
-            <Button size="sm" onClick={() => act.markSent(c)} icon={<Check className="size-3.5" />}>
-              Mark sent
-            </Button>
+            <>
+              {auto && sendableDraft(c) && (
+                <Button size="sm" variant="brass" loading={busy === c.id} icon={<Clock className="size-3.5" />} onClick={() => scheduleDrafted([c])} title="Coverage sends it in your send window">
+                  Schedule
+                </Button>
+              )}
+              <Button size="sm" onClick={() => act.markSent(c)} icon={<Check className="size-3.5" />}>
+                Mark sent
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => discardDrafts([c])} title="Delete the draft (in Gmail too) and put them back to not contacted">
+                Discard
+              </Button>
+            </>
           ) : a.kind === "follow_up" ? (
             <>
+              {auto && c.email && (
+                <Button
+                  size="sm"
+                  variant="brass"
+                  loading={busy === `sched-${c.id}`}
+                  icon={<Clock className="size-3.5" />}
+                  onClick={async () => {
+                    setBusy(`sched-${c.id}`);
+                    await draftAndSchedule([{ c }]);
+                    setBusy(null);
+                  }}
+                  title="Draft this follow-up (if needed) and have Coverage send it in your send window"
+                >
+                  {fu ? "Schedule" : "Draft & schedule"}
+                </Button>
+              )}
               <Button
                 size="sm"
-                variant={fu ? "ghost" : "brass"}
+                variant={fu || auto ? "ghost" : "brass"}
                 loading={busy === c.id}
                 icon={<MailPlus className="size-3.5" />}
                 onClick={async () => {
@@ -382,9 +485,38 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
         <ReplacementsCard onOpen={onOpen} />
         <ScheduleCallsCard onOpen={onOpen} />
       <SendModeSwitch onAuto={onAuto} />
+      {selected.length > 0 && (
+        <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-navy/30 bg-panel px-4 py-2.5 shadow-sm">
+          <span className="text-[13px] font-medium">{selected.length} selected</span>
+          <span className="text-[12px] text-muted">Draft / schedule buttons below use only these.</span>
+          <div className="flex-1" />
+          {selected.some((c) => c.serverSend) && (
+            <Button size="sm" onClick={() => cancelSends(selected)}>
+              Cancel scheduled sends
+            </Button>
+          )}
+          {selected.some((c) => (c.status === "drafted" && c.draft) || pendingFollowUpDraft(c)) && (
+            <Button size="sm" onClick={() => discardDrafts(selected.filter((c) => (c.status === "drafted" && c.draft) || pendingFollowUpDraft(c)))}>
+              Discard drafts
+            </Button>
+          )}
+          <Button size="sm" onClick={() => selected.forEach((c) => act.snooze(c, 3))}>
+            Snooze 3 days
+          </Button>
+          <Button size="sm" onClick={() => (stopFollowingUp(selected), setSel(new Set()))} title="Mark them Moved on: no more follow-ups (kept in your sheet)">
+            Stop following up
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => deleteContacts(selected)}>
+            Delete
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSel(new Set())}>
+            Clear
+          </Button>
+        </div>
+      )}
       <Card>
         <CardHeader
-          title={`Follow-ups due · ${behind.length}`}
+          title={<>{selectAll(behind)}{`Follow-ups due · ${behind.length}`}</>}
           sub={`Emailed ${settings.followUp.firstAfterDays}+ days ago with no reply. Overdue first.`}
           right={
             bulk ? (
@@ -393,8 +525,8 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
               </div>
             ) : auto ? (
               toSchedule.length > 0 && (
-                <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={draftAndSchedule} title="Writes each follow-up into its original Gmail thread, then sends it at the person's slot">
-                  Draft &amp; schedule all {toSchedule.length}
+                <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={() => draftAndSchedule()} title="Writes each follow-up into its original Gmail thread, then sends it in your send window">
+                  Draft &amp; schedule {behindSelected ? `${toSchedule.length} selected` : `all ${toSchedule.length}`}
                 </Button>
               )
             ) : (
@@ -404,7 +536,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
                 </button>
                 {toDraft.length > 0 && (
                   <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={draftAll} title="Writes each follow-up into its original Gmail thread">
-                    Draft all {toDraft.length} in Gmail
+                    Draft {behindSelected ? `${toDraft.length} selected` : `all ${toDraft.length}`} in Gmail
                   </Button>
                 )}
               </div>
@@ -421,7 +553,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
       {drafted.length > 0 && (
         <Card>
           <CardHeader
-            title={`Drafted, not sent yet · ${drafted.length}`}
+            title={<>{selectAll(drafted)}{`Drafted, not sent yet · ${drafted.length}`}</>}
             sub={auto ? "First emails written but not sent. Schedule sends each one at the person's slot." : "First emails written but not sent or scheduled. Send or schedule them in Gmail, then sync."}
             right={
               <div className="flex items-center gap-3">
@@ -429,8 +561,8 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
                   Open drafts
                 </Link>
                 {auto && schedulable.length > 0 && (
-                  <Button size="sm" variant="brass" loading={busy === "schedule-drafted"} icon={<Clock className="size-3.5" />} onClick={scheduleDrafted} title="Only drafts already in Gmail can be scheduled">
-                    Schedule {schedulable.length}
+                  <Button size="sm" variant="brass" loading={busy === "schedule-drafted"} icon={<Clock className="size-3.5" />} onClick={() => scheduleDrafted()} title="Only drafts already in Gmail can be scheduled">
+                    Schedule {draftedSelected ? `${schedulable.length} selected` : `all ${schedulable.length}`}
                   </Button>
                 )}
               </div>
@@ -442,10 +574,10 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
 
       {scheduled.length > 0 && (
         <Card>
-          <CardHeader title={`Scheduled · ${scheduled.length}`} sub="Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out." />
+          <CardHeader title={<>{selectAll(scheduled)}{`Scheduled · ${scheduled.length}`}</>} sub="Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out." />
           <ul className="max-h-[320px] divide-y divide-line overflow-y-auto">
             {scheduled.map(({ c, a }) => (
-              <ScheduledRow key={c.id} c={c} label={a.label.replace(/^.*scheduled · /, "")} onOpen={onOpen} />
+              <ScheduledRow key={c.id} c={c} label={a.label.replace(/^.*scheduled · /, "")} onOpen={onOpen} selected={sel.has(c.id)} onSelect={() => toggle(c.id)} />
             ))}
           </ul>
         </Card>
