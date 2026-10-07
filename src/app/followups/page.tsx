@@ -16,7 +16,7 @@ import { digestText, sendWhatsAppDigest, upcomingDigests, whatsappDigest } from 
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, PageHeader, Progress, Select, StatusBadge, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, toast } from "@/components/ui";
 import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
@@ -27,6 +27,7 @@ import { ScheduleCallsCard } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
 import { ReplacementsCard } from "@/components/Replacements";
 import { ScheduledRow } from "@/components/ScheduledRow";
+import { BatchSchedule } from "@/components/BatchSchedule";
 
 type Tab = "due" | "bankers" | "banks" | "reminders";
 
@@ -200,6 +201,8 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   // Ticked rows: bulk actions use only these (nothing ticked in a list = the whole list).
   const [sel, setSel] = useState<Set<string>>(new Set());
+  // The batch schedule dialog (pick a day and/or time for many at once).
+  const [batch, setBatch] = useState<Contact[] | null>(null);
   const toggle = (id: string) => setSel((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const setAll = (ids: string[], on: boolean) => setSel((x) => { const n = new Set(x); for (const id of ids) if (on) n.add(id); else n.delete(id); return n; });
   const { behind, drafted, due, upcoming, scheduled, unknown } = useMemo(() => {
@@ -250,7 +253,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   // Automatic sending (the server sends queued Gmail drafts at each person's slot; lib/serverSync.ts).
   const auto = !!settings.server?.email && settings.sendMode !== "gmail";
   const toSchedule = behindPick.filter(({ c, a }) => a.kind === "follow_up" && c.email);
-  const draftAndSchedule = async (only?: { c: Contact }[]) => {
+  const draftAndSchedule = async (only?: { c: Contact }[], pick?: boolean) => {
     const list = only ?? toSchedule;
     const need = list.filter(({ c }) => !pendingFollowUpDraft(c));
     setBulk({ done: 0, total: need.length });
@@ -263,6 +266,13 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
         if (/template|connect gmail|session expired/i.test((e as Error).message)) break;
       }
       setBulk((b) => b && { ...b, done: b.done + 1 });
+    }
+    if (pick) {
+      setBulk(null);
+      if (failed.length) toast.err(`Not drafted: ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? ` (+${failed.length - 3} more)` : ""}`);
+      const ids = new Set(list.map(({ c }) => c.id));
+      setBatch(useStore.getState().contacts.filter((c) => ids.has(c.id)));
+      return;
     }
     try {
       // Re-read: drafting just recorded each followUpDraft.
@@ -490,6 +500,11 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           <span className="text-[13px] font-medium">{selected.length} selected</span>
           <span className="text-[12px] text-muted">Draft / schedule buttons below use only these.</span>
           <div className="flex-1" />
+          {selected.some((c) => c.serverSend || sendableDraft(c)) && (
+            <Button size="sm" variant="primary" icon={<Clock className="size-3.5" />} onClick={() => setBatch(selected)}>
+              Schedule / change day…
+            </Button>
+          )}
           {selected.some((c) => c.serverSend) && (
             <Button size="sm" onClick={() => cancelSends(selected)}>
               Cancel scheduled sends
@@ -525,7 +540,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
               </div>
             ) : auto ? (
               toSchedule.length > 0 && (
-                <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={() => draftAndSchedule()} title="Writes each follow-up into its original Gmail thread, then sends it in your send window">
+                <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={() => draftAndSchedule(undefined, true)} title="Writes each follow-up into its original Gmail thread, then lets you pick the day and time">
                   Draft &amp; schedule {behindSelected ? `${toSchedule.length} selected` : `all ${toSchedule.length}`}
                 </Button>
               )
@@ -561,7 +576,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
                   Open drafts
                 </Link>
                 {auto && schedulable.length > 0 && (
-                  <Button size="sm" variant="brass" loading={busy === "schedule-drafted"} icon={<Clock className="size-3.5" />} onClick={() => scheduleDrafted()} title="Only drafts already in Gmail can be scheduled">
+                  <Button size="sm" variant="brass" loading={busy === "schedule-drafted"} icon={<Clock className="size-3.5" />} onClick={() => setBatch(schedulable.map(({ c }) => c))} title="Pick the day and time (only drafts already in Gmail can be scheduled)">
                     Schedule {draftedSelected ? `${schedulable.length} selected` : `all ${schedulable.length}`}
                   </Button>
                 )}
@@ -574,7 +589,24 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
 
       {scheduled.length > 0 && (
         <Card>
-          <CardHeader title={<>{selectAll(scheduled)}{`Scheduled · ${scheduled.length}`}</>} sub="Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out." />
+          <CardHeader
+            right={
+              scheduled.some(({ c }) => c.serverSend) && (
+                <Button
+                  size="sm"
+                  icon={<Clock className="size-3.5" />}
+                  onClick={() => {
+                    const mine = scheduled.filter(({ c }) => c.serverSend);
+                    const ticked = mine.filter(({ c }) => sel.has(c.id));
+                    setBatch((ticked.length ? ticked : mine).map(({ c }) => c));
+                  }}
+                  title="Move many at once: one day, a new time, or both"
+                >
+                  Change day / time{scheduled.some(({ c }) => c.serverSend && sel.has(c.id)) ? " (selected)" : ""}…
+                </Button>
+              )
+            }
+            title={<>{selectAll(scheduled)}{`Scheduled · ${scheduled.length}`}</>} sub="Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out." />
           <ul className="max-h-[320px] divide-y divide-line overflow-y-auto">
             {scheduled.map(({ c, a }) => (
               <ScheduledRow key={c.id} c={c} label={a.label.replace(/^.*scheduled · /, "")} onOpen={onOpen} selected={sel.has(c.id)} onSelect={() => toggle(c.id)} />
@@ -582,6 +614,10 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           </ul>
         </Card>
       )}
+
+      <Modal open={!!batch} onClose={() => setBatch(null)} title={`Schedule ${batch?.length ?? 0} email${batch?.length === 1 ? "" : "s"}`} wide>
+        {batch && <BatchSchedule contacts={batch} onClose={() => setBatch(null)} />}
+      </Modal>
 
       {upcoming.length > 0 && (
         <Card>

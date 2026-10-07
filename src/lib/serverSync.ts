@@ -189,3 +189,34 @@ export async function rescheduleOne(c: Contact, at: Date) {
   useStore.getState().updateContact(c.id, { serverSend: { ...c.serverSend, sendAt: at.toISOString() } });
   await syncServer();
 }
+
+/**
+ * Apply a batch plan (Follow-ups → "Schedule / change day…"): move queued sends, queue drafts that weren't yet.
+ * VP+ without an exception tie and people with no Gmail draft are left out (returned in `skipped`).
+ */
+export async function applySchedule(plan: Map<string, Date>) {
+  const st = useStore.getState();
+  const skipped: string[] = [];
+  let n = 0;
+  for (const [id, at] of plan) {
+    const c = st.contacts.find((x) => x.id === id);
+    if (!c) continue;
+    const w = vpPlusWarning(c, st.settings.outreach);
+    if (w && !w.tie) {
+      skipped.push(`${c.name} (VP+)`);
+      continue;
+    }
+    if (c.serverSend) st.updateContact(c.id, { serverSend: { ...c.serverSend, sendAt: at.toISOString() } });
+    else {
+      const d = sendableDraft(c);
+      if (!d) {
+        skipped.push(`${c.name} (no Gmail draft yet)`);
+        continue;
+      }
+      st.updateContact(c.id, { serverSend: { draftId: d.draftId, step: d.step, sendAt: at.toISOString(), queuedAt: new Date().toISOString() } });
+    }
+    n++;
+  }
+  if (n) await syncServer();
+  return { n, skipped };
+}

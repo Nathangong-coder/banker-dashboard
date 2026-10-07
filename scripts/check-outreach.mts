@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "../sr
 import { fillPlaceholders } from "../src/lib/template";
 import { normalizeBody, withSignature, signatureLine, unwrapRedirects } from "../src/lib/emailFormat";
 import { OUTREACH_EXPERIMENT_IDS as X, assignOutreachArms, composeOutreach, emailVerified, isTopSenior, leftFirm, pickWeighted, seniorSkipReason, settleOutreachArms } from "../src/lib/outreach";
-import { DEFAULT_SEND_WINDOW, daysLabel, planSends, recipientTz, windowOf, zonedDate } from "../src/lib/sendWindow";
+import { DEFAULT_SEND_WINDOW, daysLabel, planBatch, planSends, recipientTz, windowOf, zonedDate } from "../src/lib/sendWindow";
 import type { Contact, Settings } from "../src/lib/types";
 
 const settings: Settings = {
@@ -197,6 +197,24 @@ for (const [what, ok] of checks) {
     ["30 at once: all inside 9–11, some on the next day", [...big.values()].every((d) => hourIn(d, "America/New_York") >= 9 && hourIn(d, "America/New_York") < 11) && new Set([...big.values()].map((d) => dayIn(d, "America/New_York"))).size > 1],
     ["Your-time basis uses your zone", (() => { const d = planSends([people[0]], { ...w, basis: "mine" }, { now: friPm, jitter: () => 0 }).get("ny1")!; const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; return hourIn(d, tz) === 9; })()],
   ];
+  // Batch overrides: 29 emails that must all go Thursday, whatever the planner would have done.
+  const mix = Array.from({ length: 29 }, (_, i) => person({ id: `m${i}`, region: i % 3 ? "NY" : "SF", location: i % 3 ? "NY" : "SF" }));
+  const tuesNight = zonedDate(2026, 10, 13, 20, 0, "America/Los_Angeles");
+  const thu = planBatch(mix, { day: { mode: "date", date: "2026-10-15" }, time: { mode: "spread", start: 9 * 60, end: 11 * 60 }, basis: "recipient", gap: 4 }, w, new Map(), tuesNight);
+  const tz = (id: string) => (mix.find((p) => p.id === id)!.region === "NY" ? "America/New_York" : "America/Los_Angeles");
+  const queued = new Map(mix.map((p) => [p.id, zonedDate(2026, 10, 20, 10, 30, tz(p.id))]));
+  const keepTime = planBatch(mix, { day: { mode: "date", date: "2026-10-15" }, time: { mode: "keep" }, basis: "recipient", gap: 4 }, w, queued, tuesNight);
+  const keepDay = planBatch(mix, { day: { mode: "keep" }, time: { mode: "exact", at: 9 * 60 + 15 }, basis: "recipient", gap: 0 }, w, queued, tuesNight);
+  const late = planBatch(mix, { day: { mode: "date", date: "2026-10-15" }, time: { mode: "spread", start: 9 * 60, end: 9 * 60 + 30 }, basis: "recipient", gap: 6 }, w, new Map(), tuesNight);
+  const friday = planBatch(mix.slice(0, 1), { day: { mode: "date", date: "2026-10-16" }, time: { mode: "exact", at: 10 * 60 }, basis: "recipient", gap: 0 }, w, new Map(), tuesNight);
+  windowChecks.push(
+    ["Batch: all 29 on Thursday (none rolled to Tuesday)", [...thu].every(([id, p]) => dayIn(p.at, tz(id)) === "Thu")],
+    ["Batch: spread starts 9 AM their time, 4 min apart", hourIn(thu.get("m1")!.at, "America/New_York") === 9 && Math.abs(thu.get("m2")!.at.getTime() - thu.get("m1")!.at.getTime()) === 4 * 60_000],
+    ["Batch: change the day, keep each time (10:30)", [...keepTime].every(([id, p]) => dayIn(p.at, tz(id)) === "Thu" && new Intl.DateTimeFormat("en-US", { timeZone: tz(id), hour: "numeric", minute: "2-digit" }).format(p.at) === "10:30 AM")],
+    ["Batch: keep the day, set the time (9:15)", [...keepDay].every(([id, p]) => dayIn(p.at, tz(id)) === "Tue" && new Intl.DateTimeFormat("en-US", { timeZone: tz(id), hour: "numeric", minute: "2-digit" }).format(p.at) === "9:15 AM")],
+    ["Batch: too many for the window → warned, day kept", [...late.values()].some((p) => p.warn?.includes("too many")) && [...late].every(([id, p]) => dayIn(p.at, tz(id)) === "Thu")],
+    ["Batch: a day outside Tue–Thu is allowed but warned", !!friday.get("m0")!.warn?.includes("outside your usual days")],
+  );
   for (const [what, ok] of windowChecks) {
     if (!ok) failed++;
     console.log(`${ok ? "ok  " : "FAIL"} ${what}`);

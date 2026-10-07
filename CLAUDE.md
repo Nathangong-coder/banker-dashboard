@@ -402,6 +402,13 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (confirm; sheet contacts return on re-import unless their row is deleted). Rows also have single "Schedule" / "Draft & schedule" /
   "Discard" buttons.
 
+- **Batch scheduling with overrides** (`components/BatchSchedule.tsx`, `sendWindow.ts#planBatch`, `serverSync.ts#applySchedule`):
+  Day = keep each one's / all on one date / next allowed day; Time = keep / spread between two times / starting at a time; basis their
+  zone or yours; N minutes apart per zone per day. A picked day is never moved (the automatic `planSends` rolls overflow to the next
+  allowed day, which is why 29 sends split Thu/Tue); overflow past the end time, past times and days outside the send days are flagged
+  in the preview. Opened from the selection bar ("Schedule / change day…"), Scheduled → "Change day / time…", Drafted → "Schedule",
+  and after the header "Draft & schedule" finishes drafting. VP+ without a tie and people without a Gmail draft are left out.
+
 ## Launch hygiene (10/2026): legal, security, SEO, analytics
 
 - **Legal:** `/privacy` and `/terms` (server components, `components/LegalPage.tsx`, facts in `lib/site.ts`: name, URL, contact email,

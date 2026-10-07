@@ -130,3 +130,73 @@ export function nextSendSlot(c: Pick<Contact, "id" | "region" | "location">, w: 
   const at = planSends([c], w, { now, jitter: () => 0 }).get(c.id) ?? new Date(now.getTime() + 86_400_000);
   return { at, label: sendLabelFor(at, c, w) };
 }
+
+/* ---------------- batch scheduling with overrides ---------------- */
+
+export interface BatchOptions {
+  /** keep = each email's current day; date = everyone on this date; auto = the next allowed day in your window. */
+  day: { mode: "keep" | "date" | "auto"; date?: string };
+  /** keep = each email's current time of day; spread = from `start` to `end`, `gap` minutes apart; exact = everyone at `at` (+gap each). */
+  time: { mode: "keep" | "spread" | "exact"; start?: number; end?: number; at?: number };
+  basis: "recipient" | "mine";
+  /** Minutes between sends in the same zone on the same day (0 = all at once). */
+  gap: number;
+}
+
+export interface BatchPlan {
+  at: Date;
+  /** Their zone (or yours) for display. */
+  tz: string;
+  warn?: string;
+}
+
+const ymdOf = (d: Date, tz: string) => {
+  const p = partsIn(d, tz);
+  return { y: p.y, m: p.m, d: p.d, wd: WD.indexOf(p.wd), h: p.h, min: p.min };
+};
+
+/**
+ * New send times for a batch, with you overriding the day and/or time. Unlike `planSends`, a day you pick is never moved:
+ * if the spread runs past `end`, the extra sends keep going later that day (and say so) instead of rolling to another day.
+ * `current` = each person's queued time, for "keep".
+ */
+export function planBatch<C extends Pick<Contact, "id" | "region" | "location">>(people: C[], opts: BatchOptions, w: SendWindow, current: Map<string, Date>, now = new Date()): Map<string, BatchPlan> {
+  const mine = myTz();
+  const out = new Map<string, BatchPlan>();
+  const autoPlan = opts.day.mode === "auto" ? planSends(people, { ...w, basis: opts.basis }, { now, jitter: () => 0 }) : new Map<string, Date>();
+  const counts = new Map<string, number>();
+  for (const c of people) {
+    const tz = opts.basis === "recipient" ? recipientTz(c) : mine;
+    const cur = current.get(c.id);
+    // The day.
+    let day: { y: number; m: number; d: number };
+    if (opts.day.mode === "date" && opts.day.date) {
+      const [y, m, d] = opts.day.date.split("-").map(Number);
+      day = { y, m, d };
+    } else if (opts.day.mode === "keep" && cur) day = ymdOf(cur, tz);
+    else day = ymdOf(autoPlan.get(c.id) ?? planSends([c], { ...w, basis: opts.basis }, { now, jitter: () => 0 }).get(c.id) ?? now, tz);
+    // The time.
+    const key = `${tz}|${day.y}-${day.m}-${day.d}`;
+    const i = counts.get(key) ?? 0;
+    counts.set(key, i + 1);
+    let minutes: number;
+    let warn: string | undefined;
+    if (opts.time.mode === "keep" && cur) {
+      const t = ymdOf(cur, tz);
+      minutes = t.h * 60 + t.min;
+    } else if (opts.time.mode === "exact" && opts.time.at !== undefined) {
+      minutes = opts.time.at + i * opts.gap;
+    } else {
+      const start = opts.time.start ?? w.start * 60;
+      const end = opts.time.end ?? w.end * 60;
+      minutes = start + i * opts.gap;
+      if (minutes >= end) warn = `past ${Math.floor(end / 60) % 12 || 12}${end % 60 ? `:${String(end % 60).padStart(2, "0")}` : ""}${end < 720 ? " AM" : " PM"} (too many for the window at this spacing)`;
+    }
+    const at = zonedDate(day.y, day.m, day.d, Math.floor(minutes / 60), minutes % 60, tz);
+    if (at.getTime() < now.getTime() + 5 * 60_000) warn = "that time has already passed";
+    const wd = ymdOf(at, tz).wd;
+    if (!warn && opts.day.mode !== "auto" && !w.days.includes(wd)) warn = `${WD[wd]} is outside your usual days (${daysLabel(w.days)})`;
+    out.set(c.id, { at, tz, warn });
+  }
+  return out;
+}
