@@ -49,7 +49,7 @@ function Editor({ c, onClose }: { c: Contact; onClose: () => void }) {
   };
 
   return (
-    <div className="grid gap-6 md:grid-cols-[1fr_260px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-[1fr_260px]">
       <div className="grid grid-cols-2 gap-3">
         <Field label="Name">
           <Input value={d.name} onChange={(e) => set("name", e.target.value)} />

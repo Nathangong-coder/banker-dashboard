@@ -29,7 +29,7 @@ function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Temp
   const [d, setD] = useState(t);
   const starter = DEFAULT_TEMPLATES.find((x) => x.id === t.id || x.name.toLowerCase() === t.name.toLowerCase());
   return (
-    <div className="grid gap-5 md:grid-cols-[1fr_220px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-[1fr_220px]">
       <div className="space-y-3">
         <div className="grid grid-cols-[1fr_140px] gap-3">
           <Field label="Name">

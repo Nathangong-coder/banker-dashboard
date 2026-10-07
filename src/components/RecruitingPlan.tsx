@@ -482,7 +482,7 @@ export function DeskChecklist({ rows }: { rows: CoverageRow[] }) {
       <h2 className="mb-2 px-1 text-[14px] font-semibold">
         Desks that still need emails
       </h2>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2">
         {plan.map((t) => {
           const list = deskRows(t, rows).sort(
             (a, b) =>

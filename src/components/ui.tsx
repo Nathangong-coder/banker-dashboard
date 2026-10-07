@@ -26,7 +26,7 @@ export function Button({
         "inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass whitespace-nowrap",
         size === "sm" ? "h-7 px-2.5 text-[12.5px]" : "h-9 px-3.5 text-[13.5px]",
         variant === "primary" && "bg-navy text-white hover:bg-[#1c3259]",
-        variant === "brass" && "bg-brass text-white hover:bg-[#9c7427]",
+        variant === "brass" && "bg-brass-strong text-white hover:bg-[#7d5d1f]",
         variant === "secondary" && "border border-line-2 bg-panel text-ink hover:bg-[#f0eee7]",
         variant === "ghost" && "text-ink-2 hover:bg-[#ebe9e1]",
         variant === "danger" && "border border-red/30 bg-panel text-red hover:bg-red-soft",
@@ -49,12 +49,13 @@ export function Card({ className, children, ...rest }: React.HTMLAttributes<HTML
 
 export function CardHeader({ title, sub, right }: { title: ReactNode; sub?: ReactNode; right?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-line px-4 py-3">
-      <div>
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-line px-4 py-3">
+      <div className="min-w-0 flex-1 basis-[220px]">
         <h3 className="text-[13.5px] font-semibold text-ink">{title}</h3>
         {sub && <p className="mt-0.5 text-[12.5px] text-muted">{sub}</p>}
       </div>
-      {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
+      {/* On phones the actions wrap under the title instead of pushing the card wider than the screen. */}
+      {right && <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2 md:shrink-0 [&>*]:max-w-full [&>*]:min-w-0">{right}</div>}
     </div>
   );
 }
@@ -100,7 +101,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
     <select
       {...rest}
       className={cn(
-        "h-9 rounded-md border border-line-2 bg-panel px-2 text-[13px] text-ink focus:border-navy focus:outline-none",
+        "h-9 max-w-full min-w-0 rounded-md border border-line-2 bg-panel px-2 text-[13px] text-ink focus:border-navy focus:outline-none",
         className,
       )}
     >
@@ -109,12 +110,18 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
+export function Field({ label, hint, error, children }: { label: string; hint?: ReactNode; error?: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="mb-1 block text-[12px] font-medium text-ink-2">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-[11.5px] text-muted">{hint}</span>}
+      {error ? (
+        <span role="alert" className="mt-1 block text-[11.5px] text-red">
+          {error}
+        </span>
+      ) : (
+        hint && <span className="mt-1 block text-[11.5px] text-muted">{hint}</span>
+      )}
     </label>
   );
 }

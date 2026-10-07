@@ -5,12 +5,14 @@
   --panel: #ffffff;
   --ink: #111a28;
   --ink-2: #3c4657;
-  --muted: #6b7280;
+  --muted: #656c79;
   --line: #e3e1d8;
   --line-2: #d4d1c4;
   --navy: #13233f;
   --brass: #b3862f;
   --brass-soft: #f5ecd8;
+  /* Brass that carries text (white on it, or it on white): 4.9:1. --brass stays for dots, bars and icons. */
+  --brass-strong: #8f6a20;
   --green: #1f7a4d;
   --green-soft: #e3f2e9;
   --red: #b4372f;
@@ -32,6 +34,7 @@
   --color-navy: var(--navy);
   --color-brass: var(--brass);
   --color-brass-soft: var(--brass-soft);
+  --color-brass-strong: var(--brass-strong);
   --color-green: var(--green);
   --color-green-soft: var(--green-soft);
   --color-red: var(--red);

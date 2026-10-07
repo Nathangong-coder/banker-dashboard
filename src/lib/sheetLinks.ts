@@ -5,7 +5,9 @@
  * read and can't write them (it turns every link into an external relationship), so they're read and written here
  * straight from the sheet XML. In snapshots and patches they're kept Excel-style as `#MS!A1` / `#'EVR (NY)'!A1`.
  */
-import JSZip from "jszip";
+import type JSZip from "jszip";
+// Loaded on first use: JSZip is ~95 KB and only needed when a workbook is read or saved.
+const loadZip = async () => (await import("jszip")).default;
 
 /** sheet name → "r:c" → "#Sheet!A1" */
 export type InternalLinks = Record<string, Record<string, string>>;
@@ -71,7 +73,7 @@ function addrName(key: string) {
 
 /** Every in-workbook link, by tab. External links (LinkedIn, mailto) are left to ExcelJS. */
 export async function readInternalLinks(buffer: ArrayBuffer): Promise<InternalLinks> {
-  const zip = await JSZip.loadAsync(buffer);
+  const zip = await (await loadZip()).loadAsync(buffer);
   const out: InternalLinks = {};
   for (const [name, path] of await sheetPaths(zip)) {
     const xml = await zip.file(path)?.async("string");
@@ -93,7 +95,7 @@ const AFTER_HYPERLINKS = ["printOptions", "pageMargins", "pageSetup", "headerFoo
 /** Add in-workbook links to a saved file (cells that already carry an external link keep it). */
 export async function writeInternalLinks(buffer: ArrayBuffer, links: InternalLinks, display: (sheet: string, key: string) => string): Promise<ArrayBuffer> {
   if (!Object.values(links).some((l) => Object.keys(l).length)) return buffer;
-  const zip = await JSZip.loadAsync(buffer);
+  const zip = await (await loadZip()).loadAsync(buffer);
   for (const [name, path] of await sheetPaths(zip)) {
     const cells = links[name];
     if (!cells || !Object.keys(cells).length) continue;

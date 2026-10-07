@@ -17,6 +17,7 @@ npm run check:templates -- "file.docx" ["Sender Name"]  # template-doc importer 
 npm run check:coverage -- "path/to/file.xlsx" # scoreboard for no desks / SF Tech / NY Generalist / both (must all differ)
 npm run check:outreach                        # outreach rules: one rendered email per affinity, 80/20 + 70/30 shares, send window
 npm run check:firms [-- "file.xlsx"]           # built-in firm facts: collisions, golden cases, guardrails, freshness, tab vs lists
+npm run check:contrast                        # WCAG AA contrast of the palette pairs the UI uses (globals.css tokens)
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -353,6 +354,34 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - `npm run check:firms` fails on name collisions, non-standard teams, built-in contradictions, broken golden cases (Leerink SF Tech
   not offered, Qatalyst NY Generalist not offered, TPH Texas Energy offered…) or broken guardrails; warns when a list is >1 year
   since review; with a workbook, lists where the COVERAGE tab disagrees with the lists (compared by `inferTeam`, not text).
+
+## Launch hygiene (10/2026): legal, security, SEO, analytics
+
+- **Legal:** `/privacy` and `/terms` (server components, `components/LegalPage.tsx`, facts in `lib/site.ts`: name, URL, contact email,
+  `legalUpdated`). They describe the real data flows (browser storage; server only for automatic sending; Google Limited Use
+  statement; BYO services). **Update them whenever data handling changes** (new scope, new stored field, new vendor), and bump
+  `SITE.legalUpdated`. `Shell` renders `PUBLIC_PATHS` without waiting for the store (crawlers / Google's reviewers read them).
+  The Google OAuth consent screen should list `/privacy` and `/terms` as its policy URLs.
+- **Consent:** `components/Consent.tsx`. Storage is disclosed (the app needs it); analytics are opt-in: Vercel Web Analytics +
+  Speed Insights load only after "OK" (`localStorage["coverage:consent"]`), changeable in Settings → Backup. No ad/tracking cookies.
+  Analytics must also be enabled in the Vercel dashboard (Analytics + Speed Insights tabs) or the scripts 404 quietly.
+- **Security:** `next.config.ts` headers (HSTS preload, nosniff, Referrer-Policy, X-Frame-Options DENY, COOP same-origin-allow-popups
+  for the Google popup, Permissions-Policy); no CSP yet (GIS, bookmarklet hand-off and grid inline styles need a tested policy).
+  Vercel already 308s HTTP → HTTPS. `src/proxy.ts` (Next 16's middleware) rate-limits `/api/*` per IP in Upstash: 120/min general,
+  10/h for `server/google/start`, 30/10 min for `notify`; QStash job routes + the OAuth callback are exempt; fails open without Redis.
+  There are no public forms, so rate limits (not CAPTCHA) are the spam protection. Secrets audit 2026-10-07: no server secret in
+  `.next/static` or git history (the only hit was the public `QSTASH_URL` in vendored Upstash docs). **The GitHub repo is public.**
+- **Validation:** `lib/validate.ts` (email, LinkedIn profile URL, phone, name, length) drives `Field error=` messages in AddContact
+  (blocks save) and Settings → Profile (warns). Server routes keep zod.
+- **SEO:** root `metadata` (title template "%s · Coverage", `metadataBase` from `SITE.url`, OG + Twitter cards) and a `layout.tsx`
+  per client route with its own title/description/canonical. `opengraph-image.tsx` (+ `twitter-image.tsx`) is generated at build;
+  `icon.svg`, `favicon.ico` (16/32/48, generated from the SVG with sharp), `apple-icon.png`, `public/icon-192/512.png`, `manifest.ts`,
+  `robots.ts` (disallow /api), `sitemap.ts`. `not-found.tsx` = the 404 (links to the main pages).
+- **Performance:** JSZip loads on demand (`sheetLinks.ts` / `templateImport.ts` `loadZip`), and `lib/actions` is imported lazily by
+  `Shell` and `useSaveShortcut.ts`, so pages don't ship the spreadsheet code up front. Lighthouse (mobile, 2026-10-07): app pages
+  Performance 83–84, legal pages 95, Accessibility / Best Practices / SEO 100. The rest is the store, which imports workbook.ts.
+- **Mobile:** page grids use `grid-cols-[minmax(0,1fr)]` below their breakpoint (an implicit column grew to a wide table's width),
+  `CardHeader` actions wrap, `Select` is `max-w-full`. Checked at 390 and 768 px on every page: no horizontal page scroll.
 
 ## Conventions
 

@@ -7,7 +7,8 @@
  * Every substitution is recorded so the review screen can show exactly what changed. An optional AI pass
  * only names/describes templates and resolves blanks this parser couldn't; it is not allowed to reword.
  */
-import JSZip from "jszip";
+// Loaded on first use: JSZip is ~95 KB and only needed when a .docx is imported.
+const loadZip = async () => (await import("jszip")).default;
 import type { Template } from "./types";
 
 export type BlockKind = "title" | "heading" | "bold" | "text";
@@ -27,7 +28,7 @@ const decode = (s: string) =>
 
 /** Read paragraphs + their role from a .docx (works in the browser and in Node). */
 export async function docxToBlocks(data: ArrayBuffer | Uint8Array): Promise<Block[]> {
-  const zip = await JSZip.loadAsync(data);
+  const zip = await (await loadZip()).loadAsync(data);
   const xml = await zip.file("word/document.xml")?.async("string");
   if (!xml) throw new Error("That doesn't look like a Word document (no word/document.xml).");
   const blocks: Block[] = [];

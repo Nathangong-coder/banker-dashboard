@@ -101,11 +101,15 @@ export default function CoveragePage() {
         <PageHeader title="Bank coverage" />
         <Card>
           <Empty title="No banks yet">
-            Upload your spreadsheet on the Overview page. Any bank tab, or a list of firms (like an “Institution Name” column), shows up here. Or{" "}
-            <button className="text-navy underline" onClick={() => setCoverage((c) => ({ ...c, includeStarter: true }))}>
-              start from a standard IB target list
-            </button>
-            .
+            Upload your spreadsheet: any bank tab, or a list of firms (like an “Institution Name” column), shows up here.
+            <div className="mt-4 flex flex-col items-center gap-2">
+              <Link href="/" className="inline-flex items-center gap-1.5 rounded-md bg-navy px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-[#1c3259]">
+                Upload your spreadsheet
+              </Link>
+              <button className="text-[12.5px] text-navy underline" onClick={() => setCoverage((c) => ({ ...c, includeStarter: true }))}>
+                or start from a standard IB target list
+              </button>
+            </div>
           </Empty>
         </Card>
       </>
@@ -169,7 +173,7 @@ export default function CoveragePage() {
       <Insights items={insights} scoped={active.length > 0} />
 
       {/* Scoreboard */}
-      <Card className="mb-5 grid gap-0 md:grid-cols-[1.4fr_1fr]">
+      <Card className="mb-5 grid grid-cols-[minmax(0,1fr)] gap-0 md:grid-cols-[1.4fr_1fr]">
         <div className="border-line p-5 md:border-r">
           <div className="flex items-baseline gap-2">
             <span className="num text-[44px] leading-none">{counts.reached}</span>
@@ -210,7 +214,7 @@ export default function CoveragePage() {
       </Card>
 
       {/* Next moves */}
-      <div className="mb-6 grid gap-3 md:grid-cols-3">
+      <div className="mb-6 grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-3">
         <NextMove
           icon={<Mail className="size-4" />}
           show={ready.length > 0}
@@ -263,7 +267,7 @@ export default function CoveragePage() {
         ))}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 xl:grid-cols-4">
         {COLS.map((col) => {
           const list = shown.filter((r) => r.stage === col.stage).sort((a, b) =>
             col.stage === "awaiting"

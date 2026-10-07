@@ -251,7 +251,7 @@ function DraftsInner() {
         sub="Select contacts, assign each a template, have AI fill in the personal lines, and create Gmail drafts with your resume attached. Nothing sends until you hit send in Gmail."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)_auto]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[280px_minmax(0,1fr)_auto]">
         <div className="space-y-6">
           <Card>
             <CardHeader
@@ -369,7 +369,7 @@ function DraftsInner() {
                 <Button size="sm" variant="brass" icon={<Sparkles className="size-3.5" />} onClick={() => generate()} disabled={!sel.size}>
                   Generate drafts
                 </Button>
-                <Button size="sm" variant="primary" icon={<Mail className="size-3.5" />} onClick={toGmail} disabled={!chosen.some((c) => c.draft)}>
+                <Button size="sm" variant={chosen.some((c) => c.draft) ? "primary" : "secondary"} icon={<Mail className="size-3.5" />} onClick={toGmail} disabled={!chosen.some((c) => c.draft)}>
                   Create in Gmail
                 </Button>
               </>
@@ -778,7 +778,7 @@ function NeedsForm({ needs, onDone, onClose }: { needs: { c: Contact; t: Templat
                 </a>
               )}
             </div>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-2">
               {missing.map((k) => (
                 <Field
                   key={k}

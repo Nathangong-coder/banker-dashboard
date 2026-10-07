@@ -245,7 +245,7 @@ function BaseEditor({
     </Field>
   );
   return (
-    <div className="mt-3 grid gap-4 lg:grid-cols-2">
+    <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
       <div className="space-y-2.5">
         <Field label="Name">
           <Input
@@ -375,7 +375,7 @@ export function Generator({ sample }: { sample: Contact }) {
         }
         sub="Describe a connection you share with a group of bankers. AI writes the personal paragraph and subject around your shared wording; you review before saving."
       />
-      <div className="grid gap-3 p-4 md:grid-cols-[1fr_260px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-4 md:grid-cols-[1fr_260px]">
         <Field label="The angle">
           <Textarea
             rows={3}
@@ -417,7 +417,7 @@ export function Generator({ sample }: { sample: Contact }) {
 
       {out.length > 0 && (
         <div className="space-y-4 border-t border-line p-4">
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
             {out.map((g, i) => (
               <GenCard
                 key={i}

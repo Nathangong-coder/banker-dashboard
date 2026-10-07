@@ -629,7 +629,7 @@ function BankBoard({ onOpen }: { onOpen: (c: Contact) => void }) {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
       {regions.map((region) => {
         const list = rollups.filter((r) => r.meta.region === region).sort((a, b) => b.due - a.due || a.meta.name.localeCompare(b.meta.name));
         const totals = list.reduce((t, r) => ({ reached: t.reached + r.reached, replied: t.replied + r.replied }), { reached: 0, replied: 0 });
@@ -741,7 +741,7 @@ function Reminders() {
   const whatsappReady = !!(k.whatsappPhone && k.whatsappApiKey);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader title="Upcoming reminder digests" sub="One message per day at 9am, listing everyone to follow up with" />
         {digests.length === 0 ? (

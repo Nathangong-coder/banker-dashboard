@@ -1,5 +1,6 @@
 "use client";
 
+import { checkEmail, checkLinkedIn, checkName, checkText } from "@/lib/validate";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { addManualContact, type NewContact } from "@/lib/actions";
@@ -53,8 +54,20 @@ function Form({ onClose, defaultBank, initial, row }: { onClose: () => void; def
     return allocateRow(d.bank.trim(), tables, taken);
   }, [hasWorkbook, d.bank, contacts, tables]);
 
+  const [tried, setTried] = useState(false);
+  const errors = {
+    name: checkName(d.name),
+    bank: d.bank.trim() ? checkText(d.bank, 120, "Bank") : "Enter the bank or firm.",
+    email: checkEmail(d.email),
+    linkedin: checkLinkedIn(d.linkedin),
+    comment: checkText(d.comment, 2000, "Notes"),
+  };
+  // Show errors once the user has tried to save, or as soon as a filled-in field is wrong.
+  const show = (k: keyof typeof errors, v: string) => (tried || v.trim() ? errors[k] : undefined);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    setTried(true);
+    if (Object.values(errors).some(Boolean)) return;
     try {
       const c = addManualContact(d, toSheet, row);
       toast.ok(
@@ -72,11 +85,11 @@ function Form({ onClose, defaultBank, initial, row }: { onClose: () => void; def
 
   return (
     <form onSubmit={submit} className="grid grid-cols-2 gap-3">
-      <Field label="Name">
-        <Input autoFocus required value={d.name} onChange={(e) => set("name", e.target.value)} placeholder="First Last" />
+      <Field label="Name" error={tried ? errors.name : undefined}>
+        <Input autoFocus required aria-invalid={tried && !!errors.name} value={d.name} onChange={(e) => set("name", e.target.value)} placeholder="First Last" />
       </Field>
-      <Field label="Bank">
-        <Input required list="add-contact-banks" value={d.bank} onChange={(e) => set("bank", e.target.value)} />
+      <Field label="Bank" error={tried ? errors.bank : undefined}>
+        <Input required aria-invalid={tried && !!errors.bank} list="add-contact-banks" value={d.bank} onChange={(e) => set("bank", e.target.value)} />
         <datalist id="add-contact-banks">
           {banks.map((b) => (
             <option key={b} value={b} />
@@ -84,12 +97,12 @@ function Form({ onClose, defaultBank, initial, row }: { onClose: () => void; def
         </datalist>
       </Field>
       <div className="col-span-2">
-        <Field label="LinkedIn">
-          <Input value={d.linkedin} onChange={(e) => set("linkedin", e.target.value)} placeholder="https://www.linkedin.com/in/…" />
+        <Field label="LinkedIn" error={show("linkedin", d.linkedin)}>
+          <Input inputMode="url" aria-invalid={!!show("linkedin", d.linkedin)} value={d.linkedin} onChange={(e) => set("linkedin", e.target.value)} placeholder="https://www.linkedin.com/in/…" />
         </Field>
       </div>
-      <Field label="Email" hint="Leave blank and use Enrich to find it.">
-        <Input type="email" value={d.email} onChange={(e) => set("email", e.target.value)} />
+      <Field label="Email" hint="Leave blank and use Enrich to find it." error={show("email", d.email)}>
+        <Input type="email" aria-invalid={!!show("email", d.email)} value={d.email} onChange={(e) => set("email", e.target.value)} />
       </Field>
       <Field label="Position">
         <Input value={d.position} onChange={(e) => set("position", e.target.value)} placeholder="Analyst" />
@@ -120,7 +133,7 @@ function Form({ onClose, defaultBank, initial, row }: { onClose: () => void; def
         </Select>
       </Field>
       <div className="col-span-2">
-        <Field label="Notes / connection">
+        <Field label="Notes / connection" error={show("comment", d.comment)}>
           <Textarea rows={2} value={d.comment} onChange={(e) => set("comment", e.target.value)} />
         </Field>
       </div>

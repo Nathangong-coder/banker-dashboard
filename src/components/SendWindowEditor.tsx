@@ -41,7 +41,7 @@ export function SendWindowEditor() {
   return (
     <Card>
       <CardHeader title="Send window" sub={`Scheduled emails go out ${windowLabel(w)}, a few minutes apart.`} right={<Clock className="size-4 text-muted" />} />
-      <div className="grid gap-3 p-4 md:grid-cols-4">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-4 md:grid-cols-4">
         <Field label="From">
           <Select className="w-full" value={w.start} onChange={(e) => set({ start: Number(e.target.value) })}>
             {HOURS.map((h) => (

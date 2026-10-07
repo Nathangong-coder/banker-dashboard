@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Bookmark, Check, ClipboardCopy, Coffee, ExternalLink, Pencil, Printer, RefreshCw, Search, Sparkles, UserSearch } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -120,7 +121,7 @@ function PrepInner() {
         </Card>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
         <Card className="flex max-h-[78vh] flex-col overflow-hidden">
           <div className="border-b border-line p-2.5">
             <div className="relative">
@@ -159,6 +160,13 @@ function PrepInner() {
             <Empty icon={<Coffee className="size-6" />} title="Pick someone to prep for">
               People who replied or have a call scheduled are at the top. Or open their LinkedIn profile and click the <b>Send to Coverage</b> bookmark:
               it lands here with their profile attached.
+              {contacts.length === 0 && (
+                <div className="mt-4">
+                  <Link href="/" className="inline-flex items-center gap-1.5 rounded-md bg-navy px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-[#1c3259]">
+                    Upload your spreadsheet first
+                  </Link>
+                </div>
+              )}
             </Empty>
           </Card>
         )}
@@ -377,7 +385,7 @@ function PrepView({ c }: { c: Contact }) {
 
       {prep ? (
         <>
-          <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[1.3fr_1fr]">
             <Card className="p-4">
               <SectionTitle>The 30-second brief</SectionTitle>
               <p className="text-[14px] leading-relaxed">{prep.brief}</p>
@@ -414,7 +422,7 @@ function PrepView({ c }: { c: Contact }) {
             </Card>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-2">
             <Card className="p-4">
               <SectionTitle>Tailored for {c.firstName || c.name}</SectionTitle>
               <QuestionList items={prep.tailored.map((t, i) => ({ key: `t${i}`, text: t.question, why: t.why }))} asked={prep.asked ?? []} onToggle={toggleAsked} />

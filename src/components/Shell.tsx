@@ -7,16 +7,19 @@ import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRou
 import { blobs, useStore } from "@/lib/store";
 import { FORMAT_VERSION, readFormats, withInternalLinks } from "@/lib/workbook";
 import { readInternalLinks } from "@/lib/sheetLinks";
-import { describeTabChanges, refreshBankTabs } from "@/lib/actions";
-import { useSaveShortcut } from "./WorkbookControls";
+import { useSaveShortcut } from "./useSaveShortcut";
 import { nextAction } from "@/lib/followups";
 import { cn } from "@/lib/util";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
+import { ConsentBanner } from "./Consent";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 import { sendWhatsAppDigest, whatsappDigest } from "@/lib/reminders";
 import { callApi } from "@/lib/api";
 import { syncServer } from "@/lib/serverSync";
+
+/** Pages that render without waiting for the local store (no personal data on them). */
+const PUBLIC_PATHS = ["/privacy", "/terms"];
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
@@ -39,6 +42,8 @@ function useHydrated() {
       setReady(true);
       // Every bank on the lists gets a tab and an OVERVIEW row (pending until saved), without needing a re-import.
       if (snaps?.length) {
+        // Loaded after first paint: the spreadsheet code isn't needed to show the page.
+        const { describeTabChanges, refreshBankTabs } = await import("@/lib/actions");
         const text = describeTabChanges(refreshBankTabs() ?? { added: [], renamed: [], repaired: [], listed: [], coverageRows: [], skipped: [] });
         if (text) toast.info(`Spreadsheet tabs: ${text}`);
       }
@@ -153,6 +158,7 @@ function useServerSync(ready: boolean) {
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const ready = useHydrated();
+  const isPublic = PUBLIC_PATHS.includes(path);
   useSaveShortcut();
   const contacts = useStore((s) => s.contacts);
   const banks = useStore((s) => s.banks);
@@ -224,17 +230,25 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Icon className={cn("size-4", active ? "text-brass" : "text-[#7c89a0]")} />
                 <span className="flex-1">{label}</span>
                 {href === "/followups" && due > 0 && (
-                  <span className="num rounded bg-brass px-1.5 text-[11px] font-medium text-white">{due}</span>
+                  <span className="num rounded bg-brass-strong px-1.5 text-[11px] font-medium text-white">{due}</span>
                 )}
               </Link>
             );
           })}
         </nav>
         {ready && <GmailSyncWidget />}
-        <Link href="/settings" className="mx-2.5 mb-4 flex items-center gap-2 rounded-md border border-white/10 px-3 py-2.5 text-[12px] hover:bg-white/5">
+        <Link href="/settings?tab=data" className="mx-2.5 mb-2 flex items-center gap-2 rounded-md border border-white/10 px-3 py-2.5 text-[12px] hover:bg-white/5">
           <KeyRound className="size-3.5 text-brass" />
           <span>{keyCount}/4 services connected</span>
         </Link>
+        <div className="mb-4 flex gap-3 px-5 text-[11px] text-[#9aa6ba]">
+          <Link href="/privacy" className="hover:text-white">
+            Privacy
+          </Link>
+          <Link href="/terms" className="hover:text-white">
+            Terms
+          </Link>
+        </div>
       </aside>
 
       {/* mobile nav */}
@@ -247,7 +261,8 @@ export function Shell({ children }: { children: ReactNode }) {
       </div>
 
       <main className="min-w-0 flex-1 px-4 pt-8 pb-24 md:px-9 md:pb-10">
-        {ready ? (
+        {/* Legal pages and the 404 don't need the store: render them straight away (crawlers and Google's reviewers read them). */}
+        {ready || isPublic ? (
           <div className="mx-auto max-w-[1400px]">{children}</div>
         ) : (
           <div className="flex h-[60vh] items-center justify-center text-muted">
@@ -256,6 +271,7 @@ export function Shell({ children }: { children: ReactNode }) {
         )}
       </main>
       <Toaster />
+      <ConsentBanner />
     </div>
   );
 }

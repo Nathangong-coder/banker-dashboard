@@ -39,7 +39,7 @@ export function OutreachRulesEditor() {
           </Button>
         }
       />
-      <div className="grid gap-4 p-4 md:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 p-4 md:grid-cols-2">
         <Field label="Your school, as people write it" hint={`Subject: “Fellow ${settings.profile.schoolNickname || "…"} Seeking to Connect” (nickname is in Your profile)`}>
           {list(r.school.match, (v) => set((x) => ({ ...x, school: { match: v } })), "UCLA, Bruin, University of California Los Angeles")}
         </Field>
@@ -79,7 +79,7 @@ export function OutreachRulesEditor() {
           </p>
           <div className="space-y-2">
             {r.volunteer.map((v, i) => (
-              <div key={i} className="grid gap-1.5 md:grid-cols-[1fr_1.4fr_1fr_auto]">
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)] gap-1.5 md:grid-cols-[1fr_1.4fr_1fr_auto]">
                 <Input value={v.match} placeholder="Their profile mentions… (soup kitchen)" onChange={(e) => set((x) => ({ ...x, volunteer: x.volunteer.map((y, j) => (j === i ? { ...y, match: e.target.value } : y)) }))} aria-label="Match" />
                 <Input value={v.mine} placeholder="Yours (working at a soup kitchen)" onChange={(e) => set((x) => ({ ...x, volunteer: x.volunteer.map((y, j) => (j === i ? { ...y, mine: e.target.value } : y)) }))} aria-label="Your experience" />
                 <Input value={v.theirs} placeholder="Theirs (volunteer experience)" onChange={(e) => set((x) => ({ ...x, volunteer: x.volunteer.map((y, j) => (j === i ? { ...y, theirs: e.target.value } : y)) }))} aria-label="Their experience" />

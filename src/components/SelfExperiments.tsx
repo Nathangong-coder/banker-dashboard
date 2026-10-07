@@ -196,7 +196,7 @@ function NewExperiment({ fontBusy, onCreate, onCancel }: { fontBusy: boolean; on
           <Input value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="Short subject, Long subject" />
         </Field>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
         {kind !== "time" && (
           <Field label="How drafts get an option">
             <Select className="w-full" value={mode} onChange={(e) => setMode(e.target.value as Experiment["mode"])}>
@@ -287,43 +287,45 @@ export function ExperimentsResults() {
 
 export function ArmTable({ arms, fontOf }: { arms: Arm[]; fontOf?: (id: string) => EmailFont | undefined }) {
   return (
-    <table className="my-2 w-full text-[12.5px]">
-      <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
-        <tr>
-          <th className="px-4 py-1 font-medium">Option</th>
-          <th className="px-2 py-1 text-right font-medium">Emails</th>
-          <th className="px-2 py-1 text-right font-medium">Sent</th>
-          <th className="px-2 py-1 text-right font-medium">Replied</th>
-          <th className="px-2 py-1 text-right font-medium">Reply rate</th>
-          <th className="px-4 py-1 font-medium">Likely range</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-line">
-        {arms.map((a) => {
-          const font = fontOf?.(a.id) ?? (a.id in EMAIL_FONTS ? (a.id as EmailFont) : undefined);
-          return (
-            <tr key={a.id} className={cn(a.id === "_outside" && "text-muted")}>
-              <td className="px-4 py-1.5 font-medium" style={font ? { fontFamily: EMAIL_FONTS[font].css } : undefined}>
-                {a.label}
-              </td>
-              <td className="num px-2 text-right">{a.drafted}</td>
-              <td className="num px-2 text-right">{a.sent}</td>
-              <td className="num px-2 text-right text-green">{a.replied}</td>
-              <td className="num px-2 text-right font-medium">{a.sent ? `${Math.round(a.rate * 100)}%` : "—"}</td>
-              <td className="px-4">
-                <div className="relative h-2 w-40 rounded-full bg-[#ecebe4]" title={`95% range ${Math.round(a.lo * 100)}–${Math.round(a.hi * 100)}%`}>
-                  {a.sent > 0 && (
-                    <>
-                      <div className="absolute h-2 rounded-full bg-green/25" style={{ left: `${a.lo * 100}%`, width: `${Math.max((a.hi - a.lo) * 100, 1)}%` }} />
-                      <div className="absolute top-[-2px] h-3 w-0.5 bg-green" style={{ left: `${a.rate * 100}%` }} />
-                    </>
-                  )}
-                </div>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="overflow-x-auto">
+      <table className="my-2 w-full min-w-[480px] text-[12.5px]">
+        <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+          <tr>
+            <th className="px-4 py-1 font-medium">Option</th>
+            <th className="px-2 py-1 text-right font-medium">Emails</th>
+            <th className="px-2 py-1 text-right font-medium">Sent</th>
+            <th className="px-2 py-1 text-right font-medium">Replied</th>
+            <th className="px-2 py-1 text-right font-medium">Reply rate</th>
+            <th className="px-4 py-1 font-medium">Likely range</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {arms.map((a) => {
+            const font = fontOf?.(a.id) ?? (a.id in EMAIL_FONTS ? (a.id as EmailFont) : undefined);
+            return (
+              <tr key={a.id} className={cn(a.id === "_outside" && "text-muted")}>
+                <td className="px-4 py-1.5 font-medium" style={font ? { fontFamily: EMAIL_FONTS[font].css } : undefined}>
+                  {a.label}
+                </td>
+                <td className="num px-2 text-right">{a.drafted}</td>
+                <td className="num px-2 text-right">{a.sent}</td>
+                <td className="num px-2 text-right text-green">{a.replied}</td>
+                <td className="num px-2 text-right font-medium">{a.sent ? `${Math.round(a.rate * 100)}%` : "—"}</td>
+                <td className="px-4">
+                  <div className="relative h-2 w-40 rounded-full bg-[#ecebe4]" title={`95% range ${Math.round(a.lo * 100)}–${Math.round(a.hi * 100)}%`}>
+                    {a.sent > 0 && (
+                      <>
+                        <div className="absolute h-2 rounded-full bg-green/25" style={{ left: `${a.lo * 100}%`, width: `${Math.max((a.hi - a.lo) * 100, 1)}%` }} />
+                        <div className="absolute top-[-2px] h-3 w-0.5 bg-green" style={{ left: `${a.rate * 100}%` }} />
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

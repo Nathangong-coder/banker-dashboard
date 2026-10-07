@@ -136,7 +136,7 @@ export function TemplateImport({ open, onClose }: { open: boolean; onClose: () =
             Works best with one section per template, using <b>Google Docs tabs</b> or <b>headings/bold titles</b>, the <b>subject line</b> just above{" "}
             <b>“Hi NAME,”</b>, and blanks in ALL CAPS (NAME, FIRM, POSITION, SCHOOL, HOMETOWN, CLUB, CITY…). Every change is shown for review before anything is saved.
           </p>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2">
             <div className="rounded-lg border border-line p-3">
               <div className="mb-2 flex items-center gap-1.5 text-[13px] font-medium"><FileUp className="size-4 text-brass" /> Word / Google Docs file</div>
               <p className="mb-2 text-[12px] text-muted">.docx, or in Google Docs: File → Download → Microsoft Word (.docx). Tabs are kept. Also takes .txt / .md.</p>
@@ -230,7 +230,7 @@ function CandidateCard({ c, exists, checked, onCheck }: { c: ImportCandidate; ex
             {open ? "Hide" : "Show"} body & {c.substitutions.length} substitution{c.substitutions.length === 1 ? "" : "s"}
           </button>
           {open && (
-            <div className="mt-2 grid gap-3 md:grid-cols-[1fr_240px]">
+            <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-[1fr_240px]">
               <pre className="font-sans text-[12.5px] leading-relaxed whitespace-pre-wrap"><Marked text={c.body} /></pre>
               <ul className="space-y-1 text-[11.5px]">
                 {c.substitutions.map((s, i) => (

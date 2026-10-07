@@ -61,7 +61,7 @@ export function Explorer() {
         right={
           <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
             Compare
-            <Select className="h-8" value={dim} onChange={(e) => setDim(e.target.value as Dimension)} aria-label="Compare by">
+            <Select className="h-8 max-w-[14rem]" value={dim} onChange={(e) => setDim(e.target.value as Dimension)} aria-label="Compare by">
               {dimensions(settings).map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.label}
@@ -69,7 +69,7 @@ export function Explorer() {
               ))}
             </Select>
             by
-            <Select className="h-8" value={seg} onChange={(e) => setSeg(e.target.value as Segment)} aria-label="Split by">
+            <Select className="h-8 max-w-[14rem]" value={seg} onChange={(e) => setSeg(e.target.value as Segment)} aria-label="Split by">
               {SEGMENTS.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}

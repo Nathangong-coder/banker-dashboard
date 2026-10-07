@@ -37,8 +37,8 @@ function LabInner() {
         title="Email lab"
         sub="What gets replies: experiment results, and a breakdown by bank type, team and location."
         right={
-          <Link href="/settings?tab=email&sub=experiments" className="text-[12.5px] font-medium text-navy underline">
-            Set up experiments &amp; wording (Settings)
+          <Link href="/settings?tab=email&sub=experiments" className="inline-flex items-center gap-1.5 rounded-md bg-navy px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-[#1c3259]">
+            Set up an experiment
           </Link>
         }
       />

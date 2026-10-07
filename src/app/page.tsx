@@ -92,7 +92,7 @@ export default function Overview() {
         <Stat label="Due today" value={stats.due.length} tone={stats.due.length ? "red" : undefined} sub="follow-ups & sends" />
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[1.35fr_1fr]">
         <Card>
           <CardHeader
             title="Today's follow-ups"
@@ -143,7 +143,7 @@ export default function Overview() {
         </Card>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-3">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-3">
         {[
           { href: "/sheet?view=contacts&filter=noemail", icon: Sparkles, title: "Enrich contact info", body: "Fill in blank emails from LinkedIn and name with Apollo or Hunter." },
           { href: "/find", icon: Search, title: "Find more people", body: "Search LinkedIn profiles and let AI keep only the ones that fit your criteria." },
@@ -159,7 +159,7 @@ export default function Overview() {
         ))}
       </div>
 
-      <div className="mt-6 grid gap-6 md:grid-cols-2">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-2">
         {REGIONS.filter((x) => x.id === "SF" || x.id === "NY" || rollups.some((r) => r.meta.region === x.id)).map(({ id: region, label }) => {
           const rows = rollups.filter((r) => r.meta.region === region).sort((a, b) => b.due - a.due || b.total - a.total);
           return (

@@ -28,7 +28,7 @@ export function HooksEditor() {
           const pinned = contacts.filter((c) => c.hookId === h.id).length;
           return (
             <li key={h.id} className="rounded-lg border border-line p-3">
-              <div className="grid gap-2 sm:grid-cols-[180px_1fr_auto] sm:items-end">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-[180px_1fr_auto] sm:items-end">
                 <Field label="Name">
                   <Input value={h.name} onChange={(e) => change(h.id, { name: e.target.value })} />
                 </Field>

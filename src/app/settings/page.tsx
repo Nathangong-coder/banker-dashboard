@@ -14,6 +14,10 @@ import { GmailSetup } from "@/components/GmailSetup";
 import { LabSetup } from "@/components/LabSetup";
 import { AutoSendCard, SendModeSwitch } from "@/components/AutoSend";
 import { SendWindowEditor } from "@/components/SendWindowEditor";
+import { AnalyticsSetting } from "@/components/Consent";
+import { checkEmail, checkLinkedIn, checkName, checkPhone } from "@/lib/validate";
+import { unwrapRedirects } from "@/lib/emailFormat";
+import Link from "next/link";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
@@ -37,7 +41,7 @@ function Secret({ value, onChange, placeholder }: { value: string; onChange: (v:
 
 function KeyRow({ title, used, how, children, ok }: { title: string; used: string; how: ReactNode; children: ReactNode; ok: boolean }) {
   return (
-    <div className="grid gap-3 border-b border-line px-4 py-4 last:border-0 md:grid-cols-[1fr_1.1fr]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 border-b border-line px-4 py-4 last:border-0 md:grid-cols-[1fr_1.1fr]">
       <div>
         <div className="flex items-center gap-2 font-medium">
           {title} {ok ? <Badge tone="green">connected</Badge> : <Badge>not set</Badge>}
@@ -235,15 +239,15 @@ export default function SettingsPage() {
           <>
         <Card>
           <CardHeader title="Your profile" sub="Fills the {{my_*}} placeholders in templates" />
-          <div className="grid gap-3 p-4 md:grid-cols-3">
-            <Field label="Full name"><Input value={p.name} onChange={(e) => setP({ name: e.target.value })} /></Field>
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-4 md:grid-cols-3">
+            <Field label="Full name" error={p.name ? checkName(p.name) : undefined}><Input autoComplete="name" value={p.name} onChange={(e) => setP({ name: e.target.value })} /></Field>
             <Field label="School"><Input value={p.school} placeholder="UCLA" onChange={(e) => setP({ school: e.target.value })} /></Field>
             <Field label="Class year"><Input value={p.year} placeholder="sophomore" onChange={(e) => setP({ year: e.target.value })} /></Field>
             <Field label="Major" hint="As it reads in “I’m a ___ student”"><Input value={p.major} placeholder="economics & applied mathematics" onChange={(e) => setP({ major: e.target.value })} /></Field>
             <Field label="Hometown"><Input value={p.hometown} placeholder="Seattle, WA" onChange={(e) => setP({ hometown: e.target.value })} /></Field>
-            <Field label="Email (for signature)"><Input value={p.email} placeholder="you@g.ucla.edu" onChange={(e) => setP({ email: e.target.value.trim() })} /></Field>
-            <Field label="Phone"><Input value={p.phone} onChange={(e) => setP({ phone: e.target.value })} /></Field>
-            <Field label="LinkedIn URL" hint="Linked as “LinkedIn” in your signature"><Input value={p.linkedin} placeholder="https://www.linkedin.com/in/you" onChange={(e) => setP({ linkedin: e.target.value.trim() })} /></Field>
+            <Field label="Email (for signature)" error={checkEmail(p.email)}><Input type="email" autoComplete="email" aria-invalid={!!checkEmail(p.email)} value={p.email} placeholder="you@g.ucla.edu" onChange={(e) => setP({ email: e.target.value.trim() })} /></Field>
+            <Field label="Phone" error={checkPhone(p.phone)}><Input type="tel" autoComplete="tel" aria-invalid={!!checkPhone(p.phone)} value={p.phone} onChange={(e) => setP({ phone: e.target.value })} /></Field>
+            <Field label="LinkedIn URL" hint="Linked as “LinkedIn” in your signature" error={checkLinkedIn(unwrapRedirects(p.linkedin))}><Input inputMode="url" aria-invalid={!!checkLinkedIn(unwrapRedirects(p.linkedin))} value={p.linkedin} placeholder="https://www.linkedin.com/in/you" onChange={(e) => setP({ linkedin: e.target.value.trim() })} /></Field>
             <Field label="School nickname" hint="“Fellow Bruin…”"><Input value={p.schoolNickname} placeholder="Bruin" onChange={(e) => setP({ schoolNickname: e.target.value })} /></Field>
             <Field label="School city" hint="“…went to college in LA”"><Input value={p.schoolCity} placeholder="LA" onChange={(e) => setP({ schoolCity: e.target.value })} /></Field>
             <Field label="Club"><Input value={p.club} placeholder="e.g. Bruin Finance Society" onChange={(e) => setP({ club: e.target.value })} /></Field>
@@ -255,7 +259,7 @@ export default function SettingsPage() {
           <>
         <Card>
           <CardHeader title="Writing" sub="Your hooks ({{my_pitch}}), the font drafts are made in, and your signature" />
-          <div className="grid gap-3 p-4 md:grid-cols-3">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-4 md:grid-cols-3">
             <div className="md:col-span-3">
               <div className="mb-1 text-[12.5px] font-medium text-ink-2">Hooks ({"{{my_pitch}}"})</div>
               <HooksEditor />
@@ -309,7 +313,7 @@ export default function SettingsPage() {
             </Card>
         <Card>
           <CardHeader title="Follow-up rules" />
-          <div className="grid gap-3 p-4 md:grid-cols-5">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-4 md:grid-cols-5">
             <Field label="First follow-up after (days)"><Input type="number" min={1} value={fu.firstAfterDays} onChange={(e) => setFu({ firstAfterDays: Number(e.target.value) || 1 })} /></Field>
             <Field label="Next follow-ups every (days)"><Input type="number" min={1} value={fu.nextAfterDays} onChange={(e) => setFu({ nextAfterDays: Number(e.target.value) || 1 })} /></Field>
             <Field label="Max follow-ups"><Input type="number" min={0} max={5} value={fu.maxFollowUps} onChange={(e) => setFu({ maxFollowUps: Number(e.target.value) || 0 })} /></Field>
@@ -474,6 +478,18 @@ export default function SettingsPage() {
         )}
         {tab === "backup" && (
           <>
+            <Card>
+              <CardHeader title="Privacy" sub="Your data stays in this browser. See the Privacy Policy for the details." />
+              <div className="flex flex-wrap items-center gap-4 p-4">
+                <AnalyticsSetting />
+                <Link href="/privacy" className="text-[12.5px] text-navy underline">
+                  Privacy Policy
+                </Link>
+                <Link href="/terms" className="text-[12.5px] text-navy underline">
+                  Terms of Use
+                </Link>
+              </div>
+            </Card>
         <Card>
           <CardHeader title="Backup & data" sub="Everything is stored in this browser. Export a backup to move to another computer." />
           <div className="flex flex-wrap gap-2 p-4">
