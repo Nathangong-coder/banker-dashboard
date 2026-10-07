@@ -13,12 +13,28 @@ export interface SendWindow {
   /** Hour it closes (exclusive), 1–24. */
   end: number;
   basis: "recipient" | "mine";
-  weekdaysOnly: boolean;
+  /** Days sends may go out, 0 = Sunday (in the zone of `basis`). The owner's default: Tuesday–Thursday. */
+  days: number[];
 }
 
-export const DEFAULT_SEND_WINDOW: SendWindow = { start: 9, end: 11, basis: "recipient", weekdaysOnly: true };
+export const DEFAULT_SEND_WINDOW: SendWindow = { start: 9, end: 11, basis: "recipient", days: [2, 3, 4] };
 
-export const windowOf = (s: Pick<Settings, "sendWindow">): SendWindow => ({ ...DEFAULT_SEND_WINDOW, ...(s.sendWindow ?? {}) });
+/** The saved window, or the default. Older saves had `weekdaysOnly` instead of `days`: they get Tuesday–Thursday. */
+export const windowOf = (s: Pick<Settings, "sendWindow">): SendWindow => {
+  const saved = (s.sendWindow ?? {}) as Partial<SendWindow> & { weekdaysOnly?: boolean };
+  const days = Array.isArray(saved.days) && saved.days.length ? saved.days : DEFAULT_SEND_WINDOW.days;
+  return { start: saved.start ?? DEFAULT_SEND_WINDOW.start, end: saved.end ?? DEFAULT_SEND_WINDOW.end, basis: saved.basis ?? DEFAULT_SEND_WINDOW.basis, days };
+};
+
+const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Tue–Thu", "Mon, Wed, Fri", "every day". */
+export function daysLabel(days: number[]) {
+  const d = [...new Set(days)].sort();
+  if (d.length === 7) return "every day";
+  const run = d.length > 2 && d.every((x, i) => i === 0 || x === d[i - 1] + 1);
+  return run ? `${WD[d[0]]}–${WD[d[d.length - 1]]}` : d.map((x) => WD[x]).join(", ");
+}
 
 const myTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
 
@@ -75,7 +91,7 @@ export function planSends<C extends Pick<Contact, "id" | "region" | "location">>
     const today = partsIn(now, tz);
     for (let add = 0; add < 21; add++) {
       const day = partsIn(zonedDate(today.y, today.m, today.d + add, 12, 0, tz), tz);
-      if (w.weekdaysOnly && (day.wd === "Sat" || day.wd === "Sun")) continue;
+      if (!w.days.includes(WD.indexOf(day.wd))) continue;
       const open = zonedDate(day.y, day.m, day.d, w.start, 0, tz).getTime();
       const close = zonedDate(day.y, day.m, day.d, w.end, 0, tz).getTime();
       const k = keyFor(tz, day.y, day.m, day.d);
@@ -106,7 +122,7 @@ export function sendLabelFor(at: Date, c: Pick<Contact, "region" | "location">, 
 export function windowLabel(w: SendWindow) {
   const h = (x: number) => `${x % 12 || 12}${x < 12 || x === 24 ? " AM" : " PM"}`;
   const range = `${h(w.start).replace(/ (AM|PM)$/, (m) => (h(w.end).endsWith(m.trim()) ? "" : m))}–${h(w.end)}`;
-  return `${range} ${w.basis === "recipient" ? "their time" : "your time"}${w.weekdaysOnly ? ", weekdays" : ""}`;
+  return `${range} ${w.basis === "recipient" ? "their time" : "your time"}, ${daysLabel(w.days)}`;
 }
 
 /** One person's next slot (for labels); the real batch plan comes from `planSends`. */

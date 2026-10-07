@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "../sr
 import { fillPlaceholders } from "../src/lib/template";
 import { normalizeBody, withSignature, signatureLine, unwrapRedirects } from "../src/lib/emailFormat";
 import { OUTREACH_EXPERIMENT_IDS as X, assignOutreachArms, composeOutreach, emailVerified, isTopSenior, leftFirm, pickWeighted, seniorSkipReason, settleOutreachArms } from "../src/lib/outreach";
-import { DEFAULT_SEND_WINDOW, planSends, recipientTz, zonedDate } from "../src/lib/sendWindow";
+import { DEFAULT_SEND_WINDOW, daysLabel, planSends, recipientTz, windowOf, zonedDate } from "../src/lib/sendWindow";
 import type { Contact, Settings } from "../src/lib/types";
 
 const settings: Settings = {
@@ -161,12 +161,12 @@ for (const [what, ok] of checks) {
   }
 }
 
-// Send window: 9–11 AM in the recipient's zone, weekdays, spread out, DST-safe.
+// Send window: 9–11 AM in the recipient's zone, Tuesday–Thursday, spread out, DST-safe.
 {
   const hourIn = (d: Date, tz: string) => Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" }).format(d));
   const dayIn = (d: Date, tz: string) => new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(d);
   const w = DEFAULT_SEND_WINDOW;
-  // Friday 2026-10-09 3 PM PT: NY's and SF's windows have passed, so both go Monday (weekend skipped).
+  // Friday 2026-10-09 3 PM PT: the next allowed day is Tuesday (weekend and Monday skipped).
   const friPm = zonedDate(2026, 10, 9, 15, 0, "America/Los_Angeles");
   const people = [
     person({ id: "ny1", region: "NY", location: "NY" }),
@@ -178,19 +178,22 @@ for (const [what, ok] of checks) {
   // Tuesday 8 AM PT: NY (11 AM ET) has closed, SF (8 AM PT) opens at 9 the same day.
   const tue = zonedDate(2026, 10, 13, 8, 0, "America/Los_Angeles");
   const plan2 = planSends(people, w, { now: tue, jitter: () => 0 });
-  // Across the November DST change (Sun 11/1): a Monday 11/2 slot is still 9 AM local.
+  // Across the November DST change (Sun 11/1): the Tuesday 11/3 slot is still 9 AM local.
   const dst = planSends([people[0]], w, { now: zonedDate(2026, 10, 31, 12, 0, "America/New_York"), jitter: () => 0 }).get("ny1")!;
-  // A big batch overflows into the next weekday instead of leaving after 11.
+  // A big batch overflows into the next allowed day instead of leaving after 11.
   const many = Array.from({ length: 30 }, (_, i) => person({ id: `b${i}`, region: "NY", location: "NY" }));
   const big = planSends(many, w, { now: zonedDate(2026, 10, 12, 6, 0, "America/New_York"), jitter: () => 0 });
   const windowChecks: [string, boolean][] = [
     ["NY gets 9–11 AM Eastern", [...plan].filter(([id]) => id.startsWith("ny")).every(([, d]) => hourIn(d, "America/New_York") >= 9 && hourIn(d, "America/New_York") < 11)],
     ["SF gets 9–11 AM Pacific", hourIn(plan.get("sf1")!, "America/Los_Angeles") === 9],
     ["Houston uses Central time", recipientTz({ region: "Other", location: "Houston" }) === "America/Chicago" && hourIn(plan.get("tx1")!, "America/Chicago") === 9],
-    ["Friday afternoon → Monday, not Saturday", [...plan.values()].every((d) => dayIn(d, "America/New_York") === "Mon")],
+    ["Friday afternoon → Tuesday (not the weekend, not Monday)", [...plan.values()].every((d) => dayIn(d, "America/New_York") === "Tue")],
+    ["Thursday afternoon → next Tuesday", dayIn(planSends([people[0]], w, { now: zonedDate(2026, 10, 15, 15, 0, "America/Los_Angeles"), jitter: () => 0 }).get("ny1")!, "America/New_York") === "Tue"],
+    ["An old 'weekdays' setting becomes Tue–Thu", JSON.stringify(windowOf({ sendWindow: { start: 9, end: 11, basis: "recipient", weekdaysOnly: true } as never }).days) === "[2,3,4]"],
+    ["Days read as words", daysLabel([2, 3, 4]) === "Tue–Thu" && daysLabel([1, 3, 5]) === "Mon, Wed, Fri"],
     ["Two NY sends are spread out", Math.abs(plan.get("ny1")!.getTime() - plan.get("ny2")!.getTime()) >= 5 * 60_000],
     ["Tue 8 AM PT: NY → Wed, SF → today 9 AM", dayIn(plan2.get("ny1")!, "America/New_York") === "Wed" && dayIn(plan2.get("sf1")!, "America/Los_Angeles") === "Tue"],
-    ["DST week: still 9 AM Eastern", hourIn(dst, "America/New_York") === 9 && dayIn(dst, "America/New_York") === "Mon"],
+    ["DST week: still 9 AM Eastern", hourIn(dst, "America/New_York") === 9 && dayIn(dst, "America/New_York") === "Tue"],
     ["30 at once: all inside 9–11, some on the next day", [...big.values()].every((d) => hourIn(d, "America/New_York") >= 9 && hourIn(d, "America/New_York") < 11) && new Set([...big.values()].map((d) => dayIn(d, "America/New_York"))).size > 1],
     ["Your-time basis uses your zone", (() => { const d = planSends([people[0]], { ...w, basis: "mine" }, { now: friPm, jitter: () => 0 }).get("ny1")!; const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; return hourIn(d, tz) === 9; })()],
   ];

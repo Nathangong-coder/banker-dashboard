@@ -5,7 +5,7 @@ import { Clock } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { DEFAULT_SEND_WINDOW, nextSendSlot, windowLabel, windowOf, type SendWindow } from "@/lib/sendWindow";
 import { rescheduleQueued } from "@/lib/serverSync";
-import { Button, Card, CardHeader, Checkbox, Field, Select, toast } from "./ui";
+import { Button, Card, CardHeader, Field, Select, toast } from "./ui";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const hourLabel = (h: number) => `${h % 12 || 12}:00 ${h < 12 ? "AM" : "PM"}`;
@@ -67,11 +67,31 @@ export function SendWindowEditor() {
             <option value="mine">Mine</option>
           </Select>
         </Field>
-        <Field label="Days">
-          <label className="flex h-9 items-center gap-2 text-[13px]">
-            <Checkbox checked={w.weekdaysOnly} onChange={(v) => set({ weekdaysOnly: v })} /> Weekdays only
-          </label>
-        </Field>
+        <div>
+          <span className="mb-1 block text-[12px] font-medium text-ink-2">Days</span>
+          <div role="group" aria-label="Days sends can go out" className="flex h-9 items-center gap-2 text-[13px]">
+            <span className="inline-flex flex-wrap gap-1">
+              {["S", "M", "T", "W", "T", "F", "S"].map((l, d) => {
+                const on = w.days.includes(d);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d]}
+                    onClick={() => {
+                      const next = on ? w.days.filter((x) => x !== d) : [...w.days, d];
+                      if (next.length) set({ days: next.sort() });
+                    }}
+                    className={on ? "size-7 rounded bg-navy text-[12px] font-medium text-white" : "size-7 rounded border border-line-2 text-[12px] text-ink-2 hover:border-navy/50"}
+                  >
+                    {l}
+                  </button>
+                );
+              })}
+            </span>
+          </div>
+        </div>
         <div className="md:col-span-4">
           <div className="mb-1 text-[12px] font-medium text-ink-2">If you scheduled one now</div>
           <ul className="space-y-0.5 text-[12.5px] text-ink-2">
@@ -104,7 +124,7 @@ export function SendWindowEditor() {
           )}
           {settings.sendWindow && (
             <Button size="sm" variant="ghost" onClick={() => setSettings((x) => ({ ...x, sendWindow: { ...DEFAULT_SEND_WINDOW } }))}>
-              Reset to 9–11 AM their time
+              Reset to 9–11 AM their time, Tue–Thu
             </Button>
           )}
         </div>

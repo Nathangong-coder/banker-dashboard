@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, CalendarPlus, Check, Clock, MailPlus, MessageSquare, RefreshCw, Smartphone, UserX } from "lucide-react";
 import { blobs, bankKey, useStore } from "@/lib/store";
+import { isVpPlus } from "@/lib/seniority";
 import { nextAction, pendingFollowUpDraft, rollupBanks, type BankRollup, type NextAction } from "@/lib/followups";
 import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
 import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
@@ -20,8 +21,12 @@ import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
-import { cancelSend, markServerConnected, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
+import { markServerConnected, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
 import { AutoSendCard, SendModeSwitch } from "@/components/AutoSend";
+import { ScheduleCallsCard } from "@/components/Scheduling";
+import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
+import { ReplacementsCard } from "@/components/Replacements";
+import { ScheduledRow } from "@/components/ScheduledRow";
 
 type Tab = "due" | "bankers" | "banks" | "reminders";
 
@@ -280,7 +285,10 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     return (
       <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
         <button onClick={() => onOpen(c)} className="min-w-[220px] flex-1 text-left">
-          <div className="font-medium hover:underline">{c.name}</div>
+          <div className="font-medium hover:underline">
+            {c.name}
+            {isVpPlus(c.position || c.headline) && <span className="ml-1.5 rounded bg-red-soft px-1 py-px text-[10.5px] font-semibold text-red" title="VP or above">VP+</span>}
+          </div>
           <div className="text-[12px] text-muted">
             {c.position || "—"} · {c.bank} {c.region !== "Other" && `(${c.region})`} ·{" "}
             {a.kind === "send" ? `drafted ${fmtDate(c.draft?.createdAt)}` : `emailed ${fmtDate(c.sentAt)}`}
@@ -344,11 +352,16 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
 
   if (!due.length && !upcoming.length && !scheduled.length && !unknown)
     return (
-      <Card>
+      <div className="space-y-6">
+        <SeniorGmailCheck />
+        <ReplacementsCard onOpen={onOpen} />
+        <ScheduleCallsCard onOpen={onOpen} />
+        <Card>
         <Empty icon={<Check className="size-6" />} title="No follow-ups pending">
           Once you mark people as sent (or sync with Gmail), reminders show up here {settings.followUp.firstAfterDays} days later.
         </Empty>
       </Card>
+      </div>
     );
 
   return (
@@ -365,6 +378,9 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           </Button>
         </div>
       )}
+      <SeniorGmailCheck />
+        <ReplacementsCard onOpen={onOpen} />
+        <ScheduleCallsCard onOpen={onOpen} />
       <SendModeSwitch onAuto={onAuto} />
       <Card>
         <CardHeader
@@ -429,18 +445,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           <CardHeader title={`Scheduled · ${scheduled.length}`} sub="Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out." />
           <ul className="max-h-[320px] divide-y divide-line overflow-y-auto">
             {scheduled.map(({ c, a }) => (
-              <li key={c.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
-                <button onClick={() => onOpen(c)} className="flex-1 text-left hover:underline">
-                  {c.name} <span className="text-muted">· {c.bank}</span>
-                </button>
-                {c.serverSend && <Badge tone="neutral">{c.serverSend.step ? `Follow-up #${c.serverSend.step}` : "First email"} · by Coverage</Badge>}
-                <span className="num text-ink-2">{a.label.replace(/^.*scheduled · /, "")}</span>
-                {c.serverSend && (
-                  <Button size="sm" variant="ghost" onClick={() => cancelSend(c).then(() => toast.info("Cancelled. The draft stays in Gmail."), (e: Error) => toast.err(e.message))}>
-                    Cancel
-                  </Button>
-                )}
-              </li>
+              <ScheduledRow key={c.id} c={c} label={a.label.replace(/^.*scheduled · /, "")} onOpen={onOpen} />
             ))}
           </ul>
         </Card>

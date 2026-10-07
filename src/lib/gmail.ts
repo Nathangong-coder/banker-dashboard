@@ -248,6 +248,8 @@ export interface SyncResult {
   bouncedAt?: string;
   /** An auto-reply says they've left (follow-ups stop; it isn't a reply). */
   leftNote?: string;
+  /** Their first reply reads like a clear no (you confirm it on Follow-ups before anything changes). */
+  declineNote?: string;
 }
 
 const AUTO_REPLY = /^(automatic reply|auto[- ]?reply|autoreply|out of (?:the )?office|ooo\b)/i;
@@ -298,8 +300,15 @@ export async function syncContact(clientId: string, email: string): Promise<Sync
   out.lastMessageId = header(last, "Message-ID");
   out.subject = header(first, "Subject");
   if (firstReply) out.repliedAt = new Date(when(firstReply)).toISOString();
+  if (firstReply && looksLikeDecline(firstReply.snippet ?? "")) out.declineNote = (firstReply.snippet ?? "").slice(0, 200);
   return out;
 }
+
+// A clear no. Deliberately narrow: "unfortunately I'm busy this week, but next week works" is a yes, so anything with a
+// positive signal isn't counted, and the owner confirms each one.
+const DECLINE = /\b(not able to help|unable to help|can'?t help|cannot help|won'?t be able to (help|chat|connect|take)|not in a position to|no longer (recruiting|involved|with)|not (involved|part of) (in )?recruiting|reach out to (our |the )?(recruiting|campus|hr)|not the right person|don'?t have the (time|bandwidth|capacity)|not taking (calls|coffee chats|meetings)|have to (pass|decline)|going to (pass|decline)|respectfully decline|i'?ll pass|not able to (chat|connect|take (a )?calls?))\b/i;
+const POSITIVE = /\b(happy to|glad to|would love to|let'?s (find|chat|set|connect)|free (on|at|this|next)|works for me|available (on|at|this|next)|send (me )?(some )?times|feel free to (grab|book|schedule))\b/i;
+export const looksLikeDecline = (text: string) => DECLINE.test(text) && !POSITIVE.test(text);
 
 type Part = { mimeType?: string; body?: { data?: string }; parts?: Part[] };
 
@@ -382,4 +391,149 @@ export async function findEmailByName(clientId: string, first: string, last: str
     }
   }
   return null;
+}
+
+/* ---------------- reading their latest reply (scheduling) ---------------- */
+
+function partText(p: Part | undefined, mime: string): string {
+  if (!p) return "";
+  if (p.mimeType === mime && p.body?.data) {
+    const b64 = p.body.data.replace(/-/g, "+").replace(/_/g, "/");
+    return new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
+  }
+  return (p.parts ?? []).map((x) => partText(x, mime)).find(Boolean) ?? "";
+}
+
+const htmlToText = (html: string) =>
+  html
+    .replace(/<(br|\/p|\/div|\/li|\/tr)[^>]*>/gi, "\n")
+    .replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
+/** Their new text only: cut at "On … wrote:", "From: … Sent:", or the first quoted line. */
+export function stripQuoted(text: string) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*>/.test(l)) break;
+    if (/^On .{5,200}wrote:\s*$/i.test(l) || (/^On .{5,200}$/i.test(l) && /wrote:\s*$/i.test(lines[i + 1] ?? ""))) break;
+    if (/^\s*(From|De|Von):\s.+/i.test(l) && lines.slice(i, i + 4).some((x) => /^\s*(Sent|Date|To|Subject):/i.test(x))) break;
+    if (/^-{2,}\s*Original Message\s*-{2,}/i.test(l)) break;
+    out.push(l);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export interface TheirMessage {
+  id: string;
+  threadId: string;
+  /** RFC Message-ID, for In-Reply-To. */
+  messageId?: string;
+  subject: string;
+  date: string;
+  /** Their new text (quoted history removed), plus the full text for finding a phone number in the signature. */
+  text: string;
+  full: string;
+}
+
+/** The most recent email from this address (needs the Gmail read permission the app already has). */
+export async function latestFrom(clientId: string, email: string): Promise<TheirMessage | null> {
+  const list = await listMessages(clientId, `from:${email}`, 1);
+  if (!list.length) return null;
+  const m = await gapi<MsgMeta & { payload?: Part & { headers?: { name: string; value: string }[] } }>(clientId, `/messages/${list[0].id}?format=full`);
+  const plain = partText(m.payload, "text/plain");
+  const full = (plain || htmlToText(partText(m.payload, "text/html"))).trim();
+  return {
+    id: m.id,
+    threadId: m.threadId,
+    messageId: header(m, "Message-ID"),
+    subject: header(m, "Subject") ?? "",
+    date: new Date(when(m)).toISOString(),
+    text: stripQuoted(full).slice(0, 6000),
+    full: full.slice(0, 20000),
+  };
+}
+
+/* ---------------- what's waiting to go out (drafts + scheduled) ---------------- */
+
+export interface Outgoing {
+  kind: "draft" | "scheduled";
+  /** Message id (labels go on messages); `draftId` for drafts. */
+  messageId: string;
+  draftId?: string;
+  to: string[];
+  subject: string;
+  /** Send time for scheduled messages. */
+  at?: string;
+}
+
+const addrs = (h?: string) => (h ? parseAddresses(h).map((a) => a.email) : []);
+
+/** Every Gmail draft and scheduled message (up to `max` of each), with recipients and subject. */
+export async function outgoingQueue(clientId: string, max = 100): Promise<Outgoing[]> {
+  const drafts = await gapi<{ drafts?: { id: string; message: { id: string } }[] }>(clientId, `/drafts?maxResults=${max}`);
+  const scheduled = await listMessages(clientId, "in:scheduled", max);
+  const meta = (id: string) => gapi<MsgMeta>(clientId, `/messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject`);
+  const out: Outgoing[] = [];
+  const run = async <T,>(items: T[], fn: (x: T) => Promise<void>) => {
+    for (let i = 0; i < items.length; i += 8) await Promise.all(items.slice(i, i + 8).map(fn));
+  };
+  await run(drafts.drafts ?? [], async (d) => {
+    const m = await meta(d.message.id).catch(() => null);
+    if (m) out.push({ kind: "draft", messageId: m.id, draftId: d.id, to: [...addrs(header(m, "To")), ...addrs(header(m, "Cc"))], subject: header(m, "Subject") ?? "" });
+  });
+  await run(scheduled, async (s) => {
+    const m = await meta(s.id).catch(() => null);
+    if (m) out.push({ kind: "scheduled", messageId: m.id, to: [...addrs(header(m, "To")), ...addrs(header(m, "Cc"))], subject: header(m, "Subject") ?? "", at: new Date(when(m)).toISOString() });
+  });
+  return out;
+}
+
+/* Labelling in Gmail needs the "modify" permission, asked for separately (only when you click "Label them in Gmail"). */
+const MODIFY = "https://www.googleapis.com/auth/gmail.modify";
+let modifyToken: { value: string; exp: number } | null = null;
+
+async function connectModify(clientId: string): Promise<string> {
+  if (modifyToken && modifyToken.exp > Date.now()) return modifyToken.value;
+  await loadGis();
+  return new Promise((resolve, reject) => {
+    window.google!.accounts.oauth2
+      .initTokenClient({
+        client_id: clientId,
+        scope: MODIFY,
+        callback: (r) => {
+          if (r.error || !r.access_token || !(r.scope ?? "").includes(MODIFY)) return reject(new Error(r.error ?? "Gmail label permission wasn't granted."));
+          modifyToken = { value: r.access_token, exp: Date.now() + ((r.expires_in ?? 3600) - 60) * 1000 };
+          resolve(modifyToken.value);
+        },
+        error_callback: (e) => reject(new Error(e.type === "popup_closed" ? "The Google window was closed." : (e.message ?? e.type))),
+      })
+      .requestAccessToken();
+  });
+}
+
+/** Put a red "⚠ VP+ check" label on these messages (drafts or scheduled) so the warning shows inside Gmail too. */
+export async function labelInGmail(clientId: string, messageIds: string[], name = "⚠ VP+ check") {
+  const t = await connectModify(clientId);
+  const call = async <T,>(path: string, init?: RequestInit) => {
+    const res = await fetch(`${API}${path}`, { ...init, headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } });
+    if (!res.ok) throw new Error(`Gmail: ${(await res.text()).slice(0, 200)}`);
+    return (await res.json()) as T;
+  };
+  const labels = await call<{ labels: { id: string; name: string }[] }>("/labels");
+  const id =
+    labels.labels.find((l) => l.name === name)?.id ??
+    (await call<{ id: string }>("/labels", {
+      method: "POST",
+      body: JSON.stringify({ name, labelListVisibility: "labelShow", messageListVisibility: "show", color: { backgroundColor: "#cc3a21", textColor: "#ffffff" } }),
+    })).id;
+  for (const m of messageIds) await call(`/messages/${m}/modify`, { method: "POST", body: JSON.stringify({ addLabelIds: [id] }) });
+  return messageIds.length;
 }

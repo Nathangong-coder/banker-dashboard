@@ -18,6 +18,7 @@ npm run check:coverage -- "path/to/file.xlsx" # scoreboard for no desks / SF Tec
 npm run check:outreach                        # outreach rules: one rendered email per affinity, 80/20 + 70/30 shares, send window
 npm run check:firms [-- "file.xlsx"]           # built-in firm facts: collisions, golden cases, guardrails, freshness, tab vs lists
 npm run check:contrast                        # WCAG AA contrast of the palette pairs the UI uses (globals.css tokens)
+npm run check:scheduling                      # availability → their time zone, calendar busy, phones, invite text
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -354,6 +355,44 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - `npm run check:firms` fails on name collisions, non-standard teams, built-in contradictions, broken golden cases (Leerink SF Tech
   not offered, Qatalyst NY Generalist not offered, TPH Texas Energy offered…) or broken guardrails; warns when a list is >1 year
   since review; with a workbook, lists where the COVERAGE tab disagrees with the lists (compared by `inferTeam`, not text).
+
+## Scheduling calls (`lib/availability.ts`, `lib/scheduling.ts`, `lib/gcal.ts`, `components/Scheduling.tsx`)
+
+- **Availability** (`settings.scheduling.availability`, Settings → Email → Scheduling): your zone, weekly hours, per-date overrides
+  ("A specific week"; blank = usual hours, "off" = unavailable), call length, notice, look-ahead. `freeWindows` turns it into instants
+  (DST-safe via `sendWindow.ts#zonedDate`), subtracts Google Calendar busy times, snaps to :00/:30, drops gaps shorter than a call;
+  `narrowTo` applies what the banker asked for **in their zone** (dates, weekdays, earliest/latest; weekends only if asked);
+  `formatWindows` prints one line per day in their zone ("Monday, Oct 12: 10 AM – 1 PM ET").
+- **Reading the reply:** `gmail.ts#latestFrom` (format=full, quoted history cut by `stripQuoted`) → `api/scheduling/parse` (AI:
+  zone + evidence, dates/weekdays/times asked, times they proposed, phone; zone defaults to `sendWindow.ts#recipientTz`). Without AI:
+  office zone, no narrowing, phone via `availability.ts#phonesIn` (skips your own number).
+- **Follow-ups → "Replied: schedule calls"** (status replied / call_scheduled): **Reply with times** drafts the reply in the same Gmail
+  thread (`upsertDraft` with threadId + In-Reply-To; template `replyTemplate`, `{{availability}}`); **Send invite** creates the event on
+  your primary calendar (`gcal.ts#createCallEvent`, `sendUpdates=all` emails them, `none` = calendar only), title/description templates
+  ("Nathan<>Elixa Coffee Chat", "Nathan (425-…) to call Elixa (415-…) at 10 AM PT", time in their zone), then sets `call_scheduled`,
+  `contact.call {at, eventId, link, invited}` and `contact.phone`.
+- **Calendar permission** is its own GIS token (`calendar.events` + `calendar.freebusy`), requested on first use so Gmail never breaks.
+  The Google Cloud project must have the **Google Calendar API enabled**; `gcal.ts` explains that error. `npm run check:scheduling`
+  covers zone conversion, busy subtraction, overrides, narrowing, notice, hour parsing, phones, quote stripping and the invite text.
+
+## Seniority guard, failed contacts, per-email send times (10/2026)
+
+- **VP and above** (`lib/seniority.ts#isVpPlus`: VP/SVP, Director, ED, Principal, MD, Head, Partner, Chair; current role only,
+  "former/ex-" ignored, "MD&A" isn't MD). Owner's rule: don't email them. `vpPlusWarning` softens (amber) when a senior-exception tie
+  applies but never hides. Enforced: Drafts skips VP+ without a tie when generating and creating Gmail drafts unless "Include VP+" is
+  ticked (red row warning); `serverSync#queueSends` never auto-sends them; "VP+" badges in the contacts list and Follow-ups rows;
+  `components/SeniorGmailCheck.tsx` scans Gmail drafts + `in:scheduled` (`gmail.ts#outgoingQueue`, recipients/subject only) against
+  contact titles and can add a red "⚠ VP+ check" label (`labelInGmail`, separate `gmail.modify` token asked on click). Gmail has no API
+  to cancel a Schedule-send message, so those are linked for the owner to unschedule.
+- **Failed contacts** (`contact.outcome {kind: bounced | left | declined, confirmed, replaced}`): Gmail sync sets bounced / left
+  (status ignored, confirmed). A reply matching `gmail.ts#looksLikeDecline` (narrow phrases; any positive signal like "happy to" or
+  "next week works" vetoes it) is only *suggested*; the owner confirms on Follow-ups. `components/Replacements.tsx` ("Needs a new
+  contact"): next person on the same desk (firm + region + team, status new, email first) → Drafts, else Find with `&desk=`; for a
+  bounce, "Fix their email instead" clears the address and resets them to new. Confirmed outcomes write "Bounced" / "Left firm" /
+  "Declined" to the sheet (`STATUS_TO_SHEET.ignored`); `statusFromSheet` reads declined/rejected/said no/not interested as ignored.
+- **Send window days** (`SendWindow.days`, default Tue–Thu; older `weekdaysOnly` saves become Tue–Thu in `windowOf`); day toggles in
+  `SendWindowEditor`. **Per-email time:** Follow-ups → Scheduled → "Change time" (`ScheduledRow`, `serverSync#rescheduleOne`; entered
+  in your zone, shown in theirs). Gmail Schedule-send emails can only be changed in Gmail.
 
 ## Launch hygiene (10/2026): legal, security, SEO, analytics
 

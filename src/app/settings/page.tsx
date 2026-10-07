@@ -12,6 +12,7 @@ import { AiVault, KeyVault, testKey } from "@/components/KeyVault";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 import { GmailSetup } from "@/components/GmailSetup";
 import { LabSetup } from "@/components/LabSetup";
+import { SchedulingSettingsEditor } from "@/components/SchedulingSettings";
 import { AutoSendCard, SendModeSwitch } from "@/components/AutoSend";
 import { SendWindowEditor } from "@/components/SendWindowEditor";
 import { AnalyticsSetting } from "@/components/Consent";
@@ -142,7 +143,7 @@ function TestedFields<K extends string>({
 }
 
 type Tab = "profile" | "email" | "outreach" | "data" | "reminders" | "backup";
-type Sub = "writing" | "sending" | "experiments";
+type Sub = "writing" | "sending" | "scheduling" | "experiments";
 const TABS: [Tab, string][] = [
   ["profile", "Profile"],
   ["email", "Email"],
@@ -154,6 +155,7 @@ const TABS: [Tab, string][] = [
 const SUBS: [Sub, string, string][] = [
   ["writing", "Writing", "Hooks, font, signature"],
   ["sending", "Sending", "Send window, who sends, follow-up rules"],
+  ["scheduling", "Scheduling", "Your call availability, and the reply / calendar invite templates"],
   ["experiments", "Experiments", "A/B tests, shared wording, new angles (results: Email lab)"],
 ];
 
@@ -324,6 +326,7 @@ export default function SettingsPage() {
 
           </>
         )}
+        {tab === "email" && sub === "scheduling" && <SchedulingSettingsEditor />}
         {tab === "email" && sub === "experiments" && <LabSetup />}
         {tab === "outreach" && <OutreachRulesEditor />}
         {tab === "data" && (

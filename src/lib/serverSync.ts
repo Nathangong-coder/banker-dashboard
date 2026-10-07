@@ -5,6 +5,7 @@ import { useStore } from "./store";
 import { digestPlan } from "./reminders";
 import { pendingFollowUpDraft } from "./followups";
 import { planSends, windowOf } from "./sendWindow";
+import { vpPlusWarning } from "./seniority";
 import type { Contact } from "./types";
 
 /**
@@ -145,7 +146,14 @@ export function sendableDraft(c: Contact): { draftId: string; step: number } | n
 export async function queueSends(contacts: Contact[]) {
   const st = useStore.getState();
   const ids = new Set(contacts.map((c) => c.id));
-  const ready = contacts.map((c) => ({ c, d: sendableDraft(c) })).filter((x): x is { c: Contact; d: { draftId: string; step: number } } => !!x.d);
+  // Your rule: no VP and above (unless one of your exception ties applies). Never sent automatically.
+  const ready = contacts
+    .filter((c) => {
+      const w = vpPlusWarning(c, st.settings.outreach);
+      return !w || !!w.tie;
+    })
+    .map((c) => ({ c, d: sendableDraft(c) }))
+    .filter((x): x is { c: Contact; d: { draftId: string; step: number } } => !!x.d);
   const taken = st.contacts.filter((c) => c.serverSend && !ids.has(c.id)).map((c) => new Date(c.serverSend!.sendAt));
   const plan = planSends(ready.map((x) => x.c), windowOf(st.settings), { taken });
   for (const { c, d } of ready) {
@@ -171,5 +179,13 @@ export async function rescheduleQueued() {
 
 export async function cancelSend(c: Contact) {
   useStore.getState().updateContact(c.id, { serverSend: undefined });
+  await syncServer();
+}
+
+/** Move one queued send to a new time (Follow-ups → Scheduled → Change). */
+export async function rescheduleOne(c: Contact, at: Date) {
+  if (!c.serverSend) throw new Error(`${c.name} has nothing queued.`);
+  if (at.getTime() < Date.now() + 2 * 60_000) throw new Error("Pick a time at least a couple of minutes from now.");
+  useStore.getState().updateContact(c.id, { serverSend: { ...c.serverSend, sendAt: at.toISOString() } });
   await syncServer();
 }

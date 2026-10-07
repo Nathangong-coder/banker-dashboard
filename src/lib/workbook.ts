@@ -95,7 +95,7 @@ export { detectRegion };
 export function statusFromSheet(raw: string | undefined): Status {
   const s = norm(raw ?? "");
   if (!s) return "new";
-  if (/moved on|ignore|dead|no response|bounced|removed|left (the )?firm/.test(s)) return "ignored";
+  if (/moved on|ignore|dead|no response|bounced|removed|left (the )?firm|declined|rejected|said no|not interested/.test(s)) return "ignored";
   if (/call|coffee|meeting|chat/.test(s)) return "call_scheduled";
   // A bare "Scheduled" is an email queued with Gmail's Schedule send (confirmed against the owner's Gmail): not sent yet.
   if (/^scheduled\b/.test(s)) return "drafted";
@@ -123,7 +123,7 @@ export const STATUS_TO_SHEET: Record<Status, (c: Contact) => string> = {
   replied: () => "Replied",
   call_scheduled: () => "Call scheduled",
   done: () => "Done",
-  ignored: () => "Moved on",
+  ignored: (c) => (c.outcome?.confirmed ? { bounced: "Bounced", left: "Left firm", declined: "Declined" }[c.outcome.kind] : "Moved on"),
 };
 
 /**

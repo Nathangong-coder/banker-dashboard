@@ -3,6 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Check, ExternalLink, Plus, Search, X } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { isVpPlus } from "@/lib/seniority";
 import { REGIONS, STATUS_LABEL, type Contact, type Status } from "@/lib/types";
 import { cn } from "@/lib/util";
 import { teamGuess, teamOf } from "@/lib/locationTeam";
@@ -210,7 +211,14 @@ export function ContactsTable({
                   <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                     <TeamCell c={c} />
                   </td>
-                  <td className="px-2 py-2 text-ink-2">{c.position}</td>
+                  <td className="px-2 py-2 text-ink-2">
+                    {c.position}
+                    {isVpPlus(c.position || c.headline) && (
+                      <span className="ml-1.5 rounded bg-red-soft px-1 py-px text-[10.5px] font-semibold text-red" title="VP or above: your rule is not to email them (or double-check first)">
+                        VP+
+                      </span>
+                    )}
+                  </td>
                   <td className="px-2 py-2">
                     {c.email ? (
                       <span className={cn("num text-[12px]", c.emailSource && c.emailSource !== "sheet" && "text-green")}>{c.email}</span>

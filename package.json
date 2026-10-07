@@ -14,7 +14,8 @@
     "check:outreach": "tsx scripts/check-outreach.mts",
     "fix:workbook": "tsx scripts/fix-workbook.mts",
     "check:firms": "tsx scripts/check-firms.mts",
-    "check:contrast": "tsx scripts/check-contrast.mts"
+    "check:contrast": "tsx scripts/check-contrast.mts",
+    "check:scheduling": "tsx scripts/check-scheduling.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.62",

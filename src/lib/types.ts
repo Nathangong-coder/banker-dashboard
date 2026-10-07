@@ -86,6 +86,16 @@ export interface Contact {
   ref?: CellRef;
   templateId?: string;
   draft?: { subject: string; body: string; gmailDraftId?: string; createdAt: string };
+  /**
+   * Why outreach to them ended without a call: their email bounced (wrong address), an auto-reply says they left, or they
+   * said no. Bounced / left are set by Gmail sync; a "no" is only suggested until you confirm it (`confirmed`). The desk
+   * then needs a new contact (Follow-ups → "Needs a new contact"); `replaced` hides it once handled.
+   */
+  outcome?: { kind: "bounced" | "left" | "declined"; at: string; note?: string; confirmed: boolean; replaced?: boolean };
+  /** Their phone (from their email signature, or typed), for the call invite. */
+  phone?: string;
+  /** The call on your calendar (Follow-ups → Schedule calls). */
+  call?: { at: string; eventId: string; link: string; invited: boolean };
   /** The next follow-up, waiting as a Gmail draft (made from Follow-ups). Stale once `followUps` reaches `step`. */
   followUpDraft?: { gmailDraftId: string; messageId: string; step: number; createdAt: string };
   /**
@@ -294,6 +304,8 @@ export interface Settings {
   experiments: Experiment[];
   /** Who you have in common with people (your school, city, hometown, heritage, volunteering) and the senior exceptions. */
   outreach: import("./outreach").OutreachRules;
+  /** Your call availability and the reply / invite templates (lib/scheduling.ts). undefined = defaults. */
+  scheduling?: import("./scheduling").SchedulingSettings;
   /** Automatic reminders. `whatsappDaily` undefined = on once WhatsApp is connected. */
   alerts?: { whatsappDaily?: boolean };
   /**

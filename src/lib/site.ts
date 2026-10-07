@@ -8,5 +8,5 @@ export const SITE = {
   /** Who to write to about privacy, terms or data deletion. The owner can change this. */
   contact: "nagong1@g.ucla.edu",
   /** Last time the privacy policy / terms were changed (shown on the pages). */
-  legalUpdated: "October 6, 2026",
+  legalUpdated: "October 7, 2026",
 };

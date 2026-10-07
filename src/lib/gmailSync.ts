@@ -52,8 +52,13 @@ function patchFrom(c: Contact, r: SyncResult): Partial<Contact> | null {
     p.repliedAt = r.repliedAt;
     if (!["call_scheduled", "done", "ignored"].includes(c.status)) p.status = "replied";
   }
-  // Never follow up after a bounce or an out-of-office saying they left.
-  if ((r.bouncedAt || r.leftNote) && !r.repliedAt && !["replied", "call_scheduled", "done"].includes(c.status)) p.status = "ignored";
+  // Never follow up after a bounce or an out-of-office saying they left; the desk needs someone new.
+  if ((r.bouncedAt || r.leftNote) && !r.repliedAt && !["replied", "call_scheduled", "done"].includes(c.status)) {
+    p.status = "ignored";
+    if (!c.outcome) p.outcome = r.bouncedAt ? { kind: "bounced", at: r.bouncedAt, note: "Email bounced (address doesn't exist)", confirmed: true } : { kind: "left", at: new Date().toISOString(), note: r.leftNote, confirmed: true };
+  }
+  // A reply that reads like a clear no: suggested only. Nothing changes until you confirm it on Follow-ups.
+  if (r.declineNote && r.repliedAt && !c.outcome && c.status !== "call_scheduled") p.outcome = { kind: "declined", at: r.repliedAt, note: r.declineNote, confirmed: false };
   const changed = (Object.keys(p) as (keyof Contact)[]).some((k) => JSON.stringify(p[k]) !== JSON.stringify(c[k]));
   return changed ? p : null;
 }

@@ -53,6 +53,17 @@ export default function PrivacyPage() {
         scheduled (the <code>gmail.compose</code> permission).
       </p>
       <p>
+        If you use <b>Schedule calls</b>, your browser also reads the latest email from that banker (to see which days and time zone they asked
+        for, and their phone number), and, with a separate permission, your Google Calendar: your free/busy times, so offered times skip your
+        events, and creating the call event with the banker as a guest. Calendar data is used only in your browser and isn&apos;t stored on our
+        server. If an AI model is set up, the text of that one reply is sent to it to read the request.
+      </p>
+      <p>
+        To protect you from emailing senior bankers by mistake, your browser lists your Gmail drafts and scheduled emails (recipients and subject
+        only) and compares them with your contacts&apos; titles. If you click <b>Label them in Gmail</b>, it asks for permission to manage labels
+        and adds a &ldquo;⚠ VP+ check&rdquo; label to those messages. Nothing else in your mailbox is changed.
+      </p>
+      <p>
         {SITE.name}&apos;s use and transfer of information received from Google APIs adheres to the{" "}
         <a className="text-navy underline" href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noreferrer">
           Google API Services User Data Policy

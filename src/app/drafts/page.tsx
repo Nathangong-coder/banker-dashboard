@@ -13,7 +13,8 @@ import { chunk, cn, pool, uid } from "@/lib/util";
 import { teamOf } from "@/lib/locationTeam";
 import { overCapDesks } from "@/lib/desks";
 import { assignTrial, pickBase, pickVariant, trialTally, usageTally } from "@/lib/experiments";
-import { assignOutreachArms, composeOutreach, emailVerified, leftFirm, rulesOf, seniorSkipReason, settleOutreachArms } from "@/lib/outreach";
+import { assignOutreachArms, composeOutreach, emailVerified, leftFirm, rulesOf, settleOutreachArms } from "@/lib/outreach";
+import { vpPlusWarning } from "@/lib/seniority";
 import { windowLabel, windowOf } from "@/lib/sendWindow";
 import { autoHook, hookFor, hooksOf } from "@/lib/hooks";
 import { HooksCard } from "@/components/Hooks";
@@ -44,6 +45,12 @@ function DraftsInner() {
   const [editing, setEditing] = useState<Template | null>(null);
   const [preview, setPreview] = useState<Contact | null>(null);
   const [phase, setPhase] = useState<null | { label: string; done: number; total: number }>(null);
+  // VP and above are skipped unless this is ticked (your rule: don't email VP+; exception ties only soften the warning).
+  const [allowSenior, setAllowSenior] = useState(false);
+  const seniorBlocked = (c: Contact) => {
+    const w = vpPlusWarning(c, rulesOf(settings));
+    return !!w && !w.tie && !allowSenior;
+  };
   const [importOpen, setImportOpen] = useState(false);
   const resumeRef = useRef<HTMLInputElement>(null);
 
@@ -102,15 +109,21 @@ function DraftsInner() {
     const eligible = chosen.filter((c) => (c.templateId || initialTemplates[0]) && !skip.has(c.id));
     // Outreach rule: no verified address = "needs email", no draft.
     const unverified = eligible.filter((c) => !emailVerified(c));
-    const list = eligible.filter((c) => emailVerified(c));
+    const verifiedList = eligible.filter((c) => emailVerified(c));
+    const heldBack = verifiedList.filter(seniorBlocked);
+    if (heldBack.length)
+      toast.err(
+        `Skipped ${heldBack.length} VP or above (${heldBack.slice(0, 3).map((c) => `${c.name}, ${c.position}`).join("; ")}${heldBack.length > 3 ? "…" : ""}). Tick "Include VP+" to draft them anyway.`,
+      );
+    const list = verifiedList.filter((c) => !seniorBlocked(c));
     if (unverified.length)
       toast.info(
         `${unverified.length} skipped: no verified email (${unverified.slice(0, 3).map((c) => c.firstName || c.name).join(", ")}${unverified.length > 3 ? "…" : ""}). Enrich them, or add an address you've confirmed.`,
       );
     if (!list.length) return toast.err(skip.size || unverified.length ? "Nothing left to draft." : "Select contacts first.");
-    const senior = list.filter((c) => seniorSkipReason(c, rulesOf(settings)));
+    const senior = list.filter((c) => vpPlusWarning(c, rulesOf(settings)));
     if (senior.length)
-      toast.info(`Heads up: ${senior.map((c) => c.name).join(", ")} ${senior.length > 1 ? "are" : "is"} MD / Head / Partner with none of your senior-exception ties (Settings → Outreach rules). The rule is VPs and below.`);
+      toast.info(`Heads up: ${senior.map((c) => `${c.name} (${c.position})`).join(", ")} ${senior.length > 1 ? "are" : "is"} VP or above. Double-check before sending.`);
     // Templates like "Non-target school" can't be written without a fact (their university): ask instead of guessing.
     const latest = useStore.getState().contacts;
     const blocked = list
@@ -194,8 +207,10 @@ function DraftsInner() {
 
   const toGmail = async () => {
     // Only verified addresses (outreach rule); older drafts may predate the check.
-    const list = chosen.filter((c) => c.draft && c.email && emailVerified(c));
-    const skipped = chosen.length - list.length;
+    const held = chosen.filter((c) => c.draft && c.email && emailVerified(c) && seniorBlocked(c));
+    if (held.length) toast.err(`Not sent to Gmail: ${held.length} VP or above (${held.slice(0, 3).map((c) => c.name).join(", ")}${held.length > 3 ? "…" : ""}). Tick "Include VP+" if you really mean to.`);
+    const list = chosen.filter((c) => c.draft && c.email && emailVerified(c) && !seniorBlocked(c));
+    const skipped = chosen.length - list.length - held.length;
     if (!list.length) return toast.err("None of the selected contacts have both a draft and a verified email.");
     try {
       await connectGmail(googleClientId(settings));
@@ -366,6 +381,12 @@ function DraftsInner() {
                 <Button size="sm" icon={<Wand2 className="size-3.5" />} onClick={assign} disabled={!sel.size}>
                   Auto-assign templates
                 </Button>
+                {chosen.some((c) => vpPlusWarning(c, rulesOf(settings))) && (
+                  <label className="flex items-center gap-1.5 rounded border border-red/30 bg-red-soft px-2 py-0.5 text-[12px] text-red" title="Your rule: don't email VP and above. They're skipped unless this is ticked.">
+                    <input type="checkbox" className="accent-red" checked={allowSenior} onChange={(e) => setAllowSenior(e.target.checked)} />
+                    Include VP+ ({chosen.filter((c) => vpPlusWarning(c, rulesOf(settings))).length})
+                  </label>
+                )}
                 <Button size="sm" variant="brass" icon={<Sparkles className="size-3.5" />} onClick={() => generate()} disabled={!sel.size}>
                   Generate drafts
                 </Button>
@@ -543,7 +564,7 @@ function DraftsInner() {
 /** Outreach-rule checks for one row: seniority, left the firm, unverified email, when to send. */
 function RowChecks({ c, onLeft }: { c: Contact; onLeft: (employer: string) => void }) {
   const rules = useStore((s) => s.settings.outreach);
-  const senior = seniorSkipReason(c, rules);
+  const senior = vpPlusWarning(c, rules);
   const left = leftFirm(c);
   const verified = emailVerified(c);
   const w = useStore((s) => windowOf(s.settings));
@@ -551,8 +572,8 @@ function RowChecks({ c, onLeft }: { c: Contact; onLeft: (employer: string) => vo
   return (
     <div className="mt-0.5 space-y-0.5 text-[11.5px]">
       {senior && (
-        <div className="text-amber" title="Rule: only VPs and below, unless they share one of your senior-exception ties (Settings → Outreach rules).">
-          Senior: {senior}
+        <div className={senior.tie ? "font-medium text-amber" : "font-semibold text-red"} title="Your rule: don't email VP and above. Senior-exception ties (Settings → Outreach rules) only soften this.">
+          ⚠ {senior.text}
         </div>
       )}
       {left && (
