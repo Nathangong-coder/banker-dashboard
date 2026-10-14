@@ -222,8 +222,9 @@ function substitute(lines: string[], senderFirstName: string, subs: Substitution
     if (i === lastText && /^\s*(NAME|[A-Z][a-z]+(?: [A-Z][a-z]+)?)\s*$/.test(l) && !SIGNOFF.test(l)) {
       const who = l.trim();
       if (who === "NAME" || !senderFirstName || who.split(" ")[0].toLowerCase() === senderFirstName.toLowerCase()) {
-        note(who === "NAME" ? "NAME (sign-off)" : `"${who}" (sign-off)`, "{{my_name}}", "your name");
-        l = l.replace(who, "{{my_name}}");
+        // The line under the sign-off is the first name; the signature block (full name first) is added when drafting.
+        note(who === "NAME" ? "NAME (sign-off)" : `"${who}" (sign-off)`, "{{my_first_name}}", "your first name");
+        l = l.replace(who, "{{my_first_name}}");
       }
     }
     // Bracketed author notes → AI instructions (their wording is kept verbatim as the instruction).

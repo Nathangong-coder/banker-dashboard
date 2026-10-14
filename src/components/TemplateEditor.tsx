@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { PLACEHOLDERS, REQUIRED_FACTS } from "@/lib/template";
-import { DEFAULT_TEMPLATES } from "@/lib/defaults";
+import { PLACEHOLDERS, REQUIRED_FACTS, expandBase } from "@/lib/template";
+import { DEFAULT_TEMPLATES, ORIGINAL_BASE } from "@/lib/defaults";
+import { signOffFor, signOffIssues, templateSignOff } from "@/lib/emailFormat";
+import { useStore } from "@/lib/store";
 import type { RequiredFact, Template } from "@/lib/types";
 import { uid } from "@/lib/util";
 import { Button, Checkbox, Field, Input, Modal, Select, Textarea, toast } from "./ui";
@@ -28,6 +30,11 @@ export function TemplateEditor({
 function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Template) => void; onClose: () => void; onDelete?: (id: string) => void }) {
   const [d, setD] = useState(t);
   const starter = DEFAULT_TEMPLATES.find((x) => x.id === t.id || x.name.toLowerCase() === t.name.toLowerCase());
+  const bases = useStore((s) => s.settings.emailBases);
+  // The sign-off usually lives in the base ({{base_close}}), so check the template as it will be written.
+  const base = (d.lockBase ? bases?.find((b) => b.id === ORIGINAL_BASE.id) : bases?.find((b) => b.active)) ?? ORIGINAL_BASE;
+  const signOff = signOffIssues(expandBase(d.body, base));
+  const fixable = templateSignOff(d.body, signOffFor(d.kind === "follow_up" ? (d.step ?? 1) : undefined)) !== d.body;
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-[1fr_220px]">
       <div className="space-y-3">
@@ -51,6 +58,19 @@ function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Temp
         <Field label="Body">
           <Textarea rows={14} className="font-mono text-[12.5px]" value={d.body} onChange={(e) => setD({ ...d, body: e.target.value })} />
         </Field>
+        {signOff.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-brass/40 bg-brass-soft/40 px-3 py-2 text-[12.5px]">
+            <span>
+              {signOff.join(" ")} End with the sign-off, then {"{{my_first_name}}"} on the next line; the signature block is added below it.
+              {!fixable && /\{\{\s*base_close/.test(d.body) && " The sign-off comes from the shared wording (Settings → Email → Experiments)."}
+            </span>
+            {fixable && (
+              <Button size="sm" variant="secondary" onClick={() => setD({ ...d, body: templateSignOff(d.body, signOffFor(d.kind === "follow_up" ? (d.step ?? 1) : undefined)) })}>
+                Fix sign-off
+              </Button>
+            )}
+          </div>
+        )}
         <label className="flex items-center gap-2 text-[13px]">
           <Checkbox checked={d.attachResume} onChange={(v) => setD({ ...d, attachResume: v })} /> Attach my resume
         </label>

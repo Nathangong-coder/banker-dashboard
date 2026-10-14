@@ -17,7 +17,7 @@ import { AutoSendCard, SendModeSwitch } from "@/components/AutoSend";
 import { SendWindowEditor } from "@/components/SendWindowEditor";
 import { AnalyticsSetting } from "@/components/Consent";
 import { checkEmail, checkLinkedIn, checkName, checkPhone } from "@/lib/validate";
-import { unwrapRedirects } from "@/lib/emailFormat";
+import { bodyToHtml, unwrapRedirects, withSignature } from "@/lib/emailFormat";
 import Link from "next/link";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -285,20 +285,21 @@ export default function SettingsPage() {
             </Field>
             <div className="md:col-span-2">
               <Field
-                label="Custom signature line (optional)"
+                label="Custom signature (optional)"
                 hint={
                   <>
-                    Added under your name. The word “LinkedIn” links to your LinkedIn URL automatically, and phone numbers stay plain text.
-                    Leave empty to use{" "}
-                    <span className="text-ink-2">
-                      {p.email || "your email"} | <span className="text-blue underline">LinkedIn</span>
-                    </span>{" "}
-                    automatically. Write links as <code>[LinkedIn](https://…)</code>.
+                    Replaces the lines under your full name. Wrap a line in *asterisks* for italics. The word “LinkedIn” links straight to
+                    your LinkedIn URL, and phone numbers stay plain text. Leave empty to build it from your profile. Every email ends like this:
                   </>
                 }
               >
-                <Textarea rows={2} value={p.signature} onChange={(e) => setP({ signature: e.target.value })} />
+                <Textarea rows={3} value={p.signature} onChange={(e) => setP({ signature: e.target.value })} />
               </Field>
+              <div
+                className="mt-2 rounded-md border border-line bg-white px-3 py-2 text-[13px] text-[#222]"
+                // Built from your own profile fields; bodyToHtml escapes them.
+                dangerouslySetInnerHTML={{ __html: bodyToHtml(withSignature(`Sincerely,\n${p.name.trim().split(/\s+/)[0] || "First"}`, p), EMAIL_FONTS[settings.emailStyle.font]?.css) }}
+              />
             </div>
           </div>
         </Card>

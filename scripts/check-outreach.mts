@@ -3,11 +3,17 @@
  *   npm run check:outreach
  * Renders the first email for one person of each kind (UCLA, Anderson, LA, UC, California, Chinese, Washington,
  * volunteer, standard, senior), checks the subjects / hooks / asks against the rules, and checks that weighted
- * experiments land on their 80/20 and 70/30 shares.
+ * experiments land on their 80/20 and 70/30 shares. Every template, base and rendered draft must end
+ * "<sign-off>,
+<first name>
+
+<full name>
+<signature>" (signOffIssues).
  */
-import { DEFAULT_SETTINGS, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "../src/lib/defaults";
-import { fillPlaceholders } from "../src/lib/template";
-import { normalizeBody, withSignature, signatureLine, unwrapRedirects } from "../src/lib/emailFormat";
+import { DEFAULT_BASES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, ORIGINAL_BASE, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "../src/lib/defaults";
+import { expandBase, fillPlaceholders } from "../src/lib/template";
+import { bodyToHtml, bodyToPlain, normalizeBody, withSignature, signatureLine, signOffFor, signOffIssues, templateSignOff, unwrapRedirects } from "../src/lib/emailFormat";
+import { DEFAULT_REPLY } from "../src/lib/scheduling";
 import { OUTREACH_EXPERIMENT_IDS as X, assignOutreachArms, composeOutreach, emailVerified, isTopSenior, leftFirm, pickWeighted, seniorSkipReason, settleOutreachArms } from "../src/lib/outreach";
 import { DEFAULT_SEND_WINDOW, daysLabel, planBatch, planSends, recipientTz, windowOf, zonedDate } from "../src/lib/sendWindow";
 import type { Contact, Settings } from "../src/lib/types";
@@ -79,7 +85,8 @@ for (const { label, c, subject, hook } of cases) {
     !subject.test(s) && `subject "${s}"`,
     !hook.test(plan.hook) && `hook "${plan.hook.slice(0, 90)}…"`,
     /\{\{/.test(s + body) && "leftover {{placeholder}}",
-    paragraphs.length !== 5 && `${paragraphs.length} blocks (want greeting + 3 paragraphs + sign-off)`,
+    paragraphs.length !== 6 && `${paragraphs.length} blocks (want greeting + 3 paragraphs + sign-off/first name + signature)`,
+    ...signOffIssues(body, settings.profile),
     plan.techHook && plan.arms[X.ask] === "A" && "E1-A on a two-hook email",
     /google\.com\/url/.test(body) && "google redirect in signature",
   ].filter(Boolean);
@@ -119,7 +126,7 @@ const checks: [string, boolean][] = [
   ["Sheet email counts as verified", emailVerified({ email: "a@b.com", emailSource: "sheet" })],
 
   ["Redirect unwrapped", unwrapRedirects("https://www.google.com/url?q=https://www.linkedin.com/in/x/&sa=D&ust=1") === "https://www.linkedin.com/in/x/"],
-  ["Signature has class year + phone | LinkedIn | email", /UCLA Class of 2029\nEconomics & Applied Mathematics\n555-010-0000 \| \[LinkedIn\]\(https:\/\/www\.linkedin\.com\/in\/example\/\) \| student@example\.edu/.test(signatureLine(settings.profile))],
+  ["Signature has class year + italic major + phone | LinkedIn | email", /UCLA Class of 2029\n\*Economics & Applied Mathematics\*\n555-010-0000 \| \[LinkedIn\]\(https:\/\/www\.linkedin\.com\/in\/example\/\) \| student@example\.edu/.test(signatureLine(settings.profile))],
 ];
 for (const [what, ok] of checks) {
   if (!ok) failed++;
@@ -156,6 +163,52 @@ for (const [what, ok] of checks) {
     ["MD from Chicago isn't (not an exception for them)", !!seniorSkipReason(person({ position: "Managing Director", comment: "Evanston" }), other.outreach)],
   ];
   for (const [what, ok] of otherChecks) {
+    if (!ok) failed++;
+    console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
+  }
+}
+
+// Sign-off and signature block: "<sign-off>,\n<first name>\n\n<full name>\n<signature>" on every template and draft.
+{
+  const ENDING = "Nathan\n\nNathan Gong\nUCLA Class of 2029\n*Economics & Applied Mathematics*\n555-010-0000 | [LinkedIn](https://www.linkedin.com/in/example/) | student@example.edu";
+  const cc = person({ comment: "UCLA", school: "UCLA", position: "Associate" });
+  const rendered = (t: (typeof DEFAULT_TEMPLATES)[number]) => {
+    const base = t.lockBase ? ORIGINAL_BASE : THREE_PARAGRAPH_BASE;
+    return normalizeBody(withSignature(fillPlaceholders(t.body, { ...cc, draft: { subject: "Fellow Bruin", body: "", createdAt: "" } }, settings, {}, base), settings.profile));
+  };
+  const old = "Hi Alex,\n\nThanks!\n\nSincerely,\nNathan Gong\nUCLA Class of 2029\nEconomics & Applied Mathematics\n555-010-0000 | LinkedIn: https://www.google.com/url?q=https://www.linkedin.com/in/example/&sa=D | student@example.edu";
+  const html = bodyToHtml(rendered(OUTREACH_TEMPLATE));
+  const maya = { ...settings.profile, name: "Maya Patel", school: "Michigan", year: "2028", major: "Economics", phone: "", email: "maya@umich.edu", linkedin: "linkedin.com/in/maya" };
+  const signOffChecks: [string, boolean][] = [
+    ...DEFAULT_TEMPLATES.map((t): [string, boolean] => {
+      const body = rendered(t);
+      const want = signOffFor(t.kind === "follow_up" ? t.step : undefined);
+      const issues = signOffIssues(body, settings.profile);
+      const ok = !issues.length && body.endsWith(`${want}\n${ENDING}`) && !/\{\{\s*my_first_name/.test(body);
+      if (!ok) console.log(`  ${t.id}: ${issues.join(" ") || "ending"}\n${body.split("\n").slice(-8).join("\n")}`);
+      return [`Template "${t.name}" ends ${want} / first name / blank / signature`, ok];
+    }),
+    ...DEFAULT_BASES.map((b): [string, boolean] => [`Base "${b.name}" signs "Sincerely," + first name`, /\nSincerely,\n\{\{my_first_name\}\}$/.test(b.close) && !signOffIssues(expandBase("Hi\n\nx\n\n{{base_close}}", b)).length]),
+    ["Scheduling reply: Best, / first name / blank / signature", normalizeBody(withSignature(fillPlaceholders(DEFAULT_REPLY.replace("{{my_first_name}}", "Nathan"), cc, settings), settings.profile)).endsWith(`Best,\n${ENDING}`)],
+    ["Major is italic in the Gmail HTML", html.includes("<div><i>Economics &amp; Applied Mathematics</i></div>")],
+    ["First name, then one blank line, then the full name (HTML)", html.includes("<div>Sincerely,</div><div>Nathan</div><div><br></div><div>Nathan Gong</div>")],
+    ["LinkedIn links straight to the profile", html.includes('<a href="https://www.linkedin.com/in/example/">LinkedIn</a>') && !/google\.[a-z.]+\/url/.test(html)],
+    ["Plain text drops the italic asterisks", bodyToPlain(rendered(OUTREACH_TEMPLATE)).includes("\nEconomics & Applied Mathematics\n")],
+    ["Old ending (full name glued to sign-off, redirect) is flagged", signOffIssues(old, settings.profile).length === 2],
+    ["…and withSignature rebuilds it", withSignature(old, settings.profile) === `Hi Alex,\n\nThanks!\n\nSincerely,\n${ENDING}`],
+    ["withSignature is idempotent", withSignature(withSignature(old, settings.profile), settings.profile) === withSignature(old, settings.profile)],
+    ["No blank line before the signature is flagged", signOffIssues("Hi\n\nThanks!\n\nSincerely,\nNathan\nNathan Gong\nUCLA Class of 2029", settings.profile).some((x) => /blank line/.test(x))],
+    ["Missing first-name line is flagged", signOffIssues("Hi\n\nThanks!\n\nSincerely,", settings.profile).some((x) => /first-name line/.test(x))],
+    ["No sign-off at all is flagged", signOffIssues("Hi\n\nThanks!", settings.profile).length === 1],
+    ["A P.S. after the sign-off is left alone", withSignature("Hi\n\nSincerely,\nNathan\n\nP.S. Go Bruins!", settings.profile) === "Hi\n\nSincerely,\nNathan\n\nP.S. Go Bruins!"],
+    ["Template migration: {{my_name}} → {{my_first_name}}", templateSignOff("Hi\n\nThanks!\n\nSincerely,\n{{my_name}}") === "Hi\n\nThanks!\n\nSincerely,\n{{my_first_name}}"],
+    ["Template migration: follow-up #2 signs Kind regards", templateSignOff("Hi\n\nBest,\n{{my_name}}", signOffFor(2)) === "Hi\n\nKind regards,\n{{my_first_name}}"],
+    ["Template migration leaves a P.S. template alone", templateSignOff("Hi\n\nBest,\n{{my_name}}\n\nP.S. hi") === "Hi\n\nBest,\n{{my_name}}\n\nP.S. hi"],
+    ["New user: their own first and full name", withSignature("Hi\n\nSincerely,\nMaya", maya) === "Hi\n\nSincerely,\nMaya\n\nMaya Patel\nMichigan Class of 2028\n*Economics*\n[LinkedIn](https://linkedin.com/in/maya) | maya@umich.edu"],
+    ["Custom signature gets the full name on top", withSignature("Hi\n\nSincerely,\nNathan", { ...settings.profile, signature: "UCLA '29 | LinkedIn" }).endsWith("Sincerely,\nNathan\n\nNathan Gong\nUCLA '29 | [LinkedIn](https://www.linkedin.com/in/example/)")],
+    ["Custom signature 'Name | phone' is split onto two lines", withSignature("Hi\n\nRegards,\nNathan", { ...settings.profile, signature: "Nathan Gong | 555-010-0000" }).endsWith("Regards,\nNathan\n\nNathan Gong\n555-010-0000")],
+  ];
+  for (const [what, ok] of signOffChecks) {
     if (!ok) failed++;
     console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
   }

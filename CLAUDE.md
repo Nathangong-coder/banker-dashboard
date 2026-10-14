@@ -163,9 +163,18 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Drafts are multipart/alternative. The HTML part is Gmail-native (`<div>` per line, `<div><br></div>` between paragraphs); text/plain alone
   gets hard-wrapped by Gmail at ~78 chars. `normalizeBody` removes indents and doubled blank lines, and glues the sign-off to the name
   (only when the next line looks like a name).
-- `withSignature` appends `email | [LinkedIn](url)` under the name (or the custom signature from Settings). `[label](url)` is the one
-  markup the app understands: an `<a>` in HTML, "label: url" in plain text. Emails and bare URLs are auto-linked (blue in Gmail).
-  In a custom signature the bare word "LinkedIn" is linked to the profile URL, and a leading name that duplicates the sign-off is dropped.
+- **Every email ends** `Sincerely,` / `Nathan` / blank line / signature block (`Nathan Gong`, `UCLA Class of 2029`, `*major*` (italic),
+  `phone | [LinkedIn](url) | email`) (owner, 2026-10-14). Sign-offs: first emails "Sincerely,", follow-up #1 "Regards,", #2 "Kind regards,"
+  (`emailFormat.ts#signOffFor`). Templates and bases end `<sign-off>
+{{my_first_name}}`; `withSignature` adds the blank line and
+  `signatureBlock` (full name + `signatureLine`). It rebuilds whatever follows the sign-off only when that's a name or signature lines
+  (older drafts, AI output), so a P.S. is left alone, and it's idempotent. Drafts runs it again after the AI fill step and when creating
+  Gmail drafts. `signOffIssues` flags a missing first-name line / blank line / google redirect: drafts table badge, draft editor
+  ("Fix sign-off"), TemplateEditor, `check:outreach` (every default template + base) and `check:templates`. Store v10 migrates saved
+  templates/bases (`templateSignOff`). Sent mail is never rewritten.
+- `[label](url)` and `*italic*` are the markup the app understands: `<a>` / `<i>` in HTML, "label: url" / bare text in plain text.
+  Emails and bare URLs are auto-linked (blue in Gmail). In a custom signature the bare word "LinkedIn" is linked to the profile URL,
+  and the full name is put on top unless it already starts with it.
   Phone numbers are deliberately NOT links: `unlinkPhones` puts `&zwnj;` between digit groups to defeat Gmail/Apple data detectors.
   The HTML wrapper gets `font-family` from `settings.emailStyle.font` (`EMAIL_FONTS`, Gmail's own stacks; default Garamond).
 
@@ -467,7 +476,7 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **Enrichment** (`api/enrich`): a match is discarded (with the reason in the note) if its LinkedIn slug, last name, firm or city
   disagrees with ours. `detectRegion` moved to `lib/region.ts` so server routes can use it (workbook.ts re-exports it).
 - **Gmail sync:** out-of-office auto-replies aren't replies. A bounce (mailer-daemon) or an auto-reply saying they left sets `ignored`.
-- **Signature:** `School Class of YYYY / major / phone | [LinkedIn](url) | email`. `unwrapRedirects` strips `google.com/url?q=` wrappers.
+- **Signature:** `Full Name / School Class of YYYY / *major* / phone | [LinkedIn](url) | email`, after the first-name line and a blank line. `unwrapRedirects` strips `google.com/url?q=` wrappers.
 
 ## Teams & coverage scope
 

@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import { docxToBlocks, parseTemplateBlocks, textToBlocks } from "../src/lib/templateImport";
+import { signOffIssues } from "../src/lib/emailFormat";
 
 const [file, sender = ""] = process.argv.slice(2);
 if (!file) {
@@ -21,6 +22,9 @@ for (const c of r.candidates) {
   console.log(c.body);
   console.log(`subs: ${c.substitutions.map((s) => `${s.from}→${s.to}`).join(" | ")}`);
   if (c.unknownBlanks.length) console.log(`UNKNOWN: ${c.unknownBlanks.join(", ")}`);
+  // Sign-off, then the first name on its own line; the signature block is added at draft time.
+  const issues = signOffIssues(c.body);
+  if (issues.length) console.log(`SIGN-OFF: ${issues.join(" ")}`);
 }
 console.log("\nskipped:", r.skipped);
 console.log("notes:", r.notes);

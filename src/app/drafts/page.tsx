@@ -19,7 +19,7 @@ import { windowLabel, windowOf } from "@/lib/sendWindow";
 import { autoHook, hookFor, hooksOf } from "@/lib/hooks";
 import { HooksCard } from "@/components/Hooks";
 import { REQUIRED_FACTS, guessSchool, missingFacts } from "@/lib/template";
-import { bodyToPlain, normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
+import { bodyToPlain, normalizeBody, normalizeSubject, signOffIssues, withSignature } from "@/lib/emailFormat";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { TemplateEditor } from "@/components/TemplateEditor";
@@ -186,6 +186,8 @@ function DraftsInner() {
         } else if (needsAi) {
           body = body.replace(new RegExp(AI_SLOT.source, "g"), "").replace(/\n{3,}/g, "\n\n");
         }
+        // Again after the AI step, which sometimes re-joins the sign-off, first name and signature.
+        body = withSignature(body, settings.profile);
         const createdAt = new Date().toISOString();
         s.updateContact(c.id, {
           templateId: t.id,
@@ -229,17 +231,19 @@ function DraftsInner() {
         const t = templates.find((x) => x.id === c.templateId);
         const trial = assignTrial(c, settings, trials);
         try {
+          // Drafts written before the sign-off / signature split get the current ending (never touches sent mail).
+          const body = normalizeBody(withSignature(c.draft!.body, settings.profile));
           // Already in Gmail → update that draft in place (or recreate it if it was deleted), never a duplicate.
           const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, {
             to: c.email,
             subject: c.draft!.subject,
-            body: c.draft!.body,
+            body,
             attachment: t?.attachResume && resume ? resume : undefined,
             font: EMAIL_FONTS[trial.font]?.css,
           });
           ok++;
           const st = useStore.getState();
-          st.updateContact(c.id, { draft: { ...c.draft!, gmailDraftId: r.id }, trial });
+          st.updateContact(c.id, { draft: { ...c.draft!, body, gmailDraftId: r.id }, trial });
           if (c.status === "new") st.setStatus([c.id], "drafted", "Gmail draft created");
         } catch (e) {
           toast.err(`${c.name}: ${(e as Error).message}`);
@@ -511,7 +515,14 @@ function DraftsInner() {
                       <td className="max-w-[340px] px-2 py-2">
                         {c.draft ? (
                           <button onClick={() => setPreview(c)} className="block w-full text-left hover:underline">
-                            <div className="truncate text-[12.5px] font-medium">{c.draft.subject}</div>
+                            <div className="truncate text-[12.5px] font-medium">
+                              {signOffIssues(c.draft.body, settings.profile).length > 0 && (
+                                <span className="mr-1.5 rounded bg-brass-soft px-1 text-[10.5px] text-brass-strong" title={signOffIssues(c.draft.body, settings.profile).join(" ")}>
+                                  sign-off
+                                </span>
+                              )}
+                              {c.draft.subject}
+                            </div>
                             <div className="truncate text-[12px] text-muted">{c.draft.body.replace(/\s+/g, " ").slice(0, 110)}</div>
                           </button>
                         ) : (
@@ -635,6 +646,7 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
   const [gmailBusy, setGmailBusy] = useState(false);
   const settings = useStore((s) => s.settings);
   const templates = useStore((s) => s.templates);
+  const signOff = useMemo(() => signOffIssues(body, settings.profile), [body, settings.profile]);
   /** Push the edits to Gmail: updates the existing Gmail draft, or makes a new one if it was deleted there. */
   const pushToGmail = async () => {
     if (!c.email) return toast.err("Add their email first.");
@@ -686,6 +698,15 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
       <Field label="Body">
         <Textarea rows={16} value={body} onChange={(e) => setBody(e.target.value)} />
       </Field>
+      {signOff.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-brass/40 bg-brass-soft/40 px-3 py-2 text-[12.5px]">
+          <span>{signOff.join(" ")}</span>
+          <div className="flex-1" />
+          <Button size="sm" variant="secondary" onClick={() => setBody(normalizeBody(withSignature(body, settings.profile)))}>
+            Fix sign-off
+          </Button>
+        </div>
+      )}
       {c.draft!.gmailDraftId && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-green/30 bg-green-soft/50 px-3 py-2 text-[12.5px]">
           <span className="text-green">In Gmail as a draft.</span>

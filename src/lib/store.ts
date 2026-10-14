@@ -30,6 +30,7 @@ import type { TargetBank } from "./banks";
 import type { CoverageSettings } from "./coverage";
 import { EMPTY_OPS, type SheetOps } from "./sheetOps";
 import { readOfficeMap, setOfficeMap } from "./offices";
+import { signOffFor, templateSignOff } from "./emailFormat";
 
 const idbStorage: StateStorage = {
   getItem: async (k) => (await idbGet<string>(k)) ?? null,
@@ -381,7 +382,7 @@ export const useStore = create<State>()(
     },
     {
       name: "banker-dashboard",
-      version: 9,
+      version: 10,
       storage: createJSONStorage(() => idbStorage),
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -505,6 +506,21 @@ function migrateState(p: Record<string, unknown>, version: number) {
       const misread = (/^\s*scheduled\b/i.test(c.sheetStatus) && c.status === "call_scheduled") || (fromSheet === "ignored" && c.status === "new");
       const followUps = c.status === "followed_up" ? Math.max(c.followUps, followUpsFromSheet(c.sheetStatus)) : c.followUps;
       return misread || followUps !== c.followUps ? { ...c, status: misread ? fromSheet : c.status, followUps } : c;
+    });
+  }
+  // Sign-off and signature are separate (10/2026): "Sincerely," + "{{my_first_name}}" on the next line, a blank line, then the signature block
+  // (full name first). First emails sign "Sincerely,", follow-up #1 "Regards,", #2 "Kind regards,". Sent emails aren't touched.
+  if (version < 10 && Array.isArray(p?.templates)) {
+    p.templates = (p.templates as Template[]).map((t) => {
+      const body = templateSignOff(t.body, t.kind === "follow_up" ? signOffFor(t.step ?? 1) : signOffFor());
+      return body === t.body ? t : { ...t, body };
+    });
+  }
+  if (version < 10 && p?.settings) {
+    const settings = p.settings as Settings;
+    settings.emailBases = settings.emailBases?.map((b) => {
+      const close = templateSignOff(b.close, signOffFor());
+      return close === b.close ? b : { ...b, close };
     });
   }
   return p;

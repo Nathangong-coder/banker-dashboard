@@ -49,11 +49,16 @@ I hope this email finds you well! My name is Nathan Gong, I'm an Economics & App
 [CLOSE]
 
 Sincerely,
+Nathan
+
 Nathan Gong
 UCLA Class of 2029
-Economics & Applied Mathematics
+Economics & Applied Mathematics          ← italic
 425-394-3467 | LinkedIn | nagong1@ucla.edu
 ```
+- **Sign-off and signature are separate (10/14/2026):** sign-off line, the first name ("Nathan") on the next line, ONE blank line,
+  then the signature block starting with the full name. Never merge them. First emails "Sincerely,", follow-up #1 "Regards,",
+  follow-up #2 "Kind regards,". Applies to every template, AI-filled draft and the default signature (new users get their own name).
 - **Font: Arial / sans-serif** (`settings.emailStyle.font` default → Gmail's Arial stack; it's Garamond today).
 - **Resume (GongNathan.pdf) attached to every first email.** Follow-ups get no attachment.
 - **Signature LinkedIn link = `https://www.linkedin.com/in/nathangong1/` directly.** Opening an API-made draft in Gmail's web UI rewrote the link into a

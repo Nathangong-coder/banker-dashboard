@@ -56,7 +56,7 @@ const ASK = `I know that as a {{position}}, you must place a lot of value on you
 const CLOSE = `Thank you so much for your time, and I hope we get a chance to connect!
 
 Sincerely,
-{{my_name}}`;
+{{my_first_name}}`;
 
 /** The owner's original wording, unchanged: the control in any A/B test. */
 export const ORIGINAL_BASE: EmailBase = {
@@ -83,8 +83,8 @@ export const CONCISE_BASE: EmailBase = {
   ask: "Would you have 15 minutes for a quick call in the next week or two? I'd love to hear how you got to {{bank}} and what your work looks like day to day. I'm happy to work around your schedule, and I've attached my resume for context.",
   close: `Thank you for your time!
 
-Best,
-{{my_name}}`,
+Sincerely,
+{{my_first_name}}`,
   active: false,
   notes: "Shorter, one concrete 15-minute ask with a time window, no apology for their time. Test it against Original.",
 };
@@ -102,7 +102,7 @@ export const THREE_PARAGRAPH_BASE: EmailBase = {
   close: `{{outreach_close}}
 
 Sincerely,
-{{my_name}}`,
+{{my_first_name}}`,
   active: true,
   notes: "The current wording (docs/outreach-rules.md). The ask and close rotate through experiments E1 and E2.",
 };
@@ -370,7 +370,7 @@ I hope you're having a pleasant day! I just wanted to follow up on my last email
 Would you be willing to have a quick chat sometime this week or next week to talk about your career and background? Thanks again, and I hope to hear from you!
 
 Regards,
-{{my_name}}`,
+{{my_first_name}}`,
   },
   {
     id: "tpl_followup_2",
@@ -387,6 +387,6 @@ I hope that things have been going well since I last reached out! I just wanted 
 How does your availability look, and would you be open to the idea of speaking with me about your career and experiences? If things are too busy at the moment, that is completely understandable. Thank you for your time!
 
 Kind regards,
-{{my_name}}`,
+{{my_first_name}}`,
   },
 ];

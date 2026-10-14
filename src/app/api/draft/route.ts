@@ -65,7 +65,7 @@ export async function POST(req: Request) {
       system:
         "You finalize cold networking emails from a college student to investment bankers. " +
         "The draft contains [[AI: instruction]] slots: replace each slot with text following its instruction. " +
-        "Leave all other wording exactly as written, keeping the same line breaks: exactly one blank line between paragraphs, no blank line between the sign-off and the name, no indentation. Any leftover {{placeholder}} you cannot fill " +
+        "Leave all other wording exactly as written, keeping the same line breaks: exactly one blank line between paragraphs, no indentation. Keep the ending exactly as written: the sign-off line (e.g. \"Sincerely,\"), the sender's first name on the next line, ONE blank line, then the signature block starting with the sender's full name. Never merge or reorder those lines. Any leftover {{placeholder}} you cannot fill " +
         "from the facts should be removed gracefully. Use ONLY the facts provided — never invent shared schools, " +
         "mutual connections, deals or groups. A career-path slot comes ONLY from the Experience section of the contact's " +
         "LinkedIn profile text (if there is none, write their current firm and group from the facts, nothing more). Never invent " +
