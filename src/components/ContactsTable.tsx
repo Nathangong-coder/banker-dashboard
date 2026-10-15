@@ -1,14 +1,15 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Check, ExternalLink, Plus, Search, X } from "lucide-react";
+import { Check, ExternalLink, Plus, Search, Trash2, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { isVpPlus } from "@/lib/seniority";
 import { REGIONS, STATUS_LABEL, type Contact, type Status } from "@/lib/types";
 import { cn } from "@/lib/util";
 import { teamGuess, teamOf } from "@/lib/locationTeam";
+import { hasDashboardWork } from "@/lib/workbook";
 import { useFirmKinds } from "./useFirmKinds";
-import { Badge, Button, Card, Checkbox, Empty, Input, Select, StatusBadge } from "./ui";
+import { Badge, Button, Card, Checkbox, Empty, Input, Modal, Select, StatusBadge, toast } from "./ui";
 import { ContactModal } from "./ContactModal";
 import { AddContactModal } from "./AddContact";
 
@@ -22,6 +23,8 @@ export interface Filters {
   team?: string;
   /** "" = any, "bank" or "pe" (private equity is tracked separately from banks). */
   firm?: "" | "bank" | "pe";
+  /** "" = any, "sheet" = has a row in the spreadsheet, "none" = dashboard-only (or left over from another file). */
+  where?: "" | "sheet" | "none";
 }
 
 export const NO_TEAM = "__none";
@@ -38,7 +41,8 @@ export function useContactFilter(contacts: Contact[], f: Filters) {
         (!f.status || c.status === f.status) &&
         (!f.email || (f.email === "noemail" ? !c.email : !!c.email)) &&
         (!f.team || (f.team === NO_TEAM ? !teamOf(c) : teamOf(c).toLowerCase() === f.team.toLowerCase())) &&
-        (!f.firm || kind(c.bank) === f.firm),
+        (!f.firm || kind(c.bank) === f.firm) &&
+        (!f.where || (f.where === "sheet" ? !!c.ref : !c.ref)),
     );
   }, [contacts, f, kind]);
 }
@@ -86,6 +90,11 @@ export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: 
           </option>
         ))}
       </Select>
+      <Select className="h-8" value={f.where ?? ""} onChange={(e) => setF({ ...f, where: e.target.value as Filters["where"] })} aria-label="In the spreadsheet">
+        <option value="">In sheet or not</option>
+        <option value="sheet">In the spreadsheet</option>
+        <option value="none">Not in the spreadsheet</option>
+      </Select>
       <Select className="h-8" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} aria-label="Email">
         <option value="">Email: any</option>
         <option value="noemail">Missing email</option>
@@ -122,6 +131,7 @@ export function ContactsTable({
   const [f, setF] = useState<Filters>({ q: "", bank: initialBank ?? "", region: "", status: "", email: initialFilter === "noemail" ? "noemail" : "", team: initialFilter === "noteam" ? NO_TEAM : "" });
   const [open, setOpen] = useState<Contact | null>(null);
   const [adding, setAdding] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const rows = useContactFilter(contacts, f);
   const allSel = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
@@ -146,6 +156,11 @@ export function ContactsTable({
               </Button>
             )}
             <span className="text-[12px] text-muted">{selected.size ? `${selected.size} selected · ` : ""}{rows.length} shown</span>
+            {selected.size > 0 && (
+              <Button size="sm" variant="danger" icon={<Trash2 className="size-3.5" />} onClick={() => setDeleting(true)}>
+                Delete {selected.size}
+              </Button>
+            )}
             <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setAdding(true)}>
               Add contact
             </Button>
@@ -239,6 +254,15 @@ export function ContactsTable({
         </div>
       )}
       <ContactModal contact={open} onClose={() => setOpen(null)} />
+      <DeleteContactsModal
+        open={deleting}
+        ids={[...selected]}
+        onClose={() => setDeleting(false)}
+        onDone={() => {
+          setDeleting(false);
+          onSelected(new Set());
+        }}
+      />
       <AddContactModal open={adding} onClose={() => setAdding(false)} defaultBank={f.bank || undefined} />
     </Card>
   );
@@ -275,5 +299,56 @@ function TeamCell({ c }: { c: Contact }) {
         <X className="size-3" />
       </button>
     </span>
+  );
+}
+
+/** Confirm a bulk delete: dashboard copies always go; spreadsheet rows too unless unticked. Ctrl+Z on the grid undoes it. */
+function DeleteContactsModal({ open, ids, onClose, onDone }: { open: boolean; ids: string[]; onClose: () => void; onDone: () => void }) {
+  const contacts = useStore((s) => s.contacts);
+  const deleteContacts = useStore((s) => s.deleteContacts);
+  const [rows, setRows] = useState(true);
+  const list = useMemo(() => {
+    const s = new Set(ids);
+    return contacts.filter((c) => s.has(c.id));
+  }, [contacts, ids]);
+  const inSheet = list.filter((c) => c.ref).length;
+  const withWork = list.filter(hasDashboardWork).length;
+  const queued = list.filter((c) => c.serverSend || c.draft?.gmailDraftId).length;
+  return (
+    <Modal open={open} onClose={onClose} title={`Delete ${list.length} contact${list.length === 1 ? "" : "s"}`}>
+      <div className="space-y-3 text-[13px] text-ink-2">
+        <p>
+          {list.slice(0, 5).map((c) => c.name).join(", ")}
+          {list.length > 5 ? ` and ${list.length - 5} more` : ""} will be removed from the dashboard.
+        </p>
+        {inSheet > 0 && (
+          <label className="flex items-start gap-2">
+            <Checkbox checked={rows} onChange={setRows} label="Also delete their spreadsheet rows" />
+            <span>
+              Also delete their rows in the spreadsheet ({inSheet}). Rows below move up inside each table, like Delete row
+              in Sheet view. Nothing is written to the file until you save.
+              {!rows && " Unticked: people who are in the spreadsheet come back the next time you import it."}
+            </span>
+          </label>
+        )}
+        {withWork > 0 && <p className="text-[12.5px] text-red">{withWork} of them have outreach history (sent emails, drafts or found emails). That history is deleted too.</p>}
+        {queued > 0 && <p className="text-[12.5px] text-muted">{queued} have a Gmail draft or a queued send. Queued sends are cancelled; Gmail drafts and sent mail stay in Gmail.</p>}
+        <p className="text-[12px] text-muted">Changed your mind? Ctrl+Z in Sheet view undoes it (this session only).</p>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="danger"
+            icon={<Trash2 className="size-3.5" />}
+            onClick={() => {
+              const r = deleteContacts(list.map((c) => c.id), { rows: rows && inSheet > 0 });
+              toast.ok(`Deleted ${r.removed} contact${r.removed === 1 ? "" : "s"}${r.rows ? ` and ${r.rows} spreadsheet row${r.rows === 1 ? "" : "s"} (save to write it to the file)` : ""}.`);
+              onDone();
+            }}
+          >
+            Delete {list.length}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

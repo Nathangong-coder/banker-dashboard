@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Download, FileSpreadsheet, Save, Upload } from "lucide-react";
-import { type TabChanges, describeTabChanges, importFile, pickAndImport, saveWorkbook } from "@/lib/actions";
+import { useMemo, useRef, useState } from "react";
+import { Download, Eraser, FileSpreadsheet, Save, Upload } from "lucide-react";
+import { type TabChanges, describeTabChanges, downloadBlankCopy, importFile, pickAndImport, saveWorkbook } from "@/lib/actions";
 import { useStore } from "@/lib/store";
-import { Button, toast } from "./ui";
+import { hasDashboardWork } from "@/lib/workbook";
+import { Button, Checkbox, Modal, toast } from "./ui";
 
 export function UploadButton({ variant = "secondary", label }: { variant?: "primary" | "secondary" | "brass"; label?: string }) {
   const input = useRef<HTMLInputElement>(null);
@@ -107,5 +108,101 @@ export function WorkbookEmpty() {
         In Chrome or Edge you can save updates straight back to the same file. Other browsers download an updated copy.
       </p>
     </div>
+  );
+}
+
+/**
+ * "Reset tracker": blank the contact tables but keep the tracker's layout and formatting. Either as pending changes
+ * (review, then save) or as a separate blank copy that leaves everything as it is.
+ */
+export function ResetTracker({ activeSheet }: { activeSheet?: string }) {
+  const meta = useStore((s) => s.workbook);
+  const contacts = useStore((s) => s.contacts);
+  const tables = useStore((s) => s.tables);
+  const resetTracker = useStore((s) => s.resetTracker);
+  const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState<"all" | "tab">("all");
+  const [everything, setEverything] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const sheets = useMemo(() => (scope === "tab" && activeSheet ? [activeSheet] : undefined), [scope, activeSheet]);
+  const hit = useMemo(() => {
+    const inScope = contacts.filter((c) => c.ref && (!sheets || sheets.includes(c.ref.sheet)));
+    const loose = scope === "all" ? contacts.filter((c) => !c.ref) : [];
+    return { inScope, loose, work: [...inScope, ...(everything ? loose : [])].filter(hasDashboardWork).length };
+  }, [contacts, scope, everything, sheets]);
+  const tabCount = new Set(tables.filter((t) => !sheets || sheets.includes(t.sheet)).map((t) => t.sheet)).size;
+  if (!meta) return null;
+
+  const clear = () => {
+    const r = resetTracker({ sheets, everything: scope === "all" && everything });
+    setOpen(false);
+    toast.ok(
+      `Cleared ${r.rows} row${r.rows === 1 ? "" : "s"} and removed ${r.removed} contact${r.removed === 1 ? "" : "s"}. ` +
+        `Check the highlighted cells, then save (Download .xlsx keeps your current file as it is). Ctrl+Z in Sheet view undoes it.`,
+    );
+  };
+  const blankCopy = async () => {
+    setBusy(true);
+    try {
+      const r = await downloadBlankCopy();
+      toast.ok(`Downloaded ${r.name}: ${r.rows} rows blanked, formatting kept. Nothing in the dashboard changed.`);
+      setOpen(false);
+    } catch (e) {
+      toast.err((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Button icon={<Eraser className="size-3.5" />} onClick={() => setOpen(true)} title="Blank the contact tables but keep the tracker's tabs, headers and formatting">
+        Reset tracker
+      </Button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Reset tracker">
+        <div className="space-y-3 text-[13px] text-ink-2">
+          <p>
+            Empties the contact tables (names, emails, positions, LinkedIn, team, status, notes, dates). The tabs, headers,
+            banners, the # numbering, OVERVIEW / COVERAGE / application tabs and all formatting stay, so it works as a blank
+            template.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center gap-2">
+              <input type="radio" className="accent-navy" checked={scope === "all"} onChange={() => setScope("all")} />
+              Every tab
+            </label>
+            {activeSheet && (
+              <label className="flex items-center gap-2">
+                <input type="radio" className="accent-navy" checked={scope === "tab"} onChange={() => setScope("tab")} />
+                Only the &ldquo;{activeSheet}&rdquo; tab
+              </label>
+            )}
+          </div>
+          {scope === "all" && hit.loose.length > 0 && (
+            <label className="flex items-start gap-2">
+              <Checkbox checked={everything} onChange={setEverything} label="Also delete contacts that aren't in the spreadsheet" />
+              <span>Also delete the {hit.loose.length} contact{hit.loose.length === 1 ? "" : "s"} that aren&rsquo;t in the spreadsheet (added in the dashboard, or left over from another file).</span>
+            </label>
+          )}
+          <p className="text-[12.5px]">
+            {tabCount} tab{tabCount === 1 ? "" : "s"} with contact tables · {hit.inScope.length + (everything ? hit.loose.length : 0)} contacts removed from the dashboard
+            {hit.work > 0 && <span className="text-red"> · {hit.work} have outreach history, which is deleted too</span>}
+          </p>
+          <div className="rounded-md border border-line bg-[#faf9f5] p-2.5 text-[12.5px]">
+            <b>Clear tracker</b> makes these pending changes. Saving to {meta.fileName} overwrites it; <b>Download .xlsx</b> saves a new
+            copy instead. <b>Download blank copy</b> makes a separate blank file and changes nothing here.
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            <Button onClick={() => setOpen(false)}>Cancel</Button>
+            <Button icon={<Download className="size-3.5" />} loading={busy} onClick={blankCopy} title="Every contact table blanked, in a new file. The dashboard and your file are untouched.">
+              Download blank copy
+            </Button>
+            <Button variant="danger" icon={<Eraser className="size-3.5" />} onClick={clear}>
+              Clear tracker
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   );
 }

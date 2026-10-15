@@ -18,7 +18,7 @@ import type {
   Template,
   WorkbookMeta,
 } from "./types";
-import { applyPatches, contactPatches, followUpsFromSheet, statusFromSheet, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, type ContactTable, type Patches } from "./workbook";
+import { applyPatches, blankTablesPatches, contactPatches, followUpsFromSheet, statusFromSheet, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, tableBody, type ContactTable, type Patches } from "./workbook";
 import { contactId } from "./util";
 import { isPlace, splitLocationTeam } from "./locationTeam";
 import { DEFAULT_HOOKS, LEGACY_TECH_HOOK_TEXT, TECH_HOOK_TEXT } from "./hooks";
@@ -102,6 +102,21 @@ interface State {
   applyCellEdits: (edits: Patches) => Contact[];
   /** Excel-style delete (shift up) / insert (shift down) of rows inside a contact table. */
   shiftRows: (sheet: string, row: number, count: number, mode: "delete" | "insert") => { error?: string; removed: string[]; detached: string[] };
+  /**
+   * Delete a block of rows that may span several contact tables (e.g. a whole tab selected with Ctrl+A): each table's
+   * part is shifted up on its own, bottom table first; banners, headers and rows outside tables stay.
+   */
+  deleteRows: (sheet: string, top: number, bottom: number) => { error?: string; removed: string[]; detached: string[]; rows: number };
+  /**
+   * Delete contacts. With `rows`, their spreadsheet rows go too (shifted up inside the table, like the grid's
+   * Delete row); without, only the dashboard copy is removed (sheet people come back on the next re-import).
+   */
+  deleteContacts: (ids: string[], opts: { rows: boolean }) => { removed: number; rows: number };
+  /**
+   * Blank every contact table (all tabs, or the tabs given) and drop the people in them, keeping the tracker's
+   * layout and formatting. `everything` also drops contacts that aren't in the spreadsheet. Undoable (Ctrl+Z).
+   */
+  resetTracker: (opts: { sheets?: string[]; everything: boolean }) => { removed: number; rows: number };
   /** Undo the last grid change (cell edits, clears, pastes, row deletes/inserts). */
   undoGrid: () => boolean;
   upsertTemplate: (t: Template) => void;
@@ -121,6 +136,58 @@ interface State {
 const now = () => new Date().toISOString();
 
 type GridState = Pick<State, "patches" | "contacts" | "tables" | "banks">;
+
+const norm = (x?: string) => (x ?? "").trim().toLowerCase();
+/** A re-imported row is the same person when the name, email or LinkedIn profile matches. */
+function samePerson(a: Contact, b: Contact) {
+  return (
+    norm(a.name) === norm(b.name) ||
+    (!!a.email && norm(a.email) === norm(b.email)) ||
+    (!!a.linkedin && norm(a.linkedin).replace(/\/+$/, "") === norm(b.linkedin).replace(/\/+$/, ""))
+  );
+}
+
+/** Shift rows inside one contact table and move/renumber/detach the contacts on that tab (no state change). */
+function shiftCore(
+  s: Pick<State, "patches" | "contacts" | "tables" | "snapshots">,
+  sheet: string,
+  row: number,
+  count: number,
+  mode: "delete" | "insert",
+) {
+  const snapshot = s.snapshots.find((x) => x.name === sheet);
+  if (!snapshot) return { error: "This tab isn't in the loaded spreadsheet." };
+  const res = shiftTableRows({ snapshot, sheetPatches: s.patches[sheet] ?? {}, tables: s.tables, row, count, mode });
+  if ("error" in res) return { error: res.error };
+  const removed: string[] = [];
+  const detached: string[] = [];
+  const contacts: Contact[] = [];
+  for (const c of s.contacts) {
+    if (c.ref?.sheet !== sheet) {
+      contacts.push(c);
+      continue;
+    }
+    const to = res.moveRow(c.ref.row);
+    if (to === null) {
+      // The row is gone. Keep people the dashboard has history for, as dashboard-only contacts.
+      if (hasDashboardWork(c)) {
+        detached.push(c.name);
+        contacts.push({ ...c, ref: undefined, source: "manual", id: c.source === "sheet" ? `m_${c.id}` : c.id });
+      } else removed.push(c.name);
+      continue;
+    }
+    if (to === c.ref.row) contacts.push(c);
+    // Sheet ids are "s:<tab>:<row>"; renumber so a re-import after saving still matches this person.
+    else contacts.push({ ...c, ref: { ...c.ref, row: to }, id: c.id === contactId(sheet, c.ref.row) ? contactId(sheet, to) : c.id });
+  }
+  // Cells a moved contact writes itself (email, status…) come from the contact, not from the shifted copy.
+  const sheetPatches = { ...res.patches };
+  const derived = contactPatches(contacts.filter((c) => c.ref?.sheet === sheet), s.snapshots)[sheet] ?? {};
+  for (const k of Object.keys(derived)) delete sheetPatches[k];
+  const patches = { ...s.patches, [sheet]: sheetPatches };
+  const tables = parseSnapshots(applyPatches(s.snapshots, patches)).tables;
+  return { patches, contacts, tables, removed, detached };
+}
 const UNDO_LIMIT = 50;
 
 /** Apply a status transition, stamping the dates follow-up logic depends on. */
@@ -177,8 +244,11 @@ export const useStore = create<State>()(
         let updated = 0;
         const merged: Contact[] = contacts.map((fresh) => {
           const refMatch = fresh.ref ? byRef.get(`${fresh.ref.sheet}:${fresh.ref.row}`) : undefined;
+          // Same row id but a different person (another spreadsheet, or rows moved in Excel): start fresh instead of
+          // handing them the previous person's status, dates and drafts.
+          const byId = existing.get(fresh.id);
           const prev =
-            existing.get(fresh.id) ??
+            (byId && samePerson(byId, fresh) ? byId : undefined) ??
             (refMatch && refMatch.name.toLowerCase() === fresh.name.toLowerCase() ? { ...refMatch, id: fresh.id, source: "sheet" as const } : undefined);
           existing.delete(fresh.id);
           if (refMatch && refMatch.name.toLowerCase() === fresh.name.toLowerCase()) existing.delete(refMatch.id);
@@ -216,7 +286,12 @@ export const useStore = create<State>()(
           };
         });
         // Contacts added in the dashboard (prospects) survive a re-import.
-        const kept = [...existing.values()].filter((c) => c.source !== "sheet");
+        // A pending row they were going to be written into must still be free in this file (it may be a different
+        // spreadsheet); otherwise they stay as dashboard-only contacts instead of overwriting someone.
+        const taken = new Set(contacts.flatMap((c) => (c.ref ? [`${c.ref.sheet}:${c.ref.row}`] : [])));
+        const kept = [...existing.values()]
+          .filter((c) => c.source !== "sheet")
+          .map((c) => (c.ref && taken.has(`${c.ref.sheet}:${c.ref.row}`) ? { ...c, ref: undefined } : c));
         const banks = { ...get().banks };
         for (const c of merged) {
           const k = bankKey(c.bank, c.region);
@@ -288,40 +363,87 @@ export const useStore = create<State>()(
 
       shiftRows: (sheet, row, count, mode) => {
         const s = get();
-        const snapshot = s.snapshots.find((x) => x.name === sheet);
-        if (!snapshot) return { error: "This tab isn't in the loaded spreadsheet.", removed: [], detached: [] };
-        const res = shiftTableRows({ snapshot, sheetPatches: s.patches[sheet] ?? {}, tables: s.tables, row, count, mode });
+        const res = shiftCore(s, sheet, row, count, mode);
         if ("error" in res) return { error: res.error, removed: [], detached: [] };
         pushUndo();
+        set({ patches: res.patches, contacts: res.contacts, tables: res.tables });
+        return { removed: res.removed, detached: res.detached };
+      },
+
+      deleteRows: (sheet, top, bottom) => {
+        const s = get();
+        const snap = s.snapshots.find((x) => x.name === sheet);
+        if (!snap) return { error: "This tab isn't in the loaded spreadsheet.", removed: [], detached: [], rows: 0 };
+        const mine = s.tables.filter((t) => t.sheet === sheet).sort((a, b) => b.headerRow - a.headerRow);
+        const eff = applyPatches([snap], { [sheet]: s.patches[sheet] ?? {} })[0];
+        const cell = (r: number, c: number) => eff.cells[`${r}:${c}`]?.v ?? "";
+        let state = { patches: s.patches, contacts: s.contacts, tables: s.tables, snapshots: s.snapshots };
         const removed: string[] = [];
         const detached: string[] = [];
-        const contacts: Contact[] = [];
-        for (const c of s.contacts) {
-          if (c.ref?.sheet !== sheet) {
-            contacts.push(c);
-            continue;
-          }
-          const to = res.moveRow(c.ref.row);
-          if (to === null) {
-            // The row is gone. Keep people the dashboard has history for, as dashboard-only contacts.
-            if (hasDashboardWork(c)) {
-              detached.push(c.name);
-              contacts.push({ ...c, ref: undefined, source: "manual", id: c.source === "sheet" ? `m_${c.id}` : c.id });
-            } else removed.push(c.name);
-            continue;
-          }
-          if (to === c.ref.row) contacts.push(c);
-          // Sheet ids are "s:<tab>:<row>"; renumber so a re-import after saving still matches this person.
-          else contacts.push({ ...c, ref: { ...c.ref, row: to }, id: c.id === contactId(sheet, c.ref.row) ? contactId(sheet, to) : c.id });
+        let rows = 0;
+        for (const t of mine) {
+          const body = tableBody(t, mine, cell, eff.rows);
+          const from = Math.max(top, body.from);
+          const to = Math.min(bottom, body.limit === Infinity ? bottom : body.limit);
+          if (from > to) continue;
+          const res = shiftCore(state, sheet, from, to - from + 1, "delete");
+          if ("error" in res) continue;
+          state = { ...state, patches: res.patches, contacts: res.contacts, tables: res.tables };
+          removed.push(...res.removed);
+          detached.push(...res.detached);
+          rows += to - from + 1;
         }
-        // Cells a moved contact writes itself (email, status…) come from the contact, not from the shifted copy.
-        const sheetPatches = { ...res.patches };
-        const derived = contactPatches(contacts.filter((c) => c.ref?.sheet === sheet), s.snapshots)[sheet] ?? {};
-        for (const k of Object.keys(derived)) delete sheetPatches[k];
-        const patches = { ...s.patches, [sheet]: sheetPatches };
-        const tables = parseSnapshots(applyPatches(s.snapshots, patches)).tables;
-        set({ patches, contacts, tables });
-        return { removed, detached };
+        if (!rows) return { error: "Only rows inside a contact table can be deleted (other rows can be cleared).", removed, detached, rows };
+        pushUndo();
+        set({ patches: state.patches, contacts: state.contacts, tables: state.tables });
+        return { removed, detached, rows };
+      },
+
+      deleteContacts: (ids, { rows }) => {
+        const drop = new Set(ids);
+        const s = get();
+        pushUndo();
+        let state = { patches: s.patches, contacts: s.contacts, tables: s.tables, snapshots: s.snapshots };
+        let rowCount = 0;
+        if (rows) {
+          // Bottom-up per tab, so rows still to delete keep their numbers.
+          const targets = s.contacts
+            .filter((c) => drop.has(c.id) && c.ref && s.snapshots.some((x) => x.name === c.ref!.sheet))
+            .map((c) => ({ sheet: c.ref!.sheet, row: c.ref!.row, id: c.id }))
+            .sort((a, b) => a.sheet.localeCompare(b.sheet) || b.row - a.row);
+          for (const t of targets) {
+            const cur = state.contacts.find((c) => c.id === t.id || c.id === `m_${t.id}`);
+            if (!cur?.ref) continue;
+            const res = shiftCore(state, cur.ref.sheet, cur.ref.row, 1, "delete");
+            if ("error" in res) continue; // Not inside a table: the dashboard copy is still removed below.
+            // The row is gone, so its old id now belongs to whoever moved up into it: stop matching on it. Contacts
+            // the shift detached (dashboard work) carry an "m_" id instead; they're being deleted anyway.
+            drop.delete(t.id);
+            drop.add(`m_${t.id}`);
+            state = { ...state, patches: res.patches, contacts: res.contacts, tables: res.tables };
+            rowCount++;
+          }
+        }
+        const contacts = state.contacts.filter((c) => !drop.has(c.id));
+        set({ patches: state.patches, tables: state.tables, contacts });
+        return { removed: s.contacts.filter((c) => ids.includes(c.id)).length, rows: rowCount };
+      },
+
+      resetTracker: ({ sheets, everything }) => {
+        const s = get();
+        pushUndo();
+        const scope = sheets ? new Set(sheets) : undefined;
+        const blank = blankTablesPatches(s.snapshots, s.tables, s.patches, sheets);
+        const loaded = new Set(s.snapshots.map((x) => x.name));
+        const contacts = s.contacts.filter((c) => {
+          if (c.ref && (!scope || scope.has(c.ref.sheet))) return false;
+          // "Everything": also people with no row in this spreadsheet (dashboard-only, or left over from another file).
+          if (everything && (!c.ref || !loaded.has(c.ref.sheet))) return false;
+          return true;
+        });
+        const tables = parseSnapshots(applyPatches(s.snapshots, blank.patches)).tables;
+        set({ patches: blank.patches, contacts, tables });
+        return { removed: s.contacts.length - contacts.length, rows: blank.rows };
       },
 
       undoGrid: () => {

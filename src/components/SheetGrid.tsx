@@ -95,6 +95,7 @@ export function SheetGrid({
 }) {
   const applyCellEdits = useStore((s) => s.applyCellEdits);
   const shiftRows = useStore((s) => s.shiftRows);
+  const deleteRows = useStore((s) => s.deleteRows);
   const undoGrid = useStore((s) => s.undoGrid);
   const canUndo = useStore((s) => s.gridUndo.length > 0);
   const tables = useStore((s) => s.tables);
@@ -375,13 +376,20 @@ export function SheetGrid({
     }
     const res =
       mode === "delete"
-        ? shiftRows(active, top, count, "delete")
-        : shiftRows(active, mode === "insert-above" ? top : bottom + 1, count, "insert");
+        ? deleteRows(active, top, bottom)
+        : { rows: count, ...shiftRows(active, mode === "insert-above" ? top : bottom + 1, count, "insert") };
     if (res.error) return toast.err(res.error);
-    const what = mode === "delete" ? `Deleted ${count > 1 ? `rows ${top}–${bottom}` : `row ${top}`}` : `Inserted ${count} row${count > 1 ? "s" : ""}`;
+    const what =
+      mode === "delete"
+        ? res.rows < count
+          ? `Deleted ${res.rows} contact-table row${res.rows === 1 ? "" : "s"} (headers and banners kept)`
+          : `Deleted ${count > 1 ? `rows ${top}–${bottom}` : `row ${top}`}`
+        : `Inserted ${count} row${count > 1 ? "s" : ""}`;
     const extra = [
-      res.removed.length ? `Removed ${res.removed.join(", ")} from contacts.` : "",
-      res.detached.length ? `Kept ${res.detached.join(", ")} as dashboard-only contacts (they have outreach history).` : "",
+      res.removed.length ? `Removed ${res.removed.length > 6 ? `${res.removed.length} people` : res.removed.join(", ")} from contacts.` : "",
+      res.detached.length
+        ? `Kept ${res.detached.length > 6 ? `${res.detached.length} people` : res.detached.join(", ")} as dashboard-only contacts (they have outreach history; delete them in All contacts → "Not in the spreadsheet").`
+        : "",
     ].filter(Boolean);
     toast.ok(`${what}. ${extra.join(" ")} ${isMac ? "⌘" : "Ctrl+"}Z undoes it.`);
   };

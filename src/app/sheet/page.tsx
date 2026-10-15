@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { bankTabsSkipped, describeTabChanges, enrichContacts, ensureBankTabs, restorableTabLinks, restoreTabLinks, splitLocationTeamColumns, undoBankTabs } from "@/lib/actions";
 import { contactPatches, mergePatches, splitLocationTeamPatches } from "@/lib/workbook";
 import { Button, PageHeader, Progress, toast } from "@/components/ui";
-import { SaveButtons, UploadButton, WorkbookEmpty } from "@/components/WorkbookControls";
+import { ResetTracker, SaveButtons, UploadButton, WorkbookEmpty } from "@/components/WorkbookControls";
 import { SheetGrid } from "@/components/SheetGrid";
 import { ContactsTable } from "@/components/ContactsTable";
 import { cn } from "@/lib/util";
@@ -158,6 +158,7 @@ function SheetInner() {
           ))}
         </div>
         <div className="flex-1" />
+        <ResetTracker activeSheet={view === "grid" ? activeSheet : undefined} />
         {view === "grid" && tabChangeText && (
           <span
             className="flex items-center gap-1.5 rounded-md border border-brass/40 bg-brass/10 px-2 py-1 text-[12px] text-ink-2"

@@ -1,7 +1,7 @@
 "use client";
 
 import { blobs, useStore } from "./store";
-import { allocateRow, applyPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, splitLocationTeamPatches, type Patches } from "./workbook";
+import { allocateRow, applyPatches, blankTablesPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, splitLocationTeamPatches, type Patches } from "./workbook";
 import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
 import { reconcileTitle } from "./titles";
 import { callApi } from "./api";
@@ -162,6 +162,21 @@ export async function pickAndImport(): Promise<{ added: number; updated: number 
   const picked = await pickWorkbook();
   if (!picked) return null;
   return importFile(picked.file, picked.handle, { buffer: picked.buffer });
+}
+
+/**
+ * A copy of the loaded spreadsheet with every contact table blanked (headers, banners, numbering, other tabs and all
+ * formatting kept), downloaded as a new file. Changes nothing in the dashboard or the original file.
+ */
+export async function downloadBlankCopy() {
+  const s = useStore.getState();
+  const buf = await blobs.workbook();
+  if (!s.workbook || !buf) throw new Error("Upload a spreadsheet first.");
+  const { patches, rows } = blankTablesPatches(s.snapshots, parseSnapshots(s.snapshots).tables, {});
+  const out = await buildWorkbook(buf, patches);
+  const name = s.workbook.fileName.replace(/\.xlsx$/i, "") + " (blank).xlsx";
+  download(out, name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  return { name, rows };
 }
 
 export function currentPatches() {

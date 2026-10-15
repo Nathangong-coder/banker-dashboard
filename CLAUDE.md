@@ -107,6 +107,14 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **Ctrl/Cmd+S** (`WorkbookControls#useSaveShortcut`, mounted in Shell) blocks the browser's "Save page" and saves the workbook in place.
 - Grid edits sync against `derived + manual` patches, so edits to a row that only exists as a pending dashboard write (Add contact /
   Find people) reach that contact. A non-sheet contact "owns" its row. Drafts shows `comment` (column J, Connection / Comment) as Notes.
+- **Mass delete / reset** (store `deleteContacts`, `deleteRows`, `resetTracker`; `workbook.ts#blankTablesPatches`): All contacts →
+  select → "Delete N" (optionally their rows, shifted up per table bottom-up; the row's old id is dropped from the match set
+  because the person below inherits it). The grid's Delete row on a multi-table selection (Ctrl+A) deletes each table's part
+  separately, keeping banners/headers. "Reset tracker" blanks every contact table (or one tab) as pending patches, or downloads
+  a blank copy (`actions.ts#downloadBlankCopy`); headers, `#`, other tabs and formatting stay. All are one Ctrl+Z step.
+  The "Not in the spreadsheet" filter lists dashboard-only contacts (`!ref`). `importWorkbook` merges by id only when
+  `samePerson` (name / email / LinkedIn), so another workbook's row 19 doesn't inherit the old row 19's status, and a pending
+  dashboard contact whose row is taken in the imported file loses its `ref` instead of overwriting someone.
 - **Row → contact:** rows the parser can't see as people (no name in a table, or not in a table at all) get a "+" by the row number when
   `draftFromRow` reads a person from them. Outside a table it needs a LinkedIn or an email, since labels like "Bulge Bracket" look like names.
   Clicking opens AddContact pre-filled, with `ref` = that row (the table's columns, or the columns the values were found in). On the owner's

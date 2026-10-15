@@ -586,6 +586,50 @@ export function applyPatches(snapshots: SheetSnapshot[], patches: Patches): Shee
   return out;
 }
 
+/**
+ * "Reset the tracker": manual patches that blank every contact table's body (people, emails, statuses, notes) on the
+ * given tabs (all tabs when omitted), keeping headers, banners, the "#" numbering, other tabs and all formatting.
+ * Cells only a pending patch filled are dropped from the patches; cells in the file get an empty value.
+ */
+export function blankTablesPatches(snapshots: SheetSnapshot[], tables: ContactTable[], manual: Patches, sheets?: string[]) {
+  const scope = sheets ? new Set(sheets) : undefined;
+  const out: Patches = { ...manual };
+  let rows = 0;
+  for (const snap of applyPatches(snapshots, manual)) {
+    if (scope && !scope.has(snap.name)) continue;
+    const base = snapshots.find((s) => s.name === snap.name);
+    const mine = tables.filter((t) => t.sheet === snap.name);
+    if (!mine.length) continue;
+    const cell = (r: number, c: number) => snap.cells[`${r}:${c}`]?.v ?? "";
+    const sheetPatches = { ...(out[snap.name] ?? {}) };
+    for (const t of mine) {
+      const body = tableBody(t, mine, cell, snap.rows);
+      const mapped = [...Object.values(t.cols), t.firstNameCol, t.lastNameCol].filter((c): c is number => !!c);
+      const headed = Array.from({ length: snap.cols }, (_, i) => i + 1).filter((c) => cell(t.headerRow, c).trim());
+      const c1 = Math.min(...mapped, ...headed);
+      const c2 = Math.max(...mapped, ...headed);
+      for (let r = body.from; r <= body.to; r++) {
+        let touched = false;
+        for (let c = c1; c <= c2; c++) {
+          if (c === body.numberCol) continue;
+          const k = `${r}:${c}`;
+          const inFile = base?.cells[k];
+          if (inFile && (inFile.v || inFile.link)) {
+            sheetPatches[k] = { v: "" };
+            touched = true;
+          } else if (sheetPatches[k]) {
+            delete sheetPatches[k];
+            touched = true;
+          }
+        }
+        if (touched) rows++;
+      }
+    }
+    out[snap.name] = sheetPatches;
+  }
+  return { patches: out, rows };
+}
+
 /** The dashboard holds something for this person beyond what the sheet says (outreach, a draft, a found email). */
 export function hasDashboardWork(c: Contact) {
   return c.status !== "new" || !!c.sentAt || !!c.draft || (!!c.email && c.emailSource !== "sheet");
