@@ -49,7 +49,33 @@ const PHONE = /(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b/g;
 const unlinkPhones = (html: string) => html.replace(PHONE, (m) => m.replace(/(\d)(?=[\s.)-])/g, "$1&zwnj;"));
 
 /** Plain text → Gmail-native HTML. Named links, bare URLs and emails become (blue) links; phones don't. */
-export function bodyToHtml(text: string, fontCss?: string): string {
+/** A logo image placed under the signature block. `src` is "cid:…" in a real email, an object URL in previews. */
+export interface SignatureLogoHtml {
+  src: string;
+  width: number;
+  alt?: string;
+  /** Optional link around the image (https only). */
+  link?: string;
+  /** The signature's last line: the logo goes right under the last line that reads the same. Not found = no logo. */
+  after: string;
+}
+
+/** Where the logo goes: index of the last line that matches the signature's last line, or -1 (no signature, no logo). */
+export function logoLineIndex(lines: string[], after: string) {
+  const want = plainLine(after);
+  if (!want) return -1;
+  for (let i = lines.length - 1; i >= 0; i--) if (plainLine(lines[i]) === want) return i;
+  return -1;
+}
+
+function logoHtml(l: SignatureLogoHtml) {
+  const w = Math.max(16, Math.min(600, Math.round(l.width) || 120));
+  const img = `<img src="${esc(l.src)}" width="${w}" alt="${esc(l.alt ?? "")}" style="display:block;width:${w}px;max-width:100%;height:auto;border:0">`;
+  const link = l.link?.trim();
+  return `<div>${link && /^https:\/\//.test(link) ? `<a href="${esc(link)}">${img}</a>` : img}</div>`;
+}
+
+export function bodyToHtml(text: string, fontCss?: string, logo?: SignatureLogoHtml): string {
   const linkify = (line: string) => {
     const named: string[] = [];
     // Protect [label](url) first so the bare-URL pass doesn't touch it.
@@ -64,9 +90,10 @@ export function bodyToHtml(text: string, fontCss?: string): string {
       .replace(ITALIC, (_m, pre: string, t: string) => `${pre}<i>${t}</i>`);
   };
   const style = fontCss ? ` style="font-family:${fontCss.replace(/"/g, "&quot;")}"` : "";
-  return `<div dir="ltr"${style}>${normalizeBody(unwrapRedirects(text))
-    .split("\n")
-    .map((l) => (l ? `<div>${linkify(l)}</div>` : "<div><br></div>"))
+  const lines = normalizeBody(unwrapRedirects(text)).split("\n");
+  const at = logo ? logoLineIndex(lines, logo.after) : -1;
+  return `<div dir="ltr"${style}>${lines
+    .map((l, i) => (l ? `<div>${linkify(l)}</div>` : "<div><br></div>") + (i === at ? logoHtml(logo!) : ""))
     .join("")}</div>`;
 }
 

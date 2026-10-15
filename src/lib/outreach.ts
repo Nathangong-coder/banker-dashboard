@@ -18,10 +18,10 @@ import { currentTitle } from "./titles";
 /* ---------------- affinity (your own rules: Settings → Outreach rules) ---------------- */
 
 /**
- * What you might have in common with someone, in priority order: a volunteer activity > hometown > heritage > your
- * school / grad school > schools in your city > your school system > your state > nothing (standard).
+ * What you might have in common with someone, in priority order: a volunteer activity > a sport > hometown > heritage >
+ * your school / grad school > schools in your city > your school system > your state > nothing (standard).
  */
-export type Affinity = "volunteer" | "hometown" | "heritage" | "school" | "grad" | "city" | "system" | "state" | "standard";
+export type Affinity = "volunteer" | "sports" | "hometown" | "heritage" | "school" | "grad" | "city" | "system" | "state" | "standard";
 export type SchoolGroup = "school" | "grad" | "city" | "system" | "state";
 
 /** Comma-separated words or phrases; "a+b" means both must appear. */
@@ -38,14 +38,22 @@ export interface OutreachRules {
   system: { label: string; match: MatchList };
   /** Other schools in your state ("Fellow California Student"). */
   state: { label: string; match: MatchList };
-  /** Where you're from: schools and towns there ("Fellow Washingtonian"; the hook uses Settings → Profile → hometown). */
+  /**
+   * Where you grew up: high schools, towns and the area's names ("Orange County, OC, Irvine, Newport Beach"). The
+   * subject is "Fellow {demonym}"; the hook uses Settings → Profile → hometown.
+   */
   hometown: { demonym: string; match: MatchList };
+  /**
+   * Sports you played. When their profile mentions the same sport: "I noticed that you also played baseball. As someone
+   * who {mine}, …" and the subject "Fellow {label} Seeking to Connect". An entry with no `mine` is off.
+   */
+  sports: { match: MatchList; label: string; mine: string }[];
   /** A heritage you share, read only from your own notes (Comment column), never guessed from a name. Empty = off. */
   heritage: { word: string };
   /** Volunteer experiences of yours that make a hook when their profile mentions the same thing. */
   volunteer: { match: MatchList; mine: string; theirs: string }[];
   /** Ties that make an MD / Head / Partner OK to email (otherwise the rule is VPs and below). */
-  seniorExceptions: ("school" | "grad" | "hometown" | "heritage" | "city" | "system" | "state")[];
+  seniorExceptions: ("school" | "grad" | "hometown" | "sports" | "heritage" | "city" | "system" | "state")[];
 }
 
 /** The owner's rules (docs/outreach-rules.md): UCLA, Anderson, LA schools, the UCs, California, Seattle / Washington. */
@@ -73,10 +81,13 @@ export const DEFAULT_OUTREACH_RULES: OutreachRules = {
     { match: "tutor+volunteer, tutoring+volunteer", mine: "tutoring SAT math to underprivileged children", theirs: "volunteer tutoring experience" },
     { match: "soup kitchen", mine: "working at a soup kitchen", theirs: "volunteer experience" },
   ],
+  // Off until "mine" is filled in: a hook never claims something you didn't write yourself.
+  sports: [{ match: "baseball", label: "Baseball Player", mine: "" }],
   seniorExceptions: ["school", "grad", "hometown"],
 };
 
-export const rulesOf = (s?: Pick<Settings, "outreach">): OutreachRules => s?.outreach ?? DEFAULT_OUTREACH_RULES;
+/** Saved rules, with defaults for anything added since they were saved (e.g. sports). */
+export const rulesOf = (s?: Pick<Settings, "outreach">): OutreachRules => (s?.outreach ? { ...DEFAULT_OUTREACH_RULES, ...s.outreach, sports: s.outreach.sports ?? DEFAULT_OUTREACH_RULES.sports } : DEFAULT_OUTREACH_RULES);
 
 const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
 /** The first phrase of the list found in the text (as written there), or undefined. "a+b" needs both parts. */
@@ -97,6 +108,10 @@ export interface AffinityInfo {
   schoolName?: string;
   heritage: boolean;
   volunteer?: OutreachRules["volunteer"][number];
+  /** The sport you share, and the word as their profile writes it ("Baseball"). */
+  sport?: OutreachRules["sports"][number] & { word: string };
+  /** What matched for a hometown tie ("Irvine", "Orange County"), when it's a place rather than a school. */
+  place?: string;
   /** They volunteer in some other way: no hook, flag it for the owner. */
   volunteerOther?: boolean;
 }
@@ -136,10 +151,14 @@ export function affinityOf(c: Pick<Contact, "school" | "comment" | "headline" | 
   const volunteerOther = !volunteer && /\bvolunteer(?:ing|ed)?\b/i.test(ev.all);
   const base = { school, schoolName, heritage, volunteerOther };
   if (volunteer) return { ...base, kind: "volunteer", volunteer };
+  for (const sp of rules.sports ?? []) {
+    const word = sp.mine.trim() ? findMatch(sp.match, ev.all) : undefined;
+    if (word) return { ...base, kind: "sports", sport: { ...sp, word } };
+  }
   const home = findMatch(rules.hometown.match, ev.all);
   if (home) {
     const named = ev.all.match(/[A-Z][A-Za-z.' ]{2,40} High School/)?.[0];
-    return { ...base, kind: "hometown", schoolName: looksLikeSchool(home) ? home : (named?.trim() ?? "") };
+    return { ...base, kind: "hometown", schoolName: looksLikeSchool(home) ? home : (named?.trim() ?? ""), place: looksLikeSchool(home) ? undefined : home };
   }
   if (heritage) return { ...base, kind: "heritage" };
   return { ...base, kind: school ?? "standard" };
@@ -167,6 +186,7 @@ const TIE_LABEL: Record<OutreachRules["seniorExceptions"][number], (r: OutreachR
   school: () => "your school",
   grad: (r) => r.grad.name || "your grad school",
   hometown: (r) => r.hometown.demonym || "your hometown",
+  sports: () => "a shared sport",
   heritage: (r) => r.heritage.word || "heritage",
   city: (r) => `${r.city.label} schools`,
   system: (r) => `${r.system.label} schools`,
@@ -179,6 +199,7 @@ export function seniorException(c: Pick<Contact, "school" | "comment" | "headlin
   const ok = new Set(rules.seniorExceptions);
   if (a.school && ok.has(a.school)) return a.schoolName || TIE_LABEL[a.school](rules);
   if (ok.has("hometown") && (a.kind === "hometown" || findMatch(rules.hometown.match, c.location ?? ""))) return TIE_LABEL.hometown(rules);
+  if (ok.has("sports") && a.kind === "sports" && a.sport) return a.sport.word;
   if (ok.has("heritage") && a.heritage) return TIE_LABEL.heritage(rules);
   return undefined;
 }
@@ -316,7 +337,7 @@ export function composeOutreach(c: Contact, s: Settings): OutreachPlan {
 
   // E3: tailored only with a verified path fact (a captured profile); otherwise it's the template wording, untagged.
   const tailored = tailoredOk && (want[X.tailored] ?? "tailored") === "tailored";
-  if (tailoredOk && !["volunteer", "hometown"].includes(a.kind) && !senior) arms[X.tailored] = tailored ? "tailored" : "template";
+  if (tailoredOk && !["volunteer", "sports", "hometown"].includes(a.kind) && !senior) arms[X.tailored] = tailored ? "tailored" : "template";
   if (!tailoredOk) flags.push("No LinkedIn profile captured: the template hook was used. Capture their profile to write a career-path hook.");
   if (a.volunteerOther) flags.push("Their profile mentions volunteering (none of your volunteer hooks match): no volunteer hook. Worth a look.");
 
@@ -346,6 +367,11 @@ export function composeOutreach(c: Contact, s: Settings): OutreachPlan {
     city: `as a fellow ${city.label} student, I'd love to hear how your time at ${theirSchool(city.label)} shaped that journey.`,
   };
   const standardSubject = `${my.school} Student Seeking to Connect`;
+  const homeSubject = hometown.demonym.trim()
+    ? `Fellow ${hometown.demonym.trim()} Seeking to Connect`
+    : p.hometown
+      ? `${my.school} Student from ${p.hometown.split(",")[0].trim()} Seeking to Connect`
+      : standardSubject;
 
   let hook: string;
   let subject: string;
@@ -358,11 +384,26 @@ export function composeOutreach(c: Contact, s: Settings): OutreachPlan {
     hook = tailored
       ? `I know you are extremely busy as a {{position}}, but your path from ${PATH} really stood out to me and made me feel that you would have differentiated insights into building a career in investment banking.`
       : `I know you are extremely busy as a {{position}}, but I felt that you would have differentiated insights into building a career in investment banking.`;
-    subject = a.kind === "hometown" && hometown.demonym ? `Fellow ${hometown.demonym} Seeking to Connect` : (fellow[a.school ?? "standard"] ?? standardSubject);
+    subject =
+      a.kind === "hometown"
+        ? homeSubject
+        : a.kind === "sports" && a.sport?.label.trim()
+          ? `Fellow ${a.sport.label.trim()} Seeking to Connect`
+          : (fellow[a.school ?? "standard"] ?? standardSubject);
+  } else if (a.kind === "sports" && a.sport) {
+    const sport = /^[A-Z]{2,}$/.test(a.sport.word) ? a.sport.word : a.sport.word.toLowerCase();
+    hook = `While looking through your profile, I noticed that you also played ${sport}. As someone who ${a.sport.mine.trim().replace(/[.!]+$/, "")}, I would love to hear about your journey to ${bank}.`;
+    subject = a.sport.label.trim() ? `Fellow ${a.sport.label.trim()} Seeking to Connect` : standardSubject;
+    flags.push(`Sports hook: their profile mentions "${a.sport.word}". Check they actually played it before sending.`);
   } else if (a.kind === "hometown") {
-    const school = a.schoolName || `[[AI: the school near ${my.home} they graduated from, from the facts]]`;
-    hook = `While looking through your profile, I noticed that you graduated from ${school}. Being from ${my.home} myself, I thought it would be great to speak with someone else who lived in my hometown.`;
-    subject = hometown.demonym ? `Fellow ${hometown.demonym} Seeking to Connect` : standardSubject;
+    if (a.schoolName) {
+      hook = `While looking through your profile, I noticed that you graduated from ${a.schoolName}. Being from ${my.home} myself, I thought it would be great to speak with someone else who lived in my hometown.`;
+    } else {
+      // Only a place matched ("Orange County", "Irvine"): that may be where they live now, so don't claim they grew up there.
+      hook = `While looking through your profile, I noticed your ties to ${a.place || my.home}. Being from ${my.home} myself, I thought it would be great to speak with someone else from my hometown.`;
+      flags.push(`Hometown hook from "${a.place}" in their profile: check it's where they grew up, not just where they work now.`);
+    }
+    subject = homeSubject;
   } else if (a.kind === "heritage") {
     const word = heritage.word;
     hook = tailored
@@ -453,3 +494,24 @@ export function leftFirm(c: Pick<Contact, "bank" | "headline">): string | undefi
 }
 
 // Send times: lib/sendWindow.ts (a window in Settings; it replaced the fixed NY 5 PM / else 7 PM PT rule).
+
+/**
+ * A Find people search for the people a rule is about, e.g. hometown → `site:linkedin.com/in "{bank}" "investment banking"
+ * ("Orange County" OR Irvine OR …)`. Kept under ~30 words (Google drops the rest); "a+b" phrases use their first part.
+ */
+export function ruleQuery(match: MatchList): string | undefined {
+  const words = match
+    .split(",")
+    .map((x) => x.split("+")[0].trim())
+    .filter((x) => x.length > 1);
+  const terms: string[] = [];
+  let count = 6; // site:… "{bank}" "investment banking"
+  for (const w of [...new Set(words)]) {
+    const n = w.split(/\s+/).length + 1;
+    if (count + n > 30) break;
+    terms.push(/\s/.test(w) ? `"${w}"` : w);
+    count += n;
+  }
+  if (!terms.length) return undefined;
+  return `site:linkedin.com/in "{bank}" "investment banking" (${terms.join(" OR ")})`;
+}

@@ -14,9 +14,11 @@ import { DEFAULT_BASES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, ORIGINAL_BASE, OUTR
 import { expandBase, fillPlaceholders } from "../src/lib/template";
 import { bodyToHtml, bodyToPlain, normalizeBody, withSignature, signatureLine, signOffFor, signOffIssues, templateSignOff, unwrapRedirects } from "../src/lib/emailFormat";
 import { DEFAULT_REPLY } from "../src/lib/scheduling";
-import { OUTREACH_EXPERIMENT_IDS as X, assignOutreachArms, composeOutreach, emailVerified, isTopSenior, leftFirm, pickWeighted, seniorSkipReason, settleOutreachArms } from "../src/lib/outreach";
+import { OUTREACH_EXPERIMENT_IDS as X, assignOutreachArms, composeOutreach, emailVerified, isTopSenior, leftFirm, pickWeighted, ruleQuery, rulesOf, seniorSkipReason, settleOutreachArms } from "../src/lib/outreach";
 import { DEFAULT_SEND_WINDOW, daysLabel, planBatch, planSends, recipientTz, windowOf, zonedDate } from "../src/lib/sendWindow";
 import type { Contact, Settings } from "../src/lib/types";
+import { buildMime } from "../src/lib/gmail";
+import { signatureBlock } from "../src/lib/emailFormat";
 
 const settings: Settings = {
   ...DEFAULT_SETTINGS,
@@ -148,8 +150,15 @@ for (const [what, ok] of checks) {
       hometown: { demonym: "Chicagoan", match: "Chicago, Evanston, Naperville" },
       heritage: { word: "Korean" },
       volunteer: [],
+      sports: [{ match: "baseball", label: "Baseball Player", mine: "played varsity baseball all four years of high school" }],
       seniorExceptions: ["school"],
     },
+  };
+  // An Orange County student: places only (no school), demonym left blank.
+  const oc: Settings = {
+    ...other,
+    profile: { ...other.profile, hometown: "Irvine, CA" },
+    outreach: { ...other.outreach!, hometown: { demonym: "", match: "Orange County, Irvine, Newport Beach, Huntington Beach, Mission Viejo" } },
   };
   const subjectFor = (c: Contact) => composeOutreach(c, other).subject;
   const otherChecks: [string, boolean][] = [
@@ -160,6 +169,14 @@ for (const [what, ok] of checks) {
     ["Korean (notes) → Korean Student", subjectFor(person({ comment: "Korean" })) === "Korean Student Seeking to Connect"],
     ["UCLA means nothing to them", subjectFor(person({ comment: "UCLA" })) === "Michigan Student Seeking to Connect"],
     ["MD from Michigan is allowed", !seniorSkipReason(person({ position: "Managing Director", school: "University of Michigan" }), other.outreach)],
+    ["Baseball in their profile → sports hook", composeOutreach(person({ comment: "Varsity Baseball captain" }), other).hook.includes("you also played baseball. As someone who played varsity baseball all four years of high school, I would love")],
+    ["Sports subject", subjectFor(person({ comment: "Varsity Baseball" })) === "Fellow Baseball Player Seeking to Connect"],
+    ["Sports hook is flagged for a check", composeOutreach(person({ comment: "Baseball" }), other).flags.some((f) => /Sports hook/.test(f))],
+    ["Sport with no 'mine' is off", composeOutreach(person({ comment: "Baseball" }), settings).affinity.kind !== "sports"],
+    ["OC place → hometown hook without claiming they grew up there", /noticed your ties to Orange County\. Being from Irvine, CA myself/.test(composeOutreach(person({ comment: "Orange County native" }), oc).hook)],
+    ["OC subject without a demonym", composeOutreach(person({ comment: "Newport Beach" }), oc).subject === "Michigan Student from Irvine Seeking to Connect"],
+    ["Find query from the hometown list", ruleQuery(oc.outreach!.hometown.match) === 'site:linkedin.com/in "{bank}" "investment banking" ("Orange County" OR Irvine OR "Newport Beach" OR "Huntington Beach" OR "Mission Viejo")'],
+    ["Old saved rules get sports defaults", Array.isArray(rulesOf({ outreach: { ...other.outreach!, sports: undefined as never } }).sports)],
     ["MD from Chicago isn't (not an exception for them)", !!seniorSkipReason(person({ position: "Managing Director", comment: "Evanston" }), other.outreach)],
   ];
   for (const [what, ok] of otherChecks) {
@@ -269,6 +286,31 @@ for (const [what, ok] of checks) {
     ["Batch: a day outside Tue–Thu is allowed but warned", !!friday.get("m0")!.warn?.includes("outside your usual days")],
   );
   for (const [what, ok] of windowChecks) {
+    if (!ok) failed++;
+    console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
+  }
+}
+
+// Signature logo: inline image (multipart/related + cid) right under the signature's last line, only when the body has it.
+{
+  const sigLines = signatureBlock(settings.profile).split("\n");
+  const after = sigLines[sigLines.length - 1];
+  const logo = { type: "image/png", data: new Uint8Array([137, 80, 78, 71]).buffer, width: 120, alt: "logo", after };
+  const body = withSignature("Hi Jane,\n\nThanks!\n\nSincerely,\nNathan", settings.profile);
+  const mime = buildMime({ to: "a@b.com", subject: "Hi", body, logo });
+  const html = bodyToHtml(body, undefined, { src: "cid:x", width: 120, after });
+  const plainMime = buildMime({ to: "a@b.com", subject: "Re: times", body: "Hi Jane,\n\nTuesday works.\n\nBest,\nNathan", logo });
+  const withPs = bodyToHtml(body + "\n\nP.S. Go Bruins", undefined, { src: "cid:x", width: 120, after });
+  const logoChecks: [string, boolean][] = [
+    ["Logo: multipart/related with a Content-ID", /multipart\/related/.test(mime) && /Content-ID: <signature-logo@coverage>/.test(mime) && /Content-Disposition: inline/.test(mime)],
+    ["Logo: img right after the signature's last line", /student@example\.edu<\/a><\/div><div><img src="cid:x" width="120"/.test(html)],
+    ["Logo: before a P.S.", withPs.indexOf("cid:x") < withPs.indexOf("P.S.")],
+    ["Logo: none when the body has no signature", !/multipart\/related/.test(plainMime)],
+    ["Logo: plain-text part unchanged", !/cid:/.test(bodyToPlain(body))],
+    ["Logo: link only for https", !/<a href="javascript/.test(bodyToHtml(body, undefined, { src: "cid:x", width: 120, after, link: "javascript:alert(1)" })) && /<a href="https:\/\/x\.com"><img/.test(bodyToHtml(body, undefined, { src: "cid:x", width: 120, after, link: "https://x.com" }))],
+    ["Logo: width clamped", /width="600"/.test(bodyToHtml(body, undefined, { src: "cid:x", width: 5000, after }))],
+  ];
+  for (const [what, ok] of logoChecks) {
     if (!ok) failed++;
     console.log(`${ok ? "ok  " : "FAIL"} ${what}`);
   }

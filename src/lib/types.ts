@@ -293,7 +293,11 @@ export interface Settings {
     revealPersonalEmails: boolean;
   };
   /** How drafts look in Gmail. */
-  emailStyle: { font: EmailFont };
+  emailStyle: {
+    font: EmailFont;
+    /** Logo under the signature (the image itself is in IndexedDB, blob:logo). Missing = no logo. */
+    logo?: { name: string; width: number; link?: string; addedAt: string };
+  };
   /** Coffee chat prep: the general questions that work for anyone. */
   prep: { generalQuestions: string[] };
   /** Shared email skeletons (see EmailBase). */

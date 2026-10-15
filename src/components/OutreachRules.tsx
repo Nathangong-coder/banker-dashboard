@@ -1,14 +1,15 @@
 "use client";
 
-import { Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { DEFAULT_OUTREACH_RULES, rulesOf, type OutreachRules } from "@/lib/outreach";
-import { Button, Card, CardHeader, Checkbox, Field, Input, Textarea } from "./ui";
+import { DEFAULT_OUTREACH_RULES, ruleQuery, rulesOf, type OutreachRules } from "@/lib/outreach";
+import { Button, Card, CardHeader, Checkbox, Field, Input, Textarea, toast } from "./ui";
 
 const EXCEPTIONS: { key: OutreachRules["seniorExceptions"][number]; label: (r: OutreachRules) => string }[] = [
   { key: "school", label: () => "Your school" },
   { key: "grad", label: (r) => r.grad.name || "Grad school" },
   { key: "hometown", label: (r) => `Hometown (${r.hometown.demonym || "—"})` },
+  { key: "sports", label: () => "A sport you both played" },
   { key: "heritage", label: (r) => `Heritage (${r.heritage.word || "—"})` },
   { key: "city", label: (r) => `${r.city.label || "City"} schools` },
   { key: "system", label: (r) => `${r.system.label || "System"} schools` },
@@ -24,6 +25,20 @@ export function OutreachRulesEditor() {
   const setSettings = useStore((s) => s.setSettings);
   const r = rulesOf(settings);
   const set = (fn: (r: OutreachRules) => OutreachRules) => setSettings((s) => ({ ...s, outreach: fn(rulesOf(s)) }));
+  // Adds a Find people search (one credit per bank) for the people a rule is about. It's an ordinary, editable query.
+  const queries = settings.prospect.queries;
+  const addSearch = (match: string, what: string) => {
+    const q = ruleQuery(match);
+    if (!q) return toast.err(`Add some ${what} words first.`);
+    if (queries.includes(q)) return toast.info("That search is already on Find people.");
+    setSettings((s) => ({ ...s, prospect: { ...s.prospect, queries: [...s.prospect.queries, q] } }));
+    toast.ok(`Added to Find people's searches: ${q}. Each search costs one credit per bank; edit or remove it there.`);
+  };
+  const searchButton = (match: string, what: string) => (
+    <Button size="sm" variant="ghost" icon={<Search className="size-3.5" />} onClick={() => addSearch(match, what)} title={ruleQuery(match) ?? ""}>
+      {ruleQuery(match) && queries.includes(ruleQuery(match)!) ? "On Find people" : "Search for them on Find people"}
+    </Button>
+  );
   const list = (value: string, onChange: (v: string) => void, placeholder?: string) => (
     <Textarea rows={2} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="text-[12.5px]" />
   );
@@ -63,10 +78,14 @@ export function OutreachRulesEditor() {
             </div>
           </Field>
         ))}
-        <Field label="Hometown" hint={`“Fellow Washingtonian”; the hook says “Being from ${settings.profile.hometown || "your hometown"} myself…” (hometown is in Your profile)`}>
+        <Field
+          label="Hometown (where you grew up)"
+          hint={`Their profile mentions one of these → “Fellow ${r.hometown.demonym || "…"}” (or “${settings.profile.school || "School"} Student from ${settings.profile.hometown?.split(",")[0] || "…"}” if blank), and “Being from ${settings.profile.hometown || "your hometown"} myself…” (hometown is in Your profile). A place alone (not a school) says “your ties to …” and is flagged, since it may be where they work now.`}
+        >
           <div className="space-y-1.5">
-            <Input value={r.hometown.demonym} placeholder="Washingtonian" onChange={(e) => set((x) => ({ ...x, hometown: { ...x.hometown, demonym: e.target.value } }))} aria-label="Hometown demonym" />
-            {list(r.hometown.match, (v) => set((x) => ({ ...x, hometown: { ...x.hometown, match: v } })), "Schools and towns there: University of Washington, Seattle, Bellevue")}
+            <Input value={r.hometown.demonym} placeholder="Washingtonian, Orange County native…" onChange={(e) => set((x) => ({ ...x, hometown: { ...x.hometown, demonym: e.target.value } }))} aria-label="Hometown demonym" />
+            {list(r.hometown.match, (v) => set((x) => ({ ...x, hometown: { ...x.hometown, match: v } })), "High schools, towns and the area: Orange County, Irvine, Newport Beach, Huntington Beach, Mission Viejo")}
+            {searchButton(r.hometown.match, "hometown")}
           </div>
         </Field>
         <Field label="Shared heritage" hint="Only ever read from your own notes (the Comment column), never guessed from a name. Leave empty to turn off.">
@@ -90,6 +109,30 @@ export function OutreachRulesEditor() {
             ))}
             <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => set((x) => ({ ...x, volunteer: [...x.volunteer, { match: "", mine: "", theirs: "" }] }))}>
               Add one
+            </Button>
+          </div>
+        </div>
+        <div className="md:col-span-2">
+          <div className="mb-1 text-[12px] font-medium text-ink-2">Sports</div>
+          <p className="mb-2 text-[11.5px] text-muted">
+            When their profile mentions the sport: “I noticed that you also played <i>baseball</i>. As someone who <i>yours</i>, I would love to hear about your
+            journey to …”, subject “Fellow <i>label</i> Seeking to Connect”. Comes after volunteer hooks and before hometown. A sport with nothing under
+            “yours” is off, so the email never claims something you didn’t write.
+          </p>
+          <div className="space-y-2">
+            {r.sports.map((v, i) => (
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)] gap-1.5 md:grid-cols-[0.8fr_0.8fr_1.6fr_auto_auto]">
+                <Input value={v.match} placeholder="Their profile mentions… (baseball)" onChange={(e) => set((x) => ({ ...x, sports: x.sports.map((y, j) => (j === i ? { ...y, match: e.target.value } : y)) }))} aria-label="Sport words" />
+                <Input value={v.label} placeholder="Subject label (Baseball Player)" onChange={(e) => set((x) => ({ ...x, sports: x.sports.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)) }))} aria-label="Subject label" />
+                <Input value={v.mine} placeholder="Yours: As someone who… (played varsity baseball in high school)" onChange={(e) => set((x) => ({ ...x, sports: x.sports.map((y, j) => (j === i ? { ...y, mine: e.target.value } : y)) }))} aria-label="Your experience" />
+                {searchButton(v.match, "sport")}
+                <button className="rounded p-1.5 text-muted hover:bg-[#efede5] hover:text-red" aria-label="Remove" onClick={() => set((x) => ({ ...x, sports: x.sports.filter((_, j) => j !== i) }))}>
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            ))}
+            <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => set((x) => ({ ...x, sports: [...x.sports, { match: "", label: "", mine: "" }] }))}>
+              Add a sport
             </Button>
           </div>
         </div>

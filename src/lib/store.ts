@@ -49,6 +49,9 @@ export const blobs = {
   resume: () => idbGet<{ name: string; type: string; data: ArrayBuffer }>("blob:resume"),
   setResume: (r: { name: string; type: string; data: ArrayBuffer } | undefined) =>
     r ? idbSet("blob:resume", r) : idbDel("blob:resume"),
+  /** Signature logo image (settings.emailStyle.logo holds its name and size). */
+  logo: () => idbGet<{ name: string; type: string; data: ArrayBuffer }>("blob:logo"),
+  setLogo: (r: { name: string; type: string; data: ArrayBuffer } | undefined) => (r ? idbSet("blob:logo", r) : idbDel("blob:logo")),
 };
 
 export function bankKey(name: string, region: Region) {
@@ -482,6 +485,7 @@ export const useStore = create<State>()(
 
       clearAll: () => {
         blobs.setResume(undefined);
+        blobs.setLogo(undefined);
         blobs.setFileHandle(undefined);
         idbDel("blob:workbook");
         idbDel("blob:snapshots");

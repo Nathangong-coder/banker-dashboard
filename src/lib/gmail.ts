@@ -7,7 +7,7 @@ import { EMAIL_FONTS, type EmailFont } from "./types";
  * access token, and we call the Gmail REST API directly (it supports CORS).
  */
 
-import { bodyToHtml, bodyToPlain, normalizeSubject } from "./emailFormat";
+import { bodyToHtml, bodyToPlain, logoLineIndex, normalizeBody, normalizeSubject } from "./emailFormat";
 
 const SCOPES = "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -120,7 +120,24 @@ export interface DraftInput {
   inReplyTo?: string;
   /** CSS font-family stack for the HTML part. */
   font?: string;
+  /**
+   * Logo under the signature, sent as an inline image (multipart/related, cid:) so it shows without loading anything
+   * from the web. Undefined = use the one saved in Settings → Email → Writing; null = none.
+   */
+  logo?: SignatureLogo | null;
 }
+
+export interface SignatureLogo {
+  type: string;
+  data: ArrayBuffer;
+  width: number;
+  alt?: string;
+  link?: string;
+  /** The signature's last line; the logo goes under it, and only when the body has it. */
+  after: string;
+}
+
+const LOGO_CID = "signature-logo@coverage";
 
 /**
  * RFC 2822 message for a Gmail draft: multipart/alternative (plain text + Gmail-style HTML so lines use
@@ -140,13 +157,33 @@ export function buildMime(d: DraftInput): string {
   ];
   const part = (type: string, content: string) =>
     [`Content-Type: ${type}; charset="UTF-8"`, "Content-Transfer-Encoding: base64", "", wrap76(b64Text(content))].join("\r\n");
+  // The logo only goes in when the body has the signature (a reply without one gets no logo either).
+  const logo = d.logo && logoLineIndex(normalizeBody(body).split("\n"), d.logo.after) >= 0 ? d.logo : undefined;
+  const html = part("text/html", bodyToHtml(body, d.font, logo && { src: `cid:${LOGO_CID}`, width: logo.width, alt: logo.alt, link: logo.link, after: logo.after }));
+  const rel = `rel_${id}`;
+  const htmlPart = logo
+    ? [
+        `Content-Type: multipart/related; boundary="${rel}"`,
+        "",
+        `--${rel}`,
+        html,
+        `--${rel}`,
+        `Content-Type: ${logo.type}; name="logo"`,
+        `Content-ID: <${LOGO_CID}>`,
+        `Content-Disposition: inline; filename="logo"`,
+        "Content-Transfer-Encoding: base64",
+        "",
+        wrap76(b64Bytes(new Uint8Array(logo.data))),
+        `--${rel}--`,
+      ].join("\r\n")
+    : html;
   const alternative = [
     `Content-Type: multipart/alternative; boundary="${alt}"`,
     "",
     `--${alt}`,
     part("text/plain", bodyToPlain(body).replace(/\n/g, "\r\n")),
     `--${alt}`,
-    part("text/html", bodyToHtml(body, d.font)),
+    htmlPart,
     `--${alt}--`,
   ].join("\r\n");
   if (!d.attachment) return [...headers, alternative].join("\r\n");
@@ -197,7 +234,8 @@ export async function deleteDraft(clientId: string, id: string) {
 }
 
 /** Replace the Gmail draft's content if it still exists, otherwise create a new one (so re-sending never duplicates). */
-export async function upsertDraft(clientId: string, existingId: string | undefined, d: DraftInput) {
+export async function upsertDraft(clientId: string, existingId: string | undefined, input: DraftInput) {
+  const d = input.logo === undefined ? { ...input, logo: await savedSignatureLogo() } : input;
   if (existingId && (await draftExists(clientId, existingId))) {
     const raw = toUrlSafe(b64Text(buildMime(d)));
     return gapi<{ id: string; message: { id: string; threadId: string } }>(clientId, `/drafts/${encodeURIComponent(existingId)}`, {
@@ -536,4 +574,18 @@ export async function labelInGmail(clientId: string, messageIds: string[], name 
     })).id;
   for (const m of messageIds) await call(`/messages/${m}/modify`, { method: "POST", body: JSON.stringify({ addLabelIds: [id] }) });
   return messageIds.length;
+}
+
+// The saved logo comes from the store (blob + settings); it's plugged in by Shell so this file stays store-free
+// (scripts import it outside the browser).
+let logoSource: () => Promise<SignatureLogo | undefined> = async () => undefined;
+export function setSignatureLogoSource(fn: () => Promise<SignatureLogo | undefined>) {
+  logoSource = fn;
+}
+async function savedSignatureLogo() {
+  try {
+    return (await logoSource()) ?? null;
+  } catch {
+    return null;
+  }
 }

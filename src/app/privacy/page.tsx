@@ -22,7 +22,7 @@ export default function PrivacyPage() {
 
       <H2>1. What stays in your browser</H2>
       <p>
-        Your contacts, spreadsheet, drafts, templates, settings and the API keys you add are stored in your browser (IndexedDB and local storage) on the
+        Your contacts, spreadsheet, drafts, templates, settings, resume, signature logo and the API keys you add are stored in your browser (IndexedDB and local storage) on the
         device you use. We can&apos;t see them. Clearing your browser data, or <b>Settings → Backup → Clear all data</b>, deletes them. Backups you export are
         files you control.
       </p>

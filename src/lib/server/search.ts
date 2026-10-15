@@ -4,17 +4,45 @@ import { withFallback } from "./keys";
 
 export type Organic = { title?: string; link?: string; snippet?: string };
 
-async function serperSearch(key: string, q: string, num: number): Promise<Organic[]> {
+async function serperPage(key: string, q: string, num: number, page?: number) {
   const res = await fetch("https://google.serper.dev/search", {
     method: "POST",
     headers: { "X-API-KEY": key, "Content-Type": "application/json" },
-    body: JSON.stringify({ q, num }),
+    body: JSON.stringify(page && page > 1 ? { q, num, page } : { q, num }),
   });
   if ([401, 402, 403, 429].includes(res.status))
     throw new HttpError(res.status, `Serper: ${res.status === 429 ? "rate limited or out of credits" : res.status === 402 ? "out of credits" : "invalid API key"}`);
-  if (!res.ok) throw new HttpError(502, `Serper (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) return { error: `Serper (${res.status}): ${(await res.text()).slice(0, 200)}`, status: res.status };
   const j = (await res.json()) as { organic?: Organic[] };
-  return j.organic ?? [];
+  return { organic: j.organic ?? [] };
+}
+
+/**
+ * Serper's free plan only allows 10 results per search: asking for num=20 comes back as
+ * 404 "not available for free accounts". Free keys get 10 a page, with more pages up to `num` (1 credit each).
+ */
+const tenOnly = new Set<string>();
+const FREE_PLAN = /free (account|plan|tier)|not available/i;
+
+async function serperSearch(key: string, q: string, num: number): Promise<Organic[]> {
+  if (num > 10 && !tenOnly.has(key)) {
+    const r = await serperPage(key, q, num);
+    if (r.organic) return r.organic;
+    if (!(FREE_PLAN.test(r.error) || r.status === 404 || r.status === 400)) throw new HttpError(502, r.error);
+    tenOnly.add(key);
+  }
+  const out: Organic[] = [];
+  for (let page = 1; out.length < num && page <= Math.ceil(num / 10); page++) {
+    const r = await serperPage(key, q, 10, page);
+    if (!r.organic) {
+      // A later page failing still leaves the first page's results.
+      if (page > 1) break;
+      throw new HttpError(502, FREE_PLAN.test(r.error) ? `${r.error}. Serper's free plan may not cover this search.` : r.error);
+    }
+    out.push(...r.organic);
+    if (r.organic.length < 10) break;
+  }
+  return out.slice(0, num);
 }
 
 async function braveSearch(key: string, q: string, num: number): Promise<Organic[]> {

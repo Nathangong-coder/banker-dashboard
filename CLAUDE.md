@@ -188,6 +188,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   and the full name is put on top unless it already starts with it.
   Phone numbers are deliberately NOT links: `unlinkPhones` puts `&zwnj;` between digit groups to defeat Gmail/Apple data detectors.
   The HTML wrapper gets `font-family` from `settings.emailStyle.font` (`EMAIL_FONTS`, Gmail's own stacks; default Garamond).
+- **Signature logo** (Settings → Email → Writing, `components/SignatureLogo.tsx`): PNG/JPG/GIF ≤ 1 MB in `blob:logo`, meta
+  (`name`, `width` 40–300, optional https `link`) in `settings.emailStyle.logo`. `upsertDraft` adds it to every Gmail draft
+  (`logo: undefined` = saved one, via `setSignatureLogoSource`, registered in Shell so gmail.ts stays store-free for scripts):
+  `buildMime` wraps the HTML in multipart/related with the image as `cid:signature-logo@coverage`, placed right under the
+  signature's last line (`logoLineIndex`, so before a P.S.). A body without the signature (scheduling reply without one) gets no
+  logo. Plain text is unchanged. Not a remote URL: it shows even when images from the web are blocked.
 
 ## AI model chain (`lib/keys.ts#modelChain`, `lib/server/ai.ts#withAi`)
 
@@ -283,6 +289,8 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 
 ## Finding people (`app/api/prospect/search`, `src/lib/linkedinCapture.ts`)
 
+- **Serper free plan = 10 results per search.** `num` > 10 returns 404 "not available for free accounts"; `serperSearch`
+  then asks for 10 a page (`page` 2, 3…, one credit each) and remembers that key (per server instance).
 - Web search: `webSearch` tries the Serper keys, then falls back to Brave (`x-brave-keys`; free plan = 1 req/s, so queries run sequentially).
   Brave reports a bad key as **422 SUBSCRIPTION_TOKEN_INVALID**, which is mapped to 401 so key fallback works. Keep default queries ≤ ~30 words
   (`queryWordCount`), since Google truncates at 32. Store v3 migration swaps the old too-long defaults if untouched (`LEGACY_QUERIES_V1`).
@@ -551,9 +559,15 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   acts when the firms or applications changed). The store's office-map subscription includes pending patches.
 - **Outreach rules are settings** (`settings.outreach: OutreachRules`, Settings → Outreach rules, `components/OutreachRules.tsx`;
   defaults = the owner's in `outreach.ts#DEFAULT_OUTREACH_RULES`): your school / grad school / city / school system / state
-  (comma lists, "a+b" = both), hometown (demonym + places), heritage word (read only from the Comment column), volunteer hooks
-  (match / yours / theirs), and which ties make an MD+ OK (`seniorExceptions`). `affinityOf(c, rules)` kinds are generic:
-  volunteer > hometown > heritage > grad / school > city > system > state > standard. Subjects use `profile.schoolNickname`
+  (comma lists, "a+b" = both), hometown (demonym + high schools / towns / area, e.g. "Orange County, Irvine"), heritage word
+  (read only from the Comment column), volunteer hooks (match / yours / theirs), sports (match / subject label / yours; off
+  while "yours" is empty, so no experience is ever claimed that the user didn't write), and which ties make an MD+ OK
+  (`seniorExceptions`, incl. "sports"). `affinityOf(c, rules)` kinds are generic:
+  volunteer > sports > hometown > heritage > grad / school > city > system > state > standard. A hometown hit on a place (not
+  a school) says "your ties to X" and is flagged (it may be where they work now); no demonym → "UCLA Student from Irvine".
+  Sports hooks are flagged for a check too. "Search for them on Find people" (`ruleQuery`) appends an editable
+  `site:linkedin.com/in "{bank}" "investment banking" (A OR "B" …)` query (≤ 30 words) to `settings.prospect.queries`.
+  `rulesOf` fills rules added later (sports) from the defaults. Subjects use `profile.schoolNickname`
   and the group labels ("Fellow Big Ten Student"); `check:outreach` also renders a Michigan / Chicago / Korean profile.
 - **Bank coverage columns = `CoverageRow.stage`:** awaiting (emailed as many people as the cap allows on every desk being
   applied to; cap = `followUp.livePerBank` per desk, or for the bank with no desks), could_max (emailed someone, room left;

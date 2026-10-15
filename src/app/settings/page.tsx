@@ -19,6 +19,7 @@ import { AnalyticsSetting } from "@/components/Consent";
 import { checkEmail, checkLinkedIn, checkName, checkPhone } from "@/lib/validate";
 import { bodyToHtml, unwrapRedirects, withSignature } from "@/lib/emailFormat";
 import { ResumeCard } from "@/components/ResumeCard";
+import { SignatureLogoEditor, useSignatureLogoPreview } from "@/components/SignatureLogo";
 import Link from "next/link";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -206,6 +207,7 @@ export default function SettingsPage() {
   };
   const importRef = useRef<HTMLInputElement>(null);
   const p = settings.profile;
+  const logoPreview = useSignatureLogoPreview();
   const k = settings.keys;
   const fu = settings.followUp;
   const setP = (patch: Partial<Settings["profile"]>) => setSettings((s) => ({ ...s, profile: { ...s.profile, ...patch } }));
@@ -275,7 +277,7 @@ export default function SettingsPage() {
               <Select
                 className="w-full"
                 value={settings.emailStyle.font}
-                onChange={(e) => setSettings((st) => ({ ...st, emailStyle: { font: e.target.value as EmailFont } }))}
+                onChange={(e) => setSettings((st) => ({ ...st, emailStyle: { ...st.emailStyle, font: e.target.value as EmailFont } }))}
                 style={{ fontFamily: EMAIL_FONTS[settings.emailStyle.font].css }}
               >
                 {(Object.keys(EMAIL_FONTS) as EmailFont[]).map((f) => (
@@ -300,8 +302,11 @@ export default function SettingsPage() {
               <div
                 className="mt-2 rounded-md border border-line bg-white px-3 py-2 text-[13px] text-[#222]"
                 // Built from your own profile fields; bodyToHtml escapes them.
-                dangerouslySetInnerHTML={{ __html: bodyToHtml(withSignature(`Sincerely,\n${p.name.trim().split(/\s+/)[0] || "First"}`, p), EMAIL_FONTS[settings.emailStyle.font]?.css) }}
+                dangerouslySetInnerHTML={{ __html: bodyToHtml(withSignature(`Sincerely,\n${p.name.trim().split(/\s+/)[0] || "First"}`, p), EMAIL_FONTS[settings.emailStyle.font]?.css, logoPreview) }}
               />
+              <div className="mt-3">
+                <SignatureLogoEditor />
+              </div>
             </div>
           </div>
         </Card>

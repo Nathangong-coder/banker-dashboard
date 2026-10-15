@@ -17,6 +17,11 @@ import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 import { sendWhatsAppDigest, whatsappDigest } from "@/lib/reminders";
 import { callApi } from "@/lib/api";
 import { syncServer } from "@/lib/serverSync";
+import { setSignatureLogoSource } from "@/lib/gmail";
+import { savedSignatureLogo } from "@/lib/signatureLogo";
+
+// Every Gmail draft gets the signature logo saved in Settings (gmail.ts stays store-free for the check scripts).
+setSignatureLogoSource(savedSignatureLogo);
 
 /** Pages that render without waiting for the local store (no personal data on them). */
 const PUBLIC_PATHS = ["/privacy", "/terms"];
