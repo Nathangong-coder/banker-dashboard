@@ -67,6 +67,8 @@ interface State {
   scheduled: Record<string, string>;
   snapshots: SheetSnapshot[]; // not persisted via JSON (see partialize)
   resumeName?: string;
+  /** When the current resume was uploaded (Gmail drafts made before this still carry the previous file). */
+  resumeAddedAt?: string;
   /** Firms found on target-list tabs of the workbook. */
   targets: TargetBank[];
   /** Coverage page: banks the user hid, added by hand, and whether to include the starter IB list. */
@@ -107,7 +109,7 @@ interface State {
   upsertBank: (b: BankMeta) => void;
   setProspects: (p: Prospect[]) => void;
   markScheduled: (key: string, at: string) => void;
-  setResumeName: (n?: string) => void;
+  setResumeName: (n?: string, addedAt?: string) => void;
   setCoverage: (fn: (c: State["coverage"]) => State["coverage"]) => void;
   setLastGmailSync: (at: string) => void;
   noteAiCooldowns: (list: { provider: string; model: string; keyId?: string; until: string }[]) => void;
@@ -342,7 +344,7 @@ export const useStore = create<State>()(
 
       markScheduled: (key, at) => set({ scheduled: { ...get().scheduled, [key]: at } }),
 
-      setResumeName: (resumeName) => set({ resumeName }),
+      setResumeName: (resumeName, resumeAddedAt) => set({ resumeName, resumeAddedAt }),
 
       setCoverage: (fn) => set({ coverage: fn(get().coverage) }),
       setLastGmailSync: (lastGmailSync) => set({ lastGmailSync }),
@@ -372,6 +374,7 @@ export const useStore = create<State>()(
           snapshots: [],
           workbook: undefined,
           resumeName: undefined,
+          resumeAddedAt: undefined,
           targets: [],
           lastGmailSync: undefined,
         });

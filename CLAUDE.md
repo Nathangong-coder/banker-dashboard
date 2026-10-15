@@ -60,6 +60,9 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Scopes: `gmail.compose` + `gmail.readonly`,
   then direct REST calls. `createDraft` builds MIME by hand (resume attachment, and `threadId`/`In-Reply-To` for follow-ups).
   `syncContact` reads `in:sent to:X` and `from:X` to backfill sentAt / followUps / repliedAt.
+- **Resume** (`components/ResumeCard.tsx`, on Settings → Profile and /drafts): one file in `blob:resume`, `state.resumeAddedAt`. Attached
+  only to first cold emails (`template.kind === "initial" && attachResume`); follow-ups and scheduling replies never attach it. Replacing it
+  doesn't touch existing Gmail drafts; the card counts unsent ones made before the upload ("Update Gmail draft" re-attaches).
 
 ## Spreadsheet model (`src/lib/workbook.ts`): read this before touching it
 

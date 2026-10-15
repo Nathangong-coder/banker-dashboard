@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, CalendarPlus, Check, Clock, MailPlus, MessageSquare, RefreshCw, Smartphone, UserX } from "lucide-react";
-import { blobs, bankKey, useStore } from "@/lib/store";
+import { bankKey, useStore } from "@/lib/store";
 import { isVpPlus } from "@/lib/seniority";
 import { nextAction, pendingFollowUpDraft, rollupBanks, type BankRollup, type NextAction } from "@/lib/followups";
 import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
@@ -161,7 +161,7 @@ function useActions() {
       body,
       threadId: c.threadId,
       inReplyTo: c.lastMessageId,
-      attachment: t.attachResume ? await blobs.resume() : undefined,
+      // No attachment: the resume goes on the first cold email only (it's already in this thread).
       // Same font as the first email (keeps font experiments clean and the thread consistent).
       font: EMAIL_FONTS[c.trial?.font ?? s.settings.emailStyle.font]?.css,
     });

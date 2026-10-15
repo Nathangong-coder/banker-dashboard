@@ -71,9 +71,13 @@ function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Temp
             )}
           </div>
         )}
-        <label className="flex items-center gap-2 text-[13px]">
-          <Checkbox checked={d.attachResume} onChange={(v) => setD({ ...d, attachResume: v })} /> Attach my resume
-        </label>
+        {d.kind === "initial" ? (
+          <label className="flex items-center gap-2 text-[13px]">
+            <Checkbox checked={d.attachResume} onChange={(v) => setD({ ...d, attachResume: v })} /> Attach my resume
+          </label>
+        ) : (
+          <p className="text-[12.5px] text-muted">Follow-ups never attach your resume; it went with the first email.</p>
+        )}
         {d.kind === "initial" && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md bg-[#fbfaf6] px-3 py-2 text-[12.5px] text-ink-2">
             <span className="text-muted">Needs before drafting:</span>

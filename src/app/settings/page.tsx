@@ -18,6 +18,7 @@ import { SendWindowEditor } from "@/components/SendWindowEditor";
 import { AnalyticsSetting } from "@/components/Consent";
 import { checkEmail, checkLinkedIn, checkName, checkPhone } from "@/lib/validate";
 import { bodyToHtml, unwrapRedirects, withSignature } from "@/lib/emailFormat";
+import { ResumeCard } from "@/components/ResumeCard";
 import Link from "next/link";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -255,6 +256,7 @@ export default function SettingsPage() {
             <Field label="Club"><Input value={p.club} placeholder="e.g. Bruin Finance Society" onChange={(e) => setP({ club: e.target.value })} /></Field>
           </div>
         </Card>
+        <ResumeCard />
           </>
         )}
         {tab === "email" && sub === "writing" && (

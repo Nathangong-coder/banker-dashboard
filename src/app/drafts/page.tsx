@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, FileUp, Mail, Paperclip, Pencil, Plus, Send, Sparkles, Wand2 } from "lucide-react";
@@ -23,6 +23,7 @@ import { bodyToPlain, normalizeBody, normalizeSubject, signOffIssues, withSignat
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { TemplateEditor } from "@/components/TemplateEditor";
+import { ResumeCard } from "@/components/ResumeCard";
 import { TemplateImport } from "@/components/TemplateImport";
 import { FirmPanel, FirmSummary, useFirmRows } from "@/components/FirmContext";
 import { DEFAULT_TEMPLATES, ORIGINAL_BASE } from "@/lib/defaults";
@@ -52,7 +53,6 @@ function DraftsInner() {
     return !!w && !w.tie && !allowSenior;
   };
   const [importOpen, setImportOpen] = useState(false);
-  const resumeRef = useRef<HTMLInputElement>(null);
 
   const rows = useContactFilter(contacts, f);
   const chosen = contacts.filter((c) => sel.has(c.id));
@@ -238,7 +238,8 @@ function DraftsInner() {
             to: c.email,
             subject: c.draft!.subject,
             body,
-            attachment: t?.attachResume && resume ? resume : undefined,
+            // Resume on first cold emails only.
+            attachment: t?.kind === "initial" && t.attachResume && resume ? resume : undefined,
             font: EMAIL_FONTS[trial.font]?.css,
           });
           ok++;
@@ -255,11 +256,6 @@ function DraftsInner() {
     toast.ok(`${ok} drafts are waiting in Gmail (existing ones were updated, not duplicated).${skipped ? ` ${skipped} skipped (no draft, or no verified email).` : ""}`);
   };
 
-  const onResume = async (file: File) => {
-    await blobs.setResume({ name: file.name, type: file.type || "application/pdf", data: await file.arrayBuffer() });
-    s.setResumeName(file.name);
-    toast.ok(`Resume saved: ${file.name}`);
-  };
 
   const allSel = rows.length > 0 && rows.every((r) => sel.has(r.id));
 
@@ -337,27 +333,7 @@ function DraftsInner() {
             <HooksCard />
           </Card>
 
-          <Card>
-            <CardHeader title="Resume" sub="Attached to templates marked with a paperclip" />
-            <div className="flex items-center gap-2 p-4">
-              <Paperclip className="size-4 text-muted" />
-              <span className="flex-1 truncate text-[13px]">{s.resumeName ?? <span className="text-muted">No resume uploaded</span>}</span>
-              <Button size="sm" onClick={() => resumeRef.current?.click()}>
-                {s.resumeName ? "Replace" : "Upload"}
-              </Button>
-              <input
-                ref={resumeRef}
-                type="file"
-                accept=".pdf,.doc,.docx"
-                hidden
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  if (file) onResume(file);
-                }}
-              />
-            </div>
-          </Card>
+          <ResumeCard />
 
           {(profileMissing || !googleClientId(settings)) && (
             <Card className="border-amber/30 bg-amber-soft/40 p-4 text-[12.5px] text-ink-2">
@@ -654,7 +630,7 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
     try {
       save();
       const t = templates.find((x) => x.id === c.templateId);
-      const resume = t?.attachResume ? await blobs.resume() : undefined;
+      const resume = t?.kind === "initial" && t.attachResume ? await blobs.resume() : undefined;
       const trial = assignTrial(c, settings, trialTally(useStore.getState().contacts));
       const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, { to: c.email, subject, body, attachment: resume, font: EMAIL_FONTS[trial.font]?.css });
       update(c.id, { draft: { ...c.draft!, subject, body, gmailDraftId: r.id }, trial });
