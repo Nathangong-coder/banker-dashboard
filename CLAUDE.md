@@ -133,8 +133,10 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   over the dashboard's status; `saveWorkbook` re-baselines `sheetStatus` so the dashboard's own writes don't count as edits.
 - Re-import: an email that came from the sheet follows the sheet (clearing a wrong address in Excel clears it in the
   dashboard); emails the dashboard found (Apollo/Hunter/Gmail) are kept until saved.
-- **Contacted column** (`src/lib/contacted.ts`): send dates live in the workbook ("9/17/2026 · last 9/25/2026",
-  "Scheduled 10/6/2026 9:00 AM"), read into `sentAt` / `lastTouchAt` / `scheduledAt`. `contactPatches` writes them, adding
+- **Contacted column** (`src/lib/contacted.ts`): send dates live in the workbook. Contacted = the FIRST email only ("9/17/2026",
+  "Scheduled 10/6/2026 9:00 AM"); the latest email or call goes to its own **"Last emailed/contacted"** column (owner, 2026-10-19;
+  `LAST_CONTACTED_HEADERS`, added after the table, K on the owner's tabs). Legacy combined cells ("9/17/2026 · last 9/25/2026") are
+  still read and get split on the next save. Read into `sentAt` / `lastTouchAt` (before a reply) or `lastEmailedAt` (after) / `scheduledAt`. `contactPatches` writes them, adding
   the header in the empty column left of Status (H on the owner's tabs; GS already had "Contacted") when missing, and
   compares by meaning so the owner's own formats aren't rewritten. Before this the sheet had no dates at all, so every
   "Sent" person showed as due ("sent date unknown").
@@ -180,6 +182,10 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `calendarMatch.ts#matchEvent` against `account.people` (attendee email → full name → unique first name; unmatched chat-like titles
   kept), and ends with the "update the tracker" line when there were calls. Old connections lack the scope: AutoSend shows "Reconnect".
   `npm run check:night` covers it. Gmail sync now records `lastEmailedAt` / `lastHeardAt` (replies after the first reply included).
+- **Follow-up spacing when scheduling:** `followups.ts#earliestSend` (last email + first/nextAfterDays) is passed as `notBefore` to
+  `planSends` / `planBatch`, so a follow-up is never queued early (Will Yi's #2 was queued Tue, 5 days after #1). `planSends` records
+  why someone isn't on the first open day (`why`, kept as `serverSend.why`: window full = 20 per zone/day at 6-min spacing, or
+  spacing). Follow-ups → Scheduled shows a "too soon" badge and "Move too-early sends" (`serverSync.ts#fixEarlySends`).
 - **Date bug (Michael Bender):** a save re-imports the file from disk when OneDrive/Excel touched it; a Contacted cell saved before a
   follow-up ("10/1/2026") replaced the follow-up's `lastTouchAt`, so follow-up #2 was timed from the first email. Merges now take
   `util.ts#latestIso` (store import + workbook dedupe): the last touch never moves back.
@@ -187,6 +193,14 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   referrals 25; avg chat grade 15) + your stars/notes in `coverage.ratings`.
 - **Transcripts** (`components/ChatGrades.tsx` on /prep, `api/prep/grade`): upload .txt/.vtt/.srt/.md/.docx or paste → AI rubric grade,
   improvements, the banker's commitments, thank-you points; saved as `contact.chats[]`. "They referred me" sets `contact.referral`.
+- **Bank brief** (`components/BankBrief.tsx` on /prep, for the selected contact's bank or any bank typed in its picker; `api/prep/bank`):
+  webSearch (≤6 queries: per sub-vertical, the sector, the bank's culture/program) → AI returns ≤6 recent deals the bank advised on in
+  `settings.prep.interests` (sector → sub-verticals; default Tech → Software, Internet, Vertical software; edited in Settings → Profile
+  and inline on /prep via `components/PrepInterests.tsx`) plus a 3–5 bullet + ~60-word "Why <Bank>". Each deal cites a result number;
+  deals whose number isn't a real result are dropped server-side. "Why" is grounded in `BankBrief.tsx#bankNotes` (firm notes,
+  BankMeta notes, contacts' comment / call notes / chat notes / grade summary + thank-you points), bullets marked `fromNotes` with who;
+  no notes = flagged generic. No Serper/Brave key = 400 pointing to Settings → Data. Cached in `coverage.bankBriefs[canonBank]`
+  (`BankBrief` type in coverage.ts) until Refresh; an amber badge shows when the interests changed since.
 
 ## Email formatting & signature (`src/lib/emailFormat.ts`)
 

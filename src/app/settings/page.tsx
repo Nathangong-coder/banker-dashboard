@@ -19,6 +19,7 @@ import { AnalyticsSetting } from "@/components/Consent";
 import { checkEmail, checkLinkedIn, checkName, checkPhone } from "@/lib/validate";
 import { bodyToHtml, unwrapRedirects, withSignature } from "@/lib/emailFormat";
 import { ResumeCard } from "@/components/ResumeCard";
+import { InterestsEditor } from "@/components/PrepInterests";
 import { SignatureLogoEditor, useSignatureLogoPreview } from "@/components/SignatureLogo";
 import Link from "next/link";
 
@@ -256,6 +257,15 @@ export default function SettingsPage() {
             <Field label="School nickname" hint="“Fellow Bruin…”"><Input value={p.schoolNickname} placeholder="Bruin" onChange={(e) => setP({ schoolNickname: e.target.value })} /></Field>
             <Field label="School city" hint="“…went to college in LA”"><Input value={p.schoolCity} placeholder="LA" onChange={(e) => setP({ schoolCity: e.target.value })} /></Field>
             <Field label="Club"><Input value={p.club} placeholder="e.g. Bruin Finance Society" onChange={(e) => setP({ club: e.target.value })} /></Field>
+          </div>
+        </Card>
+        <Card>
+          <CardHeader
+            title="Sector interests"
+            sub="The sectors and sub-verticals you're recruiting for. Coffee chat prep uses them for each bank's recent deals and your “Why this bank” answer."
+          />
+          <div className="p-4">
+            <InterestsEditor />
           </div>
         </Card>
         <ResumeCard />

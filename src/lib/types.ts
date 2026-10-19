@@ -48,8 +48,10 @@ export type ContactField =
   | "status"
   | "comment"
   | "company"
-  /** When they were emailed (lib/contacted.ts). */
-  | "contacted";
+  /** When they were first emailed (lib/contacted.ts). */
+  | "contacted"
+  /** The latest email or call with them ("Last emailed/contacted"). */
+  | "lastContacted";
 
 export interface HistoryEvent {
   at: string;
@@ -102,7 +104,7 @@ export interface Contact {
    * A Gmail draft the server will send at `sendAt` (api/server). step 0 = the first email, n = follow-up #n.
    * Cleared when the server reports it sent (then status / dates move on) or when it's cancelled.
    */
-  serverSend?: { draftId: string; sendAt: string; step: number; queuedAt: string };
+  serverSend?: { draftId: string; sendAt: string; step: number; queuedAt: string; /** Why it isn't on the first open day (window full, spacing). */ why?: string };
   sentAt?: string;
   lastTouchAt?: string;
   /** A send queued in Gmail ("Schedule send") that hasn't gone out yet. Follow-ups are timed from the real send. */
@@ -153,6 +155,12 @@ export interface CoffeePrep {
   /** Indexes of questions ticked off during the call: "g0", "t2"… */
   asked?: string[];
   notes?: string;
+}
+
+/** A sector you're interested in and the sub-verticals inside it, e.g. Tech → Software, Internet. */
+export interface PrepInterest {
+  sector: string;
+  subVerticals: string[];
 }
 
 export interface ChatLog {
@@ -334,8 +342,11 @@ export interface Settings {
     /** Logo under the signature (the image itself is in IndexedDB, blob:logo). Missing = no logo. */
     logo?: { name: string; width: number; link?: string; addedAt: string };
   };
-  /** Coffee chat prep: the general questions that work for anyone. */
-  prep: { generalQuestions: string[] };
+  /**
+   * Coffee chat prep: the general questions that work for anyone, and the sectors / sub-verticals you're interested in
+   * (steer the bank brief's deal search and your "why this bank" answer).
+   */
+  prep: { generalQuestions: string[]; interests: PrepInterest[] };
   /** Shared email skeletons (see EmailBase). */
   emailBases: EmailBase[];
   /** {{my_pitch}} sentences by kind of banker (see lib/hooks.ts). */

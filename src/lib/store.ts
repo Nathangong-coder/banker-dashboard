@@ -287,6 +287,7 @@ export const useStore = create<State>()(
             // ...but the last touch never moves back: a Contacted cell saved before a follow-up went out ("10/1/2026") used
             // to replace the follow-up's date on the next save's re-import, so follow-up #2 was timed from the first email.
             lastTouchAt: fresh.sentAt ? latestIso(fresh.lastTouchAt ?? fresh.sentAt, prev.lastTouchAt) : prev.lastTouchAt,
+            lastEmailedAt: latestIso(fresh.lastEmailedAt, prev.lastEmailedAt),
             scheduledAt: fresh.sentAt || fresh.scheduledAt ? fresh.scheduledAt : prev.sentAt ? undefined : prev.scheduledAt,
           };
         });

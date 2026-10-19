@@ -5,7 +5,8 @@
  */
 import { LABELS, digestMessages, isTextDay, nextTextDay } from "../src/lib/digestFormat";
 import { relationshipItem } from "../src/lib/reminders";
-import { nextAction } from "../src/lib/followups";
+import { earliestSend, nextAction } from "../src/lib/followups";
+import { DEFAULT_SEND_WINDOW, planBatch, planSends, zonedDate } from "../src/lib/sendWindow";
 import { matchEvent, looksLikeChat } from "../src/lib/calendarMatch";
 import { latestIso } from "../src/lib/util";
 import { DEFAULT_SETTINGS } from "../src/lib/defaults";
@@ -80,6 +81,33 @@ check("full name in the title", matchEvent(ev("Call w/ Michael Bender (MS)"), pe
 check("ambiguous first name → no match", matchEvent(ev("Call with Michael"), people) === null);
 check("unrelated event → no match", matchEvent(ev("Econ 101 midterm"), people) === null);
 check("chat-like titles", looksLikeChat("Nathan<>Sam") && looksLikeChat("Coffee chat") && !looksLikeChat("Econ 101 midterm"));
+
+// Scheduling. "Now" = Mon 10/19/2026 noon PT; window 9–11 AM their time, Tue–Thu.
+const ET = "America/New_York";
+const now = zonedDate(2026, 10, 19, 12, 0, "America/Los_Angeles");
+const etDay = (d?: Date) => d?.toLocaleDateString("en-US", { timeZone: ET, weekday: "short", month: "numeric", day: "numeric" }) ?? "(none)";
+// Will Yi (Evercore NY): first 10/7, follow-up #1 Thu 10/15 9:20 AM ET → #2 not before Thu 10/22, not Tue 10/20.
+const will = { ...base, id: "will", name: "Will Yi", bank: "Evercore", sentAt: "2026-10-07T14:29:00Z", lastTouchAt: "2026-10-15T13:20:00Z", followUps: 1 };
+const nb = (c: Contact) => earliestSend(c, fu, c.followUps + 1);
+const willAt = planSends([will], DEFAULT_SEND_WINDOW, { now, jitter: () => 0, notBefore: nb }).get("will");
+check("Will Yi's follow-up #2 waits for the 7-day spacing (Thu, not Tue)", etDay(willAt) === "Thu, 10/22", etDay(willAt));
+const willNoSpacing = planSends([will], DEFAULT_SEND_WINDOW, { now, jitter: () => 0 }).get("will");
+check("(without the spacing it was Tue, the reported bug)", etDay(willNoSpacing) === "Tue, 10/20", etDay(willNoSpacing));
+// Gmail's lastEmailedAt wins over a stale lastTouchAt.
+const stale = { ...will, lastTouchAt: will.sentAt, lastEmailedAt: "2026-10-15T13:20:00Z" };
+check("spacing uses Gmail's last-emailed date even if lastTouchAt went stale", etDay(nb(stale)) === "Thu, 10/22", etDay(nb(stale)));
+// A picked day that's too soon is flagged in the batch preview.
+const pick = planBatch([will], { day: { mode: "date", date: "2026-10-20" }, time: { mode: "spread" }, basis: "recipient", gap: 4 }, DEFAULT_SEND_WINDOW, new Map(), now, nb).get("will");
+check("picking Tue for Will warns 'too soon'", /too soon/.test(pick?.warn ?? ""), pick?.warn);
+// Tara Goel (PJT NY): #2 due Tue 10/20, but 20 NY sends already fill Tue 9–11 AM ET → Wed, and it says why.
+const tara = { ...base, id: "tara", name: "Tara Goel", bank: "PJT Partners", sentAt: "2026-10-02T00:00:00Z", lastTouchAt: "2026-10-13T13:09:01Z", followUps: 1 };
+const tueFull = Array.from({ length: 20 }, (_, i) => zonedDate(2026, 10, 20, 9, i * 6, ET));
+const why = new Map<string, string>();
+const taraAt = planSends([tara], DEFAULT_SEND_WINDOW, { now, jitter: () => 0, notBefore: nb, taken: tueFull, why }).get("tara");
+check("Tara rolls to Wed when Tue's NY window is full", etDay(taraAt) === "Wed, 10/21", etDay(taraAt));
+check("…and the reason is recorded", /full on Tue \(20 already queued/.test(why.get("tara") ?? ""), why.get("tara"));
+const taraFree = planSends([tara], DEFAULT_SEND_WINDOW, { now, jitter: () => 0, notBefore: nb }).get("tara");
+check("with room on Tue, Tara goes Tue (due that morning)", etDay(taraFree) === "Tue, 10/20", etDay(taraFree));
 
 function addDaysIso(iso: string, n: number) {
   const d = new Date(iso);

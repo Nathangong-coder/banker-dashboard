@@ -83,10 +83,12 @@ export default function PrivacyPage() {
       </p>
       <ul className="list-disc space-y-1 pl-6">
         <li>Apollo, Hunter: a contact&apos;s name, firm and LinkedIn URL, to find a work email.</li>
-        <li>Serper, Brave: search queries, to find bankers and public background for coffee-chat prep.</li>
+        <li>Serper, Brave: search queries, to find bankers and public background for coffee-chat prep, including a bank&apos;s name and your sector interests for its recent deals (bank brief).</li>
         <li>
           Your AI provider (Anthropic, OpenAI, Google Gemini, DeepSeek, Z.ai, Vercel AI Gateway, or one you configure): contact details and draft text, to
-          screen candidates and write emails, and a coffee-chat transcript you upload or paste, only when you click <b>Grade it</b>, to grade the call.
+          screen candidates and write emails, a coffee-chat transcript you upload or paste, only when you click <b>Grade it</b>, to grade the call, and, when
+          you click <b>Build brief</b> on a bank, the bank&apos;s name, your profile and interests, and your own notes about that bank and its contacts
+          (firm notes, tracker comments, call notes, chat summaries), to write your &ldquo;Why this bank&rdquo; answer.
         </li>
         <li>CallMeBot (WhatsApp), ntfy, Twilio: the reminder text, to send it to you.</li>
       </ul>

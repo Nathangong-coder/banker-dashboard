@@ -69,7 +69,44 @@ export type CoverageSettings = {
   specialty?: Record<string, string[] | null>;
   /** Your own rating of each firm (canonBank key), shown next to the computed score on /firms. */
   ratings?: Record<string, FirmRating>;
+  /** Coffee-chat bank briefs (/prep, components/BankBrief.tsx), cached per canonBank key until "Refresh". */
+  bankBriefs?: Record<string, BankBrief>;
 };
+
+/** A deal the bank advised on, found in web results (api/prep/bank). Every field comes from a cited source. */
+export interface BriefDeal {
+  target: string;
+  acquirer: string;
+  /** "$2.1B", or "undisclosed". */
+  value: string;
+  date: string;
+  subVertical: string;
+  /** "advised the seller", "financial advisor to Adobe"… */
+  bankRole: string;
+  whyNotable: string;
+  /** One line the student could say or ask in a chat. */
+  talkingPoint: string;
+  sourceTitle: string;
+  sourceLink: string;
+}
+
+/** "Recent deals + why this bank" for coffee chats with someone at `bank`. */
+export interface BankBrief {
+  bank: string;
+  generatedAt: string;
+  /** The sub-verticals searched (from settings.prep.interests at the time). */
+  interests: string[];
+  deals: BriefDeal[];
+  /** What the search turned up when no deal could be supported ("not found in results"). */
+  dealsNote?: string;
+  why: {
+    bullets: { text: string; fromNotes: boolean; source?: string }[];
+    spoken: string;
+    /** No notes of yours went in: a version anyone could use. */
+    generic: boolean;
+  };
+  sources: { title: string; link: string }[];
+}
 
 export interface FirmRating {
   /** 1–5, your gut feel (culture, people, fit). */

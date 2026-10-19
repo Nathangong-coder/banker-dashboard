@@ -68,12 +68,21 @@ export function zonedDate(y: number, m: number, d: number, h: number, min: numbe
 
 const GAP_MIN = 6;
 
+/** How many sends fit in one window per zone and day at GAP_MIN spacing (9–11 AM = 20). */
+export const windowCapacity = (w: SendWindow) => Math.max(1, Math.floor(((w.end - w.start) * 60) / GAP_MIN));
+
 /**
  * Send times for a batch, in order: each person gets the first window (today if it's still open, else the next
- * weekday) with a free spot, spots `GAP_MIN` minutes apart (+0–2 min so they don't look machine-timed).
- * `taken` = times already queued for other people, which keep their spots.
+ * allowed day) with a free spot, spots `GAP_MIN` minutes apart (+0–2 min so they don't look machine-timed).
+ * `taken` = times already queued for other people, which keep their spots. `notBefore` = the earliest each person may
+ * be emailed (a follow-up's spacing after your last email; followups.ts#earliestSend). `why` collects, per person,
+ * why they didn't get the first open day ("Tue 9–11 AM ET was full"), so a day that moved isn't a mystery.
  */
-export function planSends<C extends Pick<Contact, "id" | "region" | "location">>(people: C[], w: SendWindow, opts: { now?: Date; taken?: Date[]; jitter?: () => number } = {}) {
+export function planSends<C extends Pick<Contact, "id" | "region" | "location">>(
+  people: C[],
+  w: SendWindow,
+  opts: { now?: Date; taken?: Date[]; jitter?: () => number; notBefore?: (c: C) => Date | undefined; why?: Map<string, string> } = {},
+) {
   const now = opts.now ?? new Date();
   const jitter = opts.jitter ?? (() => Math.floor(Math.random() * 3));
   const mine = myTz();
@@ -86,23 +95,36 @@ export function planSends<C extends Pick<Contact, "id" | "region" | "location">>
     }
   const out = new Map<string, Date>();
   const earliest = now.getTime() + 10 * 60_000;
+  const zoneName = (tz: string) => new Date().toLocaleTimeString("en-US", { timeZone: tz, timeZoneName: "short" }).split(" ").pop()!.replace(/^[PECM][DS]T$/, (z) => `${z[0]}T`);
   for (const c of people) {
     const tz = tzOf(c, w, mine);
-    const today = partsIn(now, tz);
-    for (let add = 0; add < 21; add++) {
-      const day = partsIn(zonedDate(today.y, today.m, today.d + add, 12, 0, tz), tz);
+    const notBefore = opts.notBefore?.(c)?.getTime() ?? 0;
+    const start = new Date(Math.max(now.getTime(), notBefore));
+    const first = partsIn(start, tz);
+    const full: string[] = [];
+    for (let add = 0; add < 28; add++) {
+      const day = partsIn(zonedDate(first.y, first.m, first.d + add, 12, 0, tz), tz);
       if (!w.days.includes(WD.indexOf(day.wd))) continue;
       const open = zonedDate(day.y, day.m, day.d, w.start, 0, tz).getTime();
       const close = zonedDate(day.y, day.m, day.d, w.end, 0, tz).getTime();
+      const from = Math.max(open, earliest, notBefore);
+      if (from >= close) continue;
       const k = keyFor(tz, day.y, day.m, day.d);
       const spots = used.get(k) ?? [];
-      let at = Math.max(open, earliest);
+      let at = from;
       // Next free spot: GAP_MIN after anything already there.
       for (const s of [...spots].sort((a, b) => a - b)) if (Math.abs(s - at) < GAP_MIN * 60_000) at = s + GAP_MIN * 60_000;
       at += jitter() * 60_000;
-      if (at >= close) continue;
+      if (at >= close) {
+        full.push(`${day.wd} (${spots.length} already queued in ${w.start}–${w.end} ${zoneName(tz)})`);
+        continue;
+      }
       out.set(c.id, new Date(at));
       used.set(k, [...spots, at]);
+      const reasons: string[] = [];
+      if (notBefore > now.getTime()) reasons.push(`not before ${new Date(notBefore).toLocaleDateString("en-US", { timeZone: tz, weekday: "short", month: "numeric", day: "numeric" })} (spacing since your last email)`);
+      if (full.length) reasons.push(`window full on ${full.join(", ")}`);
+      if (reasons.length) opts.why?.set(c.id, reasons.join("; "));
       break;
     }
   }
@@ -160,10 +182,17 @@ const ymdOf = (d: Date, tz: string) => {
  * if the spread runs past `end`, the extra sends keep going later that day (and say so) instead of rolling to another day.
  * `current` = each person's queued time, for "keep".
  */
-export function planBatch<C extends Pick<Contact, "id" | "region" | "location">>(people: C[], opts: BatchOptions, w: SendWindow, current: Map<string, Date>, now = new Date()): Map<string, BatchPlan> {
+export function planBatch<C extends Pick<Contact, "id" | "region" | "location">>(
+  people: C[],
+  opts: BatchOptions,
+  w: SendWindow,
+  current: Map<string, Date>,
+  now = new Date(),
+  notBefore?: (c: C) => Date | undefined,
+): Map<string, BatchPlan> {
   const mine = myTz();
   const out = new Map<string, BatchPlan>();
-  const autoPlan = opts.day.mode === "auto" ? planSends(people, { ...w, basis: opts.basis }, { now, jitter: () => 0 }) : new Map<string, Date>();
+  const autoPlan = opts.day.mode === "auto" ? planSends(people, { ...w, basis: opts.basis }, { now, jitter: () => 0, notBefore }) : new Map<string, Date>();
   const counts = new Map<string, number>();
   for (const c of people) {
     const tz = opts.basis === "recipient" ? recipientTz(c) : mine;
@@ -174,7 +203,7 @@ export function planBatch<C extends Pick<Contact, "id" | "region" | "location">>
       const [y, m, d] = opts.day.date.split("-").map(Number);
       day = { y, m, d };
     } else if (opts.day.mode === "keep" && cur) day = ymdOf(cur, tz);
-    else day = ymdOf(autoPlan.get(c.id) ?? planSends([c], { ...w, basis: opts.basis }, { now, jitter: () => 0 }).get(c.id) ?? now, tz);
+    else day = ymdOf(autoPlan.get(c.id) ?? planSends([c], { ...w, basis: opts.basis }, { now, jitter: () => 0, notBefore }).get(c.id) ?? now, tz);
     // The time.
     const key = `${tz}|${day.y}-${day.m}-${day.d}`;
     const i = counts.get(key) ?? 0;
@@ -196,6 +225,11 @@ export function planBatch<C extends Pick<Contact, "id" | "region" | "location">>
     if (at.getTime() < now.getTime() + 5 * 60_000) warn = "that time has already passed";
     const wd = ymdOf(at, tz).wd;
     if (!warn && opts.day.mode !== "auto" && !w.days.includes(wd)) warn = `${WD[wd]} is outside your usual days (${daysLabel(w.days)})`;
+    const nb = notBefore?.(c);
+    if (!warn && nb && at < nb) {
+      const early = Math.max(1, Math.ceil((nb.getTime() - at.getTime()) / 86_400_000));
+      warn = `too soon: ${early} day${early > 1 ? "s" : ""} before the follow-up spacing allows (due ${nb.toLocaleDateString("en-US", { timeZone: tz, weekday: "short", month: "numeric", day: "numeric" })})`;
+    }
     out.set(c.id, { at, tz, warn });
   }
   return out;

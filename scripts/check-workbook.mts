@@ -66,6 +66,18 @@ console.log("round-trip OK");
     // Writing again changes nothing (dates compared by meaning).
     const again2 = contactPatches([{ ...d!, ...dated, ref: d!.ref }], back.snapshots);
     if (again2[sample.ref!.sheet] && Object.keys(again2[sample.ref!.sheet]).some((k) => k.endsWith(`:${d!.ref!.cols.contacted}`))) problems.push("Contacted cell rewritten with the same dates");
+    // The first date and the last one live in separate columns (owner, 2026-10-19).
+    const cell = (col?: number) => (col ? (back.snapshots.find((x) => x.name === sample.ref!.sheet)?.cells[`${d!.ref!.row}:${col}`]?.v ?? "") : "");
+    console.log(`  Contacted = "${cell(d?.ref?.cols.contacted)}", Last emailed/contacted = "${cell(d?.ref?.cols.lastContacted)}"`);
+    if (/last/i.test(cell(d?.ref?.cols.contacted))) problems.push("Contacted still holds the last date");
+    if (!d?.ref?.cols.lastContacted) problems.push("no Last emailed/contacted column added");
+    if (again2[sample.ref!.sheet] && Object.keys(again2[sample.ref!.sheet]).some((k) => k.endsWith(`:${d!.ref!.cols.lastContacted}`))) problems.push("Last emailed/contacted rewritten with the same date");
+    // A legacy combined cell is split: Contacted keeps the first date, the last goes to the new column.
+    if (d?.ref?.cols.contacted) {
+      const legacy = applyLegacy(back.snapshots, sample.ref!.sheet, `${d.ref.row}:${d.ref.cols.contacted}`, "9/17/2026 · last 9/25/2026");
+      const lp = contactPatches([{ ...d, ...dated, ref: d.ref }], legacy)[sample.ref!.sheet] ?? {};
+      if (lp[`${d.ref.row}:${d.ref.cols.contacted}`]?.v !== formatContacted({ sentAt: dated.sentAt })) problems.push(`legacy cell not split: ${JSON.stringify(lp)}`);
+    }
   }
   const expect: [string, string, number][] = [
     ["Scheduled", "drafted", 0],
@@ -469,4 +481,8 @@ console.log("location/team split OK");
     }
     console.log("applications OK");
   }
+}
+
+function applyLegacy(snaps: Awaited<ReturnType<typeof parseWorkbook>>["snapshots"], sheet: string, addr: string, v: string) {
+  return snaps.map((x) => (x.name === sheet ? { ...x, cells: { ...x.cells, [addr]: { ...x.cells[addr], v } } } : x));
 }

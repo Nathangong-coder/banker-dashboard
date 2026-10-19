@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { useStore } from "./store";
 import { nightPlan } from "./reminders";
-import { pendingFollowUpDraft } from "./followups";
+import { earliestSend, pendingFollowUpDraft } from "./followups";
 import { planSends, windowOf } from "./sendWindow";
 import { vpPlusWarning } from "./seniority";
 import type { Contact } from "./types";
@@ -155,7 +155,13 @@ export function sendableDraft(c: Contact): { draftId: string; step: number } | n
  * Queue these people's Gmail drafts in your send window (Settings → Email → Sending; default 9–11 AM their time,
  * weekdays), spread a few minutes apart around sends already queued. Returns how many.
  */
-export async function queueSends(contacts: Contact[]) {
+/** The earliest a queued / to-be-queued email to this person may go out (follow-ups only). */
+export function notBeforeOf(c: Contact) {
+  const step = c.serverSend?.step ?? sendableDraft(c)?.step ?? 0;
+  return earliestSend(c, useStore.getState().settings.followUp, step);
+}
+
+export async function queueSends(contacts: Contact[], why = new Map<string, string>()) {
   const st = useStore.getState();
   const ids = new Set(contacts.map((c) => c.id));
   // Your rule: no VP and above (unless one of your exception ties applies). Never sent automatically.
@@ -167,10 +173,10 @@ export async function queueSends(contacts: Contact[]) {
     .map((c) => ({ c, d: sendableDraft(c) }))
     .filter((x): x is { c: Contact; d: { draftId: string; step: number } } => !!x.d);
   const taken = st.contacts.filter((c) => c.serverSend && !ids.has(c.id)).map((c) => new Date(c.serverSend!.sendAt));
-  const plan = planSends(ready.map((x) => x.c), windowOf(st.settings), { taken });
+  const plan = planSends(ready.map((x) => x.c), windowOf(st.settings), { taken, notBefore: notBeforeOf, why });
   for (const { c, d } of ready) {
     const at = plan.get(c.id);
-    if (at) st.updateContact(c.id, { serverSend: { draftId: d.draftId, step: d.step, sendAt: at.toISOString(), queuedAt: new Date().toISOString() } });
+    if (at) st.updateContact(c.id, { serverSend: { draftId: d.draftId, step: d.step, sendAt: at.toISOString(), queuedAt: new Date().toISOString(), why: why.get(c.id) } });
   }
   if (plan.size) await syncServer();
   return plan.size;
@@ -180,13 +186,40 @@ export async function queueSends(contacts: Contact[]) {
 export async function rescheduleQueued() {
   const st = useStore.getState();
   const queued = st.contacts.filter((c) => c.serverSend && new Date(c.serverSend.sendAt) > new Date());
-  const plan = planSends(queued, windowOf(st.settings));
+  const plan = planSends(queued, windowOf(st.settings), { notBefore: notBeforeOf });
   for (const c of queued) {
     const at = plan.get(c.id);
     if (at) st.updateContact(c.id, { serverSend: { ...c.serverSend!, sendAt: at.toISOString() } });
   }
   if (plan.size) await syncServer();
   return plan.size;
+}
+
+/** Queued follow-ups set to go out sooner than the spacing allows (`earliestSend`), e.g. 5 days after the last one. */
+export function earlySends(contacts: Contact[]) {
+  return contacts.filter((c) => {
+    if (!c.serverSend || new Date(c.serverSend.sendAt) <= new Date()) return false;
+    const nb = notBeforeOf(c);
+    return !!nb && new Date(c.serverSend.sendAt) < nb;
+  });
+}
+
+/** Move only the too-early sends to their first allowed slot; everyone else keeps theirs. Returns what moved. */
+export async function fixEarlySends() {
+  const st = useStore.getState();
+  const early = earlySends(st.contacts);
+  const ids = new Set(early.map((c) => c.id));
+  const taken = st.contacts.filter((c) => c.serverSend && !ids.has(c.id)).map((c) => new Date(c.serverSend!.sendAt));
+  const plan = planSends(early, windowOf(st.settings), { taken, notBefore: notBeforeOf });
+  const moved: { name: string; from: string; to: Date }[] = [];
+  for (const c of early) {
+    const at = plan.get(c.id);
+    if (!at) continue;
+    moved.push({ name: c.name, from: c.serverSend!.sendAt, to: at });
+    st.updateContact(c.id, { serverSend: { ...c.serverSend!, sendAt: at.toISOString() } }, { at: new Date().toISOString(), type: "note", note: "Queued follow-up moved: it was sooner than your follow-up spacing" });
+  }
+  if (moved.length) await syncServer();
+  return moved;
 }
 
 export async function cancelSend(c: Contact) {

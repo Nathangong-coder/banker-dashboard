@@ -103,4 +103,25 @@ export function sameContacted(a: Contacted, b: Contacted) {
 }
 
 /** Header synonyms for the column (workbook.ts#HEADERS). */
-export const CONTACTED_HEADERS = ["contacted", "date contacted", "last contacted", "emailed", "date emailed", "date sent", "sent on", "sent date"];
+export const CONTACTED_HEADERS = ["contacted", "first contacted", "first outreach", "date contacted", "emailed", "date emailed", "date sent", "sent on", "sent date"];
+
+/**
+ * The "Last emailed/contacted" column (owner, 2026-10-19): the latest email or call with them, so the Contacted column
+ * keeps only the first outreach date. Before this, both lived in one cell ("9/17/2026 · last 9/25/2026").
+ */
+export const LAST_CONTACTED_HEADERS = ["last emailed/contacted", "last emailed / contacted", "last contacted", "last emailed", "last contact", "last touch"];
+export const LAST_CONTACTED_TITLE = "Last emailed/contacted";
+
+/** The latest date in a Last emailed/contacted cell. */
+export function parseLastContacted(text: string | undefined, now = new Date()): string | undefined {
+  const raw = (text ?? "").trim();
+  if (!raw) return undefined;
+  const native = /^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{4}/.test(raw) || /^\d{4}-\d{2}-\d{2}T/.test(raw) ? new Date(raw) : null;
+  if (native && !Number.isNaN(native.getTime())) return native.toISOString();
+  const d = datesIn(raw, now);
+  return d.length ? d[d.length - 1].toISOString() : undefined;
+}
+
+/** "10/13/2026" */
+export const formatDay = (iso: string) => day(iso);
+export const sameDayIso = (a?: string, b?: string) => sameDay(a, b);

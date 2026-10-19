@@ -16,6 +16,7 @@ import { cn, fmtDate, linkedinSlug, relDays } from "@/lib/util";
 import { Button, Card, Checkbox, Empty, Input, PageHeader, StatusBadge, Textarea, toast } from "@/components/ui";
 import { AddContactModal } from "@/components/AddContact";
 import { ChatGrades } from "@/components/ChatGrades";
+import { BankBrief } from "@/components/BankBrief";
 
 export default function PrepPage() {
   return (
@@ -157,8 +158,9 @@ function PrepInner() {
         {selected ? (
           <PrepView key={selected.id} c={selected} />
         ) : (
-          <Card>
-            <Empty icon={<Coffee className="size-6" />} title="Pick someone to prep for">
+          <div className="min-w-0 space-y-4">
+            <Card>
+              <Empty icon={<Coffee className="size-6" />} title="Pick someone to prep for">
               People who replied or have a call scheduled are at the top. Or open their LinkedIn profile and click the <b>Send to Coverage</b> bookmark:
               it lands here with their profile attached.
               {contacts.length === 0 && (
@@ -168,8 +170,10 @@ function PrepInner() {
                   </Link>
                 </div>
               )}
-            </Empty>
-          </Card>
+              </Empty>
+            </Card>
+            <BankBrief />
+          </div>
         )}
       </div>
 
@@ -471,6 +475,8 @@ function PrepView({ c }: { c: Contact }) {
           </p>
         </Card>
       )}
+
+      <BankBrief bank={c.bank} contact={c} />
 
       <ChatGrades c={c} />
     </div>

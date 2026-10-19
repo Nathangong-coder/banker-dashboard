@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { applySchedule, sendableDraft } from "@/lib/serverSync";
+import { applySchedule, notBeforeOf, sendableDraft } from "@/lib/serverSync";
 import { planBatch, windowOf, type BatchOptions } from "@/lib/sendWindow";
 import { tzLabel } from "@/lib/availability";
 import type { Contact } from "@/lib/types";
@@ -39,7 +39,7 @@ export function BatchSchedule({ contacts, onClose }: { contacts: Contact[]; onCl
   const plan = useMemo(() => {
     const current = new Map(usable.filter((c) => c.serverSend).map((c) => [c.id, new Date(c.serverSend!.sendAt)]));
     const effective: BatchOptions = { ...opts, day: opts.day.mode === "date" ? { mode: "date", date } : opts.day };
-    return planBatch(usable, effective, windowOf({ sendWindow: saved }), current);
+    return planBatch(usable, effective, windowOf({ sendWindow: saved }), current, new Date(), notBeforeOf);
   }, [usable, opts, date, saved]);
   const warnings = [...plan.values()].filter((p) => p.warn).length;
   const set = (patch: Partial<BatchOptions>) => setOpts((o) => ({ ...o, ...patch }));

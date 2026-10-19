@@ -22,7 +22,7 @@ import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
-import { markServerConnected, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
+import { earlySends, fixEarlySends, markServerConnected, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
 import { AutoSendCard, SendModeSwitch } from "@/components/AutoSend";
 import { ScheduleCallsCard } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
@@ -278,8 +278,10 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     try {
       // Re-read: drafting just recorded each followUpDraft.
       const ids = new Set(list.map(({ c }) => c.id));
-      const n = await queueSends(useStore.getState().contacts.filter((c) => ids.has(c.id)));
+      const why = new Map<string, string>();
+      const n = await queueSends(useStore.getState().contacts.filter((c) => ids.has(c.id)), why);
       if (n) toast.ok(`${n} follow-up${n > 1 ? "s" : ""} drafted and scheduled. Each goes out ${windowLabel(windowOf(settings))}, even with the dashboard closed.`);
+      if (why.size) toast.info(movedNote(why));
       const held = list.length - n;
       if (held > 0) toast.info(`${held} not scheduled: VP or above (your rule), or no Gmail draft yet. They're still in the list.`);
     } catch (e) {
@@ -293,8 +295,10 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const scheduleDrafted = async (only?: Contact[]) => {
     setBusy(only?.length === 1 ? only[0].id : "schedule-drafted");
     try {
-      const n = await queueSends(only ?? schedulable.map(({ c }) => c));
+      const why = new Map<string, string>();
+      const n = await queueSends(only ?? schedulable.map(({ c }) => c), why);
       toast.ok(`${n} email${n > 1 ? "s" : ""} scheduled for their send slots.`);
+      if (why.size) toast.info(movedNote(why));
     } catch (e) {
       toast.err((e as Error).message);
     }
@@ -608,6 +612,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
               )
             }
             title={<>{selectAll(scheduled)}{`Scheduled · ${scheduled.length}`}</>} sub="Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out." />
+          <EarlySendsBanner />
           <ul className="max-h-[320px] divide-y divide-line overflow-y-auto">
             {scheduled.map(({ c, a }) => (
               <ScheduledRow key={c.id} c={c} label={a.label.replace(/^.*scheduled · /, "")} onOpen={onOpen} selected={sel.has(c.id)} onSelect={() => toggle(c.id)} />
@@ -1067,5 +1072,47 @@ function NightTextPreview() {
         <div className="p-6 text-center text-[13px] text-muted">Nothing to send in the next week.</div>
       )}
     </Card>
+  );
+}
+
+/** "3 not on the first open day: Tara Goel (window full on Tue …)…" */
+function movedNote(why: Map<string, string>) {
+  const names = new Map(useStore.getState().contacts.map((c) => [c.id, c.name]));
+  const list = [...why].slice(0, 3).map(([id, w]) => `${names.get(id) ?? id}: ${w}`);
+  return `${why.size} not on the first open day. ${list.join(" · ")}${why.size > 3 ? ` (+${why.size - 3} more)` : ""}`;
+}
+
+/** Queued follow-ups that would go out sooner than your follow-up spacing (e.g. 5 days after the last one), with a fix. */
+function EarlySendsBanner() {
+  const contacts = useStore((s) => s.contacts);
+  const followUp = useStore((s) => s.settings.followUp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- earlySends reads the spacing from the store
+  const early = useMemo(() => earlySends(contacts), [contacts, followUp]);
+  const [busy, setBusy] = useState(false);
+  if (!early.length) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-b border-line bg-red/5 px-4 py-2.5 text-[12.5px]">
+      <span className="flex-1">
+        <b>{early.length}</b> queued follow-up{early.length > 1 ? "s go" : " goes"} out sooner than {followUp.nextAfterDays} days after your last email (
+        {early.slice(0, 4).map((c) => c.name).join(", ")}
+        {early.length > 4 ? "…" : ""}).
+      </span>
+      <Button
+        size="sm"
+        loading={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            const moved = await fixEarlySends();
+            toast.ok(`Moved ${moved.length}: ${moved.slice(0, 3).map((m) => `${m.name} → ${m.to.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" })}`).join(", ")}${moved.length > 3 ? "…" : ""}`);
+          } catch (e) {
+            toast.err((e as Error).message);
+          }
+          setBusy(false);
+        }}
+      >
+        Move too-early sends
+      </Button>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { cancelSend, rescheduleOne } from "@/lib/serverSync";
+import { cancelSend, notBeforeOf, rescheduleOne } from "@/lib/serverSync";
 import { recipientTz, windowLabel, windowOf } from "@/lib/sendWindow";
 import { tzLabel } from "@/lib/availability";
 import { useStore } from "@/lib/store";
@@ -63,6 +63,7 @@ export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Cont
       ) : (
         <>
           <span className="num text-ink-2">{label}</span>
+          {c.serverSend && <SendNote c={c} />}
           {c.serverSend ? (
             <>
               <Button size="sm" variant="ghost" onClick={() => setEditing(true)} title={`Your send window is ${windowLabel(w)}; you can pick any time here.`}>
@@ -81,4 +82,16 @@ export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Cont
       )}
     </li>
   );
+}
+
+/** Why this send is on the day it is, and a warning when it's sooner than your follow-up spacing. */
+function SendNote({ c }: { c: Contact }) {
+  const nb = notBeforeOf(c);
+  if (nb && new Date(c.serverSend!.sendAt) < nb)
+    return (
+      <span title={`Your spacing says not before ${nb.toLocaleString()}. Use "Move too-early sends" above.`}>
+        <Badge tone="red">too soon after your last email</Badge>
+      </span>
+    );
+  return c.serverSend?.why ? <span className="text-[11.5px] text-muted">({c.serverSend.why})</span> : null;
 }

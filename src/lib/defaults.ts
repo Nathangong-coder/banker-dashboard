@@ -1,4 +1,4 @@
-import type { EmailBase, Settings, Template } from "./types";
+import type { EmailBase, PrepInterest, Settings, Template } from "./types";
 import { DEFAULT_HOOKS } from "./hooks";
 import { DEFAULT_OUTREACH_RULES, OUTREACH_EXPERIMENTS } from "./outreach";
 
@@ -41,6 +41,9 @@ export const LEGACY_QUERIES_V1 = [
 export function queryWordCount(q: string, bank = "Perella Weinberg Partners") {
   return q.replaceAll("{bank}", bank).split(/[\s()"]+/).filter(Boolean).length;
 }
+
+/** Sectors and sub-verticals for the bank brief (Settings → Profile, /prep). The owner's: Tech software and internet. */
+export const DEFAULT_INTERESTS: PrepInterest[] = [{ sector: "Tech", subVerticals: ["Software", "Internet", "Vertical software"] }];
 
 /** Coffee chat questions that work with any banker (edited on the prep page). */
 export const DEFAULT_GENERAL_QUESTIONS = [
@@ -158,7 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
     revealPersonalEmails: false,
   },
   emailStyle: { font: "sans" },
-  prep: { generalQuestions: DEFAULT_GENERAL_QUESTIONS },
+  prep: { generalQuestions: DEFAULT_GENERAL_QUESTIONS, interests: DEFAULT_INTERESTS },
   emailBases: DEFAULT_BASES,
   hooks: DEFAULT_HOOKS,
   experiments: OUTREACH_EXPERIMENTS,
