@@ -30,10 +30,21 @@ export interface Account {
   tokenHash: string;
   createdAt: string;
   tz: string;
-  google?: { refresh: string; email: string; connectedAt: string };
+  /** `calendar`: read-only Calendar access was granted too (today's calls for the 9 PM text). */
+  google?: { refresh: string; email: string; connectedAt: string; calendar?: boolean };
   whatsapp?: { phone: string; apiKey: string };
-  /** Local day (YYYY-MM-DD in `tz`) → what the 9am text says. */
+  /** Local day (YYYY-MM-DD in `tz`) → what the 9 PM text says. */
   digests: Record<string, { items: DigestItem[]; queued: number }>;
+  /** People today's calendar events are matched against (name + email only). */
+  people?: CalPerson[];
+}
+
+export interface CalPerson {
+  contactId: string;
+  name: string;
+  email?: string;
+  /** Last email you sent them, so a call that was already thanked isn't listed. */
+  thankedAt?: string;
 }
 
 let redis: Redis | null = null;

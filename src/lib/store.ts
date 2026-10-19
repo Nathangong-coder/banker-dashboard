@@ -19,7 +19,7 @@ import type {
   WorkbookMeta,
 } from "./types";
 import { applyPatches, blankTablesPatches, contactPatches, followUpsFromSheet, statusFromSheet, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, tableBody, type ContactTable, type Patches } from "./workbook";
-import { contactId } from "./util";
+import { contactId, latestIso } from "./util";
 import { isPlace, splitLocationTeam } from "./locationTeam";
 import { DEFAULT_HOOKS, LEGACY_TECH_HOOK_TEXT, TECH_HOOK_TEXT } from "./hooks";
 import { OUTREACH_EXPERIMENTS } from "./outreach";
@@ -284,7 +284,9 @@ export const useStore = create<State>()(
             followUps: (fresh.sheetStatus ?? "") !== (prev.sheetStatus ?? "") ? fresh.followUps : Math.max(prev.followUps, fresh.followUps),
             // Dates from the Contacted column fill in or correct the dashboard's (both come from Gmail).
             sentAt: fresh.sentAt ?? prev.sentAt,
-            lastTouchAt: fresh.sentAt ? fresh.lastTouchAt : prev.lastTouchAt,
+            // ...but the last touch never moves back: a Contacted cell saved before a follow-up went out ("10/1/2026") used
+            // to replace the follow-up's date on the next save's re-import, so follow-up #2 was timed from the first email.
+            lastTouchAt: fresh.sentAt ? latestIso(fresh.lastTouchAt ?? fresh.sentAt, prev.lastTouchAt) : prev.lastTouchAt,
             scheduledAt: fresh.sentAt || fresh.scheduledAt ? fresh.scheduledAt : prev.sentAt ? undefined : prev.scheduledAt,
           };
         });

@@ -22,7 +22,7 @@ export default function PrivacyPage() {
 
       <H2>1. What stays in your browser</H2>
       <p>
-        Your contacts, spreadsheet, drafts, templates, settings, resume, signature logo and the API keys you add are stored in your browser (IndexedDB and local storage) on the
+        Your contacts, spreadsheet, drafts, templates, settings, resume, signature logo, coffee-chat transcripts and grades, and the API keys you add are stored in your browser (IndexedDB and local storage) on the
         device you use. We can&apos;t see them. Clearing your browser data, or <b>Settings → Backup → Clear all data</b>, deletes them. Backups you export are
         files you control.
       </p>
@@ -37,9 +37,10 @@ export default function PrivacyPage() {
         <li>The queue of emails you scheduled: Gmail draft IDs, the contact&apos;s name, and the send time. Not the email text.</li>
         <li>
           If you use WhatsApp reminders: your WhatsApp number and CallMeBot key (encrypted), and the next two weeks of reminder lists (names, email addresses
-          and labels such as &ldquo;Follow-up #1&rdquo;).
+          and labels such as &ldquo;Follow-up #1&rdquo;), plus the names, email addresses and last-emailed dates of people who replied to you or
+          have a call with you (to recognize them on your calendar).
         </li>
-        <li>Your time zone, so reminders arrive at 9am your time.</li>
+        <li>Your time zone, so reminders arrive at 9 PM your time.</li>
       </ul>
       <p>
         Turning automatic sending off deletes all of this and revokes our Google access. To limit abuse, the server also keeps your IP address for up to an
@@ -50,7 +51,9 @@ export default function PrivacyPage() {
       <p>
         With your permission, {SITE.name} uses Google&apos;s Gmail API. In your browser it can read your sent mail and replies to people in your tracker (to
         fill in when you emailed them and whether they replied) and create drafts. On our server, with automatic sending on, it can only send drafts you
-        scheduled (the <code>gmail.compose</code> permission).
+        scheduled (the <code>gmail.compose</code> permission). If you also allow read-only Calendar access
+        (<code>calendar.events.readonly</code>), the server reads that day&apos;s events once on reminder nights (Monday–Thursday, 9 PM your time), only
+        to list the people you met so you remember to thank them. Event details are used for that text and not stored.
       </p>
       <p>
         If you use <b>Schedule calls</b>, your browser also reads the latest email from that banker (to see which days and time zone they asked
@@ -83,7 +86,7 @@ export default function PrivacyPage() {
         <li>Serper, Brave: search queries, to find bankers and public background for coffee-chat prep.</li>
         <li>
           Your AI provider (Anthropic, OpenAI, Google Gemini, DeepSeek, Z.ai, Vercel AI Gateway, or one you configure): contact details and draft text, to
-          screen candidates and write emails.
+          screen candidates and write emails, and a coffee-chat transcript you upload or paste, only when you click <b>Grade it</b>, to grade the call.
         </li>
         <li>CallMeBot (WhatsApp), ntfy, Twilio: the reminder text, to send it to you.</li>
       </ul>

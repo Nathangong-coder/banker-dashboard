@@ -169,6 +169,25 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Tested 2026-10-06 against the real Redis with a local `next start` (create/auth/401/cancel/unsigned-job/disconnect) and Google's auth
   endpoint (prod redirect accepted, unregistered → redirect_uri_mismatch). The full send path needs the deployment.
 
+## 9 PM text, firms, transcripts (2026-10-19)
+
+- **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's
+  due by the end of the *next* text night (Thu covers Fri–Mon), so emails get scheduled the night before, never "day of".
+  `reminders.ts#nightPlan` (pushed to the server as `digests`) = `relationshipItem` per person (thank-you for a call/logged chat today,
+  thank-you still owed ≤14 days, reply owed when `lastHeardAt > lastEmailedAt`, check-in 7 days after your last email until
+  `referral` is set or status done) + follow-ups. The server (`api/server/tick`) adds today's **Google Calendar** events
+  (`google.ts#eventsOn`, optional scope `calendar.events.readonly` asked with Gmail; `account.google.calendar`), matched by
+  `calendarMatch.ts#matchEvent` against `account.people` (attendee email → full name → unique first name; unmatched chat-like titles
+  kept), and ends with the "update the tracker" line when there were calls. Old connections lack the scope: AutoSend shows "Reconnect".
+  `npm run check:night` covers it. Gmail sync now records `lastEmailedAt` / `lastHeardAt` (replies after the first reply included).
+- **Date bug (Michael Bender):** a save re-imports the file from disk when OneDrive/Excel touched it; a Contacted cell saved before a
+  follow-up ("10/1/2026") replaced the follow-up's `lastTouchAt`, so follow-up #2 was timed from the first email. Merges now take
+  `util.ts#latestIso` (store import + workbook dedupe): the last touch never moves back.
+- **/firms** (`lib/firmScore.ts`): per `canonBank` stats and a 0–100 score (replies 35, smoothed toward the overall rate; calls 25;
+  referrals 25; avg chat grade 15) + your stars/notes in `coverage.ratings`.
+- **Transcripts** (`components/ChatGrades.tsx` on /prep, `api/prep/grade`): upload .txt/.vtt/.srt/.md/.docx or paste → AI rubric grade,
+  improvements, the banker's commitments, thank-you points; saved as `contact.chats[]`. "They referred me" sets `contact.referral`.
+
 ## Email formatting & signature (`src/lib/emailFormat.ts`)
 
 - Drafts are multipart/alternative. The HTML part is Gmail-native (`<div>` per line, `<div><br></div>` between paragraphs); text/plain alone

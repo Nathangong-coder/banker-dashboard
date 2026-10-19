@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { useStore } from "./store";
-import { digestPlan } from "./reminders";
+import { nightPlan } from "./reminders";
 import { pendingFollowUpDraft } from "./followups";
 import { planSends, windowOf } from "./sendWindow";
 import { vpPlusWarning } from "./seniority";
@@ -17,6 +17,8 @@ import type { Contact } from "./types";
 export interface ServerStatus {
   email: string | null;
   whatsapp: boolean;
+  /** The server may read your Google Calendar (for the 9 PM thank-you reminders). False = reconnect to add it. */
+  calendar?: boolean;
   lastDigestDay?: string | null;
   lastDigestError?: string | null;
   syncedAt?: string;
@@ -104,7 +106,9 @@ export function syncServer(): Promise<ServerStatus | null> {
     const body = {
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles",
       whatsapp: whatsappOn ? { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } : null,
-      digests: whatsappOn ? digestPlan(st.contacts, st.banks, st.settings.followUp) : {},
+      digests: whatsappOn ? nightPlan(st.contacts, st.banks, st.settings.followUp) : {},
+      // People you're talking to, so the server can match today's Google Calendar events to them for thank-you reminders.
+      people: whatsappOn ? calendarPeople(st.contacts) : [],
       sends: st.contacts
         .filter((c) => c.serverSend)
         .map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt })),
@@ -117,7 +121,7 @@ export function syncServer(): Promise<ServerStatus | null> {
         const after = useStore.getState().contacts.filter((c) => c.serverSend);
         r = await call("/api/server/sync", { ...body, sends: after.map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt })), ack });
       }
-      const status: ServerStatus = { email: r.email, whatsapp: r.whatsapp, lastDigestDay: r.lastDigestDay, lastDigestError: r.lastDigestError, syncedAt: new Date().toISOString(), error: problems.length ? problems.join("; ") : undefined };
+      const status: ServerStatus = { email: r.email, whatsapp: r.whatsapp, calendar: r.calendar, lastDigestDay: r.lastDigestDay, lastDigestError: r.lastDigestError, syncedAt: new Date().toISOString(), error: problems.length ? problems.join("; ") : undefined };
       useServerStatus.setState({ status });
       return status;
     } catch (e) {
@@ -129,6 +133,14 @@ export function syncServer(): Promise<ServerStatus | null> {
     inflight = null;
   });
   return inflight;
+}
+
+/** Who a calendar event today could be with: everyone who replied or has a call (name + email, nothing else). */
+function calendarPeople(contacts: Contact[]) {
+  return contacts
+    .filter((c) => c.call || c.repliedAt || ["replied", "call_scheduled", "done"].includes(c.status))
+    .slice(0, 400)
+    .map((c) => ({ contactId: c.id, name: c.name, email: c.email || undefined, thankedAt: c.lastEmailedAt }));
 }
 
 /** The Gmail draft the server would send next for this person, and which email it is (0 = first, n = follow-up #n). */

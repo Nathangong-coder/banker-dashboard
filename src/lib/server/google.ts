@@ -5,11 +5,16 @@ import { unseal, type Account } from "./accounts";
 /**
  * Server-side Gmail for automatic sending: the authorization-code flow with offline access (a refresh token, so sends
  * go out while the dashboard is closed). Uses the deployment's own Google client (GOOGLE_CLIENT_ID +
- * GOOGLE_CLIENT_SECRET); users never set anything up in Google Cloud. Scope: gmail.compose, which covers sending
- * existing drafts (drafts.send) and nothing else of the mailbox.
+ * GOOGLE_CLIENT_SECRET); users never set anything up in Google Cloud. Scopes: gmail.compose, which covers sending
+ * existing drafts (drafts.send) and nothing else of the mailbox, and (optional) calendar.events.readonly.
  */
 
 export const SERVER_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"];
+/**
+ * Optional: read-only Calendar events, so the 9 PM text knows who you had a call with today (thank-yous). Asked for
+ * with Gmail; if it's unticked on Google's screen, sending still works and the text uses only the dashboard's calls.
+ */
+export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
 export const CALLBACK_PATH = "/api/server/google/callback";
 
 function client() {
@@ -24,7 +29,7 @@ export function authUrl(redirectUri: string, state: string, loginHint?: string) 
     client_id: client().id,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: SERVER_SCOPES.join(" "),
+    scope: [...SERVER_SCOPES, CALENDAR_SCOPE].join(" "),
     access_type: "offline",
     // Always ask, so Google returns a refresh token even if this account connected before.
     prompt: "consent",
@@ -55,7 +60,7 @@ export async function exchangeCode(code: string, redirectUri: string) {
   const j = await tokenCall({ code, redirect_uri: redirectUri, grant_type: "authorization_code" });
   if (!j.refresh_token) throw new HttpError(502, "Google didn't return offline access. Remove the app's access at myaccount.google.com/permissions and connect again.");
   if (!SERVER_SCOPES.every((s) => (j.scope ?? "").includes(s))) throw new HttpError(400, "Gmail permission wasn't granted. Connect again and tick the Gmail box.");
-  return { access: j.access_token!, refresh: j.refresh_token };
+  return { access: j.access_token!, refresh: j.refresh_token, calendar: (j.scope ?? "").includes(CALENDAR_SCOPE) };
 }
 
 export async function accessToken(a: Account) {
@@ -81,4 +86,49 @@ export const sendDraft = (access: string, draftId: string) =>
 export async function revoke(a: Account) {
   if (!a.google) return;
   await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(unseal(a.google.refresh))}`, { method: "POST" }).catch(() => undefined);
+}
+
+export interface CalEvent {
+  id: string;
+  summary: string;
+  description: string;
+  start: string;
+  attendees: string[];
+}
+
+/**
+ * Timed events on your primary calendar that start on local `day` (`dayOf` maps an instant to its local day), minus
+ * all-day events and ones you declined. 403 = Calendar access wasn't granted or the Calendar API is off.
+ */
+export async function eventsOn(access: string, day: string, dayOf: (at: Date) => string): Promise<CalEvent[]> {
+  // A window a little over a day around now, then keep the events whose local start day is `day` (no tz math here).
+  const now = Date.now();
+  const q = new URLSearchParams({
+    timeMin: new Date(now - 30 * 3600_000).toISOString(),
+    timeMax: new Date(now + 6 * 3600_000).toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "100",
+  });
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${access}` } });
+  if (!res.ok) throw new HttpError(res.status, `Google Calendar: ${(await res.text()).slice(0, 200)}`);
+  type Raw = {
+    id: string;
+    status?: string;
+    summary?: string;
+    description?: string;
+    start?: { dateTime?: string };
+    attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
+  };
+  const j = (await res.json()) as { items?: Raw[] };
+  return (j.items ?? [])
+    .filter((e) => e.status !== "cancelled" && e.start?.dateTime && dayOf(new Date(e.start.dateTime)) === day)
+    .filter((e) => !e.attendees?.some((a) => a.self && a.responseStatus === "declined"))
+    .map((e) => ({
+      id: e.id,
+      summary: (e.summary ?? "").slice(0, 200),
+      description: (e.description ?? "").slice(0, 2000),
+      start: e.start!.dateTime!,
+      attendees: (e.attendees ?? []).filter((a) => !a.self && a.email).map((a) => a.email!.toLowerCase()),
+    }));
 }

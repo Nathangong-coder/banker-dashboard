@@ -6,9 +6,11 @@ import { ensureTick, queueSendJob } from "@/lib/server/jobs";
 const Item = z.object({ contactId: z.string().max(200), name: z.string().max(200), email: z.string().max(320).optional(), label: z.string().max(60) });
 const Body = z.object({
   tz: z.string().max(64),
-  /** null = turn the 9am text off; undefined = leave as is. */
+  /** null = turn the 9 PM text off; undefined = leave as is. */
   whatsapp: z.object({ phone: z.string().min(8).max(32), apiKey: z.string().min(3).max(64) }).nullable().optional(),
   digests: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.object({ items: z.array(Item).max(400), queued: z.number().int().min(0) })).optional(),
+  /** People today's calendar events are matched against (thank-you reminders). */
+  people: z.array(z.object({ contactId: z.string().max(200), name: z.string().max(200), email: z.string().max(320).optional(), thankedAt: z.string().max(40).optional() })).max(400).optional(),
   /** Every send the dashboard wants queued. Queued sends missing from this list are cancelled. */
   sends: z.array(z.object({ draftId: z.string().min(5).max(200), contactId: z.string().max(200), name: z.string().max(200), step: z.number().int().min(0).max(10), sendAt: z.string().datetime() })).max(400),
   /** Finished sends the dashboard has applied (removed from the server). */
@@ -16,7 +18,7 @@ const Body = z.object({
 });
 
 /**
- * The dashboard's state for automatic sending: the queue of Gmail drafts to send and when, and what each day's 9am
+ * The dashboard's state for automatic sending: the queue of Gmail drafts to send and when, and what each night's 9 PM
  * WhatsApp text says. Returns what the server has done since (sent / failed sends) for the dashboard to apply.
  */
 export async function POST(req: Request) {
@@ -28,7 +30,7 @@ export async function POST(req: Request) {
     } catch {
       throw new HttpError(400, `Unknown time zone ${b.tz}.`);
     }
-    const next = { ...a, tz: b.tz, ...(b.digests ? { digests: Object.fromEntries(Object.entries(b.digests).slice(0, 31)) } : {}) };
+    const next = { ...a, tz: b.tz, ...(b.digests ? { digests: Object.fromEntries(Object.entries(b.digests).slice(0, 31)) } : {}), ...(b.people ? { people: b.people } : {}) };
     if (b.whatsapp === null) delete next.whatsapp;
     else if (b.whatsapp) next.whatsapp = { phone: seal(b.whatsapp.phone), apiKey: seal(b.whatsapp.apiKey) };
     await saveAccount(next);
@@ -53,6 +55,7 @@ export async function POST(req: Request) {
     return Response.json({
       email: next.google?.email ?? null,
       whatsapp: !!next.whatsapp,
+      calendar: !!next.google?.calendar,
       lastDigestDay,
       lastDigestError,
       sends: Object.values(after),

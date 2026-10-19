@@ -12,7 +12,8 @@ import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
-import { digestText, sendWhatsAppDigest, upcomingDigests, whatsappDigest } from "@/lib/reminders";
+import { digestText, nightExtras, nightPlan, sendWhatsAppDigest, textTime, upcomingDigests, whatsappDigest } from "@/lib/reminders";
+import { digestMessages } from "@/lib/digestFormat";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
@@ -915,8 +916,9 @@ function Reminders() {
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
+      <NightTextPreview />
       <Card>
-        <CardHeader title="Upcoming reminder digests" sub="One message per day at 9am, listing everyone to follow up with" />
+        <CardHeader title="Upcoming reminder digests" sub="Push / SMS / calendar: one message per day at 9am, listing everyone to follow up with" />
         {digests.length === 0 ? (
           <div className="p-6 text-center text-[13px] text-muted">No follow-ups scheduled in the next 5 weeks.</div>
         ) : (
@@ -991,7 +993,7 @@ function Reminders() {
         <Card>
           <CardHeader
             title="WhatsApp (CallMeBot)"
-            sub="Free. Today's list goes to your own WhatsApp once a day, the first time the dashboard is open after 9am. CallMeBot can't schedule and there's no server yet, so a day you don't open the dashboard gets no text: pair it with ntfy or the calendar."
+            sub="Free. Your list goes to your own WhatsApp at 9 PM, Monday–Thursday: today's thank-yous, replies and check-ins owed, and follow-ups due before the next text. With automatic sending on, the server sends it even when the dashboard is closed; otherwise it goes out the first time the dashboard is open after 9 PM."
             right={<MessageSquare className="size-4 text-muted" />}
           />
           <div className="flex flex-wrap items-center gap-3 p-4">
@@ -1036,5 +1038,34 @@ function SetupHint({ text }: { text: string }) {
         Settings
       </Link>
     </p>
+  );
+}
+
+/** What the next 9 PM WhatsApp text will say (Mon–Thu), from the same plan the server gets. */
+function NightTextPreview() {
+  const contacts = useStore((s) => s.contacts);
+  const banks = useStore((s) => s.banks);
+  const followUp = useStore((s) => s.settings.followUp);
+  const next = useMemo(() => {
+    const plan = nightPlan(contacts, banks, followUp, 8);
+    const day = Object.keys(plan).sort()[0];
+    return day ? { day, messages: digestMessages(plan[day].items, nightExtras(plan[day]), 4000) } : null;
+  }, [contacts, banks, followUp]);
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader
+        title="Next 9 PM text"
+        sub="Mon–Thu nights. Google Calendar calls are added by the server when it sends; check-ins stop once you mark someone referred (Coffee chat prep) or Done."
+        right={<MessageSquare className="size-4 text-muted" />}
+      />
+      {next ? (
+        <div className="p-4">
+          <div className="mb-2 text-[12.5px] font-medium">{textTime(next.day).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}, 9 PM</div>
+          <pre className="max-h-[360px] overflow-y-auto whitespace-pre-wrap rounded-md border border-line bg-paper p-3 font-mono text-[12px] leading-relaxed text-ink-2">{next.messages.join("\n\n")}</pre>
+        </div>
+      ) : (
+        <div className="p-6 text-center text-[13px] text-muted">Nothing to send in the next week.</div>
+      )}
+    </Card>
   );
 }

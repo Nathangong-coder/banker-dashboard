@@ -7,7 +7,7 @@ import { cn } from "@/lib/util";
 import { connectServer, disconnectServer, syncServer, useServerStatus } from "@/lib/serverSync";
 import { Badge, Button, Card, CardHeader, toast } from "./ui";
 
-/** Automatic sending: the server sends queued Gmail drafts at each person's slot and the 9am WhatsApp text. */
+/** Automatic sending: the server sends queued Gmail drafts at each person's slot and the 9 PM WhatsApp text. */
 export function AutoSendCard() {
   const server = useStore((s) => s.settings.server);
   const queued = useStore((s) => s.contacts.filter((c) => c.serverSend).length);
@@ -26,7 +26,7 @@ export function AutoSendCard() {
     <Card>
       <CardHeader
         title="Automatic sending"
-        sub="Coverage sends the emails you schedule inside your send window (Settings → Email → Sending) and texts your 9am WhatsApp list, even when this dashboard is closed."
+        sub="Coverage sends the emails you schedule inside your send window (Settings → Email → Sending) and texts your 9 PM WhatsApp list (Mon–Thu: today's thank-yous, check-ins, follow-ups due before the next text), even when this dashboard is closed."
         right={<Clock className="size-4 text-muted" />}
       />
       <div className="space-y-2 p-4 text-[13px]">
@@ -38,7 +38,16 @@ export function AutoSendCard() {
                 Sends from <b>{server.email}</b> · {queued} queued
               </span>
             </div>
-            {status?.whatsapp && <div className="text-[12px] text-muted">WhatsApp 9am text: on{status.lastDigestDay ? ` · last sent ${status.lastDigestDay}` : ""}</div>}
+            {status?.whatsapp && <div className="text-[12px] text-muted">WhatsApp 9 PM text (Mon–Thu): on{status.lastDigestDay ? ` · last sent ${status.lastDigestDay}` : ""}</div>}
+            {status && !status.calendar && (
+              <div className="text-[12px] text-ink-2">
+                Google Calendar isn&apos;t connected, so tonight&apos;s thank-you list only knows calls booked from this dashboard.{" "}
+                <button className="underline" onClick={() => run(() => connectServer())}>
+                  Reconnect Google
+                </button>{" "}
+                and tick Calendar (read-only) to add calls from your calendar.
+              </div>
+            )}
             {status?.lastDigestError && <div className="text-[12px] text-red">WhatsApp: {status.lastDigestError}</div>}
             {status?.error && <div className="text-[12px] text-red">{status.error}</div>}
             <div className="flex flex-wrap gap-2 pt-1">
@@ -66,7 +75,7 @@ export function AutoSendCard() {
         ) : (
           <>
             <p className="text-ink-2">
-              One Google sign-in gives Coverage permission to <b>send drafts you&apos;ve made</b> (Gmail &ldquo;compose&rdquo; access, nothing else).
+              One Google sign-in gives Coverage permission to <b>send drafts you&apos;ve made</b> (Gmail &ldquo;compose&rdquo; access) and, if you tick it, <b>read your calendar</b> so the 9 PM text can remind you to thank people you talked to that day.
               It sends only what you schedule here, and you can turn it off any time.
             </p>
             <Button size="sm" variant="primary" loading={busy} onClick={() => run(() => connectServer())}>

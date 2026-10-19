@@ -34,6 +34,12 @@ export function daysBetween(a: string | Date, b: string | Date = new Date()) {
   return Math.floor((new Date(b).getTime() - new Date(a).getTime()) / DAY);
 }
 
+/** The later of two ISO dates (either may be missing). Touches only accumulate, so a "last emailed" date never moves back. */
+export function latestIso(a?: string, b?: string) {
+  if (!a || !b) return a ?? b;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
 export function addDays(d: string | Date, n: number) {
   return new Date(new Date(d).getTime() + n * DAY);
 }

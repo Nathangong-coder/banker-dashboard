@@ -2,7 +2,7 @@
 
 import type { Workbook, CellValue } from "exceljs";
 import type { CellRef, CellStyle, Contact, ContactField, Region, SheetFormat, SheetSnapshot, Status } from "./types";
-import { contactId, splitName } from "./util";
+import { contactId, latestIso, splitName } from "./util";
 import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
@@ -466,7 +466,7 @@ function dedupe(list: Contact[]): Contact[] {
       team: primary.team || other.team,
       comment: [primary.comment, other.comment].filter(Boolean).join(" · "),
       sentAt: primary.sentAt ?? other.sentAt,
-      lastTouchAt: primary.lastTouchAt ?? other.lastTouchAt,
+      lastTouchAt: latestIso(primary.lastTouchAt, other.lastTouchAt),
       scheduledAt: primary.scheduledAt ?? other.scheduledAt,
     });
   }

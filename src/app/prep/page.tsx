@@ -15,6 +15,7 @@ import { STATUS_LABEL, type CoffeePrep, type Contact } from "@/lib/types";
 import { cn, fmtDate, linkedinSlug, relDays } from "@/lib/util";
 import { Button, Card, Checkbox, Empty, Input, PageHeader, StatusBadge, Textarea, toast } from "@/components/ui";
 import { AddContactModal } from "@/components/AddContact";
+import { ChatGrades } from "@/components/ChatGrades";
 
 export default function PrepPage() {
   return (
@@ -470,6 +471,8 @@ function PrepView({ c }: { c: Contact }) {
           </p>
         </Card>
       )}
+
+      <ChatGrades c={c} />
     </div>
   );
 }

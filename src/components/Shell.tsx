@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical } from "lucide-react";
+import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { FORMAT_VERSION, readFormats, withInternalLinks } from "@/lib/workbook";
 import { readInternalLinks } from "@/lib/sheetLinks";
@@ -14,7 +14,7 @@ import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
 import { ConsentBanner } from "./Consent";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
-import { sendWhatsAppDigest, whatsappDigest } from "@/lib/reminders";
+import { sendWhatsAppDigest, textTime, whatsappDigest } from "@/lib/reminders";
 import { callApi } from "@/lib/api";
 import { syncServer } from "@/lib/serverSync";
 import { setSignatureLogoSource } from "@/lib/gmail";
@@ -29,6 +29,7 @@ const PUBLIC_PATHS = ["/privacy", "/terms"];
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
   { href: "/coverage", label: "Bank coverage", icon: Building2 },
+  { href: "/firms", label: "Firms", icon: Trophy },
   { href: "/sheet", label: "Spreadsheet", icon: Sheet },
   { href: "/find", label: "Find people", icon: Search },
   { href: "/drafts", label: "Email drafts", icon: Mail },
@@ -86,9 +87,9 @@ function useDailyNudge(due: number) {
 }
 
 /**
- * The 9am WhatsApp digest (CallMeBot), sent by this browser: once a day, the first time the dashboard is open at or
- * after 9am (a tab left open fires at 9). There is no server cron yet (TODO.md), so a day the dashboard is never opened
- * gets no message.
+ * The 9 PM WhatsApp list (CallMeBot), sent by this browser when automatic sending isn't on: Monday–Thursday nights,
+ * the first time the dashboard is open at or after 9 PM (a tab left open fires at 9). A night the dashboard is never
+ * opened gets no message; the server (Follow-ups → Reminders → Automatic sending) sends it with the dashboard closed.
  */
 function useDailyWhatsApp(ready: boolean) {
   useEffect(() => {
@@ -98,13 +99,12 @@ function useDailyWhatsApp(ready: boolean) {
       const s = useStore.getState();
       const k = s.settings.keys;
       if (!k.whatsappPhone || !k.whatsappApiKey || s.settings.alerts?.whatsappDaily === false) return;
-      // The server sends it (at 9 even with the dashboard closed); don't double up.
+      // The server sends it (at 9 PM even with the dashboard closed); don't double up.
       if (s.settings.server?.email) return;
       const now = new Date();
-      const nine = new Date(now);
-      nine.setHours(9, 0, 0, 0);
-      if (now < nine) {
-        timer = setTimeout(run, nine.getTime() - now.getTime() + 1000);
+      const at = textTime(now.toLocaleDateString("en-CA"));
+      if (now < at) {
+        timer = setTimeout(run, Math.min(at.getTime() - now.getTime() + 1000, 2 ** 31 - 1));
         return;
       }
       const digest = whatsappDigest(s.contacts, s.banks, s.settings.followUp);
@@ -122,7 +122,7 @@ function useDailyWhatsApp(ready: boolean) {
         const n = await sendWhatsAppDigest(digest, (title, message) =>
           callApi("/api/notify", { channel: "whatsapp", title, message, whatsapp: { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } }, s.settings),
         );
-        toast.ok(`WhatsApp: sent today's list${digest.count ? ` (${digest.count} follow-up${digest.count > 1 ? "s" : ""}${n > 1 ? `, ${n} messages` : ""})` : ""}.`);
+        toast.ok(`WhatsApp: sent tonight's list${digest.count ? ` (${digest.count} ${digest.count > 1 ? "people" : "person"}${n > 1 ? `, ${n} messages` : ""})` : ""}.`);
       } catch (e) {
         // Let a later page load retry today.
         const rest = { ...useStore.getState().scheduled };

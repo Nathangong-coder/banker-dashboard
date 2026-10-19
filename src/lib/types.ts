@@ -109,6 +109,14 @@ export interface Contact {
   scheduledAt?: string;
   followUps: number;
   repliedAt?: string;
+  /** The latest email you sent them, replies included (Gmail sync). Check-ins and thank-yous are timed from it. */
+  lastEmailedAt?: string;
+  /** Their latest email to you (Gmail sync). Newer than `lastEmailedAt` = you owe them a reply. */
+  lastHeardAt?: string;
+  /** They referred you / did what they said they'd do (Follow-ups, /prep). Check-in reminders stop. */
+  referral?: { at: string; note?: string };
+  /** Coffee chats you had with them: transcript (optional) and the AI's grade of how you did (app/prep). */
+  chats?: ChatLog[];
   threadId?: string;
   lastMessageId?: string;
   snoozeUntil?: string;
@@ -145,6 +153,34 @@ export interface CoffeePrep {
   /** Indexes of questions ticked off during the call: "g0", "t2"… */
   asked?: string[];
   notes?: string;
+}
+
+export interface ChatLog {
+  id: string;
+  /** When the call happened. */
+  at: string;
+  transcript?: string;
+  /** Where the transcript came from ("Zoom transcript.vtt", "pasted"). */
+  source?: string;
+  notes?: string;
+  grade?: ChatGrade;
+}
+
+export interface ChatGrade {
+  gradedAt: string;
+  /** 0–100 overall. */
+  score: number;
+  /** "A-", "B+"… */
+  letter: string;
+  summary: string;
+  /** Per-area scores, 1–5, with one line of evidence each. */
+  rubric: { area: string; score: number; comment: string }[];
+  strengths: string[];
+  improvements: { issue: string; suggestion: string; quote?: string }[];
+  /** Things they said they'd do (refer you, intro to someone, send a resume to HR), so you can check in on them. */
+  commitments: string[];
+  /** What to write in the thank-you note (specific things they said). */
+  thankYouPoints: string[];
 }
 
 export type BankStatus = "active" | "paused" | "moved_on" | "applied" | "offer";

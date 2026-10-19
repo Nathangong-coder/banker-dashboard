@@ -280,6 +280,10 @@ export interface SyncResult {
   lastMessageId?: string;
   subject?: string;
   repliedAt?: string;
+  /** The latest email you sent them, replies after their reply included (thank-yous, check-ins). */
+  lastEmailedAt?: string;
+  /** Their latest real (not auto-reply) email to you. */
+  lastHeardAt?: string;
   /** The next email queued with Gmail's Schedule send (not sent yet). */
   scheduledAt?: string;
   /** A delivery-failure notice for our email came back. */
@@ -338,6 +342,9 @@ export async function syncContact(clientId: string, email: string): Promise<Sync
   out.lastMessageId = header(last, "Message-ID");
   out.subject = header(first, "Subject");
   if (firstReply) out.repliedAt = new Date(when(firstReply)).toISOString();
+  out.lastEmailedAt = new Date(when(sentMeta[sentMeta.length - 1])).toISOString();
+  const lastReply = replyMeta[replyMeta.length - 1];
+  if (lastReply) out.lastHeardAt = new Date(when(lastReply)).toISOString();
   if (firstReply && looksLikeDecline(firstReply.snippet ?? "")) out.declineNote = (firstReply.snippet ?? "").slice(0, 200);
   return out;
 }

@@ -67,7 +67,16 @@ export type CoverageSettings = {
   officePick?: Record<string, string[]>;
   /** Specialist-firm teams set by hand (canonBank key → teams; null = full-service, overriding the built-in list). */
   specialty?: Record<string, string[] | null>;
+  /** Your own rating of each firm (canonBank key), shown next to the computed score on /firms. */
+  ratings?: Record<string, FirmRating>;
 };
+
+export interface FirmRating {
+  /** 1–5, your gut feel (culture, people, fit). */
+  stars?: number;
+  notes?: string;
+  updatedAt: string;
+}
 
 const REACHED = new Set(["sent", "followed_up", "replied", "call_scheduled", "done"]);
 const REPLIED = new Set(["replied", "call_scheduled", "done"]);

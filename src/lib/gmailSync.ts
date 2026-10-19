@@ -41,6 +41,8 @@ function patchFrom(c: Contact, r: SyncResult): Partial<Contact> | null {
     // The follow-up draft made from Follow-ups went out.
     if (c.followUpDraft && p.followUps >= c.followUpDraft.step) p.followUpDraft = undefined;
   }
+  if (r.lastEmailedAt) p.lastEmailedAt = r.lastEmailedAt;
+  if (r.lastHeardAt) p.lastHeardAt = r.lastHeardAt;
   if ((r.scheduledAt ?? "") !== (c.scheduledAt ?? "")) p.scheduledAt = r.scheduledAt;
   // Marked sent, but Gmail has nothing sent to them and an email queued with Schedule send: it hasn't gone out yet,
   // so it isn't due for a follow-up. (Only with a scheduled email in hand, so mail sent from another account stays.)
