@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import type {
+  InfoSession,
   AiProvider,
   ApiKeyEntry,
   BankMeta,
@@ -84,6 +85,12 @@ interface State {
   aiCooldowns: Record<string, string>;
   /** Grid undo history (this session only, not persisted). */
   gridUndo: GridState[];
+  /** Info sessions (app/info-sessions): read from Google Calendar or added by hand, with who you met at each. */
+  infoSessions: InfoSession[];
+  /** Merge sessions read from the calendar (by id): calendar fields refresh, your fields (people, notes, attended…) stay. */
+  upsertInfoSessions: (list: InfoSession[]) => void;
+  updateInfoSession: (id: string, patch: Partial<InfoSession> | ((s: InfoSession) => Partial<InfoSession>)) => void;
+  removeInfoSession: (id: string) => void;
 
   setSettings: (fn: (s: Settings) => Settings) => void;
   importWorkbook: (args: {
@@ -231,6 +238,23 @@ export const useStore = create<State>()(
       coverage: { hidden: [], added: [], includeStarter: false },
       sheetOps: EMPTY_OPS,
       aiCooldowns: {},
+      infoSessions: [],
+      upsertInfoSessions: (list) => {
+        const byId = new Map(get().infoSessions.map((s) => [s.id, s]));
+        for (const s of list) {
+          const prev = byId.get(s.id);
+          byId.set(
+            s.id,
+            prev
+              ? { ...prev, title: s.title, firm: s.firm, host: s.host, group: s.group, titleNote: s.titleNote, start: s.start, end: s.end, allDay: s.allDay, location: s.location, link: s.link }
+              : s,
+          );
+        }
+        set({ infoSessions: [...byId.values()].sort((a, b) => b.start.localeCompare(a.start)) });
+      },
+      updateInfoSession: (id, patch) =>
+        set({ infoSessions: get().infoSessions.map((s) => (s.id === id ? { ...s, ...(typeof patch === "function" ? patch(s) : patch) } : s)) }),
+      removeInfoSession: (id) => set({ infoSessions: get().infoSessions.filter((s) => s.id !== id) }),
       gridUndo: [],
 
       setSettings: (fn) => set({ settings: fn(get().settings) }),

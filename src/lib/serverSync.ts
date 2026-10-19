@@ -45,6 +45,11 @@ async function call<T>(path: string, body: unknown): Promise<T> {
   return j;
 }
 
+/** An authenticated call to the automatic-sending server (same account as syncServer), for other pages (info sessions). */
+export function serverCall<T>(path: string, body: unknown): Promise<T> {
+  return call<T>(path, body);
+}
+
 /** Send the user to Google to give the server Gmail access; comes back to `returnTo` with ?server=connected. */
 export async function connectServer(returnTo = "/followups?tab=reminders") {
   const { url } = await call<{ url: string }>("/api/server/google/start", { returnTo, loginHint: useStore.getState().settings.profile.email || undefined });

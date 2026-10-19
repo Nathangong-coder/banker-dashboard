@@ -393,3 +393,27 @@ Kind regards,
 {{my_first_name}}`,
   },
 ];
+
+/**
+ * Thank-you after a firm info session (app/info-sessions). Not a starter template: the info-sessions page adds it the
+ * first time it drafts thank-yous. The [[AI: …]] slot is written from your note about the person (in their Comment after
+ * "Met at …") and removed before drafting when there's no note.
+ */
+export const INFO_SESSION_TEMPLATE: Template = {
+  id: "tpl_infosession",
+  name: "Info session thank-you",
+  whenToUse: "The same night as a firm info session, to the people you spoke with there (Info sessions page).",
+  kind: "initial",
+  attachResume: true,
+  subject: "Thank you – {{bank}} info session",
+  body: `Hi {{first_name}},
+
+Thank you so much for taking the time to speak with me at the {{bank}} info session! [[AI: One short sentence on a specific thing from our conversation, using ONLY the note after "Met at" in the comment (e.g. "I really enjoyed hearing about …"). Never invent details.]]
+
+As a quick reminder, I'm {{my_name}}, a {{my_major}} student at {{my_school}}. If you happen to be available, I would greatly appreciate the chance to continue our conversation over a quick call sometime. I have attached my resume for reference and can send my availability if needed.
+
+Thank you again for your time, and I look forward to hearing from you!
+
+Sincerely,
+{{my_first_name}}`,
+};

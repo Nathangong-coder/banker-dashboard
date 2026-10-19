@@ -84,6 +84,15 @@ export function relationshipItem(c: Contact, day: string, horizonEnd: Date): Dig
   const last = lastEmailed(c);
   const dayStart = startOf(day);
   const dayEnd = endOf(day);
+  // Met at an info session that day (app/info-sessions) and the thank-you isn't out or queued yet.
+  if (
+    (c.status === "new" || c.status === "drafted") &&
+    !c.sentAt &&
+    !c.serverSend &&
+    !(c.scheduledAt && new Date(c.scheduledAt) > dayStart) &&
+    c.metAt?.some((m) => new Date(m.at) >= dayStart && new Date(m.at) <= dayEnd)
+  )
+    return item(LABELS.infoSession);
   const lastCall = callTimes(c).find((t) => new Date(t) <= dayEnd);
   if (lastCall) {
     const at = new Date(lastCall);

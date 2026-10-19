@@ -119,6 +119,8 @@ export interface Contact {
   referral?: { at: string; note?: string };
   /** Coffee chats you had with them: transcript (optional) and the AI's grade of how you did (app/prep). */
   chats?: ChatLog[];
+  /** Info sessions where you met them (InfoSession.id + the session's start), newest last. */
+  metAt?: { sessionId: string; at: string }[];
   threadId?: string;
   lastMessageId?: string;
   snoozeUntil?: string;
@@ -161,6 +163,54 @@ export interface CoffeePrep {
 export interface PrepInterest {
   sector: string;
   subVerticals: string[];
+}
+
+/**
+ * A firm info session (app/info-sessions), read from your Google Calendar (id = the event id) or added by hand
+ * (id "man_…"). Calendar fields are refreshed on every read; everything below `source` is yours and kept.
+ */
+export interface InfoSession {
+  id: string;
+  title: string;
+  /** Parsed from the title (lib/infoSessions.ts#parseSessionTitle). */
+  firm: string;
+  host?: string;
+  group?: string;
+  /** Your note in the title's parentheses ("must go"). */
+  titleNote?: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  location?: string;
+  link?: string;
+  source: "calendar" | "manual";
+  /** Did you go? undefined = not marked yet. */
+  attended?: boolean;
+  /** Contact ids of the people you met there. */
+  people: string[];
+  /** Names read from your phone captures, waiting for you to confirm (then they become contacts in `people`). */
+  pending?: SessionPerson[];
+  /** Capture item ids already read into `pending` (so a re-pull doesn't add them twice). */
+  captureIds?: string[];
+  notes?: string;
+  /** When the thank-yous go out: tonight, or next week (a Friday / weekend session's choice). */
+  followUp?: { when: "tonight" | "next_week"; decidedAt: string };
+  /** 1–5: how useful the session was. */
+  rating?: number;
+}
+
+/** Someone read from a capture (photo / pasted names), before you confirm them. */
+export interface SessionPerson {
+  name: string;
+  title?: string;
+  /** Their firm if the capture said one (defaults to the session's firm). */
+  firm?: string;
+  email?: string;
+  linkedin?: string;
+  /** What you noted about them ("talked about TMT, went to UCLA"). */
+  note?: string;
+  /** Where it came from: the capture item id, or "manual". */
+  from: string;
 }
 
 export interface ChatLog {

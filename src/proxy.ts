@@ -4,7 +4,7 @@ import { Redis } from "@upstash/redis";
 
 /**
  * Abuse protection for the API (the app has no public forms; its API routes are what a bot could hammer): per-IP rate
- * limits in Upstash Redis. QStash's signed job calls and Google's OAuth callback are exempt (shared IPs / one-shot).
+ * limits in Upstash Redis. QStash's signed job calls, Twilio's signed webhook and Google's OAuth callback are exempt (shared IPs / one-shot).
  * Without Redis configured (local dev) everything passes.
  */
 
@@ -18,14 +18,18 @@ const general = redis && new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(1
 const signup = redis && new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(10, "1 h"), prefix: "rl:signup", ephemeralCache: cache });
 // Sends a message to an arbitrary channel (ntfy / SMS / WhatsApp): keep it from being an open relay.
 const notify = redis && new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(30, "10 m"), prefix: "rl:notify", ephemeralCache: cache });
+// The phone capture page / share sheet (info sessions): a handful of photos per event.
+const capture = redis && new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(60, "10 m"), prefix: "rl:capture", ephemeralCache: cache });
 
-const EXEMPT = ["/api/server/run-send", "/api/server/tick", "/api/server/google/callback"];
+// Twilio's webhook is signature-checked and retried from shared Twilio IPs.
+const EXEMPT = ["/api/server/run-send", "/api/server/tick", "/api/server/google/callback", "/api/server/twilio/inbound"];
+const isCapture = (path: string) => path.startsWith("/api/server/capture") || path.startsWith("/api/capture-share");
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   if (!general || EXEMPT.includes(path)) return NextResponse.next();
   const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || req.headers.get("x-real-ip") || "unknown";
-  const limiter = path === "/api/server/google/start" ? signup! : path === "/api/notify" ? notify! : general;
+  const limiter = path === "/api/server/google/start" ? signup! : path === "/api/notify" ? notify! : isCapture(path) ? capture! : general;
   try {
     const r = await limiter.limit(ip);
     if (!r.success) {

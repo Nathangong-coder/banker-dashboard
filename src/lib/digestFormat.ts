@@ -15,6 +15,7 @@ export interface DigestItem {
 
 export const LABELS = {
   thankToday: "Thank-you (call today)",
+  infoSession: "Info session thank-you",
   thankOwed: "Thank-you not sent yet",
   replyOwed: "They wrote back: reply",
   checkIn: "Check in (7+ days since your last email)",
@@ -22,7 +23,7 @@ export const LABELS = {
 } as const;
 
 /** Section order: tonight's thank-yous, then people who replied, then cold outreach (last chances first). */
-const ORDER: string[] = [LABELS.thankToday, LABELS.thankOwed, LABELS.replyOwed, LABELS.checkIn, LABELS.moveOn];
+const ORDER: string[] = [LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.checkIn, LABELS.moveOn];
 const sectionRank = (label: string) => {
   const i = ORDER.indexOf(label);
   return i >= 0 ? i : ORDER.length + Number(label.match(/#(\d+)/)?.[1] ?? 9);

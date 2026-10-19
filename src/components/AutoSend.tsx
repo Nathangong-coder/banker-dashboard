@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Clock } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/util";
 import { connectServer, disconnectServer, syncServer, useServerStatus } from "@/lib/serverSync";
-import { Badge, Button, Card, CardHeader, toast } from "./ui";
+import { callApi } from "@/lib/api";
+import { Badge, Button, Card, CardHeader, Field, Input, toast } from "./ui";
 
 /** Automatic sending: the server sends queued Gmail drafts at each person's slot and the 9 PM WhatsApp text. */
 export function AutoSendCard() {
@@ -71,6 +72,7 @@ export function AutoSendCard() {
                 Turn off
               </Button>
             </div>
+            <InfoSessionsSection />
           </>
         ) : (
           <>
@@ -129,6 +131,159 @@ export function SendModeSwitch({ onAuto }: { onAuto: () => void }) {
           open each one and pick the time shown here. Either way the email comes from your Gmail and looks the same to the banker.
         </p>
       </details>
+    </div>
+  );
+}
+
+/** Server calls with this browser's server account (same credentials as automatic sending). */
+async function serverCall<T>(path: string, body: unknown): Promise<T> {
+  const srv = useStore.getState().settings.server;
+  if (!srv?.id) throw new Error("Turn on automatic sending first.");
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${srv.id}.${srv.token}` }, body: JSON.stringify(body) });
+  const j = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(j.error ?? `Server error ${res.status}`);
+  return j;
+}
+
+/**
+ * Info sessions (server side): the phone capture link (photos / names after an event go to the server inbox, which
+ * /info-sessions pulls) and an optional Twilio number to text them to instead.
+ */
+function InfoSessionsSection() {
+  const serverId = useStore((s) => s.settings.server?.id);
+  const keys = useStore((s) => s.settings.keys);
+  const [link, setLink] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [tw, setTw] = useState<{ number: string | null; myPhone: string | null } | null>(null);
+  const [form, setForm] = useState<{ sid: string; token: string; number: string; myPhone: string } | null>(null);
+
+  useEffect(() => {
+    if (!serverId) return;
+    let live = true;
+    serverCall<{ number: string | null; myPhone: string | null }>("/api/server/twilio/setup", { check: true })
+      .then((r) => live && setTw(r))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [serverId]);
+
+  const run = async (what: string, fn: () => Promise<unknown>) => {
+    setBusy(what);
+    try {
+      await fn();
+    } catch (e) {
+      toast.err((e as Error).message);
+    }
+    setBusy(null);
+  };
+  const getLink = (rotate = false) =>
+    run(rotate ? "rotate" : "link", async () => {
+      const { url } = await serverCall<{ url: string }>("/api/server/capture/link", { rotate });
+      setLink(url);
+      if (rotate) toast.ok("New link made. The old one no longer works.");
+    });
+  const textIt = () =>
+    run("text", async () => {
+      const st = useStore.getState();
+      const k = st.settings.keys;
+      if (!k.whatsappPhone || !k.whatsappApiKey) throw new Error("Connect WhatsApp (CallMeBot) on this page first.");
+      await callApi("/api/notify", { channel: "whatsapp", title: "Coverage capture link", message: `Open on your phone, then Add to Home Screen:\n${link}`, whatsapp: { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } }, st.settings);
+      toast.ok("Sent to your WhatsApp.");
+    });
+  const saveTwilio = () =>
+    run("twilio", async () => {
+      const r = await serverCall<{ number: string; myPhone: string }>("/api/server/twilio/setup", form);
+      setTw({ number: r.number, myPhone: r.myPhone });
+      setForm(null);
+      toast.ok(`Texts to ${r.number} now go to your capture inbox.`);
+    });
+
+  return (
+    <div className="mt-3 space-y-2 border-t border-line pt-3">
+      <div className="text-[12.5px] font-medium text-ink">Info sessions</div>
+      <p className="text-[12px] text-muted">
+        With Calendar connected, WhatsApp texts you 1–2 h before each info session and right after it, with a link to send who you met from your phone.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[12.5px] text-ink-2">Phone capture link</span>
+        {!link ? (
+          <Button size="sm" loading={busy === "link"} onClick={() => getLink()}>
+            Show link
+          </Button>
+        ) : (
+          <>
+            <code className="max-w-full truncate rounded bg-[#f0eee7] px-1.5 py-0.5 text-[11.5px]">{link.replace(/#k=.*/, "#k=…")}</code>
+            <Button size="sm" onClick={() => navigator.clipboard.writeText(link).then(() => toast.ok("Copied."), () => toast.err("Couldn't copy."))}>
+              Copy
+            </Button>
+            <Button size="sm" loading={busy === "text"} onClick={textIt}>
+              Text it to my WhatsApp
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={busy === "rotate"}
+              onClick={() => window.confirm("Make a new link? The old one (and any home-screen icon made from it) stops working.") && getLink(true)}
+            >
+              Rotate
+            </Button>
+          </>
+        )}
+      </div>
+      <div className="space-y-2">
+        {tw?.number ? (
+          <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+            <Badge tone="green">Twilio</Badge>
+            <span>
+              Text photos or names to <b>{tw.number}</b> from {tw.myPhone}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={busy === "remove"}
+              onClick={() =>
+                run("remove", async () => {
+                  await serverCall("/api/server/twilio/setup", { remove: true });
+                  setTw({ number: null, myPhone: null });
+                })
+              }
+            >
+              Remove
+            </Button>
+          </div>
+        ) : !form ? (
+          <button
+            className="text-[12px] text-navy underline"
+            onClick={() => setForm({ sid: keys.twilioSid ?? "", token: keys.twilioToken ?? "", number: keys.twilioFrom ?? "", myPhone: keys.twilioTo ?? "" })}
+          >
+            Or text them to your own Twilio number…
+          </button>
+        ) : (
+          <div className="grid max-w-xl gap-2 sm:grid-cols-2">
+            <Field label="Account SID">
+              <Input value={form.sid} onChange={(e) => setForm({ ...form, sid: e.target.value })} placeholder="AC…" autoComplete="off" />
+            </Field>
+            <Field label="Auth Token">
+              <Input type="password" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} autoComplete="off" />
+            </Field>
+            <Field label="Twilio number">
+              <Input value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value })} placeholder="+13105550123" />
+            </Field>
+            <Field label="Your phone" hint="Only texts from this number are accepted.">
+              <Input value={form.myPhone} onChange={(e) => setForm({ ...form, myPhone: e.target.value })} placeholder="+14255550123" />
+            </Field>
+            <div className="flex gap-2 sm:col-span-2">
+              <Button size="sm" variant="primary" loading={busy === "twilio"} onClick={saveTwilio}>
+                Connect number
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setForm(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { HttpError } from "./http";
 import { unseal, type Account } from "./accounts";
+import { isInfoSessionTitle, meetingLink, type CalendarSession } from "../infoSessions";
 
 /**
  * Server-side Gmail for automatic sending: the authorization-code flow with offline access (a refresh token, so sends
@@ -131,4 +132,129 @@ export async function eventsOn(access: string, day: string, dayOf: (at: Date) =>
       start: e.start!.dateTime!,
       attendees: (e.attendees ?? []).filter((a) => !a.self && a.email).map((a) => a.email!.toLowerCase()),
     }));
+}
+
+export interface ListedEvent {
+  id: string;
+  summary: string;
+  /** Raw (may contain HTML from Google's editor). */
+  description: string;
+  location?: string;
+  /** dateTime for timed events, YYYY-MM-DD for all-day ones (`end` is then the exclusive end date). */
+  start: string;
+  end: string;
+  allDay: boolean;
+  /** Other guests' emails (lowercase). */
+  attendees: string[];
+  status: string;
+}
+
+/**
+ * Timed and all-day events on your primary calendar overlapping [timeMin, timeMax], recurring ones expanded, minus
+ * cancelled ones and ones you declined. Needs `calendar.events.readonly`; 403 = not granted or the Calendar API is off.
+ */
+export async function listEvents(access: string, timeMin: string, timeMax: string): Promise<ListedEvent[]> {
+  type When = { dateTime?: string; date?: string };
+  type Raw = {
+    id: string;
+    status?: string;
+    summary?: string;
+    description?: string;
+    location?: string;
+    start?: When;
+    end?: When;
+    attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
+  };
+  const out: ListedEvent[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 5; page++) {
+    const q = new URLSearchParams({
+      timeMin,
+      timeMax,
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "2500",
+      fields: "nextPageToken,items(id,status,summary,description,location,start,end,attendees(email,self,responseStatus))",
+      ...(pageToken ? { pageToken } : {}),
+    });
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${access}` } });
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 200);
+      throw new HttpError(
+        res.status === 401 || res.status === 403 ? 403 : 502,
+        res.status === 403 && /disabled|not been used/i.test(body)
+          ? "Google Calendar API is turned off for this app's Google project."
+          : res.status === 401 || res.status === 403
+            ? "Coverage can't read your Google Calendar. Reconnect Google on Follow-ups → Reminders and tick Calendar (read-only)."
+            : `Google Calendar: ${body}`,
+      );
+    }
+    const j = (await res.json()) as { items?: Raw[]; nextPageToken?: string };
+    for (const e of j.items ?? []) {
+      if (e.status === "cancelled") continue;
+      if (e.attendees?.some((a) => a.self && a.responseStatus === "declined")) continue;
+      const start = e.start?.dateTime ?? e.start?.date;
+      const end = e.end?.dateTime ?? e.end?.date ?? start;
+      if (!start || !end) continue;
+      out.push({
+        id: e.id,
+        summary: (e.summary ?? "").slice(0, 300),
+        description: (e.description ?? "").slice(0, 8000),
+        location: e.location?.slice(0, 300) || undefined,
+        start,
+        end,
+        allDay: !e.start?.dateTime,
+        attendees: (e.attendees ?? []).filter((a) => !a.self && a.email).map((a) => a.email!.toLowerCase()),
+        status: e.status ?? "confirmed",
+      });
+    }
+    pageToken = j.nextPageToken;
+    if (!pageToken) break;
+  }
+  return out;
+}
+
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", "#39": "'" };
+/** Google Calendar descriptions are HTML from its editor: plain text for the dashboard. */
+export function plainText(html: string) {
+  return html
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/\s*(p|div|li|h\d)\s*>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&(#?\w+);/g, (m, k: string) => ENTITIES[k.toLowerCase()] ?? (/^#\d+$/.test(k) ? String.fromCharCode(Number(k.slice(1))) : m))
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Info-session events (`isInfoSessionTitle`) between two instants, as the dashboard and the phone page get them. */
+export async function infoSessionsBetween(a: Account, from: string, to: string): Promise<CalendarSession[]> {
+  const events = await listEvents(await accessToken(a), from, to);
+  return events
+    .filter((e) => isInfoSessionTitle(e.summary))
+    .map((e) => {
+      const text = plainText(e.description);
+      return {
+        eventId: e.id,
+        title: e.summary,
+        start: e.start,
+        end: e.end,
+        allDay: e.allDay,
+        location: e.location,
+        link: meetingLink(`${e.description} ${text} ${e.location ?? ""}`),
+        description: text.slice(0, 600) || undefined,
+      };
+    });
+}
+
+/** The session going on now, else the one that ended most recently (within `withinH` hours, if given). Timed only. */
+export function currentSession(sessions: CalendarSession[], now = Date.now(), withinH?: number) {
+  const timed = sessions.filter((s) => !s.allDay);
+  const ongoing = timed.find((s) => Date.parse(s.start) <= now && Date.parse(s.end) >= now);
+  if (ongoing) return ongoing;
+  const ended = timed
+    .filter((s) => Date.parse(s.end) < now && (withinH === undefined || now - Date.parse(s.end) <= withinH * 3600_000))
+    .sort((x, y) => Date.parse(y.end) - Date.parse(x.end));
+  return ended[0];
 }

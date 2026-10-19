@@ -13,6 +13,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ["/sheet", 0.5],
     ["/lab", 0.4],
     ["/prep", 0.4],
+    ["/info-sessions", 0.4],
     ["/settings", 0.3],
     ["/privacy", 0.5],
     ["/terms", 0.5],

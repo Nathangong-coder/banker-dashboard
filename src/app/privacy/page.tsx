@@ -41,6 +41,16 @@ export default function PrivacyPage() {
           have a call with you (to recognize them on your calendar).
         </li>
         <li>Your time zone, so reminders arrive at 9 PM your time.</li>
+        <li>
+          If you use <b>info-session capture</b>: the photos, screenshots and text you send from your phone (the capture page, your phone&apos;s share
+          sheet, or a text to your own Twilio number), and which info session they belong to. They wait for at most 14 days until your dashboard pulls
+          them in, and are deleted as soon as it does. Also a random capture key (a one-way hash, plus an encrypted copy so reminder texts can include your
+          capture link).
+        </li>
+        <li>
+          If you connect a Twilio number: your Twilio Account SID and Auth Token (encrypted), the Twilio number, and your own phone number (only texts
+          from it are accepted). We set that number&apos;s incoming-message address to Coverage.
+        </li>
       </ul>
       <p>
         Turning automatic sending off deletes all of this and revokes our Google access. To limit abuse, the server also keeps your IP address for up to an
@@ -53,7 +63,10 @@ export default function PrivacyPage() {
         fill in when you emailed them and whether they replied) and create drafts. On our server, with automatic sending on, it can only send drafts you
         scheduled (the <code>gmail.compose</code> permission). If you also allow read-only Calendar access
         (<code>calendar.events.readonly</code>), the server reads that day&apos;s events once on reminder nights (Monday–Thursday, 9 PM your time), only
-        to list the people you met so you remember to thank them. Event details are used for that text and not stored.
+        to list the people you met so you remember to thank them. With WhatsApp reminders on, it also reads the next few hours of your calendar
+        every hour to find info sessions (events titled like &ldquo;… Info Session&rdquo;) and text you before and after each one, and it lists
+        your info sessions for the dashboard&apos;s Info sessions page and your phone&apos;s capture page. Event details are used for those texts
+        and lists and not stored (only a marker that a reminder was sent, for 3 days).
       </p>
       <p>
         If you use <b>Schedule calls</b>, your browser also reads the latest email from that banker (to see which days and time zone they asked
@@ -88,9 +101,10 @@ export default function PrivacyPage() {
           Your AI provider (Anthropic, OpenAI, Google Gemini, DeepSeek, Z.ai, Vercel AI Gateway, or one you configure): contact details and draft text, to
           screen candidates and write emails, a coffee-chat transcript you upload or paste, only when you click <b>Grade it</b>, to grade the call, and, when
           you click <b>Build brief</b> on a bank, the bank&apos;s name, your profile and interests, and your own notes about that bank and its contacts
-          (firm notes, tracker comments, call notes, chat summaries), to write your &ldquo;Why this bank&rdquo; answer.
+          (firm notes, tracker comments, call notes, chat summaries), to write your &ldquo;Why this bank&rdquo; answer, and the photos and notes you
+          captured at an info session, sent by your browser when you review them, to read out the names of the people you met.
         </li>
-        <li>CallMeBot (WhatsApp), ntfy, Twilio: the reminder text, to send it to you.</li>
+        <li>CallMeBot (WhatsApp), ntfy, Twilio: the reminder text, to send it to you. Twilio also delivers the texts and photos you send to your own Twilio number.</li>
       </ul>
       <p>Each of these services handles data under its own privacy policy.</p>
 
@@ -104,7 +118,8 @@ export default function PrivacyPage() {
       <H2>6. Cookies and local storage</H2>
       <p>
         {SITE.name} doesn&apos;t use advertising or tracking cookies. Google&apos;s sign-in window may set its own cookies on google.com. The app stores your
-        data in your browser (section 1) because it can&apos;t work without it.
+        data in your browser (section 1) because it can&apos;t work without it. On your phone, the capture page stores your capture key in local storage
+        and in one cookie (<code>coverage_capture</code>, sent only to the share address) so sharing photos from your phone&apos;s share sheet works.
       </p>
 
       <H2>7. LinkedIn</H2>

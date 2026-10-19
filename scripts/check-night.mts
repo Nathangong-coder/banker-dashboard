@@ -56,6 +56,11 @@ check("marked done → nothing", label({ ...replied, status: "done", lastEmailed
 check("call still ahead → nothing to chase", label({ ...replied, status: "call_scheduled", call: { at: local("2026-10-22T14:00:00"), eventId: "e", link: "", invited: true }, lastEmailedAt: local("2026-10-01T10:00:00") }) === "(none)");
 check("cold outreach isn't a check-in", label({ ...base, status: "sent", sentAt: local("2026-10-01T10:00:00") }) === "(none)");
 
+// Info sessions: people met tonight get a thank-you line until it's sent or queued.
+const met = { ...base, status: "new" as const, followUps: 0, metAt: [{ sessionId: "ev1", at: local("2026-10-19T18:00:00") }] };
+check("met at an info session today, nothing sent → info-session thank-you", label(met) === LABELS.infoSession, label(met));
+check("info-session thank-you already queued → not listed", label({ ...met, status: "drafted", serverSend: { draftId: "d", step: 0, sendAt: local("2026-10-19T21:05:00"), queuedAt: local("2026-10-19T20:00:00") } }) === "(none)");
+
 // Text layout: thank-yous first, the tracker reminder at the end.
 const msgs = digestMessages(
   [

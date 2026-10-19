@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy } from "lucide-react";
+import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy, Presentation } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { FORMAT_VERSION, readFormats, withInternalLinks } from "@/lib/workbook";
 import { readInternalLinks } from "@/lib/sheetLinks";
@@ -24,7 +24,7 @@ import { savedSignatureLogo } from "@/lib/signatureLogo";
 setSignatureLogoSource(savedSignatureLogo);
 
 /** Pages that render without waiting for the local store (no personal data on them). */
-const PUBLIC_PATHS = ["/privacy", "/terms"];
+const PUBLIC_PATHS = ["/privacy", "/terms", "/capture"];
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
@@ -36,6 +36,7 @@ const NAV = [
   { href: "/lab", label: "Email lab", icon: FlaskConical },
   { href: "/followups", label: "Follow-ups", icon: BellRing },
   { href: "/prep", label: "Coffee chat prep", icon: Coffee },
+  { href: "/info-sessions", label: "Info sessions", icon: Presentation },
   { href: "/settings", label: "Settings", icon: Settings2 },
 ];
 

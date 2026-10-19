@@ -202,6 +202,60 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   no notes = flagged generic. No Serper/Brave key = 400 pointing to Settings → Data. Cached in `coverage.bankBriefs[canonBank]`
   (`BankBrief` type in coverage.ts) until Refresh; an amber badge shows when the interests changed since.
 
+## Info sessions (server side, 2026-10-19)
+
+- Pure helpers in `lib/infoSessions.ts` (title match/parse, `reminderDue`, `followUpTiming`, `CalendarSession`, `CaptureItem`).
+  `google.ts#listEvents` (timed + all-day, cancelled/declined dropped, paginated) → `infoSessionsBetween` (title filter,
+  `plainText` description ≤600, `meetingLink`) and `currentSession` (ongoing, else latest ended, optional hours limit).
+- **Routes:** `server/infosessions` (authAccount, {from,to} ≤240 days → {calendar, sessions}; no Calendar scope = calendar:false);
+  `server/capture/link` (authAccount, {rotate?} → {url: /capture#k=<id>.<captureToken>}); `server/capture` (authCapture,
+  {text?, image? data:image/jpeg|png ≤2.5 MB, sessionId?}); `server/capture/sessions` (authCapture → −7d..+2d, {defaultId});
+  `server/inbox` (authAccount, {ack?} → {items ≤30 and ≤~3.5 MB of images, oldest first, more}: Vercel caps responses at 4.5 MB, so
+  the browser loops while `more`); `capture-share` (+ `/cookie`); `server/twilio/setup` ({sid,token,number,myPhone} | {remove} |
+  {check}); `server/twilio/inbound` (signature-checked webhook, rate-limit exempt).
+- **Capture token:** `account.capture = {hash, sealed}` (`accounts.ts#ensureCaptureToken/captureUrl/captureAccount/authCapture`).
+  It only adds inbox items and lists sessions. Inbox = hash `inbox:<id>` + `capimg:<id>:<item>` (14-day TTL, max 200 items).
+  `deleteAccount` removes them and `twnum:<number>`.
+- **Phone page `/capture`** (PUBLIC_PATHS; a fixed full-screen overlay over Shell, no store): `#k=` → localStorage + cleared from
+  the URL, sets the HttpOnly `coverage_capture` cookie (Path=/api/capture-share) for the manifest `share_target`, which has no
+  service worker to add a header. Images are downscaled in the browser (≤1600 px JPEG q0.8) and sent one item each. The share route
+  can't downscale (no sharp): >2.5 MB → a friendly page pointing to the capture page. Vercel's 4.5 MB request cap applies.
+- **Twilio:** setup checks creds + number (IncomingPhoneNumbers), sets its SmsUrl to `/api/server/twilio/inbound`, stores sid/token
+  sealed and `twnum:<E.164>` → account. Inbound: `To` lookup, AccountSid + X-Twilio-Signature (verified against Twilio's doc
+  example), only `From === myPhone`, images ≤3 MB (not Twilio's 5: the inbox response cap), Body as a text item, session = ongoing
+  or ended ≤6 h; replies with TwiML.
+- **Tick:** every account with WhatsApp + `google.calendar` gets info-session texts on every hourly tick (any day): now±3h, timed
+  only, `reminderDue`; claim `isr:<id>:<event>:<kind>` (NX, 3 days), deleted on a failed send. "after" links the capture page and
+  `/info-sessions?id=<eventId>` (Mon–Thu "tonight", Fri–Sun "tonight or next week?"). CallMeBot is `lib/server/whatsapp.ts#sendWhatsApp`
+  (the 9 PM text uses it too). AutoSend's "Info sessions" block: capture link (Copy / Text it to my WhatsApp / Rotate) + Twilio form.
+
+## Info sessions (dashboard, 2026-10-19)
+
+- **/info-sessions** (`app/info-sessions/page.tsx`; logic in `components/InfoSessionActions.tsx`, detail panel in
+  `components/InfoSessionDetail.tsx`). Sessions live in `state.infoSessions` (`InfoSession`; calendar fields refresh via
+  `upsertInfoSessions`, your fields stay). On open (with automatic sending connected) it reads 180 days back / 60 ahead from
+  `api/server/infosessions` (via `serverSync.ts#serverCall`); all-day events come as "YYYY-MM-DD" with Google's exclusive end and
+  are stored as local midnight → end of the last day (`allDayRange`), shown "time TBD". Not connected / no calendar scope → a banner
+  pointing to Follow-ups → Reminders; "Add session" (id `man_…`) works without it. `?id=<session>` opens + scrolls to one.
+  "Club" = firm not in `knownBanks` (starter list, workbook targets, coverage.added, contact banks, BANK_DOMAINS, by canonBank).
+- **Phone captures:** `pullCaptures` (on open, every 2 min while visible, "Check phone captures"; single-flight) calls
+  `api/server/inbox` with `ack` = the previous batch while `more`, reads each item with `api/infosessions/extract` (AI; the image is a
+  `file` part with an image/* `mediaType`; emails kept only if literally written; no AI + text = one name per line, `namesFromText`),
+  and adds the people to the session's `pending` (deduped by name, `captureIds`). Session = `item.sessionId`, else the latest session
+  that started before the item and ended ≤ 12 h before it, else the "Unsorted captures" box (IndexedDB `infosessions:unsorted`, this
+  browser), where you pick the session. Items are acked once stored.
+- **Confirm** (`confirmPerson` / `confirmAll`): `addManualContact(…, toSheet=true)` with bank = person's firm || session firm,
+  comment "Met at <title without (note)> M/D — note", `metAt` [{sessionId, at: start}]. A duplicate (same rules as addManualContact)
+  is linked instead (metAt appended, comment line added). "Find emails" = `actions.ts#enrichContacts`.
+- **Thank-yous** (`draftThankYous`): template `defaults.ts#INFO_SESSION_TEMPLATE` (`tpl_infosession`, added to your templates on
+  first use, not a starter), `[[AI: …]]` slot removed when there's no note, AI fill via `api/draft`, `withSignature`, resume attached,
+  `upsertDraft`, status drafted, `draftMeta.baseId = ""` (stays out of base A/B results). Only people never emailed with a verified
+  address; VP+ without a tie skipped. With automatic sending (and sendMode ≠ gmail): tonight = `serverSend` now + 5 min, +3 min each
+  (ignores the send window); next week = `planSends` with `notBefore` next Monday. Mon–Thu sessions show "Send tonight"; Fri–Sun
+  (`followUpTiming` "choose") show "Send tonight" / "Next week", stored in `session.followUp`. Without it, drafts wait in Gmail.
+- **9 PM text:** `reminders.ts#relationshipItem` labels anyone met at a session that day, still new/drafted, nothing sent or queued,
+  `LABELS.infoSession` ("Info session thank-you", ranked right after call thank-yous). `check:night` covers both cases.
+
 ## Email formatting & signature (`src/lib/emailFormat.ts`)
 
 - Drafts are multipart/alternative. The HTML part is Gmail-native (`<div>` per line, `<div><br></div>` between paragraphs); text/plain alone
