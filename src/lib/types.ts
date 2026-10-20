@@ -211,6 +211,10 @@ export interface SessionPerson {
   linkedin?: string;
   /** What you noted about them ("talked about TMT, went to UCLA"). */
   note?: string;
+  /** From a pasted LinkedIn profile: their office city, school, and the pasted text itself (kept as `contact.profile`). */
+  location?: string;
+  school?: string;
+  profile?: string;
   /** Where it came from: the capture item id, or "manual". */
   from: string;
 }

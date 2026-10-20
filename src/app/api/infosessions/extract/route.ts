@@ -15,11 +15,22 @@ const Body = z
     /** data: URL, ≤ ~3 MB of base64. */
     image: z.string().max(4_200_000).regex(DATA_URL, "The image must be a JPEG/PNG/WebP data URL.").optional(),
     text: z.string().max(6000).optional(),
+    /** One person's LinkedIn profile page, copied whole (Ctrl+A, Ctrl+C). */
+    profile: z.string().max(15_000).optional(),
     session: z.object({ firm: z.string().max(200), title: z.string().max(300), date: z.string().max(40) }).optional(),
     /** The user's own name, so they're never returned as someone they met. */
     me: z.string().max(120).optional(),
   })
-  .refine((b) => !!b.image || !!b.text?.trim(), "Send a photo or some text.");
+  .refine((b) => !!b.image || !!b.text?.trim() || !!b.profile?.trim(), "Send a photo, some text or a LinkedIn profile.");
+
+const Profile = z.object({
+  name: z.string().describe("The profile owner's full name as shown at the top (First Last), without credentials like CFA"),
+  title: z.string().describe("Their CURRENT job title from the Experience section (the role with no end date), e.g. 'Investment Banking Analyst'. Empty if unclear"),
+  firm: z.string().describe("The firm of that current role, as named in Experience"),
+  location: z.string().describe("Their location as shown under the headline or on the current role (e.g. 'San Francisco, California'), else empty"),
+  school: z.string().describe("Their most recent university (Education section), else empty"),
+  linkedin: z.string().describe("A linkedin.com/in/ URL only if literally in the text, else empty"),
+});
 
 const People = z.object({
   people: z
@@ -38,11 +49,34 @@ const People = z.object({
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
+/** One person from a pasted LinkedIn page. The page copy also holds "People also viewed" and the reader's own nav: only the owner counts. */
+async function readProfile(req: Request, text: string, sessionFirm?: string) {
+  const { output } = await withAi(req, (model, opts) =>
+    generateText({
+      ...opts,
+      model,
+      output: Output.object({ schema: Profile }),
+      system: "You read LinkedIn profile pages accurately. You never make up names, titles, firms, schools or URLs. Avoid em dashes.",
+      prompt: [
+        "This is the text of ONE person's LinkedIn profile page, copied whole by a student who met them at a recruiting event" + (sessionFirm ? ` (${sessionFirm}).` : "."),
+        "Return the profile owner only: ignore the site navigation, 'People also viewed', 'People you may know', ads and other people's names.",
+        "Their current role is the Experience entry without an end date (\"Present\"). Former roles don't count.",
+        `PROFILE TEXT\n${text.trim()}`,
+      ].join("\n\n"),
+    }),
+  );
+  const linkedin = /linkedin\.com\/in\//i.test(output.linkedin) && text.includes(clean(output.linkedin)) ? clean(output.linkedin) : undefined;
+  const name = clean(output.name);
+  if (name.length < 2) return [];
+  return [{ name, title: clean(output.title) || undefined, firm: clean(output.firm) || undefined, location: clean(output.location) || undefined, school: clean(output.school) || undefined, linkedin }];
+}
+
 export async function POST(req: Request) {
   try {
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Bad request.");
     const input = parsed.data;
+    if (input.profile?.trim()) return aiJson(req, { people: await readProfile(req, input.profile, input.session?.firm) });
     const m = input.image?.match(DATA_URL);
     const s = input.session;
     const prompt = [

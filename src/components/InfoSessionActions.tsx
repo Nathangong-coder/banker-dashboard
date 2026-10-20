@@ -23,7 +23,7 @@ import { planSends, windowOf } from "@/lib/sendWindow";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
 import { connectGmail, upsertDraft } from "@/lib/gmail";
-import { INFO_SESSION_TEMPLATE } from "@/lib/defaults";
+import { INFO_SESSION_BODY_V1, INFO_SESSION_TEMPLATE } from "@/lib/defaults";
 import { EMAIL_FONTS, type Contact, type InfoSession, type SessionPerson, type Template } from "@/lib/types";
 
 type St = ReturnType<typeof useStore.getState>;
@@ -199,6 +199,63 @@ export function addPending(sessionId: string, people: Extracted[], from: string)
   return added;
 }
 
+/* ------------------------------------------------------------------ pasted LinkedIn profiles */
+
+export const PROFILE_MAX = 15_000;
+
+/** Without AI: a LinkedIn page copy starts with the name, then (after pronouns / degree) the headline. */
+function profileGuess(text: string): Extracted | undefined {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !/^(\d+ notifications?|skip to|home|my network|jobs|messaging|notifications|me|for business|try premium.*|.*(he\/him|she\/her|they\/them).*|· ?(1st|2nd|3rd\+?)|(1st|2nd|3rd\+?)( degree connection)?|contact info|connect|message|more|follow)$/i.test(l));
+  const name = lines.find((l) => /^[A-Z][\p{L}'.-]+(?: [\p{L}'.-]+){1,3}$/u.test(l));
+  if (!name) return undefined;
+  const headline = lines[lines.indexOf(name) + 1];
+  return { name, title: headline && headline.length < 160 ? headline.split(/\s+(?:at|@)\s+/i)[0] : undefined };
+}
+
+/** One person from their pasted LinkedIn page: name, current title / firm / office, school (AI when set up). */
+export async function readLinkedIn(text: string, session: InfoSession): Promise<Extracted> {
+  const profile = text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, PROFILE_MAX);
+  if (profile.length < 40) throw new Error("That's too short to be a profile. On their LinkedIn page press Ctrl+A, Ctrl+C, then paste here.");
+  const st = useStore.getState();
+  if (!aiReady(st.settings)) {
+    const g = profileGuess(profile);
+    if (!g) throw new Error("Couldn't find a name in that. Without an AI key (Settings → Data), type the name instead.");
+    return g;
+  }
+  const r = await callApi<{ people: Extracted[] }>(
+    "/api/infosessions/extract",
+    { profile, session: { firm: session.firm, title: cleanTitle(session), date: new Date(session.start).toDateString() }, me: st.settings.profile.name || undefined },
+    st.settings,
+  );
+  const p = r.people[0];
+  if (!p) throw new Error("Couldn't read a person from that paste. Copy the whole profile page (Ctrl+A, Ctrl+C) and try again.");
+  return p;
+}
+
+/**
+ * A pasted LinkedIn profile goes straight into the tracker as someone you met at this session (no review step: you
+ * picked them), with the profile kept for prep and the thank-you. Returns the contact.
+ */
+export function addFromLinkedIn(sessionId: string, person: Extracted, profileText: string) {
+  const st = useStore.getState();
+  const k = nameKey(person.name);
+  const s0 = st.infoSessions.find((x) => x.id === sessionId);
+  // "The Raine Group" on LinkedIn is the session's "Raine": keep your spelling so it lands on the same bank tab.
+  if (s0 && person.firm && canonBank(person.firm) === canonBank(s0.firm)) person = { ...person, firm: undefined };
+  let index = -1;
+  st.updateInfoSession(sessionId, (s) => {
+    // Someone already waiting for review under that name is replaced by the richer profile version.
+    const pending = (s.pending ?? []).filter((p) => nameKey(p.name) !== k);
+    pending.push({ ...person, profile: profileText.trim().slice(0, PROFILE_MAX), from: "manual" });
+    index = pending.length - 1;
+    return { pending };
+  });
+  return confirmPerson(sessionId, index);
+}
+
 /** The session a capture belongs to: the one it was sent for, else the latest that started before it and ended ≤ 12 h earlier. */
 export function sessionForCapture(item: Pick<CaptureItem, "at" | "sessionId">, sessions: InfoSession[]) {
   if (item.sessionId) {
@@ -363,11 +420,30 @@ export function confirmPerson(sessionId: string, index: number): { contact: Cont
   let created = false;
   if (dup) {
     const metAt = dup.metAt?.some((m) => m.sessionId === sessionId) ? dup.metAt : [...(dup.metAt ?? []), met];
-    const comment = dup.comment.includes(metLine) ? dup.comment : [dup.comment, metLine + (p.note ? ` — ${p.note}` : "")].filter(Boolean).join(" · ");
-    st.updateContact(dup.id, { metAt, comment, ...(!dup.email && email ? { email, emailSource: "manual" as const } : {}), ...(!dup.position && p.title ? { position: p.title } : {}) }, { at: new Date().toISOString(), type: "note", note: metLine });
+    const at = dup.comment.indexOf(metLine);
+    // Already met here: a new note goes after the "Met at" line if that line has none yet.
+    const comment =
+      at < 0
+        ? [dup.comment, metLine + (p.note ? ` — ${p.note}` : "")].filter(Boolean).join(" · ")
+        : p.note && !/^\s*[—–-]/.test(dup.comment.slice(at + metLine.length))
+          ? dup.comment.slice(0, at + metLine.length) + ` — ${p.note}` + dup.comment.slice(at + metLine.length)
+          : dup.comment;
+    st.updateContact(
+      dup.id,
+      {
+        metAt,
+        comment,
+        ...(!dup.email && email ? { email, emailSource: "manual" as const } : {}),
+        ...(!dup.position && p.title ? { position: p.title } : {}),
+        ...(!dup.linkedin && linkedin ? { linkedin } : {}),
+        ...(!dup.school && p.school ? { school: p.school } : {}),
+        ...(p.profile ? { profile: { text: p.profile, source: "paste" as const, capturedAt: new Date().toISOString() } } : {}),
+      },
+      { at: new Date().toISOString(), type: "note", note: metLine },
+    );
     contact = useStore.getState().contacts.find((c) => c.id === dup.id)!;
   } else {
-    const region = detectRegion(p.note, p.title);
+    const region = detectRegion(p.location, p.note, p.title);
     contact = addManualContact(
       {
         name,
@@ -375,14 +451,18 @@ export function confirmPerson(sessionId: string, index: number): { contact: Cont
         linkedin,
         email,
         position: p.title?.trim() ?? "",
-        location: "",
+        location: p.location?.trim() ?? "",
         team: "",
         region,
         comment: [metLine, p.note?.trim()].filter(Boolean).join(" — "),
       },
       true,
     );
-    st.updateContact(contact.id, { metAt: [met] });
+    st.updateContact(contact.id, {
+      metAt: [met],
+      ...(p.school ? { school: p.school } : {}),
+      ...(p.profile ? { profile: { text: p.profile, source: "paste" as const, capturedAt: new Date().toISOString() } } : {}),
+    });
     created = true;
   }
   st.updateInfoSession(sessionId, (x) => ({
@@ -442,12 +522,37 @@ export function thankYouList(s: InfoSession, contacts: Contact[]) {
   return peopleOf(s, contacts).filter((c) => !c.sentAt && (c.status === "new" || c.status === "drafted") && !c.serverSend && !(c.scheduledAt && new Date(c.scheduledAt) > new Date()));
 }
 
+const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+
 function ensureTemplate(): Template {
   const st = useStore.getState();
   const t = st.templates.find((x) => x.id === INFO_SESSION_TEMPLATE.id);
-  if (t) return t;
+  // A saved copy of the first wording that was never edited gets the owner's 10/2026 wording.
+  if (t && squash(t.body) !== squash(INFO_SESSION_BODY_V1)) return t;
   st.upsertTemplate(INFO_SESSION_TEMPLATE);
   return INFO_SESSION_TEMPLATE;
+}
+
+/**
+ * The session's name for the email: your calendar title without "(notes)". A bare "<Firm> Info Session" at a bank reads
+ * "<Firm> Investment Banking Info Session" (the owner's wording); club and other titles stay as they are.
+ */
+export function sessionName(s: Pick<InfoSession, "title" | "firm">) {
+  const t = cleanTitle(s);
+  const m = t.match(/^(.+?)\s+info(?:rmation)?\s+session$/i);
+  if (m && !/investment banking|IB/i.test(t) && canonBank(m[1]) === canonBank(s.firm)) return `${m[1]} Investment Banking Info Session`;
+  return t || `${s.firm} info session`;
+}
+
+/** When the session was, as read on the day the email goes out: today, yesterday, on Tuesday, last week, recently. */
+export function sessionWhenWord(start: string, sendAt: Date) {
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const s = new Date(start);
+  const n = Math.round((day(sendAt) - day(s)) / DAY);
+  if (n <= 0) return "today";
+  if (n === 1) return "yesterday";
+  if (n < 7 && s.getDay() < sendAt.getDay()) return `on ${s.toLocaleDateString("en-US", { weekday: "long" })}`;
+  return n < 14 ? "last week" : "recently";
 }
 
 /** Your note about them: the part of the comment after this session's "Met at … M/D". */
@@ -499,11 +604,17 @@ export async function draftThankYous(sessionId: string, when: ThankYouWhen, onPr
   const resume = t.attachResume ? await blobs.resume() : undefined;
   const made: { c: Contact; draftId: string }[] = [];
   let done = 0;
+  // "yesterday" etc. as of when it goes out: tonight / a Gmail draft = today, next week = next Monday.
+  const later = when === "next_week" && serverOn(st0) && settings.sendMode !== "gmail";
+  const extra = { session: sessionName(s), session_when: sessionWhenWord(s.start, later ? nextMonday() : new Date()) };
   for (const c of list) {
     try {
       const note = noteFor(c, s);
-      let subject = fillPlaceholders(t.subject, c, settings);
-      let body = fillPlaceholders(t.body, c, settings);
+      let subject = fillPlaceholders(t.subject, c, settings, extra);
+      let body = fillPlaceholders(t.body, c, settings, extra);
+      // A note but no AI: the note is what you typed as their perspective, so it goes in as written.
+      if (note && !aiReady(settings))
+        body = body.replace(new RegExp(AI_SLOT.source, "g"), (m) => (/perspective on/i.test(m) ? `, I especially liked your perspective on ${note.replace(/[.!]+$/, "")}` : ""));
       // No note about them: no specific detail to mention, so the slot goes (and the space before it).
       if (!note) body = body.replace(new RegExp(`[ \\t]*${AI_SLOT.source}`, "g"), "");
       body = withSignature(body, settings.profile);

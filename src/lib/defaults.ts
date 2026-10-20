@@ -408,6 +408,17 @@ export const INFO_SESSION_TEMPLATE: Template = {
   subject: "Thank you – {{bank}} info session",
   body: `Hi {{first_name}},
 
+It was great meeting you at the {{session}} {{session_when}}. Thank you for sharing your experiences at {{bank}}[[AI: Write ", I especially liked your perspective on " followed by the topic they talked about, taken ONLY from the note after "Met at" in the comment and rephrased as a short noun phrase (e.g. ", I especially liked your perspective on how small deal teams give analysts more responsibility"). Start with the comma, no ending punctuation. Never invent details.]]! All of you had such thoughtful things to say about the firm and the culture, which made me even more excited about {{bank}}. My name is {{my_name}}, and I'm an {{my_major}} student at {{my_school}}.
+
+I'd love to chat briefly and learn more about your experiences at {{bank}}. If you happen to be available, I would greatly appreciate the opportunity for a call! I can send over my availability, and I've also attached my resume for information on my background.
+
+Sincerely,
+{{my_first_name}}`,
+};
+
+/** The first version's body: a saved copy that still matches it was never edited, so it gets the new wording. */
+export const INFO_SESSION_BODY_V1 = `Hi {{first_name}},
+
 Thank you so much for taking the time to speak with me at the {{bank}} info session! [[AI: One short sentence on a specific thing from our conversation, using ONLY the note after "Met at" in the comment (e.g. "I really enjoyed hearing about …"). Never invent details.]]
 
 As a quick reminder, I'm {{my_name}}, a {{my_major}} student at {{my_school}}. If you happen to be available, I would greatly appreciate the chance to continue our conversation over a quick call sometime. I have attached my resume for reference and can send my availability if needed.
@@ -415,5 +426,4 @@ As a quick reminder, I'm {{my_name}}, a {{my_major}} student at {{my_school}}. I
 Thank you again for your time, and I look forward to hearing from you!
 
 Sincerely,
-{{my_first_name}}`,
-};
+{{my_first_name}}`;

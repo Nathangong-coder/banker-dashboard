@@ -2,13 +2,15 @@
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, Coffee, ExternalLink, ImagePlus, MapPin, Plus, Search, Send, Star, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ClipboardPaste, Coffee, ExternalLink, ImagePlus, MapPin, Plus, Search, Send, Star, Trash2, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { emailVerified } from "@/lib/outreach";
 import { cn, fmtDate } from "@/lib/util";
 import type { Contact, InfoSession, SessionPerson } from "@/lib/types";
 import { Badge, Button, Input, Menu, Segmented, Textarea, toast } from "@/components/ui";
+import { enrichContacts } from "@/lib/actions";
 import {
+  addFromLinkedIn,
   addPending,
   confirmPerson,
   draftThankYous,
@@ -16,6 +18,7 @@ import {
   findEmails,
   imageToDataUrl,
   peopleOf,
+  readLinkedIn,
   serverOn,
   thankYouList,
   timingOf,
@@ -392,6 +395,7 @@ function PendingEditor({ session, person: p, index }: { session: InfoSession; pe
 /** "+ Add names or a photo": collapsed to one link until used. */
 function AddPeople({ session, onAdded }: { session: InfoSession; onAdded?: () => void }) {
   const [open, setOpen] = useState(false);
+  const [pasting, setPasting] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<"text" | "photo" | null>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -436,9 +440,13 @@ function AddPeople({ session, onAdded }: { session: InfoSession; onAdded?: () =>
     />
   );
 
+  if (pasting) return <PasteLinkedIn session={session} onDone={() => setPasting(false)} />;
   if (!open)
     return (
       <div className="flex flex-wrap gap-1 px-3 py-2.5">
+        <Button size="sm" variant="ghost" icon={<ClipboardPaste className="size-3.5" />} onClick={() => setPasting(true)} title="Copy their LinkedIn profile page and paste it: they go straight into your tracker">
+          Paste LinkedIn
+        </Button>
         <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setOpen(true)}>
           Type names
         </Button>
@@ -466,6 +474,67 @@ function AddPeople({ session, onAdded }: { session: InfoSession; onAdded?: () =>
           Cancel
         </Button>
         {picker}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Paste someone's LinkedIn page (Ctrl+A, Ctrl+C on their profile) plus what they talked about: they go straight into the
+ * tracker as met here, their email is looked up, and the footer's thank-you button drafts the email. Stays open for the next.
+ */
+function PasteLinkedIn({ session, onDone }: { session: InfoSession; onDone: () => void }) {
+  const [text, setText] = useState("");
+  const [note, setNote] = useState("");
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [added, setAdded] = useState<string[]>([]);
+
+  const add = async () => {
+    setBusy(true);
+    try {
+      const person = await readLinkedIn(text, session);
+      const link = url.trim() || text.match(/https?:\/\/[^\s]*linkedin\.com\/in\/[^\s,;)]+/i)?.[0] || person.linkedin;
+      if (link && !/linkedin\.com\/in\//i.test(link)) throw new Error("That LinkedIn link should look like linkedin.com/in/…");
+      const { contact, created } = addFromLinkedIn(session.id, { ...person, linkedin: link, note: note.trim() || undefined }, text);
+      setText("");
+      setNote("");
+      setUrl("");
+      setAdded((a) => [...a, contact.name]);
+      const what = [contact.position, contact.location].filter(Boolean).join(" · ");
+      toast.ok(`${created ? "Added" : "Linked"} ${contact.name}${what ? ` (${what})` : ""}.`);
+      if (!contact.email) {
+        const r = await enrichContacts([contact.id]).catch((e: Error) => ({ found: 0, attempted: 1, errors: [e.message] }));
+        if (r.found) toast.ok(`Found ${contact.name}'s email.`);
+        else toast.info(`No email found for ${contact.name} yet${r.errors[0] ? `: ${r.errors[0]}` : ""}. Add it in the tracker if you have it.`);
+      }
+    } catch (e) {
+      toast.err((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 px-5 py-3">
+      <Textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        autoFocus
+        placeholder="On their LinkedIn profile press Ctrl+A, Ctrl+C, then paste here"
+        aria-label="Their LinkedIn profile"
+      />
+      <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="I especially liked your perspective on… (optional)" aria-label="What you liked about what they said" />
+      <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Their LinkedIn URL (optional, helps find their email)" aria-label="LinkedIn URL" />
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="brass" disabled={!text.trim()} loading={busy} onClick={add}>
+          Add to tracker
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onDone}>
+          {added.length ? "Done" : "Cancel"}
+        </Button>
+        {added.length > 0 && <span className="truncate text-[12px] text-muted">Added: {added.join(", ")}</span>}
       </div>
     </div>
   );

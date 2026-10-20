@@ -254,6 +254,14 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   address; VP+ without a tie skipped. With automatic sending (and sendMode ≠ gmail): tonight = `serverSend` now + 5 min, +3 min each
   (ignores the send window); next week = `planSends` with `notBefore` next Monday. Mon–Thu sessions show "Send tonight"; Fri–Sun
   (`followUpTiming` "choose") show "Send tonight" / "Next week", stored in `session.followUp`. Without it, drafts wait in Gmail.
+- **Paste LinkedIn** (panel → People, `InfoSessionDetail#PasteLinkedIn`): their whole profile page (Ctrl+A, Ctrl+C) + "I
+  especially liked your perspective on…" + optional URL → `readLinkedIn` (`api/infosessions/extract` with `profile`: name,
+  current title/firm, location, school; no AI = first name-like line) → `addFromLinkedIn` confirms them straight into the
+  tracker (no review), keeps the paste as `contact.profile`, then looks up their email. **Thank-you wording = the owner's
+  (2026-10-20)**: `{{session}}` (`sessionName`: a bare "<Firm> Info Session" becomes "<Firm> Investment Banking Info Session")
+  and `{{session_when}}` (`sessionWhenWord`, as of the send day: today / yesterday / on Monday / last week); the perspective
+  clause is an AI slot rephrasing the note, inserted as typed without AI, removed with no note. Saved copies still on
+  `INFO_SESSION_BODY_V1` are upgraded by `ensureTemplate`.
 - **9 PM text:** `reminders.ts#relationshipItem` labels anyone met at a session that day, still new/drafted, nothing sent or queued,
   `LABELS.infoSession` ("Info session thank-you", ranked right after call thank-yous). `check:night` covers both cases.
 
