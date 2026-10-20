@@ -3,10 +3,8 @@
 import { useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ClipboardCopy, FileUp, GraduationCap, Handshake, Save, Sparkles, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { callApi } from "@/lib/api";
 import { aiReady } from "@/lib/keys";
-import { hookFor } from "@/lib/hooks";
-import { DEFAULT_GENERAL_QUESTIONS } from "@/lib/defaults";
+import { ensureConvRef, requestGrade } from "@/lib/conversationActions";
 import type { ChatGrade, ChatLog, Contact } from "@/lib/types";
 import { cn, relDays, uid } from "@/lib/util";
 import { Badge, Button, Card, Checkbox, Input, Textarea, toast } from "@/components/ui";
@@ -113,7 +111,11 @@ export function ChatGrades({ c }: { c: Contact }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const canGrade = aiReady(settings);
 
-  const save = (next: ChatLog[]) => updateContact(c.id, { chats: next });
+  const save = (next: ChatLog[]) => {
+    updateContact(c.id, { chats: next.length ? next : undefined });
+    // Their row in the bank tab's Conversation table (summary written on save).
+    if (next.length) ensureConvRef(c.id);
+  };
   const latest = () => useStore.getState().contacts.find((x) => x.id === c.id)?.chats ?? [];
 
   const onFile = async (f: File | undefined) => {
@@ -131,25 +133,7 @@ export function ChatGrades({ c }: { c: Contact }) {
     }
   };
 
-  const grade = async (transcript: string, notes?: string): Promise<ChatGrade> => {
-    const p = settings.profile;
-    const prep = c.prep;
-    const general = settings.prep?.generalQuestions?.length ? settings.prep.generalQuestions : DEFAULT_GENERAL_QUESTIONS;
-    const r = await callApi<Omit<ChatGrade, "gradedAt">>(
-      "/api/prep/grade",
-      {
-        transcript: transcript.slice(0, MAX_CHARS),
-        contact: { name: c.name, bank: c.bank, position: c.position, team: c.team ?? "", school: c.school ?? "" },
-        me: { name: p.name, school: p.school, major: p.major, pitch: hookFor(c, settings).text.slice(0, 1000) },
-        prep: prep
-          ? { brief: prep.brief.slice(0, 2000), intro: prep.intro.slice(0, 2000), questions: [...prep.tailored.map((t) => t.question), ...general].slice(0, 20).map((q) => q.slice(0, 400)) }
-          : undefined,
-        notes: (notes ?? prep?.notes)?.slice(0, 4000) || undefined,
-      },
-      settings,
-    );
-    return { ...r, gradedAt: new Date().toISOString() };
-  };
+  const grade = (transcript: string, notes?: string): Promise<ChatGrade> => requestGrade(c, transcript, notes);
 
   const add = async (withGrade: boolean) => {
     const t = tidy(text);

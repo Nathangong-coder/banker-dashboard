@@ -117,8 +117,10 @@ export interface Contact {
   lastHeardAt?: string;
   /** They referred you / did what they said they'd do (Follow-ups, /prep). Check-in reminders stop. */
   referral?: { at: string; note?: string };
-  /** Coffee chats you had with them: transcript (optional) and the AI's grade of how you did (app/prep). */
+  /** Conversations with them (coffee chats, calls, info sessions, emails, in person): notes / transcript and the AI's grade. */
   chats?: ChatLog[];
+  /** Their row in the bank tab's Conversation table (lib/conversations.ts): one row per person, written by the app. */
+  convRef?: { sheet: string; row: number };
   /** Info sessions where you met them (InfoSession.id + the session's start), newest last. */
   metAt?: { sessionId: string; at: string }[];
   threadId?: string;
@@ -213,14 +215,23 @@ export interface SessionPerson {
   from: string;
 }
 
+export type ConversationKind = "coffee_chat" | "call" | "info_session" | "email" | "in_person" | "other";
+
 export interface ChatLog {
   id: string;
   /** When the call happened. */
   at: string;
+  /** What kind of conversation (undefined = coffee chat, the original meaning). */
+  kind?: ConversationKind;
   transcript?: string;
-  /** Where the transcript came from ("Zoom transcript.vtt", "pasted"). */
+  /**
+   * Where it came from: a transcript file name ("Zoom transcript.vtt"), "pasted", "log" (the activity log), "doc" (Google
+   * Docs), or "spreadsheet" (typed into the Conversation table by hand; re-read on every import, never written back).
+   */
   source?: string;
   notes?: string;
+  /** Your notes / postmortem doc. */
+  docUrl?: string;
   grade?: ChatGrade;
 }
 

@@ -32,6 +32,7 @@ import type { CoverageSettings } from "./coverage";
 import { EMPTY_OPS, type SheetOps } from "./sheetOps";
 import { readOfficeMap, setOfficeMap } from "./offices";
 import { signOffFor, templateSignOff } from "./emailFormat";
+import { withSheetChat } from "./conversations";
 
 const idbStorage: StateStorage = {
   getItem: async (k) => (await idbGet<string>(k)) ?? null,
@@ -269,6 +270,10 @@ export const useStore = create<State>()(
         );
         let added = 0;
         let updated = 0;
+        // Conversation rows linked in this file; a row the dashboard picked earlier (not saved yet) stays theirs if still free.
+        const convTaken = new Set(contacts.flatMap((c) => (c.convRef ? [`${c.convRef.sheet}:${c.convRef.row}`] : [])));
+        const keepConv = (fresh: Contact, prev: Contact) =>
+          fresh.convRef ?? (prev.convRef && !convTaken.has(`${prev.convRef.sheet}:${prev.convRef.row}`) ? prev.convRef : undefined);
         const merged: Contact[] = contacts.map((fresh) => {
           const refMatch = fresh.ref ? byRef.get(`${fresh.ref.sheet}:${fresh.ref.row}`) : undefined;
           // Same row id but a different person (another spreadsheet, or rows moved in Excel): start fresh instead of
@@ -313,6 +318,9 @@ export const useStore = create<State>()(
             lastTouchAt: fresh.sentAt ? latestIso(fresh.lastTouchAt ?? fresh.sentAt, prev.lastTouchAt) : prev.lastTouchAt,
             lastEmailedAt: latestIso(fresh.lastEmailedAt, prev.lastEmailedAt),
             scheduledAt: fresh.sentAt || fresh.scheduledAt ? fresh.scheduledAt : prev.sentAt ? undefined : prev.scheduledAt,
+            convRef: keepConv(fresh, prev),
+            // Conversations logged in the dashboard stay; the one typed into the sheet by hand is re-read from it.
+            chats: withSheetChat(prev.chats, fresh.chats?.find((x) => x.source === "spreadsheet")),
           };
         });
         // Contacts added in the dashboard (prospects) survive a re-import.
@@ -321,7 +329,8 @@ export const useStore = create<State>()(
         const taken = new Set(contacts.flatMap((c) => (c.ref ? [`${c.ref.sheet}:${c.ref.row}`] : [])));
         const kept = [...existing.values()]
           .filter((c) => c.source !== "sheet")
-          .map((c) => (c.ref && taken.has(`${c.ref.sheet}:${c.ref.row}`) ? { ...c, ref: undefined } : c));
+          .map((c) => (c.ref && taken.has(`${c.ref.sheet}:${c.ref.row}`) ? { ...c, ref: undefined } : c))
+          .map((c) => (c.convRef && convTaken.has(`${c.convRef.sheet}:${c.convRef.row}`) ? { ...c, convRef: undefined } : c));
         const banks = { ...get().banks };
         for (const c of merged) {
           const k = bankKey(c.bank, c.region);

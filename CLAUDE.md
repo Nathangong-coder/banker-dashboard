@@ -20,6 +20,7 @@ npm run check:firms [-- "file.xlsx"]           # built-in firm facts: collisions
 npm run check:contrast                        # WCAG AA contrast of the palette pairs the UI uses (globals.css tokens)
 npm run check:scheduling                      # availability → their time zone, calendar busy, phones, invite text
 npm run check:selectors                       # no zustand selector returns a fresh object/array (React #185 "This page couldn't load")
+npm run check:conversations                   # Conversation table: rows link to people (no duplicates), "• " lines only, idempotent writes
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -556,6 +557,28 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 
 - Client pages are `"use client"` and render only after store hydration (`Shell` → `useHydrated`). Server routes import `server-only`.
 - UI primitives are in `src/components/ui.tsx` (Button, Card, Badge, Modal, toast, Segmented, Menu, Donut, Kpi…). Match the existing density and tone.
+
+## Conversations + activity log (owner, 2026-10-19)
+
+- **Contact Information is the only list of people.** A bank tab's **Conversation** table (header row with a "Conversation"
+  column and no LinkedIn/Status: `ContactTable.kind === "conversation"`, `convCols` = Date / Conversation / Notes / Comments)
+  never creates contacts. `workbook.ts#linkConversations` links each row (email → exact name → unique last name + first
+  initial at that bank, `conversations.ts#matchRow`) as `contact.convRef`; no match (or a 2nd row for someone) = `orphans`,
+  which /log asks about ("Same person as…" → `linkOrphan`, or "New person" → Contact Information + link).
+- **One row per person.** `contact.chats[]` (`ChatLog` + `kind`, `docUrl`, `source`) is the record. Text typed into a row by
+  hand becomes one `source: "spreadsheet"` chat (id `sheet:<tab>:<row>`, re-read on every import via `withSheetChat`, never
+  written back). `contactPatches` → `conversationPatches` writes, only once the app has its own conversations for them: Name /
+  Email / Position / Location copied from the person, Date = latest, Conversation = `kindsSummary` ("Coffee chat ×2"), Notes =
+  the owner's text then one `• M/D Kind: notes · doc link` line each, Comments = `• M/D B+ (84): summary. Promised: …`. The app
+  only ever replaces its own `• ` lines. Template rows ("(First Last)", "x/10", "(link)") are free slots; their placeholders are
+  replaced or cleared. Rows are never inserted (that would shift Contact Information): a full table = dashboard only.
+- **Every source goes through `conversationActions.ts`:** `logConversation` (the /log page; an email sets sentAt/lastEmailedAt,
+  a call / coffee chat / in person moves status up to call_scheduled), `ensureConvRef` (first blank numbered row,
+  `workbook.ts#allocateConversationRow`; also called by ChatGrades on /prep), `requestGrade` (api/prep/grade; notes are
+  prefixed by `notesForGrading`, ≥200 chars). Google Docs import (TODO #7) should use the same path.
+- **/log (Activity log,** Prep & reminders group): KPIs, one table of every conversation (kind filter, search, expand for notes /
+  grade / promises, ⋯ = grade, prep, doc, delete), the orphans card, and the "Log activity" modal (person from a datalist or
+  someone new, kind, date, notes, Doc link, grade with AI).
 
 ## UI design (owner, 2026-10-19; HubSpot-inspired, mock approved)
 

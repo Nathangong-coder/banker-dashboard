@@ -7,6 +7,7 @@ import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
 import { detectRegion } from "./region";
+import { appChats, gradeLine, kindsSummary, latestChat, matchRow, mergeCell, notesLine, sheetChat, withSheetChat, type ConversationRow } from "./conversations";
 import { EMPTY_OPS, opsOf, type SheetOps } from "./sheetOps";
 import { CONTACTED_HEADERS, LAST_CONTACTED_HEADERS, LAST_CONTACTED_TITLE, formatContacted, formatDay, parseContacted, parseLastContacted, sameContacted, sameDayIso } from "./contacted";
 
@@ -23,6 +24,9 @@ export interface ContactTable {
   lastNameCol?: number;
   /** Rows inside the table that have no name yet (e.g. pre-numbered blank rows). */
   emptyRows: number[];
+  /** A bank tab's "Conversation" table (Date / Conversation / Notes / Comments): its rows link to people, never create them. */
+  kind?: "conversation";
+  convCols?: { date?: number; conversation?: number; notes?: number; comments?: number };
 }
 
 export interface ParsedWorkbook {
@@ -31,6 +35,8 @@ export interface ParsedWorkbook {
   contacts: Contact[];
   /** Firms listed on overview/target-list tabs (used to spot banks with zero contacts). */
   targets: TargetBank[];
+  /** Conversation-table rows that match nobody in Contact Information (the activity log asks who they are). */
+  orphans?: ConversationRow[];
 }
 
 async function loadExcel() {
@@ -335,6 +341,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
   const tables: ContactTable[] = [];
   const targets: TargetBank[] = [];
   const contacts: Contact[] = [];
+  const convRows: ConversationRow[] = [];
 
   for (const ws of snapshots) {
     const cells = ws.cells;
@@ -363,6 +370,11 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
 
     headerRows.forEach(({ r: hr, h }, i) => {
       const end = i + 1 < headerRows.length ? headerRows[i + 1].r - 1 : maxR + 1;
+      // The "Conversation" table (a header literally named Conversation): rows are conversations with people listed in
+      // Contact Information, linked after every tab is read.
+      const head = rowText.get(hr) ?? new Map<number, string>();
+      const colOf = (...names: string[]) => [...head].find(([, t]) => names.includes(norm(t)))?.[0];
+      const convCol = colOf("conversation", "conversations");
       const cols: ContactTable["cols"] = {};
       for (const k of ["name", "email", "linkedin", "position", "location", "team", "status", "comment", "company", "contacted", "lastContacted"] as const) {
         if (h[k] !== undefined) cols[k] = h[k];
@@ -376,6 +388,9 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
         firstNameCol: h.first,
         lastNameCol: h.last,
         emptyRows: [],
+        ...(convCol && !h.linkedin && !h.status
+          ? { kind: "conversation" as const, convCols: { date: colOf("date", "date of conversation", "when"), conversation: convCol, notes: colOf("notes", "note"), comments: colOf("comments", "comment") } }
+          : {}),
       };
       const get = (r: number, c?: number) => (c ? cells[`${r}:${c}`] : undefined);
 
@@ -389,10 +404,29 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
         }
         table.lastRow = r;
         // Template placeholders like "(First Last)" and section labels like "Contact | Information".
-        if (name.startsWith("(") || SECTION_LABEL.test(name.trim())) continue;
+        if (name.startsWith("(") || SECTION_LABEL.test(name.trim())) {
+          // A template row ("(First Last)", "(email)", "x/10") in a Conversation table is a free slot.
+          if (table.kind === "conversation" && name.startsWith("(") && /^\d+$/.test(get(r, 1)?.v ?? "")) table.emptyRows.push(r);
+          continue;
+        }
 
         const email = (get(r, cols.email)?.v ?? "").replace(/^mailto:/i, "");
         const validEmail = /\S+@\S+\.\S+/.test(email) ? email : "";
+        if (table.kind === "conversation") {
+          const cc = table.convCols!;
+          convRows.push({
+            sheet: ws.name,
+            row: r,
+            bank: get(r, cols.company)?.v || bank,
+            name: name.trim(),
+            email: validEmail,
+            date: parseLastContacted(get(r, cc.date)?.v),
+            conversation: get(r, cc.conversation)?.v ?? "",
+            notes: get(r, cc.notes)?.v ?? "",
+            comments: get(r, cc.comments)?.v ?? "",
+          });
+          continue;
+        }
         const linkCell = get(r, cols.linkedin);
         const linkedin = (linkCell?.link || linkCell?.v || "").trim();
         const rawLocation = get(r, cols.location)?.v ?? "";
@@ -448,7 +482,27 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
       if (t.applied) prev.applied = [...(prev.applied ?? []), ...t.applied];
     }
   }
-  return { tables, contacts: dedupe(contacts), targets: [...seen.values()] };
+  const { contacts: linked, orphans } = linkConversations(dedupe(contacts), convRows);
+  return { tables, contacts: linked, targets: [...seen.values()], orphans };
+}
+
+const sameBank = (a: string, b: string) => canonBank(a) === canonBank(b) || norm(a) === norm(b);
+
+/** Each Conversation row → its person (`convRef`, plus a conversation for what was typed into it by hand). */
+export function linkConversations(contacts: Contact[], rows: ConversationRow[]) {
+  const orphans: ConversationRow[] = [];
+  const byId = new Map(contacts.map((c) => [c.id, c]));
+  for (const row of rows) {
+    const hit = matchRow(row, [...byId.values()], sameBank);
+    // One row per person: a second row for someone already linked is left alone (reported as an orphan).
+    if (!hit || hit.convRef) {
+      orphans.push(row);
+      continue;
+    }
+    const chat = sheetChat(row);
+    byId.set(hit.id, { ...hit, convRef: { sheet: row.sheet, row: row.row }, chats: chat ? [...(hit.chats ?? []), chat] : hit.chats });
+  }
+  return { contacts: [...byId.values()], orphans };
 }
 
 /** Same person may appear in both the "Conversation" and "Contact Information" tables. */
@@ -501,6 +555,7 @@ export const PROSPECT_HEADERS: [ContactField, string][] = [
 /** Cell writes implied by contact state (enriched emails, status changes, newly added people). */
 export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]): Patches {
   const out: Patches = {};
+  if (contacts.some((c) => c.convRef)) rememberConversationTables(snapshots);
   const snap = new Map(snapshots.map((s) => [s.name, s]));
   const put = (sheet: string, r: number, c: number | undefined, p: CellPatch) => {
     if (!c) return;
@@ -546,6 +601,7 @@ export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]):
     }
     const linkCell = cols.linkedin ? snap.get(sheet)?.cells[`${row}:${cols.linkedin}`] : undefined;
     if (c.linkedin && !linkCell) put(sheet, row, cols.linkedin, { v: c.linkedin, link: c.linkedin });
+    if (c.convRef) conversationPatches(c, snap.get(c.convRef.sheet), put);
     if (c.source !== "sheet") {
       put(sheet, row, cols.name, { v: c.name });
       if (sheet === PROSPECT_SHEET) put(sheet, row, cols.company, { v: c.bank });
@@ -554,6 +610,64 @@ export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]):
     }
   }
   return out;
+}
+
+/**
+ * The person's Conversation-table row: identity copied from Contact Information, then (once the app has conversations
+ * for them) Date = latest, Conversation = kinds, Notes / Comments = the app's "• " lines after the owner's own text.
+ */
+function conversationPatches(c: Contact, s: SheetSnapshot | undefined, put: (sheet: string, r: number, c: number | undefined, p: CellPatch) => void) {
+  const ref = c.convRef!;
+  const t = s && conversationTables.get(s)?.find((x) => ref.row > x.headerRow && ref.row <= Math.max(x.lastRow, ...x.emptyRows));
+  if (!s || !t) return;
+  const cc = t.convCols ?? {};
+  // Template placeholders ("(First Last)", "(date)", "x/10", "(link)") count as empty.
+  const raw = (col?: number) => (col ? (s.cells[`${ref.row}:${col}`]?.v ?? "") : "");
+  const cell = (col?: number) => (/^\(.*\)$|^x\/10$/i.test(raw(col).trim()) ? "" : raw(col));
+  const copy = (col: number | undefined, v: string, link?: string) => col && v && raw(col) !== v && put(s.name, ref.row, col, link ? { v, link } : { v });
+  copy(t.cols.name, c.name);
+  copy(t.cols.email, c.email, c.email ? `mailto:${c.email}` : undefined);
+  copy(t.cols.position, c.position);
+  copy(t.cols.location, c.location);
+  const mine = appChats(c);
+  // A template row taken over by this person: clear the placeholders nothing else will fill.
+  const filled = new Set([c.name && t.cols.name, c.email && t.cols.email, c.position && t.cols.position, c.location && t.cols.location, ...(mine.length ? [cc.date, cc.conversation, cc.notes] : []), mine.some((x) => x.grade) && cc.comments]);
+  for (const col of [t.cols.email, t.cols.position, t.cols.location, cc.date, cc.conversation, cc.notes, cc.comments]) {
+    if (col && !filled.has(col) && raw(col) && !cell(col)) put(s.name, ref.row, col, { v: "" });
+  }
+  if (!mine.length) return;
+  const last = latestChat(c.chats);
+  if (cc.date && last && last.at > (parseLastContacted(cell(cc.date)) ?? "") && !sameDayIso(parseLastContacted(cell(cc.date)), last.at)) put(s.name, ref.row, cc.date, { v: formatDay(last.at) });
+  copy(cc.conversation, kindsSummary(c.chats));
+  if (cc.notes) {
+    const v = mergeCell(cell(cc.notes), mine.map(notesLine));
+    if (v !== raw(cc.notes)) put(s.name, ref.row, cc.notes, { v });
+  }
+  const grades = mine.map(gradeLine).filter(Boolean);
+  if (cc.comments && grades.length) {
+    const v = mergeCell(cell(cc.comments), grades);
+    if (v !== raw(cc.comments)) put(s.name, ref.row, cc.comments, { v });
+  }
+}
+
+/** Conversation tables per snapshot (parsed once per snapshot object). */
+const conversationTables = new WeakMap<SheetSnapshot, ContactTable[]>();
+function rememberConversationTables(snapshots: SheetSnapshot[]) {
+  const missing = snapshots.filter((s) => !conversationTables.has(s));
+  if (!missing.length) return;
+  const { tables } = parseSnapshots(missing);
+  for (const s of missing) conversationTables.set(s, tables.filter((t) => t.sheet === s.name && t.kind === "conversation"));
+}
+
+/**
+ * A free row in the Conversation table of the person's bank tab (first blank numbered row), or undefined when the table
+ * is full or the tab has none. Rows are never inserted: that would shift the Contact Information table below it.
+ */
+export function allocateConversationRow(c: Pick<Contact, "ref" | "bank">, tables: ContactTable[], taken: Set<string>) {
+  const conv = tables.filter((t) => t.kind === "conversation");
+  const t = conv.find((x) => c.ref && x.sheet === c.ref.sheet) ?? conv.find((x) => sameBank(x.bank, c.bank) && !/\(NY\)/i.test(x.sheet));
+  const row = t?.emptyRows.find((r) => r > t.headerRow && !taken.has(`${t.sheet}:${r}`));
+  return t && row ? { sheet: t.sheet, row } : undefined;
 }
 
 /**
@@ -702,6 +816,10 @@ export function syncGridEdits(contacts: Contact[], snapshots: SheetSnapshot[], b
     if ("email" in patch) patch.emailSource = n.email ? "sheet" : undefined;
     if ("sheetStatus" in patch) patch.status = n.status;
     if (cur !== owner && JSON.stringify(cur.ref) !== JSON.stringify(n.ref)) patch.ref = n.ref;
+    // Typed into (or cleared from) their Conversation row: the link and the hand-typed conversation follow the sheet.
+    if (JSON.stringify(p?.convRef) !== JSON.stringify(n.convRef) && n.convRef) patch.convRef = n.convRef;
+    const typed = (x?: Contact) => JSON.stringify(x?.chats?.find((ch) => ch.source === "spreadsheet") ?? null);
+    if (typed(p) !== typed(n)) patch.chats = withSheetChat(cur.chats, n.chats?.find((ch) => ch.source === "spreadsheet"));
     if (Object.keys(patch).length) updates.set(cur.id, { ...updates.get(cur.id), ...patch });
   }
 

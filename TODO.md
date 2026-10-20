@@ -1,5 +1,41 @@
 # TODO
 
+## 00. Owner's list (2026-10-19, after the redesign)
+
+1. **Coffee chat prep page (/prep):** not redesigned yet (the owner couldn't give feedback while the redesign was in
+   progress). Give it the new layout (one column of steps, less text, one primary action), make it accessible and easy to
+   use. **Bank brief deals need more detail:** today each deal is one line. Add size, date, target/acquirer, what the bank did
+   (sell-side / buy-side / financing), why it matters, and the source link.
+2. **"Why <Bank>" sounds generated ("botted").** The owner will give feedback later and may want a stronger expert
+   reviewing it. Don't tune it before that feedback arrives.
+3. **Guided tour (Clippy-style tutorial)** over the live UI, step by step (see 0b below), plus the owner's "20 essentials".
+4. **Landing page** for new users: needs designing (the public page before someone has data).
+5. **Contacts ↔ conversations in the spreadsheet. BUILT 2026-10-19** (see CLAUDE.md "Conversations + activity log"; layout
+   below approved by the owner). Open: the GS tab's template row says Conversation = "x/10", Notes = "(link)", Comments =
+   "(notes)": an older plan for those columns; ask the owner if the rating/link split should come back. Growing a full
+   table (inserting rows) isn't done. Decided 2026-10-19 (preventive: no duplicates seen yet):
+   - The **Contact Information** table is the only list of people. A **Conversation** table row never creates a contact. It
+     links to one (email → LinkedIn → name + bank; unclear = the app asks). Someone not in Contact Information is added there first.
+   - **Keep the per-bank Conversation table** (rows 5–15 on the owner's tabs; grow past 10 when needed). **One row per person**:
+     later conversations are appended to that row, not given new rows.
+   - Each conversation holds **date + type** (coffee chat / call / info session / email / in person), **notes + postmortem Doc
+     link**, and an **AI grade + takeaways** (what they promised: intro, referral, resume review). No next-step field.
+   - Proposed cell mapping (confirm with the owner before building): Name / Email / Position / Location copied from the
+     linked person; Date = latest conversation; Conversation = types and count ("Coffee chat ×2 · Info session"); Notes =
+     one dated line per conversation + the Doc link; Comments = latest grade + takeaways. Full detail lives in the app
+     (`contact.chats[]`), the sheet keeps the summary.
+   - The manual log tab (6), Google Docs import (7), transcripts and calendar calls all write through this same path.
+6. **Manual activity log tab: BUILT 2026-10-19 (/log).** A page to log by hand what the owner did (conversations, emails, calls, coffee chats), each
+   attached to a person (depends on 5).
+7. **Google Docs → conversations:** the owner keeps call notes / postmortems in Google Docs. Auto-import them into the
+   conversation records (and the spreadsheet), matched to the person, then AI-grade them like transcripts (`api/prep/grade`).
+   The owner has enabled the APIs and will re-accept Google permissions. They asked for the "Google Docs MCP" rather than
+   the plain Docs REST API, so confirm what that means for a deployed app before building.
+8. **Admin tab:** AI usage per task type (draft, fill, grade, bank brief, prep, filter, extract…), tokens and estimated
+   cost per user and per route, over time. Needed before offering users **free tokens for paid AI with limits** (per-user
+   quotas, server-side metering of the owner-paid key; today every AI call uses the user's own keys and nothing is logged
+   except `[ai]` lines in Vercel logs).
+
 ## 0. Owner's next priorities (2026-10-06)
 
 **a) Desks per bank (specialty firms). DONE 2026-10-06** (`lib/specialty.ts`, see CLAUDE.md). Open question: should NY TMT
