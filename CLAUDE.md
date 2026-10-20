@@ -555,8 +555,28 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 ## Conventions
 
 - Client pages are `"use client"` and render only after store hydration (`Shell` → `useHydrated`). Server routes import `server-only`.
-- UI primitives are in `src/components/ui.tsx` (Button, Card, Badge, Modal, toast…). Design tokens are in `src/app/globals.css`
-  (paper / navy / brass palette, IBM Plex Sans/Mono, Instrument Serif headings). Match the existing density and tone.
+- UI primitives are in `src/components/ui.tsx` (Button, Card, Badge, Modal, toast, Segmented, Menu, Donut, Kpi…). Match the existing density and tone.
+
+## UI design (owner, 2026-10-19; HubSpot-inspired, mock approved)
+
+- **Navigation (`Shell.tsx#GROUPS`):** top bar = groups (Overview: Dashboard, Bank coverage, Firms, Spreadsheet · Outreach: Find
+  people, Email drafts, Email lab · Prep & reminders: Follow-ups, Coffee chat prep, Info sessions); the sidebar lists the current
+  group's pages (group follows the URL); Settings is the gear. Phones: the group's pages as a pill strip under the top bar.
+- **Themes:** 4 color themes as `[data-theme]` token blocks in `globals.css` (`:root` = slate, the default; cream, navy = the original,
+  graphite = white/teal). Picked in Settings → Appearance (`components/ThemePicker.tsx`), per browser in localStorage `coverage:theme`,
+  applied before paint by `layout.tsx#THEME_SCRIPT`. **Never hardcode hex colors in components**: use tokens (paper, panel, ink,
+  ink-2, muted, line, line-2, subtle, hover, track, navy, brass = accent, brass-strong = accent that carries text / button fill,
+  brass-hover, brass-ink = accent text on brass-soft, top-*, side-*, chart, chart-soft). `npm run check:contrast` checks every theme.
+  The accent fills are deeper than HubSpot's #ff7a59 so white button text passes AA.
+- **Font:** Lexend Deca everywhere, headings included (`--font-serif` maps to the sans; no serif). IBM Plex Mono only for code-ish text.
+- **Page pattern:** PageHeader (title, one muted line, ≤1 primary Button + a `Menu` "⋯" for the rest) → a row of `Kpi` tiles →
+  one table-style Card with a toolbar (Segmented tabs left, filter right), uppercase muted column headers on bg-subtle, Badge pills
+  for status, row actions only on hover (`group-hover`), secondary actions in a row `Menu`. Notices are one line, not big cards.
+  Button variants: primary = filled accent (one per view), brass = accent outline, secondary = neutral, ghost.
+- **Info sessions** = table + side panel (`InfoSessionDetail`: People / To review / Notes tabs, one footer action; xl = sticky
+  column, smaller = slide-over). **Follow-ups** = one Queue card (Due · Drafted · Scheduled · Replied [· Needs new contact]) with
+  pieces in `components/FollowupsUi.tsx`. **Spreadsheet** = one toolbar row (file, Grid|Contacts, Find emails, Save, ⋯).
+  Mocks of the redesign: a standalone HTML file outside the repo (not kept).
 - Validate route bodies with zod and return errors via `errorResponse`. Error messages are shown to the user, so keep them actionable.
 - Don't use `window.alert`. Toasts are the pattern. `window.confirm` is used only for bulk destructive actions.
 

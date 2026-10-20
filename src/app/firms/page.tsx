@@ -84,7 +84,7 @@ export default function FirmsPage() {
           <Empty icon={<Trophy className="size-6" />} title="No firms yet">
             Firms show up here once you have contacts. Upload your spreadsheet or add people on Find people.
             <div className="mt-4">
-              <Link href="/" className="inline-flex items-center gap-1.5 rounded-md bg-navy px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-[#1c3259]">
+              <Link href="/" className="inline-flex items-center gap-1.5 rounded-lg bg-brass-strong px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-brass-hover">
                 Upload your spreadsheet
               </Link>
             </div>
@@ -133,7 +133,7 @@ export default function FirmsPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-[13px]">
-              <thead className="bg-[#faf9f5] text-left text-[11px] uppercase tracking-wide text-muted">
+              <thead className="bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
                 <tr className="border-b border-line">
                   <th className="px-4 py-2 font-medium">Firm</th>
                   <th className="px-2 py-2 font-medium">Score</th>
@@ -152,7 +152,7 @@ export default function FirmsPage() {
                   return (
                     <Fragment key={r.key}>
                       <tr
-                        className={cn("cursor-pointer border-b border-line hover:bg-[#f7f6f1]", isOpen && "bg-[#f7f6f1]")}
+                        className={cn("cursor-pointer border-b border-line hover:bg-subtle", isOpen && "bg-subtle")}
                         onClick={() => setOpen(isOpen ? null : r.key)}
                       >
                         <td className="px-4 py-2.5">
@@ -202,7 +202,7 @@ export default function FirmsPage() {
                         <td className="px-4 py-2.5 text-[12.5px] text-ink-2">{r.lastActivity ? relDays(r.lastActivity) : <span className="text-muted">—</span>}</td>
                       </tr>
                       {isOpen && (
-                        <tr className="border-b border-line bg-[#fbfaf7]">
+                        <tr className="border-b border-line bg-subtle">
                           <td colSpan={9} className="px-4 py-4">
                             <FirmDetail row={r} />
                           </td>
@@ -268,7 +268,7 @@ function FirmDetail({ row }: { row: Row }) {
                       {p.points} / {p.max}
                     </span>
                   </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#e7e4da]">
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-track">
                     <div className="h-full rounded-full bg-brass" style={{ width: `${(p.points / p.max) * 100}%` }} />
                   </div>
                   <div className="mt-0.5 text-[11.5px] text-muted">{p.detail}</div>

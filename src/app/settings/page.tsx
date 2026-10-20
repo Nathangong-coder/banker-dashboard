@@ -21,6 +21,7 @@ import { bodyToHtml, unwrapRedirects, withSignature } from "@/lib/emailFormat";
 import { ResumeCard } from "@/components/ResumeCard";
 import { InterestsEditor } from "@/components/PrepInterests";
 import { SignatureLogoEditor, useSignatureLogoPreview } from "@/components/SignatureLogo";
+import { ThemePicker } from "@/components/ThemePicker";
 import Link from "next/link";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -145,7 +146,7 @@ function TestedFields<K extends string>({
   );
 }
 
-type Tab = "profile" | "email" | "outreach" | "data" | "reminders" | "backup";
+type Tab = "profile" | "email" | "outreach" | "data" | "reminders" | "appearance" | "backup";
 type Sub = "writing" | "sending" | "scheduling" | "experiments";
 const TABS: [Tab, string][] = [
   ["profile", "Profile"],
@@ -153,6 +154,7 @@ const TABS: [Tab, string][] = [
   ["outreach", "Outreach rules"],
   ["data", "Data & AI"],
   ["reminders", "Reminders"],
+  ["appearance", "Appearance"],
   ["backup", "Backup"],
 ];
 const SUBS: [Sub, string, string][] = [
@@ -173,9 +175,13 @@ function readTab(): { tab: Tab; sub: Sub } {
 function SettingsTabs({ tab, sub, onTab }: { tab: Tab; sub: Sub; onTab: (t: Tab, s?: Sub) => void }) {
   return (
     <div className="mb-5 space-y-2">
-      <div className="inline-flex flex-wrap rounded-md border border-line-2 bg-panel p-0.5">
+      <div className="inline-flex max-w-full flex-wrap rounded-lg bg-hover p-[3px]">
         {TABS.map(([t, label]) => (
-          <button key={t} onClick={() => onTab(t)} className={cn("rounded px-3.5 py-1.5 text-[13px]", tab === t ? "bg-navy text-white" : "text-ink-2 hover:bg-[#f0eee7]")}>
+          <button
+            key={t}
+            onClick={() => onTab(t)}
+            className={cn("rounded-md px-3.5 py-1.5 text-[13px] font-medium", tab === t ? "bg-panel text-ink shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2 hover:text-ink")}
+          >
             {label}
           </button>
         ))}
@@ -496,6 +502,12 @@ export default function SettingsPage() {
         </Card>
 
           </>
+        )}
+        {tab === "appearance" && (
+          <Card>
+            <CardHeader title="Color theme" sub="Applies right away, in this browser." />
+            <ThemePicker />
+          </Card>
         )}
         {tab === "backup" && (
           <>

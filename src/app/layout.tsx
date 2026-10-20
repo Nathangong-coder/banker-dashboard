@@ -1,12 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import { SITE } from "@/lib/site";
-import { IBM_Plex_Sans, IBM_Plex_Mono, Instrument_Serif } from "next/font/google";
+import { Lexend_Deca, IBM_Plex_Mono } from "next/font/google";
 import { Shell } from "@/components/Shell";
 import "./globals.css";
 
-const sans = IBM_Plex_Sans({ variable: "--font-plex-sans", subsets: ["latin"], weight: ["400", "500", "600"] });
-const mono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"] });
-const serif = Instrument_Serif({ variable: "--font-serif-display", subsets: ["latin"], weight: "400" });
+// Lexend Deca everywhere, headings included (owner, 2026-10-19). Mono is only for code-like text (cell refs, ids).
+const sans = Lexend_Deca({ variable: "--font-app-sans", subsets: ["latin"], weight: ["300", "400", "500", "600"] });
+const mono = IBM_Plex_Mono({ variable: "--font-app-mono", subsets: ["latin"], weight: ["400", "500"] });
+
+/** Sets <html data-theme> from Settings → Appearance before the first paint, so a non-default theme doesn't flash. */
+const THEME_SCRIPT = `try{var t=localStorage.getItem("coverage:theme");if(t&&/^(slate|cream|navy|graphite)$/.test(t))document.documentElement.dataset.theme=t}catch(e){}`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE.url),
@@ -19,11 +22,14 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
 };
 
-export const viewport: Viewport = { themeColor: "#13233f", width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { themeColor: "#2d3e50", width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable} ${serif.variable} h-full antialiased`}>
+    <html lang="en" className={`${sans.variable} ${mono.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="min-h-full">
         <Shell>{children}</Shell>
       </body>

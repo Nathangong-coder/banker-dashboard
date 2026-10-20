@@ -172,7 +172,7 @@ export function ContactsTable({
       ) : (
         <div className="max-h-[68vh] overflow-auto">
           <table className="w-full text-[13px]">
-            <thead className="sticky top-0 z-10 bg-[#faf9f5] text-left text-[11px] uppercase tracking-wide text-muted">
+            <thead className="sticky top-0 z-10 bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
               <tr className="border-b border-line">
                 <th className="w-8 px-3 py-2">
                   <Checkbox
@@ -196,7 +196,7 @@ export function ContactsTable({
             </thead>
             <tbody className="divide-y divide-line">
               {rows.map((c) => (
-                <tr key={c.id} className={cn("cursor-pointer hover:bg-[#fbfaf6]", selected.has(c.id) && "bg-blue-soft/40")} onClick={() => setOpen(c)}>
+                <tr key={c.id} className={cn("cursor-pointer hover:bg-subtle", selected.has(c.id) && "bg-blue-soft/40")} onClick={() => setOpen(c)}>
                   <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       label={`Select ${c.name}`}
@@ -291,7 +291,7 @@ function TeamCell({ c }: { c: Contact }) {
         <Check className="size-3" />
       </button>
       <button
-        className="rounded p-0.5 text-muted hover:bg-[#efede5] hover:text-red"
+        className="rounded p-0.5 text-muted hover:bg-hover hover:text-red"
         title="Not their team"
         aria-label={`Reject team ${g.team} for ${c.name}`}
         onClick={() => updateContact(c.id, { teamRejected: g.team })}

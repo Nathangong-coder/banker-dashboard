@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarCheck, CalendarPlus, Clock, ExternalLink, MailPlus, RefreshCw } from "lucide-react";
+import { CalendarCheck, CalendarPlus, ExternalLink, MailPlus, RefreshCw } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { aiReady, googleClientId } from "@/lib/keys";
@@ -12,8 +12,9 @@ import { fillScheduling, schedulingOf } from "@/lib/scheduling";
 import { recipientTz, zonedDate } from "@/lib/sendWindow";
 import { withSignature } from "@/lib/emailFormat";
 import { EMAIL_FONTS, type Contact } from "@/lib/types";
-import { cn, relDays } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, Modal, Select, Textarea, toast } from "./ui";
+import { relDays } from "@/lib/util";
+import { Badge, Button, Checkbox, Empty, Field, Input, Modal, Select, Textarea, toast } from "./ui";
+import { Cell, ListTable, NameCell, Row, RowActions } from "./FollowupsUi";
 
 /* ---------------- reading their reply ---------------- */
 
@@ -93,7 +94,7 @@ function TheirEmail({ r }: { r: ReturnType<typeof useTheirReply> }) {
     );
   if (!r.msg) return <div className="text-[12.5px] text-muted">No email from them found in Gmail. You can still pick times below.</div>;
   return (
-    <div className="rounded-md border border-line bg-[#fbfaf6] p-3 text-[12.5px]">
+    <div className="rounded-md border border-line bg-subtle p-3 text-[12.5px]">
       <div className="mb-1 flex flex-wrap items-center gap-2 text-muted">
         <span className="font-medium text-ink-2">{r.msg.subject}</span> · {relDays(r.msg.date)}
       </div>
@@ -320,7 +321,7 @@ export function CallInvite({ c, onClose }: { c: Contact; onClose: () => void }) 
           </Select>
         </Field>
       </div>
-      <div className="rounded-md border border-line bg-[#fbfaf6] p-3 text-[13px]">
+      <div className="rounded-md border border-line bg-subtle p-3 text-[13px]">
         <div className="font-medium text-ink">{title}</div>
         <div className="mt-1 text-ink-2">{description}</div>
         <div className="mt-1 text-[12px] text-muted">{at ? dateTimeLabel(at, theirTz) : "Pick a date and time"} · guest: {c.email || "none"}</div>
@@ -343,54 +344,67 @@ export function CallInvite({ c, onClose }: { c: Contact; onClose: () => void }) 
 
 const WAITING = new Set(["replied", "call_scheduled"]);
 
-/** People who replied: offer times (in their zone) or send the invite, one click each. */
-export function ScheduleCallsCard({ onOpen }: { onOpen: (c: Contact) => void }) {
+/** People who replied and still need a call set up (a call already in the past drops out). */
+export function repliedToSchedule(contacts: Contact[]) {
+  const now = new Date();
+  return contacts
+    .filter((c) => WAITING.has(c.status) && !(c.call && new Date(c.call.at) < now))
+    .sort((a, b) => (b.repliedAt ?? "").localeCompare(a.repliedAt ?? ""));
+}
+
+/** People who replied: offer times (in their zone) or send the invite, one click each. Rows for the Follow-ups list card. */
+export function ScheduleCallsTable({ onOpen }: { onOpen: (c: Contact) => void }) {
   const contacts = useStore((s) => s.contacts);
   const [modal, setModal] = useState<{ c: Contact; kind: "reply" | "invite" } | null>(null);
-  const list = useMemo(
-    () =>
-      contacts
-        .filter((c) => WAITING.has(c.status) && !(c.call && new Date(c.call.at) < new Date()))
-        .sort((a, b) => (b.repliedAt ?? "").localeCompare(a.repliedAt ?? "")),
-    [contacts],
-  );
-  if (!list.length) return null;
+  const list = useMemo(() => repliedToSchedule(contacts), [contacts]);
+  if (!list.length)
+    return (
+      <Empty icon={<CalendarCheck className="size-6" />} title="No calls to set up">
+        When someone replies, they show up here so you can offer times in their time zone and send the invite.
+      </Empty>
+    );
   return (
-    <Card>
-      <CardHeader title={`Replied: schedule calls · ${list.length}`} sub="Offer your free times in their time zone, then send the calendar invite." right={<Clock className="size-4 text-muted" />} />
-      <ul className="divide-y divide-line">
+    <>
+      <ListTable head={["Contact", "Their zone", "Call", ""]}>
         {list.map((c) => (
-          <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-            <button onClick={() => onOpen(c)} className="min-w-[200px] flex-1 text-left">
-              <div className="font-medium hover:underline">{c.name}</div>
-              <div className="text-[12px] text-muted">
-                {c.position || "—"} · {c.bank} · {tzLabel(recipientTz(c))}
-                {c.repliedAt && ` · replied ${relDays(c.repliedAt)}`}
-              </div>
-            </button>
-            {c.call ? (
-              <a href={c.call.link} target="_blank" rel="noreferrer" className={cn("inline-flex items-center gap-1")}>
-                <Badge tone="green">
-                  <CalendarCheck className="size-3" /> {dateTimeLabel(new Date(c.call.at), recipientTz(c))}
-                  <ExternalLink className="size-3" />
-                </Badge>
-              </a>
-            ) : null}
-            <div className="flex gap-1">
-              <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={() => setModal({ c, kind: "reply" })}>
-                Reply with times
-              </Button>
-              <Button size="sm" icon={<CalendarPlus className="size-3.5" />} onClick={() => setModal({ c, kind: "invite" })}>
-                {c.call ? "New invite" : "Send invite"}
-              </Button>
-            </div>
-          </li>
+          <Row key={c.id}>
+            <Cell main>
+              <NameCell
+                name={c.name}
+                sub={`${c.position || "—"} · ${c.bank}${c.repliedAt ? ` · replied ${relDays(c.repliedAt)}` : ""}`}
+                onOpen={() => onOpen(c)}
+              />
+            </Cell>
+            <Cell className="text-[12px] whitespace-nowrap text-ink-2">{tzLabel(recipientTz(c))}</Cell>
+            <Cell>
+              {c.call ? (
+                <a href={c.call.link} target="_blank" rel="noreferrer" className="inline-flex">
+                  <Badge tone="green">
+                    <CalendarCheck className="size-3" /> {dateTimeLabel(new Date(c.call.at), recipientTz(c))}
+                    <ExternalLink className="size-3" />
+                  </Badge>
+                </a>
+              ) : (
+                <Badge tone="amber">Not scheduled</Badge>
+              )}
+            </Cell>
+            <Cell>
+              <RowActions>
+                <Button size="sm" variant="brass" icon={<MailPlus className="size-3.5" />} onClick={() => setModal({ c, kind: "reply" })}>
+                  Reply with times
+                </Button>
+                <Button size="sm" icon={<CalendarPlus className="size-3.5" />} onClick={() => setModal({ c, kind: "invite" })}>
+                  {c.call ? "New invite" : "Send invite"}
+                </Button>
+              </RowActions>
+            </Cell>
+          </Row>
         ))}
-      </ul>
+      </ListTable>
       <Modal open={!!modal} onClose={() => setModal(null)} title={modal ? `${modal.kind === "reply" ? "Reply with your availability" : "Calendar invite"}: ${modal.c.name}` : ""} wide>
         {modal?.kind === "reply" && <AvailabilityReply c={modal.c} onClose={() => setModal(null)} />}
         {modal?.kind === "invite" && <CallInvite c={modal.c} onClose={() => setModal(null)} />}
       </Modal>
-    </Card>
+    </>
   );
 }

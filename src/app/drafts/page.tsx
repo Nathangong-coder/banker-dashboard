@@ -289,7 +289,7 @@ function DraftsInner() {
             <ul className="divide-y divide-line">
               {templates.map((t) => (
                 <li key={t.id}>
-                  <button onClick={() => setEditing(t)} className="group flex w-full items-start gap-2.5 px-4 py-2.5 text-left hover:bg-[#fbfaf6]">
+                  <button onClick={() => setEditing(t)} className="group flex w-full items-start gap-2.5 px-4 py-2.5 text-left hover:bg-subtle">
                     <FileText className="mt-0.5 size-3.5 shrink-0 text-brass" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 font-medium">
@@ -348,7 +348,7 @@ function DraftsInner() {
 
         <Card className="flex min-h-[520px] flex-col overflow-hidden">
           <FilterBar f={f} setF={setF} contacts={contacts} />
-          <div className="flex flex-wrap items-center gap-2 border-b border-line bg-[#faf9f5] px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-2">
             <span className="text-[12.5px] text-ink-2">{sel.size} selected</span>
             <div className="flex-1" />
             {phase ? (
@@ -664,7 +664,7 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
     <div className="space-y-3">
       <div className="text-[12.5px] text-muted">To: {c.email || "no email yet"}</div>
       {firm && (
-        <div className="rounded-md border border-line bg-[#fbfaf6] p-3">
+        <div className="rounded-md border border-line bg-subtle p-3">
           <FirmSummary r={firm} highlight={new Set([c.id])} compact />
         </div>
       )}
@@ -702,7 +702,7 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
           onClick={save}
           aria-disabled={!c.email}
           className={cn(
-            "inline-flex h-9 items-center gap-1.5 rounded-md border border-line-2 bg-panel px-3.5 text-[13.5px] font-medium hover:bg-[#f0eee7]",
+            "inline-flex h-9 items-center gap-1.5 rounded-md border border-line-2 bg-panel px-3.5 text-[13.5px] font-medium hover:bg-hover",
             !c.email && "pointer-events-none opacity-50",
           )}
         >

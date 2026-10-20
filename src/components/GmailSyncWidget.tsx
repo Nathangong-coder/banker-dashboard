@@ -81,13 +81,13 @@ export function GmailSyncWidget() {
     <button
       onClick={run}
       disabled={busy}
-      className="mx-2.5 mb-2 flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-left text-[12px] hover:bg-white/5 disabled:opacity-70"
+      className="mb-2 flex w-full items-center gap-2 rounded-lg border border-side-ink/15 px-3 py-2 text-left text-[12px] hover:bg-side-hover disabled:opacity-70"
       title={connected ? "Gmail auto-syncs every 20 minutes while this tab is open. Click to sync now." : "Connect once per session to auto-sync sent dates, follow-ups and replies"}
     >
       {busy ? <Loader2 className="size-3.5 animate-spin text-brass" /> : connected ? <RefreshCw className="size-3.5 text-brass" /> : <Mail className="size-3.5 text-brass" />}
       <span className="flex-1">
         {busy ? "Syncing Gmail…" : connected ? "Gmail auto-sync on" : "Connect Gmail sync"}
-        <span className={cn("block text-[11px]", "text-[#8793a8]")}>synced {ago(last)}</span>
+        <span className={cn("block text-[11px]", "text-side-muted")}>synced {ago(last)}</span>
       </span>
     </button>
   );

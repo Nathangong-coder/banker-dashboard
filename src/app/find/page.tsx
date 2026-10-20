@@ -243,7 +243,7 @@ function FindInner() {
       />
 
       {desk && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-brass/40 bg-brass-soft px-3 py-2 text-[12.5px] text-[#7d5d1f]">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-brass/40 bg-brass-soft px-3 py-2 text-[12.5px] text-brass-ink">
           Looking for <b>{desk.location} · {desk.team}</b> bankers (from your recruiting plan). The AI screen will favor them.
           <button className="ml-auto rounded p-0.5 hover:bg-white/50" aria-label="Stop focusing on this desk" onClick={() => setDesk(null)}>
             <X className="size-3.5" />
@@ -433,7 +433,7 @@ function FindInner() {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={cn("rounded px-2.5 py-1 text-[12.5px]", tab === t ? "bg-navy text-white" : "text-ink-2 hover:bg-[#f0eee7]")}
+                className={cn("rounded px-2.5 py-1 text-[12.5px]", tab === t ? "bg-navy text-white" : "text-ink-2 hover:bg-hover")}
               >
                 {{ match: "Matches", maybe: "Maybe / unscreened", no: "Rejected", all: "All" }[t]}{" "}
                 <span className="num opacity-70">{counts[t]}</span>
@@ -475,7 +475,7 @@ function FindInner() {
           ) : (
             <div className="flex-1 overflow-auto">
               <table className="w-full text-[13px]">
-                <thead className="sticky top-0 z-10 bg-[#faf9f5] text-left text-[11px] uppercase tracking-wide text-muted">
+                <thead className="sticky top-0 z-10 bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
                   <tr className="border-b border-line">
                     <th className="w-8 px-3 py-2">
                       <Checkbox
@@ -550,7 +550,7 @@ function FindInner() {
           )}
 
           {sel.size > 0 && (
-            <div className="flex flex-wrap items-center gap-4 border-t border-line bg-[#faf9f5] px-4 py-3 text-[12.5px]">
+            <div className="flex flex-wrap items-center gap-4 border-t border-line bg-subtle px-4 py-3 text-[12.5px]">
               <span className="font-medium">{sel.size} selected</span>
               <label className="flex items-center gap-1.5">
                 <Checkbox checked={toSheet && hasBook} onChange={setToSheet} /> Write into bank tabs of my spreadsheet

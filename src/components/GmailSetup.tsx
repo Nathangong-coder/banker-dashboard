@@ -14,7 +14,7 @@ const L = ({ href, children }: { href: string; children: ReactNode }) => (
   </a>
 );
 
-const Code = ({ children }: { children: ReactNode }) => <code className="rounded bg-[#efede5] px-1 py-px text-[11.5px]">{children}</code>;
+const Code = ({ children }: { children: ReactNode }) => <code className="rounded bg-hover px-1 py-px text-[11.5px]">{children}</code>;
 
 /** Step-by-step Google Cloud setup + a live connection test. Only a Client ID is needed (never the secret). */
 export function GmailSetup() {
@@ -86,7 +86,7 @@ export function GmailSetup() {
         {open ? "Hide" : "Show"} step-by-step Google setup (~10 min, one time)
       </button>
       {open && (
-        <ol className="list-decimal space-y-2.5 rounded-md border border-line bg-[#fbfaf6] py-3 pr-3 pl-7 text-[12.5px] leading-relaxed text-ink-2">
+        <ol className="list-decimal space-y-2.5 rounded-md border border-line bg-subtle py-3 pr-3 pl-7 text-[12.5px] leading-relaxed text-ink-2">
           <li>
             <b>Create a project.</b> <L href="https://console.cloud.google.com/projectcreate">New project</L>. Any name works, e.g. “Coverage”.
           </li>

@@ -106,7 +106,7 @@ export function RecruitingPlan({ rows }: { rows: CoverageRow[] }) {
             <button
               key={`${p.location}${p.team}${p.scope}`}
               onClick={() => addPreset(p)}
-              className="rounded-full border border-line-2 px-2.5 py-1 hover:border-navy/50 hover:bg-[#f7f5ee]"
+              className="rounded-full border border-line-2 px-2.5 py-1 hover:border-navy/50 hover:bg-subtle"
             >
               {targetLabel(p)} ·{" "}
               {p.scope === "all"
@@ -224,7 +224,7 @@ function PlanRow({
         {t.enabled && list.length > 0 && (
           <>
             <div
-              className="h-1.5 w-28 overflow-hidden rounded-full bg-[#ecebe4]"
+              className="h-1.5 w-28 overflow-hidden rounded-full bg-hover"
               role="img"
               aria-label={`${done} of ${list.length} banks emailed`}
             >
@@ -237,7 +237,7 @@ function PlanRow({
         )}
         <button
           onClick={onRemove}
-          className="rounded p-1 text-muted hover:bg-[#efede5] hover:text-red"
+          className="rounded p-1 text-muted hover:bg-hover hover:text-red"
           aria-label={`Remove ${targetLabel(t)}`}
         >
           <Trash2 className="size-3.5" />
@@ -286,7 +286,7 @@ function ScopePicker({
     setBank("");
   };
   return (
-    <div className="space-y-2 rounded-md bg-[#fbfaf6] p-2.5 text-[12.5px]">
+    <div className="space-y-2 rounded-md bg-subtle p-2.5 text-[12.5px]">
       <div className="flex flex-wrap gap-3">
         {(["all", "tiers", "banks"] as const).map((s) => (
           <label key={s} className="flex items-center gap-1.5">

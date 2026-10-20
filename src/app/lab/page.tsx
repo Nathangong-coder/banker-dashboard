@@ -37,7 +37,7 @@ function LabInner() {
         title="Email lab"
         sub="What gets replies: experiment results, and a breakdown by bank type, team and location."
         right={
-          <Link href="/settings?tab=email&sub=experiments" className="inline-flex items-center gap-1.5 rounded-md bg-navy px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-[#1c3259]">
+          <Link href="/settings?tab=email&sub=experiments" className="inline-flex items-center gap-1.5 rounded-lg bg-brass-strong px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-brass-hover">
             Set up an experiment
           </Link>
         }
@@ -57,7 +57,7 @@ function LabInner() {
 function RateBar({ a }: { a: Arm }) {
   return (
     <div
-      className="relative h-2 w-40 rounded-full bg-[#ecebe4]"
+      className="relative h-2 w-40 rounded-full bg-hover"
       title={`95% range ${Math.round(a.lo * 100)}–${Math.round(a.hi * 100)}%`}
     >
       <div

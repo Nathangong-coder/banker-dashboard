@@ -103,7 +103,7 @@ export default function CoveragePage() {
           <Empty title="No banks yet">
             Upload your spreadsheet: any bank tab, or a list of firms (like an “Institution Name” column), shows up here.
             <div className="mt-4 flex flex-col items-center gap-2">
-              <Link href="/" className="inline-flex items-center gap-1.5 rounded-md bg-navy px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-[#1c3259]">
+              <Link href="/" className="inline-flex items-center gap-1.5 rounded-lg bg-brass-strong px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-brass-hover">
                 Upload your spreadsheet
               </Link>
               <button className="text-[12.5px] text-navy underline" onClick={() => setCoverage((c) => ({ ...c, includeStarter: true }))}>
@@ -133,7 +133,7 @@ export default function CoveragePage() {
                   ["pe", "Private equity"],
                 ] as const
               ).map(([k, label]) => (
-                <button key={k} onClick={() => setSegment(k)} aria-pressed={segment === k} className={cn("px-3 py-1.5", segment === k ? "bg-navy text-white" : "bg-panel text-ink-2 hover:bg-[#efede5]")}>
+                <button key={k} onClick={() => setSegment(k)} aria-pressed={segment === k} className={cn("px-3 py-1.5", segment === k ? "bg-navy text-white" : "bg-panel text-ink-2 hover:bg-hover")}>
                   {label}
                 </button>
               ))}
@@ -160,7 +160,7 @@ export default function CoveragePage() {
               <button
                 key={u}
                 onClick={() => setUnit(u)}
-                className={cn("px-2.5 py-1 capitalize", unit === u ? "bg-navy text-white" : "bg-panel text-ink-2 hover:bg-[#efede5]")}
+                className={cn("px-2.5 py-1 capitalize", unit === u ? "bg-navy text-white" : "bg-panel text-ink-2 hover:bg-hover")}
                 aria-pressed={unit === u}
               >
                 {u}
@@ -181,7 +181,7 @@ export default function CoveragePage() {
               of {total} {noun}s reached · <b>{pct}%</b>
             </span>
           </div>
-          <div className="mt-4 flex h-3 overflow-hidden rounded-full bg-[#ecebe4]" role="img" aria-label={`${counts.reached} reached, ${counts.ready} with contacts, ${counts.cold} cold`}>
+          <div className="mt-4 flex h-3 overflow-hidden rounded-full bg-hover" role="img" aria-label={`${counts.reached} reached, ${counts.ready} with contacts, ${counts.cold} cold`}>
             <div className="bg-green transition-all" style={{ width: `${(counts.reached / Math.max(total, 1)) * 100}%` }} />
             <div className="bg-brass transition-all" style={{ width: `${(counts.ready / Math.max(total, 1)) * 100}%` }} />
           </div>
@@ -335,7 +335,7 @@ export default function CoveragePage() {
           )}
         </div>
         {rows.some((r) => r.notOffered && r.specialty && r.bucket !== "hidden") && (
-          <div className="mt-3 rounded-md border border-line bg-[#fbfaf6] px-3 py-2 text-[12px] text-ink-2">
+          <div className="mt-3 rounded-md border border-line bg-subtle px-3 py-2 text-[12px] text-ink-2">
             <div className="mb-1 font-medium">Specialists outside your desks (left out of the counts)</div>
             <ul className="flex flex-wrap gap-x-4 gap-y-0.5">
               {rows
@@ -488,7 +488,7 @@ function BankCard({ r, onHide }: { r: CoverageRow; onHide: () => void }) {
           <OfficePicker r={r} />
           <SpecialtyPicker r={r} />
         </div>
-        <button onClick={onHide} className="rounded p-1 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[#efede5] hover:text-ink focus:opacity-100" title="Not recruiting here: hide" aria-label={`Hide ${r.name}`}>
+        <button onClick={onHide} className="rounded p-1 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-ink focus:opacity-100" title="Not recruiting here: hide" aria-label={`Hide ${r.name}`}>
           <EyeOff className="size-3.5" />
         </button>
       </div>

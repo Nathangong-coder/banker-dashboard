@@ -2,15 +2,14 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Columns2, Link2, Plus, Sparkles, Table2, Users } from "lucide-react";
+import { Columns2, Download, Eraser, FileSpreadsheet, Link2, Plus, Save, Sparkles, Upload } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { bankTabsSkipped, describeTabChanges, enrichContacts, ensureBankTabs, restorableTabLinks, restoreTabLinks, splitLocationTeamColumns, undoBankTabs } from "@/lib/actions";
 import { contactPatches, mergePatches, splitLocationTeamPatches } from "@/lib/workbook";
-import { Button, PageHeader, Progress, toast } from "@/components/ui";
-import { ResetTracker, SaveButtons, UploadButton, WorkbookEmpty } from "@/components/WorkbookControls";
+import { Button, Card, Menu, PageHeader, Progress, Segmented, toast } from "@/components/ui";
+import { ResetTrackerModal, WorkbookEmpty, useImportWorkbook, useSaveWorkbook } from "@/components/WorkbookControls";
 import { SheetGrid } from "@/components/SheetGrid";
 import { ContactsTable } from "@/components/ContactsTable";
-import { cn } from "@/lib/util";
 import { hasKey } from "@/lib/keys";
 
 export default function SheetPage() {
@@ -32,6 +31,9 @@ function SheetInner() {
   const [sheet, setSheet] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const importer = useImportWorkbook();
+  const saver = useSaveWorkbook();
 
   const manual = useStore((s) => s.patches);
   const patches = useMemo(
@@ -116,101 +118,153 @@ function SheetInner() {
   }
 
   const setView = (v: string) => router.replace(`/sheet?view=${v}`);
+  const isGrid = view === "grid";
+  const canAddTabs = isGrid && !tabChangeText && skippedBanks.some((b) => !/private equity|hidden/.test(b.why));
+  const skippedWhy = skippedBanks.map((b) => `${b.bank}: ${b.why}`).join("\n");
+  const enrichScope = isGrid
+    ? `Looks up emails for everyone on the "${activeSheet}" tab who's missing one.`
+    : selected.size
+      ? `Looks up emails for the ${selected.size} selected contacts.`
+      : "Looks up emails for everyone missing one. Select rows to narrow it down.";
 
-  return (
-    <>
-      <PageHeader
-        title="Spreadsheet"
-        sub={
-          <>
-            {meta?.fileName} · {contacts.length} contacts · {contacts.filter((c) => !c.email).length} missing email
-            {pendingChanges > 0 && (
-              <span className="ml-2 rounded bg-brass-soft px-1.5 py-0.5 text-[12px] text-[#7d5d1f]">
-                {pendingChanges} unsaved cell change{pendingChanges > 1 ? "s" : ""}
-              </span>
-            )}
-          </>
-        }
-        right={
-          <>
-            <UploadButton />
-            <SaveButtons />
-          </>
-        }
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <FileSpreadsheet className="size-4 shrink-0 text-brass" />
+        <span className="truncate text-[13.5px] font-medium text-ink" title={meta?.fileName}>
+          {meta?.fileName ?? "Contacts"}
+        </span>
+        {pendingChanges > 0 && (
+          <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-brass-ink" title="Cell changes not written to the file yet">
+            <span className="size-2 rounded-full bg-brass" />
+            <span className="num">{pendingChanges}</span> unsaved
+          </span>
+        )}
+      </div>
+      <Segmented
+        value={view}
+        onChange={setView}
+        options={[
+          ["grid", "Grid"],
+          ["contacts", "Contacts"],
+        ]}
       />
-
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-md border border-line-2 bg-panel p-0.5">
-          {[
-            { v: "grid", label: "Sheet view", icon: Table2 },
-            { v: "contacts", label: "All contacts", icon: Users },
-          ].map(({ v, label, icon: Icon }) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={cn(
-                "flex items-center gap-1.5 rounded px-3 py-1.5 text-[13px]",
-                view === v ? "bg-navy text-white" : "text-ink-2 hover:bg-[#f0eee7]",
-              )}
-            >
-              <Icon className="size-3.5" /> {label}
-            </button>
-          ))}
-        </div>
-        <div className="flex-1" />
-        <ResetTracker activeSheet={view === "grid" ? activeSheet : undefined} />
-        {view === "grid" && tabChangeText && (
-          <span
-            className="flex items-center gap-1.5 rounded-md border border-brass/40 bg-brass/10 px-2 py-1 text-[12px] text-ink-2"
-            title={[...newTabs.map((t) => `${t.name}: ${t.bank}`), ...renames.map((r) => `${r.from} → ${r.to}`), ...rebuilt.map((r) => `${r.name}: rebuilt`)].join("\n")}
-          >
-            {tabChangeText} (unsaved)
-            <button className="font-medium text-navy hover:underline" onClick={runUndoTabs}>
-              Undo
-            </button>
-          </span>
-        )}
-        {view === "grid" && skippedBanks.length > 0 && (
-          <span className="text-[12px] text-muted" title={skippedBanks.map((b) => `${b.bank}: ${b.why}`).join("\n")}>
-            {skippedBanks.length} bank{skippedBanks.length > 1 ? "s" : ""} without a tab (hover for why)
-          </span>
-        )}
-        {view === "grid" && !tabChangeText && skippedBanks.some((b) => !/private equity|hidden/.test(b.why)) && (
-          <Button icon={<Plus className="size-3.5" />} onClick={runAddTabs} title="Make a tab (and a linked OVERVIEW row) for every bank on your lists that doesn't have one">
-            Add missing bank tabs
-          </Button>
-        )}
-        {view === "grid" && linksToRestore > 0 && (
-          <Button icon={<Link2 className="size-3.5" />} onClick={runRestoreLinks} title="An older save dropped the links between OVERVIEW and the bank tabs. This puts them back as edits you can review, then save.">
-            Restore tab links ({linksToRestore})
-          </Button>
-        )}
-        {view === "grid" && combinedTables > 0 && (
-          <Button icon={<Columns2 className="size-3.5" />} onClick={runSplit} title="Location/Team becomes two columns (Location, and Team in the first empty column), each with a dropdown you can also type into">
-            Split Location/Team ({combinedTables} tables)
-          </Button>
-        )}
+      <div className="ml-auto flex flex-wrap items-center gap-2">
         {progress ? (
-          <div className="w-72">
+          <div className="w-56 max-w-full">
             <Progress value={progress.done} max={progress.total} label={`${progress.done}/${progress.total} looked up`} />
           </div>
         ) : (
-          <Button variant="brass" icon={<Sparkles className="size-3.5" />} onClick={runEnrich}>
-            Enrich contact info
-            <span className="num rounded bg-white/20 px-1 text-[11px]">{missing.length}</span>
+          <Button variant="brass" icon={<Sparkles className="size-3.5" />} onClick={runEnrich} title={enrichScope}>
+            Find <span className="num">{missing.length}</span> email{missing.length === 1 ? "" : "s"}
           </Button>
         )}
+        {meta && (
+          <Button
+            variant="primary"
+            icon={meta.hasHandle ? <Save className="size-3.5" /> : <Download className="size-3.5" />}
+            loading={saver.busy === (meta.hasHandle ? "in-place" : "download")}
+            onClick={() => saver.run(meta.hasHandle ? "in-place" : "download")}
+            title={meta.hasHandle ? `Save to ${meta.fileName} (Ctrl+S)` : "This browser can't write to the file, so Save downloads an updated copy"}
+          >
+            Save
+          </Button>
+        )}
+        <Menu
+          items={[
+            canAddTabs && {
+              label: "Add missing bank tabs",
+              hint: `${skippedBanks.length} bank${skippedBanks.length > 1 ? "s" : ""} without a tab`,
+              icon: <Plus />,
+              onClick: runAddTabs,
+            },
+            isGrid &&
+              !canAddTabs &&
+              skippedBanks.length > 0 && {
+                label: `${skippedBanks.length} bank${skippedBanks.length > 1 ? "s" : ""} without a tab`,
+                hint: skippedBanks
+                  .slice(0, 3)
+                  .map((b) => `${b.bank}: ${b.why}`)
+                  .join(" · ") + (skippedBanks.length > 3 ? " …" : ""),
+                icon: <Plus />,
+                disabled: true,
+                onClick: () => {},
+              },
+            isGrid &&
+              linksToRestore > 0 && {
+                label: "Restore tab links",
+                hint: `${linksToRestore} OVERVIEW ↔ bank-tab links an older save dropped`,
+                icon: <Link2 />,
+                onClick: runRestoreLinks,
+              },
+            isGrid &&
+              combinedTables > 0 && {
+                label: "Split Location/Team",
+                hint: `${combinedTables} table${combinedTables === 1 ? "" : "s"}: two columns, each with a dropdown`,
+                icon: <Columns2 />,
+                onClick: runSplit,
+              },
+            "divider",
+            meta && {
+              label: "Download a copy",
+              hint: "An updated .xlsx; your file stays as it is",
+              icon: <Download />,
+              disabled: saver.busy === "download",
+              onClick: () => saver.run("download"),
+            },
+            {
+              label: meta ? "Import another workbook" : "Import a workbook",
+              hint: meta ? "Or re-import this one after editing it in Excel" : undefined,
+              icon: <Upload />,
+              disabled: importer.busy,
+              onClick: importer.run,
+            },
+            "divider",
+            meta && {
+              label: "Reset tracker…",
+              hint: "Blank the contact tables, keep tabs and formatting",
+              icon: <Eraser />,
+              danger: true,
+              onClick: () => setResetOpen(true),
+            },
+          ]}
+        />
       </div>
-      <p className="-mt-2 mb-4 text-[12px] text-muted">
-        {view === "grid"
-          ? `Enrich looks up emails for everyone on the "${activeSheet}" tab who's missing one.`
-          : selected.size
-            ? `Enrich looks up emails for the ${selected.size} selected contacts.`
-            : "Enrich looks up emails for everyone missing one. Select rows to narrow it down."}
-      </p>
+      {importer.input}
+    </div>
+  );
 
-      {view === "grid" ? (
+  const notice = isGrid && tabChangeText && (
+    <div
+      className="flex items-center gap-2 border-b border-line bg-brass-soft px-3 py-1.5 text-[12px] text-brass-ink"
+      title={[
+        ...newTabs.map((t) => `${t.name}: ${t.bank}`),
+        ...renames.map((r) => `${r.from} → ${r.to}`),
+        ...rebuilt.map((r) => `${r.name}: rebuilt`),
+        skippedWhy && `\nWithout a tab:\n${skippedWhy}`,
+      ]
+        .filter(Boolean)
+        .join("\n")}
+    >
+      <span className="min-w-0 truncate">{tabChangeText} (unsaved)</span>
+      <button className="shrink-0 font-medium underline-offset-2 hover:underline" onClick={runUndoTabs}>
+        Undo
+      </button>
+    </div>
+  );
+
+  return (
+    <>
+      <PageHeader title="Spreadsheet" sub={`${contacts.length} contacts · ${contacts.filter((c) => !c.email).length} missing email`} />
+
+      {isGrid ? (
         <SheetGrid
+          toolbar={
+            <>
+              {toolbar}
+              {notice}
+            </>
+          }
           snapshots={snapshots}
           extraSheets={extraSheets}
           patches={patches}
@@ -219,8 +273,12 @@ function SheetInner() {
           contacts={contacts}
         />
       ) : (
-        <ContactsTable selected={selected} onSelected={setSelected} initialFilter={params.get("filter") ?? undefined} initialBank={params.get("bank") ?? undefined} />
+        <>
+          <Card className="mb-3">{toolbar}</Card>
+          <ContactsTable selected={selected} onSelected={setSelected} initialFilter={params.get("filter") ?? undefined} initialBank={params.get("bank") ?? undefined} />
+        </>
       )}
+      <ResetTrackerModal open={resetOpen} onClose={() => setResetOpen(false)} activeSheet={isGrid ? activeSheet : undefined} />
     </>
   );
 }

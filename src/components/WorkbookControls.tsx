@@ -7,10 +7,10 @@ import { useStore } from "@/lib/store";
 import { hasDashboardWork } from "@/lib/workbook";
 import { Button, Checkbox, Modal, toast } from "./ui";
 
-export function UploadButton({ variant = "secondary", label }: { variant?: "primary" | "secondary" | "brass"; label?: string }) {
-  const input = useRef<HTMLInputElement>(null);
+/** Import (or re-import) a workbook: the picker where the browser has one, else a hidden file input. Render `input` once. */
+export function useImportWorkbook() {
+  const ref = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const hasBook = useStore((s) => !!s.workbook);
 
   const report = (r: { added: number; updated: number; tabs?: TabChanges }) => {
     toast.ok(`Imported — ${r.added} new contact${r.added === 1 ? "" : "s"}, ${r.updated} refreshed.`);
@@ -18,11 +18,11 @@ export function UploadButton({ variant = "secondary", label }: { variant?: "prim
     if (tabs) toast.info(`Spreadsheet tabs: ${tabs}`);
   };
 
-  const onClick = async () => {
+  const run = async () => {
     setBusy(true);
     try {
       const r = await pickAndImport();
-      if (r === "fallback") input.current?.click();
+      if (r === "fallback") ref.current?.click();
       else if (r) report(r);
     } catch (e) {
       toast.err((e as Error).message);
@@ -31,38 +31,46 @@ export function UploadButton({ variant = "secondary", label }: { variant?: "prim
     }
   };
 
+  const input = (
+    <input
+      ref={ref}
+      type="file"
+      accept=".xlsx"
+      hidden
+      onChange={async (e) => {
+        const f = e.target.files?.[0];
+        e.target.value = "";
+        if (!f) return;
+        setBusy(true);
+        try {
+          report(await importFile(f));
+        } catch (err) {
+          toast.err(`Couldn't read that file: ${(err as Error).message}`);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    />
+  );
+  return { run, busy, input };
+}
+
+export function UploadButton({ variant = "secondary", label }: { variant?: "primary" | "secondary" | "brass"; label?: string }) {
+  const hasBook = useStore((s) => !!s.workbook);
+  const { run, busy, input } = useImportWorkbook();
   return (
     <>
-      <Button variant={variant} icon={<Upload className="size-3.5" />} loading={busy} onClick={onClick}>
+      <Button variant={variant} icon={<Upload className="size-3.5" />} loading={busy} onClick={run}>
         {label ?? (hasBook ? "Re-import spreadsheet" : "Upload spreadsheet")}
       </Button>
-      <input
-        ref={input}
-        type="file"
-        accept=".xlsx"
-        hidden
-        onChange={async (e) => {
-          const f = e.target.files?.[0];
-          e.target.value = "";
-          if (!f) return;
-          setBusy(true);
-          try {
-            report(await importFile(f));
-          } catch (err) {
-            toast.err(`Couldn't read that file: ${(err as Error).message}`);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      />
+      {input}
     </>
   );
 }
 
-export function SaveButtons() {
-  const meta = useStore((s) => s.workbook);
-  const [busy, setBusy] = useState<string | null>(null);
-  if (!meta) return null;
+/** Save in place (when the browser holds the file) or download a copy. */
+export function useSaveWorkbook() {
+  const [busy, setBusy] = useState<"in-place" | "download" | null>(null);
   const run = async (mode: "in-place" | "download") => {
     setBusy(mode);
     try {
@@ -78,6 +86,13 @@ export function SaveButtons() {
       setBusy(null);
     }
   };
+  return { run, busy };
+}
+
+export function SaveButtons() {
+  const meta = useStore((s) => s.workbook);
+  const { run, busy } = useSaveWorkbook();
+  if (!meta) return null;
   return (
     <>
       {meta.hasHandle && (
@@ -96,7 +111,7 @@ export function WorkbookEmpty() {
   return (
     <div className="flex flex-col items-center rounded-lg border border-dashed border-line-2 bg-panel px-6 py-16 text-center">
       <FileSpreadsheet className="size-8 text-brass" />
-      <h2 className="mt-3 font-serif text-[24px]">Start with your recruiting spreadsheet</h2>
+      <h2 className="mt-3 text-[22px] font-medium tracking-tight">Start with your recruiting spreadsheet</h2>
       <p className="mt-2 max-w-lg text-[13.5px] text-ink-2">
         Upload your .xlsx. Every tab with a <b>Name</b> column plus an <b>Email</b> or <b>LinkedIn</b> column is read as a
         contact table, and each tab title becomes the bank. Your file stays in this browser. Nothing is uploaded to a server.
@@ -117,10 +132,25 @@ export function WorkbookEmpty() {
  */
 export function ResetTracker({ activeSheet }: { activeSheet?: string }) {
   const meta = useStore((s) => s.workbook);
+  const [open, setOpen] = useState(false);
+  if (!meta) return null;
+  return (
+    <>
+      <Button icon={<Eraser className="size-3.5" />} onClick={() => setOpen(true)} title="Blank the contact tables but keep the tracker's tabs, headers and formatting">
+        Reset tracker
+      </Button>
+      <ResetTrackerModal open={open} onClose={() => setOpen(false)} activeSheet={activeSheet} />
+    </>
+  );
+}
+
+/** The Reset tracker dialog on its own, for opening from a menu. */
+export function ResetTrackerModal({ open, onClose, activeSheet }: { open: boolean; onClose: () => void; activeSheet?: string }) {
+  const meta = useStore((s) => s.workbook);
+  const setOpen = (v: boolean) => !v && onClose();
   const contacts = useStore((s) => s.contacts);
   const tables = useStore((s) => s.tables);
   const resetTracker = useStore((s) => s.resetTracker);
-  const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<"all" | "tab">("all");
   const [everything, setEverything] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -138,7 +168,7 @@ export function ResetTracker({ activeSheet }: { activeSheet?: string }) {
     setOpen(false);
     toast.ok(
       `Cleared ${r.rows} row${r.rows === 1 ? "" : "s"} and removed ${r.removed} contact${r.removed === 1 ? "" : "s"}. ` +
-        `Check the highlighted cells, then save (Download .xlsx keeps your current file as it is). Ctrl+Z in Sheet view undoes it.`,
+        `Check the highlighted cells, then save (Download a copy keeps your current file as it is). Ctrl+Z in Sheet view undoes it.`,
     );
   };
   const blankCopy = async () => {
@@ -156,9 +186,6 @@ export function ResetTracker({ activeSheet }: { activeSheet?: string }) {
 
   return (
     <>
-      <Button icon={<Eraser className="size-3.5" />} onClick={() => setOpen(true)} title="Blank the contact tables but keep the tracker's tabs, headers and formatting">
-        Reset tracker
-      </Button>
       <Modal open={open} onClose={() => setOpen(false)} title="Reset tracker">
         <div className="space-y-3 text-[13px] text-ink-2">
           <p>
@@ -188,9 +215,9 @@ export function ResetTracker({ activeSheet }: { activeSheet?: string }) {
             {tabCount} tab{tabCount === 1 ? "" : "s"} with contact tables · {hit.inScope.length + (everything ? hit.loose.length : 0)} contacts removed from the dashboard
             {hit.work > 0 && <span className="text-red"> · {hit.work} have outreach history, which is deleted too</span>}
           </p>
-          <div className="rounded-md border border-line bg-[#faf9f5] p-2.5 text-[12.5px]">
-            <b>Clear tracker</b> makes these pending changes. Saving to {meta.fileName} overwrites it; <b>Download .xlsx</b> saves a new
-            copy instead. <b>Download blank copy</b> makes a separate blank file and changes nothing here.
+          <div className="rounded-md border border-line bg-subtle p-2.5 text-[12.5px]">
+            <b>Clear tracker</b> makes these pending changes. Saving to {meta.fileName} overwrites it; <b>Download a copy</b> (in the ⋯ menu) writes a new
+            file instead. <b>Download blank copy</b> makes a separate blank file and changes nothing here.
           </div>
           <div className="flex flex-wrap justify-end gap-2 pt-1">
             <Button onClick={() => setOpen(false)}>Cancel</Button>

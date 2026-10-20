@@ -160,7 +160,7 @@ function NewExperiment({ fontBusy, onCreate, onCancel }: { fontBusy: boolean; on
   );
 
   return (
-    <div className="space-y-3 border-b border-line bg-[#fbfaf6] px-4 py-3 text-[12.5px]">
+    <div className="space-y-3 border-b border-line bg-subtle px-4 py-3 text-[12.5px]">
       <div className="flex flex-wrap gap-4">
         {(["font", "time", "custom"] as const).map((k) => (
           <label key={k} className={cn("flex items-center gap-1.5", k === "font" && fontBusy && "opacity-50")} title={k === "font" && fontBusy ? "A font experiment is already running" : undefined}>
@@ -312,7 +312,7 @@ export function ArmTable({ arms, fontOf }: { arms: Arm[]; fontOf?: (id: string) 
                 <td className="num px-2 text-right text-green">{a.replied}</td>
                 <td className="num px-2 text-right font-medium">{a.sent ? `${Math.round(a.rate * 100)}%` : "—"}</td>
                 <td className="px-4">
-                  <div className="relative h-2 w-40 rounded-full bg-[#ecebe4]" title={`95% range ${Math.round(a.lo * 100)}–${Math.round(a.hi * 100)}%`}>
+                  <div className="relative h-2 w-40 rounded-full bg-hover" title={`95% range ${Math.round(a.lo * 100)}–${Math.round(a.hi * 100)}%`}>
                     {a.sent > 0 && (
                       <>
                         <div className="absolute h-2 rounded-full bg-green/25" style={{ left: `${a.lo * 100}%`, width: `${Math.max((a.hi - a.lo) * 100, 1)}%` }} />

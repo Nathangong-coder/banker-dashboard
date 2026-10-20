@@ -85,7 +85,10 @@ export function SheetGrid({
   active,
   onSelectSheet,
   contacts,
+  toolbar,
 }: {
+  /** A row rendered at the top of the card (the page's file toolbar). */
+  toolbar?: React.ReactNode;
   snapshots: SheetSnapshot[];
   extraSheets: string[];
   patches: Patches;
@@ -141,7 +144,7 @@ export function SheetGrid({
     return () => clearTimeout(t);
   }, [isApplications, sheetPatches]);
   const contactRows = useMemo(
-    () => new Map(contacts.filter((c) => c.ref?.sheet === active).map((c) => [c.ref!.row, c])),
+    () => new Map(contacts.filter((c) => !!c.ref && c.ref.sheet === active).map((c) => [c.ref!.row, c])),
     [contacts, active],
   );
 
@@ -483,8 +486,11 @@ export function SheetGrid({
   const menuDraft = menu ? rowPerson(menu.row).draft : undefined;
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-line bg-[#faf9f5] px-2 py-1.5">
+    // No overflow-hidden on the card itself, so the toolbar's "⋯" menu can drop below it; the grid part clips its corners.
+    <Card>
+      {toolbar}
+      <div className={cn("overflow-hidden", toolbar ? "rounded-b-xl" : "rounded-xl")}>
+      <div className="flex items-center gap-2 border-b border-line bg-subtle px-2 py-1.5">
         <div className="relative w-44 shrink-0">
           <Search className="absolute top-2 left-2 size-3.5 text-muted" />
           <input
@@ -504,7 +510,7 @@ export function SheetGrid({
             </button>
           )}
         </div>
-        <div className="flex flex-1 gap-1 overflow-x-auto pb-0.5">
+        <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-lg bg-hover p-[3px]">
           {tabs.length === 0 && <span className="px-2 py-1 text-[12.5px] text-muted">No tab or bank matches &ldquo;{tabQuery}&rdquo;</span>}
           {tabs.map((name) => {
             const c = counts.get(name);
@@ -513,13 +519,13 @@ export function SheetGrid({
                 key={name}
                 onClick={() => openTab(name)}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-[12.5px]",
-                  name === active ? "bg-navy text-white" : "text-ink-2 hover:bg-[#efede5]",
+                  "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px] font-medium transition-colors",
+                  name === active ? "bg-panel text-ink shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2 hover:text-ink",
                 )}
               >
                 {name}
                 {c && (
-                  <span className={cn("num text-[10.5px]", name === active ? "text-white/70" : c.missing ? "text-red" : "text-muted")}>
+                  <span className={cn("num text-[10.5px]", name === active ? (c.missing ? "text-red" : "text-muted") : c.missing ? "text-red" : "text-muted")}>
                     {c.missing ? `${c.missing}/${c.n}` : c.n}
                   </span>
                 )}
@@ -547,7 +553,7 @@ export function SheetGrid({
 
       {/* Formula bar: the active cell's address and full text, editable. Row actions for the selection. */}
       <div className="flex items-center gap-2 border-b border-line px-2 py-1">
-        <span className="num w-20 shrink-0 truncate rounded bg-[#efede5] px-1.5 py-0.5 text-center text-[11.5px] text-ink-2" title="Selected cell">
+        <span className="num w-20 shrink-0 truncate rounded bg-hover px-1.5 py-0.5 text-center text-[11.5px] text-ink-2" title="Selected cell">
           {rangeLabel || "—"}
         </span>
         <input
@@ -616,7 +622,7 @@ export function SheetGrid({
               <th className="w-10" />
               {Array.from({ length: cols }, (_, i) =>
                 hiddenCols.has(i + 1) ? null : (
-                  <th key={i} style={cellCss(undefined, colWidth(i + 1))} className={cn(range && i + 1 >= range.c1 && i + 1 <= range.c2 && "bg-[#e3e0d4]! text-ink!")}>
+                  <th key={i} style={cellCss(undefined, colWidth(i + 1))} className={cn(range && i + 1 >= range.c1 && i + 1 <= range.c2 && "bg-track! text-ink!")}>
                     {colName(i + 1)}
                   </th>
                 ),
@@ -631,7 +637,7 @@ export function SheetGrid({
               return (
                 <tr key={r} title={contact ? `${contact.name} · ${contact.status}` : undefined} style={fmt?.rowHeights[r] ? { height: Math.max(fmt.rowHeights[r], 18) } : undefined}>
                   <th
-                    className={cn("group cursor-pointer", linked && "font-semibold text-navy", rowSelected && "bg-[#e3e0d4]!")}
+                    className={cn("group cursor-pointer", linked && "font-semibold text-navy", rowSelected && "bg-track!")}
                     onMouseDown={(e) => {
                       if (e.button !== 0) return;
                       e.preventDefault();
@@ -830,6 +836,7 @@ export function SheetGrid({
           that row a contact.
         </span>
       </div>
+      </div>
       <AddContactModal
         open={!!making}
         onClose={() => setMaking(null)}
@@ -860,7 +867,7 @@ function ToolButton({ label, icon, onClick, disabled }: { label: string; icon: R
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="rounded p-1.5 text-ink-2 hover:bg-[#efede5] hover:text-ink disabled:opacity-35 disabled:hover:bg-transparent"
+      className="rounded p-1.5 text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-35 disabled:hover:bg-transparent"
     >
       {icon}
     </button>
@@ -869,7 +876,7 @@ function ToolButton({ label, icon, onClick, disabled }: { label: string; icon: R
 
 function MenuItem({ icon, label, hint, onClick, danger }: { icon: React.ReactNode; label: string; hint?: string; onClick: () => void; danger?: boolean }) {
   return (
-    <button role="menuitem" onClick={onClick} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-[#f0eee7]", danger && "text-red")}>
+    <button role="menuitem" onClick={onClick} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-hover", danger && "text-red")}>
       <span className="text-muted">{icon}</span>
       <span className="flex-1">{label}</span>
       {hint && <span className="num text-[11px] text-muted">{hint}</span>}

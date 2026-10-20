@@ -102,7 +102,7 @@ export function OutreachRulesEditor() {
                 <Input value={v.match} placeholder="Their profile mentions… (soup kitchen)" onChange={(e) => set((x) => ({ ...x, volunteer: x.volunteer.map((y, j) => (j === i ? { ...y, match: e.target.value } : y)) }))} aria-label="Match" />
                 <Input value={v.mine} placeholder="Yours (working at a soup kitchen)" onChange={(e) => set((x) => ({ ...x, volunteer: x.volunteer.map((y, j) => (j === i ? { ...y, mine: e.target.value } : y)) }))} aria-label="Your experience" />
                 <Input value={v.theirs} placeholder="Theirs (volunteer experience)" onChange={(e) => set((x) => ({ ...x, volunteer: x.volunteer.map((y, j) => (j === i ? { ...y, theirs: e.target.value } : y)) }))} aria-label="Their experience" />
-                <button className="rounded p-1.5 text-muted hover:bg-[#efede5] hover:text-red" aria-label="Remove" onClick={() => set((x) => ({ ...x, volunteer: x.volunteer.filter((_, j) => j !== i) }))}>
+                <button className="rounded p-1.5 text-muted hover:bg-hover hover:text-red" aria-label="Remove" onClick={() => set((x) => ({ ...x, volunteer: x.volunteer.filter((_, j) => j !== i) }))}>
                   <Trash2 className="size-3.5" />
                 </button>
               </div>
@@ -126,7 +126,7 @@ export function OutreachRulesEditor() {
                 <Input value={v.label} placeholder="Subject label (Baseball Player)" onChange={(e) => set((x) => ({ ...x, sports: x.sports.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)) }))} aria-label="Subject label" />
                 <Input value={v.mine} placeholder="Yours: As someone who… (played varsity baseball in high school)" onChange={(e) => set((x) => ({ ...x, sports: x.sports.map((y, j) => (j === i ? { ...y, mine: e.target.value } : y)) }))} aria-label="Your experience" />
                 {searchButton(v.match, "sport")}
-                <button className="rounded p-1.5 text-muted hover:bg-[#efede5] hover:text-red" aria-label="Remove" onClick={() => set((x) => ({ ...x, sports: x.sports.filter((_, j) => j !== i) }))}>
+                <button className="rounded p-1.5 text-muted hover:bg-hover hover:text-red" aria-label="Remove" onClick={() => set((x) => ({ ...x, sports: x.sports.filter((_, j) => j !== i) }))}>
                   <Trash2 className="size-3.5" />
                 </button>
               </div>

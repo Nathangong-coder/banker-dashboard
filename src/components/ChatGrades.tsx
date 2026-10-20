@@ -203,7 +203,7 @@ export function ChatGrades({ c }: { c: Contact }) {
       </div>
 
       {/* New transcript */}
-      <div className="space-y-2 rounded-lg bg-[#fbfaf6] p-3">
+      <div className="space-y-2 rounded-lg bg-subtle p-3">
         <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
           <label className="flex items-center gap-1.5 text-ink-2">
             Call on
@@ -297,7 +297,7 @@ export function ChatGrades({ c }: { c: Contact }) {
                     {log.transcript && (
                       <details className="mt-3 text-[12.5px]">
                         <summary className="cursor-pointer text-navy">Transcript ({(log.transcript.length / 1000).toFixed(1)}k chars)</summary>
-                        <pre className="mt-2 max-h-72 overflow-auto rounded bg-[#fbfaf6] p-2.5 font-sans text-[12.5px] whitespace-pre-wrap text-ink-2">{log.transcript}</pre>
+                        <pre className="mt-2 max-h-72 overflow-auto rounded bg-subtle p-2.5 font-sans text-[12.5px] whitespace-pre-wrap text-ink-2">{log.transcript}</pre>
                       </details>
                     )}
                   </div>
@@ -329,7 +329,7 @@ function GradeView({ g, name }: { g: ChatGrade; name: string }) {
           className={cn(
             "flex shrink-0 flex-col items-center rounded-lg px-4 py-2.5",
             t === "green" && "bg-green-soft text-green",
-            t === "brass" && "bg-brass-soft text-[#7d5d1f]",
+            t === "brass" && "bg-brass-soft text-brass-ink",
             t === "amber" && "bg-amber-soft text-amber",
             t === "red" && "bg-red-soft text-red",
           )}
@@ -356,7 +356,7 @@ function GradeView({ g, name }: { g: ChatGrade; name: string }) {
                   <span className="num ml-auto text-[12px] text-muted">{r.score}/5</span>
                 </div>
                 <div className="min-w-0">
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[#e7e4da]" role="meter" aria-valuemin={1} aria-valuemax={5} aria-valuenow={r.score} aria-label={r.area}>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-track" role="meter" aria-valuemin={1} aria-valuemax={5} aria-valuenow={r.score} aria-label={r.area}>
                     <div className={cn("h-full rounded-full", r.score >= 4 ? "bg-green" : r.score === 3 ? "bg-brass" : "bg-red")} style={{ width: `${(r.score / 5) * 100}%` }} />
                   </div>
                   <div className="mt-0.5 text-[12px] text-ink-2">{r.comment}</div>

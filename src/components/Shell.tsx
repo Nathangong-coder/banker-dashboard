@@ -26,19 +26,41 @@ setSignatureLogoSource(savedSignatureLogo);
 /** Pages that render without waiting for the local store (no personal data on them). */
 const PUBLIC_PATHS = ["/privacy", "/terms", "/capture"];
 
-const NAV = [
-  { href: "/", label: "Overview", icon: LayoutGrid },
-  { href: "/coverage", label: "Bank coverage", icon: Building2 },
-  { href: "/firms", label: "Firms", icon: Trophy },
-  { href: "/sheet", label: "Spreadsheet", icon: Sheet },
-  { href: "/find", label: "Find people", icon: Search },
-  { href: "/drafts", label: "Email drafts", icon: Mail },
-  { href: "/lab", label: "Email lab", icon: FlaskConical },
-  { href: "/followups", label: "Follow-ups", icon: BellRing },
-  { href: "/prep", label: "Coffee chat prep", icon: Coffee },
-  { href: "/info-sessions", label: "Info sessions", icon: Presentation },
-  { href: "/settings", label: "Settings", icon: Settings2 },
+/**
+ * Two-level navigation (owner, 2026-10-19): the top bar picks a group, the sidebar lists that group's pages. The group
+ * follows the current page, so a deep link lands with the right sidebar.
+ */
+const GROUPS = [
+  {
+    label: "Overview",
+    pages: [
+      { href: "/", label: "Dashboard", icon: LayoutGrid },
+      { href: "/coverage", label: "Bank coverage", icon: Building2 },
+      { href: "/firms", label: "Firms", icon: Trophy },
+      { href: "/sheet", label: "Spreadsheet", icon: Sheet },
+    ],
+  },
+  {
+    label: "Outreach",
+    pages: [
+      { href: "/find", label: "Find people", icon: Search },
+      { href: "/drafts", label: "Email drafts", icon: Mail },
+      { href: "/lab", label: "Email lab", icon: FlaskConical },
+    ],
+  },
+  {
+    label: "Prep & reminders",
+    pages: [
+      { href: "/followups", label: "Follow-ups", icon: BellRing },
+      { href: "/prep", label: "Coffee chat prep", icon: Coffee },
+      { href: "/info-sessions", label: "Info sessions", icon: Presentation },
+    ],
+  },
+  { label: "Settings", pages: [{ href: "/settings", label: "Settings", icon: Settings2 }] },
 ];
+
+const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path.startsWith(href));
+const groupOf = (path: string) => GROUPS.find((g) => g.pages.some((p) => isActive(p.href, path))) ?? GROUPS[0];
 
 function useHydrated() {
   const [ready, setReady] = useState(false);
@@ -214,68 +236,120 @@ export function Shell({ children }: { children: ReactNode }) {
     !!googleClientId(settings),
   ].filter(Boolean).length;
 
+  const group = groupOf(path);
+  const toReview = useStore((s) => s.infoSessions.reduce((n, x) => n + (x.pending?.length ?? 0), 0));
+  const badge = (href: string) => (href === "/followups" ? due : href === "/info-sessions" ? toReview : 0);
+
   return (
-    <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-[220px] shrink-0 flex-col border-r border-[#0c1729] bg-navy text-[#c9d1de] md:flex">
-        <div className="px-5 pt-6 pb-7">
-          <div className="font-serif text-[26px] leading-none text-white">Coverage</div>
-          <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[#8793a8]">Networking desk</div>
-        </div>
-        <nav className="flex flex-1 flex-col gap-0.5 px-2.5">
-          {NAV.map(({ href, label, icon: Icon }) => {
-            const active = href === "/" ? path === "/" : path.startsWith(href);
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center border-b border-top-line bg-top text-top-ink">
+        <Link href="/" className="flex h-full shrink-0 items-center gap-2.5 px-4 md:w-[232px] md:px-5">
+          <span className="grid size-7 place-items-center rounded-lg bg-brass-strong text-[13px] font-semibold text-white">C</span>
+          <span className="hidden text-[16px] font-medium tracking-tight sm:inline">Coverage</span>
+        </Link>
+        <nav className="flex h-full min-w-0 flex-1 overflow-x-auto" aria-label="Sections">
+          {GROUPS.filter((g) => g.label !== "Settings").map((g) => {
+            const on = g === group;
             return (
               <Link
-                key={href}
-                href={href}
+                key={g.label}
+                href={g.pages[0].href}
+                aria-current={on ? "true" : undefined}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13.5px] transition-colors",
-                  active ? "bg-white/10 text-white" : "hover:bg-white/5 hover:text-white",
+                  "relative flex h-full shrink-0 items-center px-3 text-[13.5px] font-medium whitespace-nowrap transition-colors md:px-4",
+                  on ? "text-top-ink" : "text-top-muted hover:text-top-ink",
                 )}
               >
-                <Icon className={cn("size-4", active ? "text-brass" : "text-[#7c89a0]")} />
-                <span className="flex-1">{label}</span>
-                {href === "/followups" && due > 0 && (
-                  <span className="num rounded bg-brass-strong px-1.5 text-[11px] font-medium text-white">{due}</span>
-                )}
+                {g.label}
+                {on && <span className="absolute inset-x-3 bottom-0 h-[3px] rounded-t bg-brass md:inset-x-4" />}
               </Link>
             );
           })}
         </nav>
-        {ready && <GmailSyncWidget />}
-        <Link href="/settings?tab=data" className="mx-2.5 mb-2 flex items-center gap-2 rounded-md border border-white/10 px-3 py-2.5 text-[12px] hover:bg-white/5">
-          <KeyRound className="size-3.5 text-brass" />
-          <span>{keyCount}/4 services connected</span>
-        </Link>
-        <div className="mb-4 flex gap-3 px-5 text-[11px] text-[#9aa6ba]">
-          <Link href="/privacy" className="hover:text-white">
-            Privacy
+        <div className="flex shrink-0 items-center gap-1 pr-3 md:pr-4">
+          <Link
+            href="/settings?tab=data"
+            title={`${keyCount}/4 services connected`}
+            className="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-top-muted hover:text-top-ink lg:flex"
+          >
+            <KeyRound className="size-3.5" />
+            {keyCount}/4
           </Link>
-          <Link href="/terms" className="hover:text-white">
-            Terms
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            title="Settings"
+            className={cn("grid size-9 place-items-center rounded-lg transition-colors hover:bg-top-ink/10", group.label === "Settings" ? "text-top-ink" : "text-top-muted")}
+          >
+            <Settings2 className="size-[18px]" />
           </Link>
         </div>
-      </aside>
+      </header>
 
-      {/* mobile nav */}
-      <div className="fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-panel md:hidden">
-        {NAV.map(({ href, icon: Icon, label }) => (
-          <Link key={href} href={href} aria-label={label} className={cn("flex flex-1 justify-center py-3", path === href ? "text-navy" : "text-muted")}>
-            <Icon className="size-5" />
-          </Link>
-        ))}
-      </div>
+      <div className="flex min-h-0 flex-1">
+        <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-[232px] shrink-0 flex-col overflow-y-auto border-r border-top-line bg-side px-2.5 py-4 text-side-ink md:flex">
+          <div className="px-3 pb-2.5 text-[11px] font-medium tracking-[0.08em] text-side-muted uppercase">{group.label}</div>
+          <nav className="flex flex-col gap-0.5">
+            {group.pages.map(({ href, label, icon: Icon }) => {
+              const active = isActive(href, path);
+              const n = badge(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-colors",
+                    active ? "bg-side-active" : "hover:bg-side-hover",
+                  )}
+                >
+                  {active && <span className="absolute top-2 bottom-2 -left-2.5 w-[3px] rounded-r bg-side-mark" />}
+                  <Icon className={cn("size-[18px] shrink-0", active ? "opacity-100" : "opacity-75")} />
+                  <span className="flex-1">{label}</span>
+                  {n > 0 && <span className="num rounded-full bg-brass-strong px-1.5 text-[11px] font-medium text-white">{n}</span>}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="mt-auto pt-4">
+            {ready && <GmailSyncWidget />}
+            <div className="flex gap-3 px-3 pt-1 text-[11px] text-side-muted">
+              <Link href="/privacy" className="hover:text-side-ink">
+                Privacy
+              </Link>
+              <Link href="/terms" className="hover:text-side-ink">
+                Terms
+              </Link>
+            </div>
+          </div>
+        </aside>
 
-      <main className="min-w-0 flex-1 px-4 pt-8 pb-24 md:px-9 md:pb-10">
+        {/* Phones: the group's pages as a strip under the top bar. */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <nav className="flex gap-1 overflow-x-auto border-b border-line bg-panel px-3 py-2 md:hidden" aria-label={group.label}>
+            {group.pages.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className={cn("shrink-0 rounded-full px-3 py-1.5 text-[12.5px] font-medium whitespace-nowrap", isActive(href, path) ? "bg-navy text-white" : "text-ink-2 hover:bg-hover")}
+              >
+                {label}
+                {badge(href) > 0 && <span className="num ml-1.5 opacity-80">{badge(href)}</span>}
+              </Link>
+            ))}
+          </nav>
+      <main className="min-w-0 flex-1 px-4 pt-6 pb-16 md:px-9 md:pt-7 md:pb-10">
         {/* Legal pages and the 404 don't need the store: render them straight away (crawlers and Google's reviewers read them). */}
         {ready || isPublic ? (
-          <div className="mx-auto max-w-[1400px]">{children}</div>
+          <div className="mx-auto max-w-[1320px]">{children}</div>
         ) : (
           <div className="flex h-[60vh] items-center justify-center text-muted">
             <Loader2 className="size-5 animate-spin" />
           </div>
         )}
       </main>
+        </div>
+      </div>
       <Toaster />
       <ConsentBanner />
     </div>

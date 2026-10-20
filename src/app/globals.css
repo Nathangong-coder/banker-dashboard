@@ -1,6 +1,93 @@
 @import "tailwindcss";
 
-:root {
+/*
+ * Four color themes (Settings → Appearance, `components/ThemePicker.tsx`; per browser in localStorage "coverage:theme",
+ * set on <html data-theme> before paint by the script in layout.tsx). :root is A, the default; check:contrast reads every block.
+ * Old names stay: navy = the dark brand color (links, top bar), brass = the accent (decorative), brass-strong = the accent
+ * that carries text or white text (buttons, badges), brass-ink = accent text on brass-soft.
+ */
+:root,
+[data-theme="slate"] {
+  --paper: #f5f8fa;
+  --panel: #ffffff;
+  --ink: #213343;
+  --ink-2: #33475b;
+  --muted: #516f90;
+  --line: #e3eaf1;
+  --line-2: #cbd6e2;
+  --navy: #2d3e50;
+  --navy-hover: #3b4f64;
+  --brass: #ff7a59;
+  --brass-soft: #ffebe5;
+  --brass-strong: #cc4b27;
+  --brass-hover: #b23f1f;
+  --brass-ink: #a63d22;
+  --green: #00796b;
+  --green-soft: #d9f3ee;
+  --red: #b8323a;
+  --red-soft: #fbe3e4;
+  --blue: #1f5f9e;
+  --blue-soft: #e3eff9;
+  --amber: #8a5a00;
+  --amber-soft: #fcf1d6;
+  --subtle: #f9fbfc;
+  --hover: #eef3f7;
+  --track: #e3eaf1;
+  --top: #2d3e50;
+  --top-ink: #ffffff;
+  --top-muted: #b6c7d6;
+  --top-line: #2d3e50;
+  --side: #33475b;
+  --side-ink: #e5ecf2;
+  --side-muted: #a8bccf;
+  --side-active: #4a6178;
+  --side-hover: #3d5368;
+  --side-mark: #ffffff;
+  --chart: #7fb6dd;
+  --chart-soft: #d5e9f6;
+}
+
+[data-theme="cream"] {
+  --paper: #f8f5ee;
+  --panel: #ffffff;
+  --ink: #1f1f1f;
+  --ink-2: #45413c;
+  --muted: #69645d;
+  --line: #ebe6dc;
+  --line-2: #d8d2c6;
+  --navy: #1f1f1f;
+  --navy-hover: #3a3a3a;
+  --brass: #ff4800;
+  --brass-soft: #ffe6da;
+  --brass-strong: #d93d00;
+  --brass-hover: #c93700;
+  --brass-ink: #a82f00;
+  --green: #00793a;
+  --green-soft: #e1f1e6;
+  --red: #c4002a;
+  --red-soft: #fde2e6;
+  --blue: #1f5fa8;
+  --blue-soft: #e6eef8;
+  --amber: #855f00;
+  --amber-soft: #fbf0d0;
+  --subtle: #fcfaf6;
+  --hover: #f3eee4;
+  --track: #ebe6dc;
+  --top: #1f1f1f;
+  --top-ink: #f8f5ee;
+  --top-muted: #b5b0a6;
+  --top-line: #1f1f1f;
+  --side: #fffdf8;
+  --side-ink: #1f1f1f;
+  --side-muted: #69645d;
+  --side-active: #f3ece0;
+  --side-hover: #f7f2e9;
+  --side-mark: #ff4800;
+  --chart: #9fbfa7;
+  --chart-soft: #e7efe9;
+}
+
+[data-theme="navy"] {
   --paper: #f5f4ef;
   --panel: #ffffff;
   --ink: #111a28;
@@ -9,10 +96,12 @@
   --line: #e3e1d8;
   --line-2: #d4d1c4;
   --navy: #13233f;
+  --navy-hover: #1c3259;
   --brass: #b3862f;
   --brass-soft: #f5ecd8;
-  /* Brass that carries text (white on it, or it on white): 4.9:1. --brass stays for dots, bars and icons. */
   --brass-strong: #8f6a20;
+  --brass-hover: #7d5d1f;
+  --brass-ink: #7d5d1f;
   --green: #1f7a4d;
   --green-soft: #e3f2e9;
   --red: #b4372f;
@@ -21,6 +110,61 @@
   --blue-soft: #e5edfb;
   --amber: #a15c07;
   --amber-soft: #fcefd9;
+  --subtle: #fbfaf6;
+  --hover: #f0eee7;
+  --track: #e7e4da;
+  --top: #0f1d33;
+  --top-ink: #ffffff;
+  --top-muted: #a3aec0;
+  --top-line: #0f1d33;
+  --side: #13233f;
+  --side-ink: #c9d1de;
+  --side-muted: #9aa6ba;
+  --side-active: #22365a;
+  --side-hover: #1b2d4d;
+  --side-mark: #c99a3c;
+  --chart: #8aa3c9;
+  --chart-soft: #dfe7f3;
+}
+
+[data-theme="graphite"] {
+  --paper: #f7f7f8;
+  --panel: #ffffff;
+  --ink: #111827;
+  --ink-2: #374151;
+  --muted: #5d6470;
+  --line: #ececef;
+  --line-2: #dcdce0;
+  --navy: #111827;
+  --navy-hover: #1f2937;
+  --brass: #14b8a6;
+  --brass-soft: #d5f0ec;
+  --brass-strong: #0f766e;
+  --brass-hover: #0b5f58;
+  --brass-ink: #0b5f58;
+  --green: #15803d;
+  --green-soft: #dcfce7;
+  --red: #b91c1c;
+  --red-soft: #fee2e2;
+  --blue: #1d4ed8;
+  --blue-soft: #e0e7ff;
+  --amber: #92400e;
+  --amber-soft: #fef3c7;
+  --subtle: #fafafa;
+  --hover: #f1f2f4;
+  --track: #e5e7eb;
+  --top: #ffffff;
+  --top-ink: #111827;
+  --top-muted: #5d6470;
+  --top-line: #ececef;
+  --side: #ffffff;
+  --side-ink: #1f2937;
+  --side-muted: #5d6470;
+  --side-active: #e6f6f3;
+  --side-hover: #f3f4f6;
+  --side-mark: #0f766e;
+  --chart: #5eb8ad;
+  --chart-soft: #d5f0ec;
 }
 
 @theme inline {
@@ -32,9 +176,12 @@
   --color-line: var(--line);
   --color-line-2: var(--line-2);
   --color-navy: var(--navy);
+  --color-navy-hover: var(--navy-hover);
   --color-brass: var(--brass);
   --color-brass-soft: var(--brass-soft);
   --color-brass-strong: var(--brass-strong);
+  --color-brass-hover: var(--brass-hover);
+  --color-brass-ink: var(--brass-ink);
   --color-green: var(--green);
   --color-green-soft: var(--green-soft);
   --color-red: var(--red);
@@ -43,21 +190,37 @@
   --color-blue-soft: var(--blue-soft);
   --color-amber: var(--amber);
   --color-amber-soft: var(--amber-soft);
-  --font-sans: var(--font-plex-sans);
-  --font-mono: var(--font-plex-mono);
-  --font-serif: var(--font-serif-display);
+  --color-subtle: var(--subtle);
+  --color-hover: var(--hover);
+  --color-track: var(--track);
+  --color-top: var(--top);
+  --color-top-ink: var(--top-ink);
+  --color-top-muted: var(--top-muted);
+  --color-top-line: var(--top-line);
+  --color-side: var(--side);
+  --color-side-ink: var(--side-ink);
+  --color-side-muted: var(--side-muted);
+  --color-side-active: var(--side-active);
+  --color-side-hover: var(--side-hover);
+  --color-side-mark: var(--side-mark);
+  --color-chart: var(--chart);
+  --color-chart-soft: var(--chart-soft);
+  --font-sans: var(--font-app-sans);
+  --font-mono: var(--font-app-mono);
+  /* Headings use the body font (owner, 2026-10-19). */
+  --font-serif: var(--font-app-sans);
 }
 
 body {
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-plex-sans), system-ui, sans-serif;
+  font-family: var(--font-app-sans), system-ui, sans-serif;
   font-size: 14px;
 }
 
 .num {
-  font-family: var(--font-plex-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
+
 }
 
 /* Spreadsheet grid */
@@ -80,7 +243,7 @@ body {
 .grid-sheet thead th {
   position: sticky;
   top: 0;
-  background: #efede5;
+  background: var(--hover);
   z-index: 2;
   font-weight: 500;
   color: var(--muted);
@@ -89,7 +252,7 @@ body {
 .grid-sheet tbody th {
   position: sticky;
   left: 0;
-  background: #efede5;
+  background: var(--hover);
   z-index: 1;
   font-weight: 500;
   color: var(--muted);

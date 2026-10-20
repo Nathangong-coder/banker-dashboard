@@ -214,7 +214,7 @@ export function FirmPanel({ banks, highlight }: { banks: string[]; highlight: Se
           <div className="text-[13.5px] font-semibold">At this firm</div>
           <div className="text-[11.5px] text-muted">Who you’ve already reached, before you email more</div>
         </div>
-        <button onClick={toggle} className="rounded p-1 text-muted hover:bg-[#efede5] hover:text-ink" aria-label="Collapse panel">
+        <button onClick={toggle} className="rounded p-1 text-muted hover:bg-hover hover:text-ink" aria-label="Collapse panel">
           <PanelRightClose className="size-4" />
         </button>
       </div>

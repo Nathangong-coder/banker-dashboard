@@ -136,7 +136,7 @@ function PrepInner() {
               <li key={c.id}>
                 <button
                   onClick={() => select(c.id)}
-                  className={cn("w-full px-3 py-2 text-left hover:bg-[#fbfaf6]", c.id === id && "bg-blue-soft/50")}
+                  className={cn("w-full px-3 py-2 text-left hover:bg-subtle", c.id === id && "bg-blue-soft/50")}
                 >
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-[13px] font-medium">{c.name}</span>
@@ -165,7 +165,7 @@ function PrepInner() {
               it lands here with their profile attached.
               {contacts.length === 0 && (
                 <div className="mt-4">
-                  <Link href="/" className="inline-flex items-center gap-1.5 rounded-md bg-navy px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-[#1c3259]">
+                  <Link href="/" className="inline-flex items-center gap-1.5 rounded-lg bg-brass-strong px-3.5 py-2 text-[13.5px] font-medium text-white hover:bg-brass-hover">
                     Upload your spreadsheet first
                   </Link>
                 </div>
@@ -351,7 +351,7 @@ function PrepView({ c }: { c: Contact }) {
         </div>
 
         {pasting && (
-          <div className="mt-3 space-y-2 rounded-lg bg-[#fbfaf6] p-3 text-[12.5px] text-ink-2 print:hidden">
+          <div className="mt-3 space-y-2 rounded-lg bg-subtle p-3 text-[12.5px] text-ink-2 print:hidden">
             <p>
               <b>Fastest:</b> open{" "}
               {c.linkedin ? (

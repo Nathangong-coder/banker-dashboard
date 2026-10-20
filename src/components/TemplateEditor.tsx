@@ -79,7 +79,7 @@ function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Temp
           <p className="text-[12.5px] text-muted">Follow-ups never attach your resume; it went with the first email.</p>
         )}
         {d.kind === "initial" && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md bg-[#fbfaf6] px-3 py-2 text-[12.5px] text-ink-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md bg-subtle px-3 py-2 text-[12.5px] text-ink-2">
             <span className="text-muted">Needs before drafting:</span>
             {(Object.keys(REQUIRED_FACTS) as RequiredFact[]).map((k) => (
               <label key={k} className="flex items-center gap-1.5" title="Drafting asks you for it instead of letting AI guess or drop the sentence">
@@ -101,7 +101,7 @@ function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Temp
           </div>
         )}
         {d.kind === "initial" && (
-          <div className="flex flex-wrap items-center gap-3 rounded-md bg-[#fbfaf6] px-3 py-2 text-[12.5px] text-ink-2">
+          <div className="flex flex-wrap items-center gap-3 rounded-md bg-subtle px-3 py-2 text-[12.5px] text-ink-2">
             {d.experimental && (
               <label className="flex items-center gap-2">
                 <Checkbox checked={!!d.experimental} onChange={(v) => setD({ ...d, experimental: v || undefined })} /> Experimental (untick once it&apos;s proven)
@@ -137,13 +137,13 @@ function Inner({ t, onSave, onClose, onDelete }: { t: Template; onSave: (t: Temp
         <ul className="space-y-1">
           {PLACEHOLDERS.map((p) => (
             <li key={p.key}>
-              <code className="rounded bg-[#efede5] px-1 text-[11px]">{`{{${p.key}}}`}</code> <span className="text-muted">{p.desc}</span>
+              <code className="rounded bg-hover px-1 text-[11px]">{`{{${p.key}}}`}</code> <span className="text-muted">{p.desc}</span>
             </li>
           ))}
         </ul>
         <div className="mt-4 mb-1.5 font-medium text-ink-2">AI slots</div>
         <p className="text-muted">
-          <code className="rounded bg-[#efede5] px-1 text-[11px]">[[AI: instruction]]</code> AI writes this part for each person, using
+          <code className="rounded bg-hover px-1 text-[11px]">[[AI: instruction]]</code> AI writes this part for each person, using
           only facts from your sheet (school, notes, group). Everything else stays word for word.
         </p>
       </div>

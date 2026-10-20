@@ -191,7 +191,7 @@ export function TemplateImport({ open, onClose }: { open: boolean; onClose: () =
             ))}
           </ul>
           {(result.skipped.length > 0 || result.notes.length > 0) && (
-            <div className="rounded-md bg-[#f4f2eb] p-2.5 text-[12px] text-ink-2">
+            <div className="rounded-md bg-hover p-2.5 text-[12px] text-ink-2">
               {result.skipped.map((s) => (
                 <div key={s.where}>Skipped <b>{s.where}</b>: {s.reason}.</div>
               ))}
@@ -213,7 +213,7 @@ export function TemplateImport({ open, onClose }: { open: boolean; onClose: () =
 function CandidateCard({ c, exists, checked, onCheck }: { c: ImportCandidate; exists: boolean; checked: boolean; onCheck: (v: boolean) => void }) {
   const [open, setOpen] = useState(false);
   return (
-    <li className={cn("rounded-lg border p-3", checked ? "border-line-2 bg-panel" : "border-line bg-[#fbfaf6] opacity-70")}>
+    <li className={cn("rounded-lg border p-3", checked ? "border-line-2 bg-panel" : "border-line bg-subtle opacity-70")}>
       <div className="flex items-start gap-2.5">
         <div className="pt-0.5"><Checkbox checked={checked} onChange={onCheck} label={`Import ${c.name}`} /></div>
         <div className="min-w-0 flex-1">

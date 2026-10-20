@@ -40,7 +40,7 @@ function EntryRow({
 }) {
   const [busy, setBusy] = useState(false);
   return (
-    <li className="flex items-start gap-2 rounded-md border border-line bg-[#fbfaf6] px-2.5 py-2">
+    <li className="flex items-start gap-2 rounded-md border border-line bg-subtle px-2.5 py-2">
       {e.ok === false ? (
         <XCircle className="mt-0.5 size-4 shrink-0 text-red" />
       ) : e.ok ? (
@@ -62,7 +62,7 @@ function EntryRow({
       </div>
       <div className="flex shrink-0 gap-0.5">
         {index > 0 && (
-          <button onClick={onTop} className="rounded p-1 text-muted hover:bg-[#efede5] hover:text-ink" title="Make primary" aria-label="Make primary">
+          <button onClick={onTop} className="rounded p-1 text-muted hover:bg-hover hover:text-ink" title="Make primary" aria-label="Make primary">
             <ArrowUp className="size-3.5" />
           </button>
         )}
@@ -72,7 +72,7 @@ function EntryRow({
             await onRetest();
             setBusy(false);
           }}
-          className="rounded p-1 text-muted hover:bg-[#efede5] hover:text-ink"
+          className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
           title="Re-test"
           aria-label="Re-test key"
         >
@@ -249,7 +249,7 @@ export function AiVault() {
         {error && <p className="text-[12px] text-red">{error}</p>}
       </div>
 
-      <div className="rounded-md bg-[#f4f2eb] p-2.5">
+      <div className="rounded-md bg-hover p-2.5">
         <div className="mb-1.5 text-[12px] font-medium text-ink-2">Model used for screening and drafting</div>
         {providersWithKeys.length === 0 ? (
           <p className="text-[12px] text-muted">Add a key above to choose a model.</p>

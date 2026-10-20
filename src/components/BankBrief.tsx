@@ -176,7 +176,7 @@ export function BankBrief({ bank: initial, contact }: { bank?: string; contact?:
             Your interests: <span className="font-medium">{interestsLabel(interests)}</span>
           </button>
           {showInterests && (
-            <div className="mt-2 rounded-lg bg-[#fbfaf6] p-3">
+            <div className="mt-2 rounded-lg bg-subtle p-3">
               <InterestsEditor />
               <p className="mt-2 text-[11.5px] text-muted">Also in Settings → Profile. Refresh the brief after changing them.</p>
             </div>
@@ -255,7 +255,7 @@ export function BankBrief({ bank: initial, contact }: { bank?: string; contact?:
               <p className="mt-1 text-[11.5px] text-muted">From web search: open the source before quoting a number in a chat.</p>
             </div>
 
-            <div className="rounded-lg border border-line bg-[#fbfaf6] p-3">
+            <div className="rounded-lg border border-line bg-subtle p-3">
               <div className="mb-1.5 flex flex-wrap items-center gap-2">
                 <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted">Why {brief.bank}?</span>
                 {brief.why.generic ? (

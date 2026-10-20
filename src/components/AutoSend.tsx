@@ -104,7 +104,7 @@ export function SendModeSwitch({ onAuto }: { onAuto: () => void }) {
     setSettings((x) => ({ ...x, sendMode: m }));
   };
   const opt = (m: "coverage" | "gmail", label: string) => (
-    <button onClick={() => pick(m)} className={cn("rounded px-3 py-1 text-[12.5px]", current === m ? "bg-navy text-white" : "text-ink-2 hover:bg-[#f0eee7]")}>
+    <button onClick={() => pick(m)} className={cn("rounded px-3 py-1 text-[12.5px]", current === m ? "bg-navy text-white" : "text-ink-2 hover:bg-hover")}>
       {label}
     </button>
   );
@@ -213,7 +213,7 @@ function InfoSessionsSection() {
           </Button>
         ) : (
           <>
-            <code className="max-w-full truncate rounded bg-[#f0eee7] px-1.5 py-0.5 text-[11.5px]">{link.replace(/#k=.*/, "#k=…")}</code>
+            <code className="max-w-full truncate rounded bg-hover px-1.5 py-0.5 text-[11.5px]">{link.replace(/#k=.*/, "#k=…")}</code>
             <Button size="sm" onClick={() => navigator.clipboard.writeText(link).then(() => toast.ok("Copied."), () => toast.err("Couldn't copy."))}>
               Copy
             </Button>
