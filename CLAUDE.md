@@ -183,6 +183,16 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `calendarMatch.ts#matchEvent` against `account.people` (attendee email → full name → unique first name; unmatched chat-like titles
   kept), and ends with the "update the tracker" line when there were calls. Old connections lack the scope: AutoSend shows "Reconnect".
   `npm run check:night` covers it. Gmail sync now records `lastEmailedAt` / `lastHeardAt` (replies after the first reply included).
+- **Calendar page + after-call links (owner, 2026-10-20):** `/calendar` (Prep & reminders, first) lists coffee chats + info
+  sessions (3 weeks back, ~6 ahead). "Sync Google Calendar" (also on open, ≤ every 5 min) = `components/CalendarActions.ts#syncCalendar`
+  → `api/server/calendar` (all events, nothing stored) + `loadCalendarSessions`. `lib/calendarDay.ts#chatsIn`: a chat = the
+  dashboard's own invite (`call.eventId`), a contact as attendee, or a chat-like title with ≤3 guests (name match only then);
+  `callPatches` sets `contact.call` (next upcoming, else latest) and status up to call_scheduled, so the text and Follow-ups see
+  it. Rows: Prep before; after = "Log how it went" (`/log?log=<id>&kind=coffee_chat&date=YYYY-MM-DD` opens the pre-filled form)
+  + LinkedIn (profile, else a name + bank search). The evening text adds `digestFormat.ts#afterCallLines` per person talked to
+  today (log link + LinkedIn), skipped once that day's chat is logged (`CalPerson.loggedAt`); **Fri–Sun it goes out only when
+  there were calls** (no follow-ups section). **No automatic LinkedIn connection requests:** LinkedIn has no API for it and
+  automating it breaks its terms (same decision as scraping); the text links the profile for a one-tap Connect.
 - **Follow-up spacing when scheduling:** `followups.ts#earliestSend` (last email + first/nextAfterDays) is passed as `notBefore` to
   `planSends` / `planBatch`, so a follow-up is never queued early (Will Yi's #2 was queued Tue, 5 days after #1). `planSends` records
   why someone isn't on the first open day (`why`, kept as `serverSend.why`: window full = 20 per zone/day at 6-min spacing, or

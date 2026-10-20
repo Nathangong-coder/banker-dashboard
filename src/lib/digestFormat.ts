@@ -32,6 +32,34 @@ const sectionRank = (label: string) => {
 /** The closing reminder after a day with calls: names + notes from the notes doc into the tracker. */
 export const TRACKER_NOTE = "📝 Update the tracker: add today's people + conversation notes from your notes doc to the Excel.";
 
+export interface CallPerson {
+  contactId: string;
+  name: string;
+  bank?: string;
+  linkedin?: string;
+}
+
+/** Their LinkedIn profile, else a LinkedIn people search for name + bank. */
+export const linkedinLink = (p: Pick<CallPerson, "name" | "bank" | "linkedin">) =>
+  p.linkedin && /linkedin\.com\/in\//i.test(p.linkedin) ? p.linkedin : `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${p.name} ${p.bank ?? ""}`.trim())}`;
+
+/**
+ * After a day with calls, one block per person you talked to: log how it went (the Activity log, pre-filled, which
+ * also fills their Conversation row in the tracker) and connect on LinkedIn. Without people known by the dashboard
+ * (calls matched by title only), the plain tracker reminder.
+ */
+export function afterCallLines(people: CallPerson[], app: string, day: string): string[] {
+  if (!people.length) return [TRACKER_NOTE];
+  return [
+    "*After today's calls* 📝🤝",
+    ...people.slice(0, 8).map(
+      (p) => `• ${p.name}
+  Log how it went: ${app}/log?log=${encodeURIComponent(p.contactId)}&kind=coffee_chat&date=${day}
+  Connect on LinkedIn: ${linkedinLink(p)}`,
+    ),
+  ];
+}
+
 /**
  * `extra` = plain lines appended after the sections ("Going out tomorrow (scheduled): 4", the tracker reminder).
  * A number is the old `queuedToday` count.

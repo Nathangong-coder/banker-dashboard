@@ -3,7 +3,7 @@ import { DIGEST_DAY, DIGEST_ERR, accountIds, appUrl, captureUrl, db, getSends, l
 import { accessToken, eventsOn, infoSessionsBetween } from "@/lib/server/google";
 import { verifyQstash } from "@/lib/server/jobs";
 import { sendWhatsApp } from "@/lib/server/whatsapp";
-import { LABELS, TEXT_HOUR, TRACKER_NOTE, digestMessages, digestTitle, isTextDay, nextTextDay, type DigestItem } from "@/lib/digestFormat";
+import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, nextTextDay, type CallPerson, type DigestItem } from "@/lib/digestFormat";
 import { looksLikeChat, matchEvent } from "@/lib/calendarMatch";
 import { followUpTiming, reminderDue } from "@/lib/infoSessions";
 
@@ -13,46 +13,55 @@ export const maxDuration = 300;
  * Today's calls from Google Calendar that haven't been thanked yet (no email to them since the call started).
  * Unmatched events that look like a chat are listed by their title. Fails soft: the text still goes out without them.
  */
-async function calendarThankYous(a: Account, day: string): Promise<{ items: DigestItem[]; note?: string }> {
-  if (!a.google?.calendar) return { items: [] };
+async function calendarThankYous(a: Account, day: string): Promise<{ items: DigestItem[]; met: CallPerson[]; note?: string }> {
+  if (!a.google?.calendar) return { items: [], met: [] };
   try {
     const events = await eventsOn(await accessToken(a), day, (at) => localNow(a.tz, at).day);
     const people = a.people ?? [];
     const items: DigestItem[] = [];
+    const met: CallPerson[] = [];
     for (const e of events) {
       if (new Date(e.start) > new Date()) continue;
       const p = matchEvent(e, people);
+      if (p && !met.some((m) => m.contactId === p.contactId)) met.push({ contactId: p.contactId, name: p.name, bank: p.bank, linkedin: p.linkedin });
       if (p) {
         if (!p.thankedAt || p.thankedAt < e.start) items.push({ contactId: p.contactId, name: p.name, email: p.email, label: LABELS.thankToday });
       } else if (looksLikeChat(e.summary) && e.attendees.length <= 3) {
         items.push({ contactId: `cal:${e.id}`, name: e.summary || "Untitled call", email: e.attendees[0], label: LABELS.thankToday });
       }
     }
-    return { items };
+    return { items, met };
   } catch (e) {
-    return { items: [], note: `(Couldn't read Google Calendar: ${(e as Error).message.slice(0, 80)})` };
+    return { items: [], met: [], note: `(Couldn't read Google Calendar: ${(e as Error).message.slice(0, 80)})` };
   }
 }
 
 /**
  * The 9 PM list (Mon–Thu, from 9 PM local, once a night): today's calls to thank (Google Calendar + the dashboard's
- * plan), replies and check-ins owed, and follow-ups due before the next text. People the server has followed up with
- * since the dashboard last synced are left out. Returns whether a text went out.
+ * plan), replies and check-ins owed, and follow-ups due before the next text, then for each person you talked to today
+ * a "log how it went" + LinkedIn link. Fri–Sun there's a text only when you had calls that day (thank-yous + those
+ * links, no follow-ups). People the server has followed up with since the dashboard last synced are left out.
+ * Returns whether a text went out.
  */
-async function nightText(a: Account) {
+async function nightText(a: Account, app: string) {
   const id = a.id;
   const { day, hour } = localNow(a.tz);
-  if (!isTextDay(day) || hour < TEXT_HOUR) return false;
+  if (hour < TEXT_HOUR) return false;
+  const textDay = isTextDay(day);
+  // Off nights: only worth a text when there were calls today (read before claiming the night).
+  const offCal = textDay ? undefined : await calendarThankYous(a, day);
+  if (offCal && !offCal.met.length && !offCal.items.length) return false;
+  // (An off night where everyone's already logged and thanked sends nothing: see `messages` below.)
   // Claim tonight first, so an overlapping run can't send it twice.
   const prev = await db().getset<string>(DIGEST_DAY(id), day);
   if (prev === day) return false;
-  const plan = a.digests[day];
+  const plan = textDay ? a.digests[day] : undefined;
   const sends = Object.values(await getSends(id));
   const doneSince = new Set(sends.filter((s) => s.status === "sent").map((s) => s.contactId));
-  const cal = await calendarThankYous(a, day);
+  const cal = offCal ?? (await calendarThankYous(a, day));
   const calIds = new Set(cal.items.map((i) => i.contactId));
   const items = [...cal.items, ...(plan?.items ?? []).filter((it) => !calIds.has(it.contactId) && !(doneSince.has(it.contactId) && /follow-up|move on/i.test(it.label)))];
-  const until = nextTextDay(day);
+  const until = textDay ? nextTextDay(day) : day;
   const queued = sends.filter((s) => {
     if (s.status !== "queued") return false;
     const d = localNow(a.tz, new Date(s.sendAt)).day;
@@ -61,9 +70,22 @@ async function nightText(a: Account) {
   const extra: string[] = [];
   const ahead = Math.max(queued, plan?.queued ?? 0);
   if (ahead) extra.push(`Already scheduled before your next text: ${ahead}`);
-  if (items.some((i) => i.label === LABELS.thankToday)) extra.push(TRACKER_NOTE);
+  // Everyone you talked to today: on the calendar, or a call / chat the dashboard knows about (thank-you items).
+  const people = a.people ?? [];
+  const met = [...cal.met];
+  for (const it of items)
+    if (it.label === LABELS.thankToday && !met.some((m) => m.contactId === it.contactId)) {
+      const p = people.find((x) => x.contactId === it.contactId);
+      if (p) met.push({ contactId: p.contactId, name: p.name, bank: p.bank, linkedin: p.linkedin });
+    }
+  // Already logged today's conversation on the dashboard: no need to ask.
+  const toLog = met.filter((m) => {
+    const at = people.find((p) => p.contactId === m.contactId)?.loggedAt;
+    return !at || localNow(a.tz, new Date(at)).day < day;
+  });
+  if (toLog.length || (!met.length && items.some((i) => i.label === LABELS.thankToday))) extra.push(...afterCallLines(toLog, app, day));
   if (cal.note) extra.push(cal.note);
-  const messages = items.length ? digestMessages(items, extra) : [];
+  const messages = items.length || toLog.length ? digestMessages(items, extra) : [];
   if (!messages.length) return false;
   try {
     for (let i = 0; i < messages.length; i++) {
@@ -146,7 +168,7 @@ export async function POST(req: Request) {
       } catch {
         // Calendar unreadable this hour (revoked, API off): the 9 PM text still goes out and mentions it.
       }
-      if (await nightText(a)) sent++;
+      if (await nightText(a, appUrl(req))) sent++;
     }
     return Response.json({ sent, sessionTexts });
   } catch (e) {

@@ -15,6 +15,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ["/prep", 0.4],
     ["/info-sessions", 0.4],
     ["/log", 0.4],
+    ["/calendar", 0.4],
     ["/settings", 0.3],
     ["/privacy", 0.5],
     ["/terms", 0.5],

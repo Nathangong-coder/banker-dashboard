@@ -1211,7 +1211,7 @@ function NightTextPreview() {
   const next = useMemo(() => {
     const plan = nightPlan(contacts, banks, followUp, 8);
     const day = Object.keys(plan).sort()[0];
-    return day ? { day, messages: digestMessages(plan[day].items, nightExtras(plan[day]), 4000) } : null;
+    return day ? { day, messages: digestMessages(plan[day].items, nightExtras(plan[day], contacts, day), 4000) } : null;
   }, [contacts, banks, followUp]);
   return (
     <Card className="lg:col-span-2">

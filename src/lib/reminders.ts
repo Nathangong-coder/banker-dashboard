@@ -2,7 +2,7 @@
 
 import type { BankMeta, Contact, Settings } from "./types";
 import { nextAction } from "./followups";
-import { LABELS, TEXT_HOUR, TRACKER_NOTE, digestMessages, digestTitle, isTextDay, nextTextDay, type DigestItem } from "./digestFormat";
+import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, nextTextDay, type DigestItem } from "./digestFormat";
 import { DAY, latestIso } from "./util";
 
 export interface DayDigest {
@@ -52,14 +52,24 @@ export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMe
   const today = localDay(new Date());
   const plan = nightPlan(contacts, banks, s, 1)[today];
   if (!plan) return null;
-  return { day: today, count: plan.items.length, messages: digestMessages(plan.items, nightExtras(plan), maxLen) };
+  return { day: today, count: plan.items.length, messages: digestMessages(plan.items, nightExtras(plan, contacts, today), maxLen) };
 }
 
-/** Lines after the sections: what's already scheduled, and the tracker reminder after a day with calls. */
-export function nightExtras(plan: { items: DigestItem[]; queued: number }) {
+/** Lines after the sections: what's already scheduled, and after a day with calls, a log + LinkedIn link per person. */
+export function nightExtras(plan: { items: DigestItem[]; queued: number }, contacts: Contact[] = [], day = localDay(new Date())) {
   const out: string[] = [];
   if (plan.queued) out.push(`Already scheduled before your next text: ${plan.queued}`);
-  if (plan.items.some((i) => i.label === LABELS.thankToday)) out.push(TRACKER_NOTE);
+  const talked = plan.items.filter((i) => i.label === LABELS.thankToday);
+  if (talked.length) {
+    const start = startOf(day).getTime();
+    const met = talked.flatMap((i) => {
+      const c = contacts.find((x) => x.id === i.contactId);
+      // Today's conversation already logged: nothing to ask.
+      return c && !(c.chats ?? []).some((x) => Date.parse(x.at) >= start) ? [{ contactId: c.id, name: c.name, bank: c.bank, linkedin: c.linkedin }] : [];
+    });
+    const app = typeof window !== "undefined" ? window.location.origin : "";
+    if (met.length || !contacts.length) out.push(...afterCallLines(met, app, day));
+  }
   return out;
 }
 

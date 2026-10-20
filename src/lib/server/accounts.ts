@@ -54,6 +54,11 @@ export interface CalPerson {
   email?: string;
   /** Last email you sent them, so a call that was already thanked isn't listed. */
   thankedAt?: string;
+  /** For the "after today's calls" lines: the LinkedIn link (else a search for name + bank). */
+  bank?: string;
+  linkedin?: string;
+  /** Your latest logged conversation with them (Activity log): no "log how it went" once today's is logged. */
+  loggedAt?: string;
 }
 
 let redis: Redis | null = null;

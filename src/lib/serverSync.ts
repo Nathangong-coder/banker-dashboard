@@ -143,9 +143,17 @@ export function syncServer(): Promise<ServerStatus | null> {
 /** Who a calendar event today could be with: everyone who replied or has a call (name + email, nothing else). */
 function calendarPeople(contacts: Contact[]) {
   return contacts
-    .filter((c) => c.call || c.repliedAt || ["replied", "call_scheduled", "done"].includes(c.status))
+    .filter((c) => c.call || c.repliedAt || c.metAt?.length || ["replied", "call_scheduled", "done"].includes(c.status))
     .slice(0, 400)
-    .map((c) => ({ contactId: c.id, name: c.name, email: c.email || undefined, thankedAt: c.lastEmailedAt }));
+    .map((c) => ({
+      contactId: c.id,
+      name: c.name,
+      email: c.email || undefined,
+      thankedAt: c.lastEmailedAt,
+      bank: c.bank || undefined,
+      linkedin: /linkedin\.com\/in\//i.test(c.linkedin) ? c.linkedin.slice(0, 300) : undefined,
+      loggedAt: c.chats?.reduce<string | undefined>((m, x) => (!m || x.at > m ? x.at : m), undefined),
+    }));
 }
 
 /** The Gmail draft the server would send next for this person, and which email it is (0 = first, n = follow-up #n). */

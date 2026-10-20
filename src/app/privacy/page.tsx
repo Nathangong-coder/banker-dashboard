@@ -37,8 +37,9 @@ export default function PrivacyPage() {
         <li>The queue of emails you scheduled: Gmail draft IDs, the contact&apos;s name, and the send time. Not the email text.</li>
         <li>
           If you use WhatsApp reminders: your WhatsApp number and CallMeBot key (encrypted), and the next two weeks of reminder lists (names, email addresses
-          and labels such as &ldquo;Follow-up #1&rdquo;), plus the names, email addresses and last-emailed dates of people who replied to you or
-          have a call with you (to recognize them on your calendar).
+          and labels such as &ldquo;Follow-up #1&rdquo;), plus the names, email addresses, firms, LinkedIn profile links, last-emailed dates and
+          last-logged-conversation dates of people who replied to you, have a call with you or met you at an info session (to recognize them on your
+          calendar and link their profile in the evening text).
         </li>
         <li>Your time zone, so reminders arrive at 9 PM your time.</li>
         <li>
@@ -62,10 +63,12 @@ export default function PrivacyPage() {
         With your permission, {SITE.name} uses Google&apos;s Gmail API. In your browser it can read your sent mail and replies to people in your tracker (to
         fill in when you emailed them and whether they replied) and create drafts. On our server, with automatic sending on, it can only send drafts you
         scheduled (the <code>gmail.compose</code> permission). If you also allow read-only Calendar access
-        (<code>calendar.events.readonly</code>), the server reads that day&apos;s events once on reminder nights (Monday–Thursday, 9 PM your time), only
-        to list the people you met so you remember to thank them. With WhatsApp reminders on, it also reads the next few hours of your calendar
+        (<code>calendar.events.readonly</code>), the server reads that day&apos;s events once in the evening (9 PM your time), only
+        to list the people you met so you remember to thank them, log the conversation and connect on LinkedIn. With WhatsApp reminders on, it also reads the next few hours of your calendar
         every hour to find info sessions (events titled like &ldquo;… Info Session&rdquo;) and text you before and after each one, and it lists
-        your info sessions for the dashboard&apos;s Info sessions page and your phone&apos;s capture page. Event details are used for those texts
+        your info sessions for the dashboard&apos;s Info sessions page and your phone&apos;s capture page. When you open the dashboard&apos;s Calendar
+        page (or press Sync), it reads your events from three weeks back to six weeks ahead and sends them to your browser, which picks out
+        coffee chats and info sessions. Event details are used for those texts
         and lists and not stored (only a marker that a reminder was sent, for 3 days).
       </p>
       <p>

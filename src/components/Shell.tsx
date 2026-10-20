@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy, Presentation, NotebookPen } from "lucide-react";
+import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy, Presentation, NotebookPen, CalendarDays } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { FORMAT_VERSION, readFormats, withInternalLinks } from "@/lib/workbook";
 import { readInternalLinks } from "@/lib/sheetLinks";
@@ -51,6 +51,7 @@ const GROUPS = [
   {
     label: "Prep & reminders",
     pages: [
+      { href: "/calendar", label: "Calendar", icon: CalendarDays },
       { href: "/followups", label: "Follow-ups", icon: BellRing },
       { href: "/prep", label: "Coffee chat prep", icon: Coffee },
       { href: "/log", label: "Activity log", icon: NotebookPen },

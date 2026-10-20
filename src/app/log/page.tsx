@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, Suspense, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Coffee, ExternalLink, NotebookPen, Plus, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { applyPatches, parseSnapshots } from "@/lib/workbook";
@@ -32,6 +32,26 @@ const fmt = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekd
 const gradeTone = (score: number) => (score >= 85 ? "green" : score >= 70 ? "blue" : "amber");
 
 export default function LogPage() {
+  return (
+    <Suspense>
+      <LogInner />
+    </Suspense>
+  );
+}
+
+type LogStart = { contactId?: string; orphan?: ConversationRow; kind?: ConversationKind; date?: string };
+
+/** `?log=<contactId>&kind=coffee_chat&date=YYYY-MM-DD` (the Calendar page and the evening text) opens the log form for them. */
+function startFromParams(p: URLSearchParams): LogStart | null {
+  const id = p.get("log");
+  if (!id) return null;
+  const kind = p.get("kind") as ConversationKind | null;
+  const date = p.get("date");
+  return { contactId: id, kind: kind && (KINDS as string[]).includes(kind) ? kind : undefined, date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined };
+}
+
+function LogInner() {
+  const params = useSearchParams();
   const contacts = useStore((s) => s.contacts);
   const snapshots = useStore((s) => s.snapshots);
   const patches = useStore((s) => s.patches);
@@ -39,7 +59,14 @@ export default function LogPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
-  const [logging, setLogging] = useState<{ contactId?: string; orphan?: ConversationRow } | null>(null);
+  const [logging, setLogging] = useState<LogStart | null>(() => startFromParams(params));
+  const deep = params.toString();
+  const [prevDeep, setPrevDeep] = useState(deep);
+  if (deep !== prevDeep) {
+    setPrevDeep(deep);
+    const next = startFromParams(params);
+    if (next) setLogging(next);
+  }
   const [busy, setBusy] = useState<string | null>(null);
   const [now] = useState(() => Date.now());
   const router = useRouter();
@@ -216,7 +243,16 @@ export default function LogPage() {
         )}
       </Card>
 
-      {logging && <LogModal start={logging} onClose={() => setLogging(null)} />}
+      {logging && (
+        <LogModal
+          key={`${logging.contactId ?? ""}:${logging.date ?? ""}`}
+          start={logging}
+          onClose={() => {
+            setLogging(null);
+            if (params.get("log")) router.replace("/log");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -345,7 +381,7 @@ const today = () => {
 };
 
 /** "Log activity": pick the person (or add one), what happened, notes, the doc link, and optionally grade it. */
-function LogModal({ start, onClose }: { start: { contactId?: string; orphan?: ConversationRow }; onClose: () => void }) {
+function LogModal({ start, onClose }: { start: LogStart; onClose: () => void }) {
   const contacts = useStore((s) => s.contacts);
   const settings = useStore((s) => s.settings);
   const [who, setWho] = useState(() => {
@@ -355,8 +391,8 @@ function LogModal({ start, onClose }: { start: { contactId?: string; orphan?: Co
   const [isNew, setIsNew] = useState(!!start.orphan);
   const [name, setName] = useState(start.orphan?.name ?? "");
   const [bank, setBank] = useState(start.orphan?.bank ?? "");
-  const [kind, setKind] = useState<ConversationKind>("coffee_chat");
-  const [date, setDate] = useState(today);
+  const [kind, setKind] = useState<ConversationKind>(start.kind ?? "coffee_chat");
+  const [date, setDate] = useState(() => start.date ?? today());
   const [notes, setNotes] = useState(start.orphan ? start.orphan.notes : "");
   const [doc, setDoc] = useState("");
   const [gradeIt, setGradeIt] = useState(true);

@@ -10,7 +10,20 @@ const Body = z.object({
   whatsapp: z.object({ phone: z.string().min(8).max(32), apiKey: z.string().min(3).max(64) }).nullable().optional(),
   digests: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.object({ items: z.array(Item).max(400), queued: z.number().int().min(0) })).optional(),
   /** People today's calendar events are matched against (thank-you reminders). */
-  people: z.array(z.object({ contactId: z.string().max(200), name: z.string().max(200), email: z.string().max(320).optional(), thankedAt: z.string().max(40).optional() })).max(400).optional(),
+  people: z
+    .array(
+      z.object({
+        contactId: z.string().max(200),
+        name: z.string().max(200),
+        email: z.string().max(320).optional(),
+        thankedAt: z.string().max(40).optional(),
+        bank: z.string().max(200).optional(),
+        linkedin: z.string().max(300).optional(),
+        loggedAt: z.string().max(40).optional(),
+      }),
+    )
+    .max(400)
+    .optional(),
   /** Every send the dashboard wants queued. Queued sends missing from this list are cancelled. */
   sends: z.array(z.object({ draftId: z.string().min(5).max(200), contactId: z.string().max(200), name: z.string().max(200), step: z.number().int().min(0).max(10), sendAt: z.string().datetime() })).max(400),
   /** Finished sends the dashboard has applied (removed from the server). */
