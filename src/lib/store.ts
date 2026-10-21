@@ -19,7 +19,7 @@ import type {
   Template,
   WorkbookMeta,
 } from "./types";
-import { mergeReferral } from "./checkboxes";
+import { mergeReferral, referralDate } from "./checkboxes";
 import { applyPatches, blankTablesPatches, contactPatches, followUpsFromSheet, statusFromSheet, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, tableBody, type ContactTable, type Patches } from "./workbook";
 import { contactId, latestIso } from "./util";
 import { isPlace, splitLocationTeam } from "./locationTeam";
@@ -309,7 +309,7 @@ export const useStore = create<State>()(
             sheetStatus: fresh.sheetStatus,
             // The Referral? box: ticked / unticked in Excel since the last import wins, like Status.
             sheetReferral: fresh.sheetReferral,
-            referral: mergeReferral(prev.sheetReferral, fresh.sheetReferral, prev.referral),
+            referral: mergeReferral(prev.sheetReferral, fresh.sheetReferral, prev.referral, referralDate(prev)),
             ref: fresh.ref,
             // A Status cell changed outside the dashboard (edited in Excel, or fixed from Gmail) wins; otherwise the
             // dashboard's own status stands.

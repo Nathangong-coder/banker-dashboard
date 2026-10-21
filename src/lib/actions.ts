@@ -5,7 +5,7 @@ import { allocateRow, applyPatches, blankTablesPatches, buildWorkbook, contactPa
 import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
 import { reconcileTitle } from "./titles";
 import { callApi } from "./api";
-import { canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHandle, writeToHandle } from "./files";
+import { canReadSilently, canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHandle, writeToHandle } from "./files";
 import { chunk, download, guessDomain, linkedinSlug, splitName, uid } from "./util";
 import { canonBank, cleanBankName } from "./banks";
 import { tabLink, tabLinkPatches } from "./sheetLinks";
@@ -185,7 +185,45 @@ export function currentPatches() {
   return mergePatches(contactPatches(s.contacts, s.snapshots), s.patches);
 }
 
+/** A save or an Excel re-read is running (they both replace the baseline, so never at the same time). */
+let fileBusy = false;
+
+/**
+ * Edits made in Excel (a Referral? box ticked, a status changed) reach the dashboard and its stats without a manual
+ * re-import: when the file on disk changed since we last read or wrote it, it's re-read like a save's rebase (unsaved
+ * dashboard edits kept). Only when the browser already allows reading it; after a reload that takes one Save click.
+ * Returns true when it re-read the file.
+ */
+export async function pickUpExcelEdits() {
+  const s = useStore.getState();
+  if (fileBusy || !s.workbook?.hasHandle || !s.workbook.lastModified) return false;
+  fileBusy = true;
+  try {
+    const handle = await blobs.fileHandle();
+    if (!handle || !(await canReadSilently(handle))) return false;
+    if ((await handle.getFile()).lastModified === useStore.getState().workbook?.lastModified) return false;
+    const disk = await readHandle(handle);
+    await importFile(disk.file, handle, { keepManualEdits: true, buffer: disk.buffer });
+    return true;
+  } catch {
+    // Excel / OneDrive mid-write, or permission gone: the next check (or a save) picks it up.
+    return false;
+  } finally {
+    fileBusy = false;
+  }
+}
+
 export async function saveWorkbook(mode: "in-place" | "download") {
+  if (fileBusy) throw new Error("Reading your latest Excel edits, try again in a second.");
+  fileBusy = true;
+  try {
+    return await saveWorkbookNow(mode);
+  } finally {
+    fileBusy = false;
+  }
+}
+
+async function saveWorkbookNow(mode: "in-place" | "download") {
   const s = useStore.getState();
   if (!s.workbook) throw new Error("Upload a spreadsheet first.");
   let rebased = false;

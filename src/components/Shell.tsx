@@ -96,6 +96,30 @@ function useHydrated() {
   return ready;
 }
 
+/**
+ * Edits made in Excel while the dashboard is open (Referral? ticked, a status changed) are read back when you come
+ * back to the tab and every minute while it's visible, so the stats follow the spreadsheet without a re-import.
+ */
+function useExcelEdits(ready: boolean) {
+  useEffect(() => {
+    if (!ready) return;
+    const check = async () => {
+      if (document.visibilityState !== "visible") return;
+      const { pickUpExcelEdits } = await import("@/lib/actions");
+      if (await pickUpExcelEdits()) toast.info("Picked up your edits from Excel.");
+    };
+    check();
+    const timer = setInterval(check, 60_000);
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [ready]);
+}
+
 /** While the dashboard is open, raise one browser notification per day for due follow-ups. */
 function useDailyNudge(due: number) {
   useEffect(() => {
@@ -204,6 +228,7 @@ export function Shell({ children }: { children: ReactNode }) {
   );
   useDailyNudge(ready ? due : 0);
   useDailyWhatsApp(ready);
+  useExcelEdits(ready);
   useServerSync(ready);
   // The server switched to a backup model (primary hit a rate/quota limit): say so once per model.
   useEffect(() => {

@@ -148,7 +148,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (ExcelJS drops both on every save; XML copied from what Excel 365 writes, verified via COM `CellControl.Type = 2`). Free text
   in the column is left alone. Ticked = `contact.referral` (the same flag as /prep's "They referred me"); `sheetReferral` is the
   baseline, so a box ticked/unticked in Excel or the grid wins on re-import (`mergeReferral`; a brand-new column only adds).
-  The grid shows the cells as clickable checkboxes. Older Excel shows TRUE/FALSE.
+  The grid shows the cells as clickable checkboxes. Older Excel shows TRUE/FALSE. A sheet tick is dated `referralDate` (the
+  latest chat / call / reply / email, else now). Stats (home Referrals tile + funnel, Firms count + score) read `contact.referral`.
+- **Excel edits are picked up live** (`actions.ts#pickUpExcelEdits`, `Shell#useExcelEdits`: on load, tab focus, every 60 s while
+  visible): file on disk newer than `workbook.lastModified` → re-imported like a save's rebase (unsaved edits kept), toast
+  "Picked up your edits from Excel". Only when read permission is already granted (`files.ts#canReadSilently`); after a
+  browser restart that takes one Save click. `fileBusy` keeps it and `saveWorkbook` from running at the same time.
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
   from the dashboard that were already saved into the file) so workflow state (status, dates, drafts) survives a re-import.
 

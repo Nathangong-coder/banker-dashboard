@@ -26,10 +26,23 @@ export function parseCheck(v: string | undefined): boolean | undefined {
  * date and note), unticked since last time → not. A column that's new (`before` undefined) only ever adds a referral,
  * so a blank column someone just made doesn't wipe the ones logged on /prep.
  */
-export function mergeReferral<T extends { at: string }>(before: boolean | undefined, now: boolean | undefined, current: T | undefined): T | { at: string } | undefined {
-  if (now === true && !before) return current ?? { at: new Date().toISOString() };
+export function mergeReferral<T extends { at: string }>(before: boolean | undefined, now: boolean | undefined, current: T | undefined, at?: string): T | { at: string } | undefined {
+  if (now === true && !before) return current ?? { at: at ?? new Date().toISOString() };
   if (now === false && before === true) return undefined;
   return current;
+}
+
+type Touches = { chats?: { at: string }[]; call?: { at: string }; lastHeardAt?: string; repliedAt?: string; lastEmailedAt?: string; lastTouchAt?: string; sentAt?: string };
+
+/**
+ * When a referral ticked in the sheet happened, as best we know: the latest chat, call or reply with them (a box has
+ * no date). Stamping it "now" made Firms show the firm as active today on every import.
+ */
+export function referralDate(c: Touches, now = Date.now()): string {
+  const past = [...(c.chats ?? []).map((x) => x.at), c.call?.at, c.lastHeardAt, c.repliedAt, c.lastEmailedAt, c.lastTouchAt, c.sentAt].filter(
+    (d): d is string => !!d && Date.parse(d) <= now,
+  );
+  return past.sort().at(-1) ?? new Date(now).toISOString();
 }
 
 /** Cells to show as checkboxes, per tab: "r:c" keys. */

@@ -9,7 +9,7 @@ import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, typ
 import { detectRegion } from "./region";
 import { appChats, gradeLine, kindsSummary, latestChat, matchRow, mergeCell, notesLine, sheetChat, withSheetChat, type ConversationRow } from "./conversations";
 import { EMPTY_OPS, opsOf, type SheetOps } from "./sheetOps";
-import { REFERRAL_HEADERS, REFERRAL_TITLE, mergeReferral, parseCheck, writeCheckboxes, type CheckboxCells } from "./checkboxes";
+import { REFERRAL_HEADERS, REFERRAL_TITLE, mergeReferral, parseCheck, referralDate, writeCheckboxes, type CheckboxCells } from "./checkboxes";
 import { CONTACTED_HEADERS, LAST_CONTACTED_HEADERS, LAST_CONTACTED_TITLE, formatContacted, formatDay, parseContacted, parseLastContacted, sameContacted, sameDayIso } from "./contacted";
 
 const MAX_ROWS = 1500;
@@ -463,7 +463,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
           comment: get(r, cols.comment)?.v ?? "",
           sheetStatus,
           sheetReferral: referred,
-          ...(referred ? { referral: { at: new Date().toISOString() } } : {}),
+          ...(referred ? { referral: { at: referralDate(dates) } } : {}),
           status,
           source: "sheet",
           ref,
@@ -831,7 +831,7 @@ export function syncGridEdits(contacts: Contact[], snapshots: SheetSnapshot[], b
     // The Referral? box ticked or unticked in the grid.
     if (n.sheetReferral !== undefined && n.sheetReferral !== p?.sheetReferral) {
       patch.sheetReferral = n.sheetReferral;
-      patch.referral = mergeReferral(p?.sheetReferral, n.sheetReferral, cur.referral);
+      patch.referral = mergeReferral(p?.sheetReferral, n.sheetReferral, cur.referral, referralDate(cur));
     }
     if (cur !== owner && JSON.stringify(cur.ref) !== JSON.stringify(n.ref)) patch.ref = n.ref;
     // Typed into (or cleared from) their Conversation row: the link and the hand-typed conversation follow the sheet.

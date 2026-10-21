@@ -77,6 +77,12 @@ export function friendlyFileError(e: unknown): Error {
 }
 
 /** Handles restored from IndexedDB after a reload need permission re-granted (one click). */
+/** The browser already lets this page read the file (no prompt; prompting needs a click). */
+export async function canReadSilently(handle: FileSystemFileHandle) {
+  const h = handle as PermHandle;
+  return !h.queryPermission || (await h.queryPermission({ mode: "read" })) === "granted";
+}
+
 export async function ensureWritePermission(handle: FileSystemFileHandle) {
   const h = handle as PermHandle;
   if (h.queryPermission && (await h.queryPermission({ mode: "readwrite" })) !== "granted") {
