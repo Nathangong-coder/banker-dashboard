@@ -443,6 +443,17 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `guessBank` over known banks, else the AI filter's `employer`. React blocks `javascript:` hrefs in JSX, so the href is set via ref.
   The LinkedIn DOM changes often: the script keys on `a[href*="/in/"]` + nearest `li`, not on class names.
 
+## Browser extension (`extension/`, owner, 2026-10-21)
+
+- One MV3 extension for Chrome + Edge, plain JS (no build). Part 1 = LinkedIn → Coverage: the popup injects
+  `sites/linkedin.js#captureLinkedIn` (same logic as the bookmarklet; keep them in step) via `chrome.scripting` with
+  `activeTab` only (no host permissions), then opens `<dashboard>/prep|find#li=…`. Dashboard address in `settings.js`
+  (https, or http://localhost). `npm run pack:extension` renders icons + checks the manifest + zips to `dist/` (git-ignored).
+  `extension/README.md` = load unpacked, how it works, Chrome Web Store / Edge Add-ons steps and paste-ready answers.
+  Verified loading in headless Edge 155 (popup + options render, no errors); not yet tried on a live LinkedIn page.
+  Next parts: Granola note → Activity log, application autofill (user submits). No automated LinkedIn actions or
+  bulk applying (LinkedIn §8.2; same decision as scraping).
+
 ## Bank coverage (`src/lib/coverage.ts`, `src/lib/banks.ts`, `app/coverage`)
 
 - `buildCoverage` merges banks by `canonBank()` (aliases + stop-words; test new aliases against the owner's names) from: contacts →

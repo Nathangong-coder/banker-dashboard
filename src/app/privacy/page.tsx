@@ -125,10 +125,16 @@ export default function PrivacyPage() {
         and in one cookie (<code>coverage_capture</code>, sent only to the share address) so sharing photos from your phone&apos;s share sheet works.
       </p>
 
-      <H2>7. LinkedIn</H2>
+      <H2>7. LinkedIn and the browser extension</H2>
       <p>
         {SITE.name} doesn&apos;t scrape LinkedIn. The optional bookmarklet reads only the LinkedIn page you have open, when you click it, and hands that text to
         your own dashboard.
+      </p>
+      <p className="mt-3">
+        The optional {SITE.name} extension for Chrome and Edge works the same way. It reads the page in your current tab only when you click its button
+        (the browser&apos;s &ldquo;activeTab&rdquo; permission), and opens your dashboard with that text in the address&apos;s fragment, which browsers don&apos;t
+        send to any server. It has no access to other tabs or sites, doesn&apos;t run in the background, and sends nothing to us or anyone else. It stores one
+        setting, your dashboard&apos;s address, in your browser&apos;s extension storage.
       </p>
 
       <H2>8. Your choices and rights</H2>

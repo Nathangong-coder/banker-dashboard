@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Coverage settings</title>
+    <link rel="stylesheet" href="popup.css" />
+    <style>
+      body {
+        width: auto;
+        min-width: 360px;
+        padding: 16px;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .row button {
+        width: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <label for="dashboard">Dashboard address</label>
+    <input id="dashboard" type="url" spellcheck="false" />
+    <p class="muted" style="margin-top: 6px">Where "Send to Coverage" opens. Use http://localhost:3000 while developing.</p>
+    <div class="row">
+      <button id="save">Save</button>
+      <button id="reset" style="background: var(--subtle); color: var(--ink)">Use the default</button>
+    </div>
+    <p id="status" class="muted" role="status"></p>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

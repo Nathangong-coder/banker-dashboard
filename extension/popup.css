@@ -1,0 +1,117 @@
+/* Coverage colors (the dashboard's slate theme), light and dark. */
+:root {
+  --paper: #ffffff;
+  --subtle: #f4f6f8;
+  --ink: #1d2733;
+  --muted: #5d6b7a;
+  --line: #dfe4ea;
+  --accent: #b5532e;
+  --accent-ink: #ffffff;
+  --accent-soft: #fbeee8;
+  --bad: #b42318;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #161b22;
+    --subtle: #1f2630;
+    --ink: #e6ebf1;
+    --muted: #9aa7b5;
+    --line: #2d3742;
+    --accent: #e07a52;
+    --accent-ink: #1a0f0a;
+    --accent-soft: #3a2219;
+    --bad: #ff8a80;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  width: 320px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+header,
+footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+}
+header {
+  border-bottom: 1px solid var(--line);
+}
+footer {
+  border-top: 1px solid var(--line);
+  justify-content: space-between;
+  font-size: 11.5px;
+}
+.brand {
+  font-weight: 600;
+  flex: 1;
+}
+main {
+  padding: 14px;
+}
+h2 {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+p {
+  margin: 0 0 10px;
+}
+.muted {
+  color: var(--muted);
+}
+.link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 12px;
+}
+.link:hover {
+  text-decoration: underline;
+}
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--subtle);
+}
+.error {
+  color: var(--bad);
+  margin-top: 8px;
+}
+ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
