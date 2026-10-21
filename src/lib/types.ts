@@ -1,3 +1,6 @@
+import type { RubricArea } from "./gradeRubric";
+export type { RubricArea };
+
 /** Office regions. SF covers the Bay Area (Menlo Park, Palo Alto); LA and Chicago are their own markets. */
 export type Region = "SF" | "LA" | "NY" | "CHI" | "Other";
 
@@ -429,7 +432,11 @@ export interface Settings {
      * (undefined = DEFAULT_GRADING_RULES). Grown by "Disagree" on a grade (components/GradingRules.tsx).
      */
     gradingRules?: string[];
+    /** The grading rubric (admin setting, /log ⋯ → Grading rubric). Undefined = lib/gradeRubric.ts#DEFAULT_RUBRIC. */
+    rubric?: RubricArea[];
   };
+  /** Admin mode (Settings → Backup): shows admin-only settings like the grading rubric. A view switch, not a lock: there are no logins. */
+  admin?: boolean;
   /** Shared email skeletons (see EmailBase). */
   emailBases: EmailBase[];
   /** {{my_pitch}} sentences by kind of banker (see lib/hooks.ts). */

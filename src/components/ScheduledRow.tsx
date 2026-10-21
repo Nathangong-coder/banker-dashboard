@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { cancelSend, notBeforeOf, rescheduleOne } from "@/lib/serverSync";
-import { recipientTz, windowLabel, windowOf } from "@/lib/sendWindow";
+import { recipientTz, tooSoon, windowLabel, windowOf } from "@/lib/sendWindow";
 import { tzLabel } from "@/lib/availability";
 import { useStore } from "@/lib/store";
 import type { Contact } from "@/lib/types";
@@ -126,9 +126,10 @@ export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Cont
 /** Why this send is on the day it is, and a warning when it's sooner than your follow-up spacing. */
 function SendNote({ c }: { c: Contact }) {
   const nb = notBeforeOf(c);
-  if (nb && new Date(c.serverSend!.sendAt) < nb)
+  const w = windowOf(useStore.getState().settings);
+  if (tooSoon(new Date(c.serverSend!.sendAt), nb, c, w))
     return (
-      <span title={`Your spacing says not before ${nb.toLocaleString()}. Use "Move too-early sends" above the list.`}>
+      <span title={`Your spacing says not before ${nb!.toLocaleDateString()}. Use "Move too-early sends" above the list.`}>
         <Badge tone="red">too soon after your last email</Badge>
       </span>
     );

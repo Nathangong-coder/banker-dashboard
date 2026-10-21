@@ -3,7 +3,7 @@
 import { Fragment, Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Coffee, ExternalLink, GraduationCap, NotebookPen, Plus, Sparkles, Trash2, UserPlus } from "lucide-react";
+import { Coffee, ExternalLink, GraduationCap, NotebookPen, Plus, ShieldCheck, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { applyPatches, parseSnapshots } from "@/lib/workbook";
 import { KIND_LABEL, KINDS, kindOf, type ConversationRow } from "@/lib/conversations";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/util";
 import type { ChatLog, Contact, ConversationKind } from "@/lib/types";
 import { Badge, Button, Card, Empty, Field, Input, Kpi, Menu, Modal, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
 import { Disagree, GradingRulesEditor } from "@/components/GradingRules";
+import { RubricEditor } from "@/components/RubricEditor";
 
 type Row = { c: Contact; chat: ChatLog };
 type Filter = "all" | ConversationKind;
@@ -70,6 +71,7 @@ function LogInner() {
   }
   const [busy, setBusy] = useState<string | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [rubricOpen, setRubricOpen] = useState(false);
   const [now] = useState(() => Date.now());
   const router = useRouter();
 
@@ -137,7 +139,12 @@ function LogInner() {
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setLogging({})}>
               Log activity
             </Button>
-            <Menu items={[{ label: "Grading rules", hint: "What the AI grader should believe", icon: <GraduationCap />, onClick: () => setRulesOpen(true) }]} />
+            <Menu
+              items={[
+                { label: "Grading rules", hint: "What the AI grader should believe", icon: <GraduationCap />, onClick: () => setRulesOpen(true) },
+                settings.admin && { label: "Grading rubric", hint: "Admin: areas, weights, what a 5 / 3 / 1 means", icon: <ShieldCheck />, onClick: () => setRubricOpen(true) },
+              ]}
+            />
           </>
         }
       />
@@ -251,6 +258,12 @@ function LogInner() {
       {rulesOpen && (
         <Modal open onClose={() => setRulesOpen(false)} title="Grading rules">
           <GradingRulesEditor />
+        </Modal>
+      )}
+
+      {rubricOpen && settings.admin && (
+        <Modal open wide onClose={() => setRubricOpen(false)} title="Grading rubric (admin)">
+          <RubricEditor onDone={() => setRubricOpen(false)} />
         </Modal>
       )}
 

@@ -8,6 +8,7 @@ import { callApi } from "./api";
 import { hookFor } from "./hooks";
 import { DEFAULT_GENERAL_QUESTIONS, DEFAULT_GRADING_RULES } from "./defaults";
 import { allocateConversationRow } from "./workbook";
+import { cleanRubric } from "./gradeRubric";
 import { latestIso, uid } from "./util";
 import type { ChatGrade, ChatLog, Contact, ConversationKind, Settings, Status } from "./types";
 import type { ConversationRow } from "./conversations";
@@ -132,6 +133,7 @@ export async function requestGrade(c: Contact, text: string, notes?: string, fee
       notes: (notes ?? prep?.notes)?.slice(0, 4000) || undefined,
       feel: feel?.trim().slice(0, 1000) || undefined,
       rules: gradingRules(settings).slice(0, 40).map((r) => r.slice(0, 500)),
+      rubric: cleanRubric(settings.prep?.rubric),
     },
     settings,
   );

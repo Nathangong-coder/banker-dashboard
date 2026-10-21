@@ -2,6 +2,7 @@ import "server-only";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import { aiJson, aiErrorResponse, HttpError, withAi } from "@/lib/server/ai";
+import { RUBRIC_LIMITS, cleanRubric, letterOf, overallScore } from "@/lib/gradeRubric";
 
 export const maxDuration = 120;
 
@@ -34,6 +35,17 @@ const Body = z.object({
   feel: z.string().max(1000).optional(),
   /** The student's own beliefs about a good chat; they outrank the rubric below. */
   rules: z.array(z.string().max(500)).max(40).optional(),
+  /** The rubric (admin setting); the default when missing. */
+  rubric: z
+    .array(
+      z.object({
+        area: z.string().max(RUBRIC_LIMITS.area),
+        weight: z.number().min(0).max(RUBRIC_LIMITS.maxWeight),
+        anchors: z.string().max(RUBRIC_LIMITS.anchors),
+      }),
+    )
+    .max(RUBRIC_LIMITS.maxAreas)
+    .optional(),
 });
 
 const Grade = z.object({
@@ -78,72 +90,13 @@ const Grade = z.object({
   thankYouPoints: z.array(z.string()).describe("2-4 specific things the banker said that the thank-you email should mention."),
 });
 
-/**
- * The rubric: weight in the overall score, and what a 5 / 3 / 1 looks like so scores mean the same thing every time.
- * The overall score is computed here from these (the model's own overall number drifted between calls).
- */
-const AREAS = [
-  {
-    area: "Connection & energy",
-    weight: 25,
-    anchors:
-      "How the call felt and how the banker responded. 5 = they clearly enjoyed it: laughing, banter, telling stories unprompted, " +
-      "the call ran over, they offered help or another call. 3 = polite and pleasant but transactional. 1 = awkward, flat or cut short.",
-  },
-  {
-    area: "Personal rapport & common ground",
-    weight: 20,
-    anchors:
-      "Found and built on shared ground (school, hometown, interests, background) and let the conversation get personal. Long personal " +
-      "stretches the banker engages in raise this score; they are never time wasted. 5 = a real personal connection. 3 = a little. 1 = none.",
-  },
-  {
-    area: "Listening & follow-ups",
-    weight: 15,
-    anchors: "5 = follow-ups built on what they just said and the conversation flowed. 3 = some follow-ups, some list-reading. 1 = read questions off a list.",
-  },
-  {
-    area: "Question quality & preparation",
-    weight: 15,
-    anchors: "Specific questions showing they knew the firm, group and this banker's path. 5 = researched and insightful. 3 = generic but fine. 1 = Google-able or none.",
-  },
-  {
-    area: "Opening & story",
-    weight: 10,
-    anchors: "The intro and the student's own story: clear, natural, tailored to this banker. 5 = memorable. 3 = fine. 1 = rambling or missing.",
-  },
-  {
-    area: "Asks & next steps",
-    weight: 10,
-    anchors: "Asked for advice, who else to talk to or a next step at the right moment, without being pushy. 5 = natural ask that landed. 3 = vague. 1 = none, or pushy.",
-  },
-  {
-    area: "Close",
-    weight: 5,
-    anchors:
-      "Wrapped up warmly, thanked them, confirmed next steps. Only mark down for time when the BANKER signalled they had to go and the " +
-      "student kept going; a call that runs long because the banker is enjoying it is a good sign.",
-  },
-];
-
-/** 1-5 per area to 0-100: all 3s = 69 (a forgettable call is a C/B-), all 4s = 84, all 5s = 98. */
-function overall(scores: number[]) {
-  const total = AREAS.reduce((n, a) => n + a.weight, 0);
-  const avg = AREAS.reduce((n, a, i) => n + a.weight * (scores[i] ?? 3), 0) / total;
-  return Math.round(40 + ((avg - 1) / 4) * 58);
-}
-
-function letterOf(score: number) {
-  const bands: [number, string][] = [[93, "A"], [90, "A-"], [87, "B+"], [83, "B"], [80, "B-"], [77, "C+"], [73, "C"], [70, "C-"], [67, "D+"], [60, "D"]];
-  return bands.find(([min]) => score >= min)?.[1] ?? "F";
-}
-
 export async function POST(req: Request) {
   try {
     const parsed = Body.safeParse(await req.json());
     // Only the first issue message goes back (never the input itself).
     if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid request.");
     const input = parsed.data;
+    const AREAS = cleanRubric(input.rubric);
     const { output } = await withAi(req, (model, opts) =>
       generateText({
         ...opts,
@@ -159,7 +112,7 @@ export async function POST(req: Request) {
           "TONE: transcripts (Zoom, Granola, notes) usually drop laughter and voice. Read it from what's there: [laughter] / 'haha' / 'lol', banter " +
           "and jokes, the banker telling long stories unprompted, callbacks to earlier jokes, the call running past its planned length, the banker " +
           "offering help or another call. The student's own 'how it felt' note is first-hand evidence about tone: trust it. With no signal either way, " +
-          "score Connection & energy 3 and say tone couldn't be judged; never mark it down for a lack of evidence. " +
+          "score any tone-based area (how it felt, energy, connection) 3 and say tone couldn't be judged; never mark it down for a lack of evidence. " +
           "Improvements are your own observations about what the STUDENT did, each with a concrete rewrite or a better question angled at this " +
           "banker. Advice the banker gave the student goes in theirAdvice, never in improvements. " +
           "Commitments: only what the banker explicitly said they would do; if they made no promise, return an empty list. " +
@@ -183,7 +136,7 @@ export async function POST(req: Request) {
     );
 
     const rubric = output.rubric.slice(0, AREAS.length).map((r) => ({ ...r, score: Math.max(1, Math.min(5, Math.round(r.score))) }));
-    const score = overall(rubric.map((r) => r.score));
+    const score = overallScore(AREAS, rubric.map((r) => r.score));
     return aiJson(req, {
       ...output,
       score,

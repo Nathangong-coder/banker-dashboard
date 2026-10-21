@@ -54,6 +54,23 @@ function partsIn(at: Date, tz: string) {
   return { y: Number(p.year), m: Number(p.month), d: Number(p.day), wd: p.weekday as string, h: Number(p.hour), min: Number(p.minute) };
 }
 
+/** The calendar day of an instant in a zone, as a sortable number (20261022). */
+const dayNum = (at: Date, tz: string) => {
+  const p = partsIn(at, tz);
+  return p.y * 10_000 + p.m * 100 + p.d;
+};
+
+/**
+ * Follow-up spacing is in calendar days, in the recipient's zone: "7 days after Thursday 10/15" = any time on Thursday
+ * 10/22. It used to be to the minute, so a first email sent at 10:42 AM couldn't take a 9:30 slot a week later, and the
+ * end of a 9–11 AM batch (or anything first sent after 11) slid past Thursday to the next allowed day (Tue 10/27).
+ */
+export function tooSoon(at: Date, notBefore: Date | undefined, c: Pick<Contact, "region" | "location">, w: SendWindow) {
+  if (!notBefore) return false;
+  const tz = tzOf(c, w);
+  return dayNum(at, tz) < dayNum(notBefore, tz);
+}
+
 /** The instant that reads y-m-d h:min on a wall clock in `tz` (DST-safe: corrects by the zone's offset twice). */
 export function zonedDate(y: number, m: number, d: number, h: number, min: number, tz: string) {
   const want = Date.UTC(y, m - 1, d, h, min);
@@ -99,27 +116,31 @@ export function planSends<C extends Pick<Contact, "id" | "region" | "location">>
   for (const c of people) {
     const tz = tzOf(c, w, mine);
     const notBefore = opts.notBefore?.(c)?.getTime() ?? 0;
+    // Spacing counts whole days in their zone (see tooSoon): any slot on the allowed day is fine.
+    const nbDay = notBefore ? dayNum(new Date(notBefore), tz) : 0;
     const start = new Date(Math.max(now.getTime(), notBefore));
     const first = partsIn(start, tz);
     const full: string[] = [];
     for (let add = 0; add < 28; add++) {
       const day = partsIn(zonedDate(first.y, first.m, first.d + add, 12, 0, tz), tz);
       if (!w.days.includes(WD.indexOf(day.wd))) continue;
+      if (day.y * 10_000 + day.m * 100 + day.d < nbDay) continue;
       const open = zonedDate(day.y, day.m, day.d, w.start, 0, tz).getTime();
       const close = zonedDate(day.y, day.m, day.d, w.end, 0, tz).getTime();
-      const from = Math.max(open, earliest, notBefore);
+      const from = Math.max(open, earliest);
       if (from >= close) continue;
       const k = keyFor(tz, day.y, day.m, day.d);
       const spots = used.get(k) ?? [];
       let at = from;
       // Next free spot: GAP_MIN after anything already there.
       for (const s of [...spots].sort((a, b) => a - b)) if (Math.abs(s - at) < GAP_MIN * 60_000) at = s + GAP_MIN * 60_000;
-      at += jitter() * 60_000;
       if (at >= close) {
         full.push(`${day.wd} (${spots.length} already queued in ${w.start}–${w.end} ${zoneName(tz)})`);
         continue;
       }
-      out.set(c.id, new Date(at));
+      // The 0–2 min jitter goes on the send time only, not on the slot grid: added to the grid it compounded (each spot
+      // pushed the next 7–8 min out), so a 9–11 window held ~15–17 instead of 20 and the rest slid to the next send day.
+      out.set(c.id, new Date(Math.min(at + jitter() * 60_000, close - 60_000)));
       used.set(k, [...spots, at]);
       const reasons: string[] = [];
       if (notBefore > now.getTime()) reasons.push(`not before ${new Date(notBefore).toLocaleDateString("en-US", { timeZone: tz, weekday: "short", month: "numeric", day: "numeric" })} (spacing since your last email)`);
@@ -226,7 +247,7 @@ export function planBatch<C extends Pick<Contact, "id" | "region" | "location">>
     const wd = ymdOf(at, tz).wd;
     if (!warn && opts.day.mode !== "auto" && !w.days.includes(wd)) warn = `${WD[wd]} is outside your usual days (${daysLabel(w.days)})`;
     const nb = notBefore?.(c);
-    if (!warn && nb && at < nb) {
+    if (!warn && nb && dayNum(at, tz) < dayNum(nb, tz)) {
       const early = Math.max(1, Math.ceil((nb.getTime() - at.getTime()) / 86_400_000));
       warn = `too soon: ${early} day${early > 1 ? "s" : ""} before the follow-up spacing allows (due ${nb.toLocaleDateString("en-US", { timeZone: tz, weekday: "short", month: "numeric", day: "numeric" })})`;
     }

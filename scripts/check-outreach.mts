@@ -265,6 +265,17 @@ for (const [what, ok] of checks) {
     ["Tue 8 AM PT: NY → Wed, SF → today 9 AM", dayIn(plan2.get("ny1")!, "America/New_York") === "Wed" && dayIn(plan2.get("sf1")!, "America/Los_Angeles") === "Tue"],
     ["DST week: still 9 AM Eastern", hourIn(dst, "America/New_York") === 9 && dayIn(dst, "America/New_York") === "Tue"],
     ["30 at once: all inside 9–11, some on the next day", [...big.values()].every((d) => hourIn(d, "America/New_York") >= 9 && hourIn(d, "America/New_York") < 11) && new Set([...big.values()].map((d) => dayIn(d, "America/New_York"))).size > 1],
+    // Follow-up spacing is in days (Joseph Nichols: first email Thu 10/15 late morning was queued for Tue 10/27).
+    ["7 days after a 10:58 AM email = that Thursday, at 9", (() => {
+      const sent = zonedDate(2026, 10, 15, 10, 58, "America/New_York");
+      const d = planSends([people[0]], w, { now: zonedDate(2026, 10, 20, 18, 0, "America/Los_Angeles"), jitter: () => 0, notBefore: () => new Date(sent.getTime() + 7 * 86_400_000) }).get("ny1")!;
+      return dayIn(d, "America/New_York") === "Thu" && hourIn(d, "America/New_York") === 9;
+    })()],
+    ["A full 9–11 batch a week later all fits that Thursday, with jitter", (() => {
+      const batch = Array.from({ length: 20 }, (_, i) => ({ ...person({ id: `f${i}`, region: "NY", location: "NY" }), sent: zonedDate(2026, 10, 15, 9, i * 6, "America/New_York") }));
+      const p = planSends(batch, w, { now: zonedDate(2026, 10, 20, 18, 0, "America/Los_Angeles"), jitter: () => 2, notBefore: (c) => new Date(c.sent.getTime() + 7 * 86_400_000) });
+      return [...p.values()].every((d) => dayIn(d, "America/New_York") === "Thu" && hourIn(d, "America/New_York") < 11);
+    })()],
     ["Your-time basis uses your zone", (() => { const d = planSends([people[0]], { ...w, basis: "mine" }, { now: friPm, jitter: () => 0 }).get("ny1")!; const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; return hourIn(d, tz) === 9; })()],
   ];
   // Batch overrides: 29 emails that must all go Thursday, whatever the planner would have done.

@@ -22,7 +22,7 @@ import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
-import { earlySends, fixEarlySends, markServerConnected, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
+import { earlySends, fixEarlySends, lateSends, markServerConnected, moveLateSends, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
 import { AutoSendCard } from "@/components/AutoSend";
 import { repliedToSchedule, ScheduleCallsTable } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
@@ -632,6 +632,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           </Notice>
         )}
         <EarlySendsBanner />
+        <LateSendsBanner />
         {replaceCount > 0 && (
           <Notice
             tone={fails.suspected.length ? "amber" : "neutral"}
@@ -1235,6 +1236,51 @@ function movedNote(why: Map<string, string>) {
   const names = new Map(useStore.getState().contacts.map((c) => [c.id, c.name]));
   const list = [...why].slice(0, 3).map(([id, w]) => `${names.get(id) ?? id}: ${w}`);
   return `${why.size} not on the first open day. ${list.join(" · ")}${why.size > 3 ? ` (+${why.size - 3} more)` : ""}`;
+}
+
+/** Queued sends set for a later day than they need to be (e.g. Tue 10/27 when Thu 10/22 is allowed), with a fix. */
+function LateSendsBanner() {
+  const contacts = useStore((s) => s.contacts);
+  const sendWindow = useStore((s) => s.settings.sendWindow);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- lateSends reads the window and spacing from the store
+  const late = useMemo(() => lateSends(contacts), [contacts, sendWindow]);
+  const [busy, setBusy] = useState(false);
+  if (!late.length) return null;
+  const day = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" });
+  return (
+    <Notice
+      tone="amber"
+      icon={<Clock />}
+      action={
+        <Button
+          size="sm"
+          variant="brass"
+          loading={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const moved = await moveLateSends();
+              toast.ok(`Moved ${moved.length} earlier: ${moved.slice(0, 3).map((m) => `${m.name} → ${day(m.to)}`).join(", ")}${moved.length > 3 ? "…" : ""}`);
+            } catch (e) {
+              toast.err((e as Error).message);
+            }
+            setBusy(false);
+          }}
+        >
+          Move {late.length} earlier
+        </Button>
+      }
+    >
+      <b>{late.length}</b> queued email{late.length > 1 ? "s are" : " is"} set later than needed:{" "}
+      {late.slice(0, 6).map((x, i) => (
+        <span key={x.c.id}>
+          {i ? ", " : ""}
+          {x.c.name} ({day(x.from)} → {day(x.to)})
+        </span>
+      ))}
+      {late.length > 6 ? ` +${late.length - 6} more` : ""}.
+    </Notice>
+  );
 }
 
 /** Queued follow-ups that would go out sooner than your follow-up spacing (e.g. 5 days after the last one), with a fix. */

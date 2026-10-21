@@ -523,6 +523,7 @@ export default function SettingsPage() {
                 </Link>
               </div>
             </Card>
+            <AdminSetting />
         <Card>
           <CardHeader title="Backup & data" sub="Everything is stored in this browser. Export a backup to move to another computer." />
           <div className="flex flex-wrap gap-2 p-4">
@@ -585,4 +586,20 @@ function mergeImportedSettings(cur: Settings, incoming?: Partial<Settings>): Set
   }
   const keys = { ...cur.keys, ...Object.fromEntries(Object.entries(incoming.keys ?? {}).filter(([, v]) => v)) };
   return { ...cur, ...incoming, keys, vault, ai: incoming.ai && vault.ai.some((k) => k.provider === incoming.ai!.provider) ? incoming.ai : cur.ai };
+}
+
+/** Admin mode: shows admin-only settings (the grading rubric on Activity log → ⋯). A view switch, not a lock: there are no logins. */
+function AdminSetting() {
+  const admin = useStore((s) => !!s.settings.admin);
+  const setSettings = useStore((s) => s.setSettings);
+  return (
+    <Card>
+      <CardHeader title="Admin" sub="Admin-only settings, hidden from the normal views." />
+      <label className="flex flex-wrap items-center gap-2 p-4 text-[13px]">
+        <Checkbox checked={admin} onChange={(v) => setSettings((s) => ({ ...s, admin: v || undefined }))} label="Admin mode" />
+        Admin mode
+        <span className="text-[12px] text-muted">Adds the grading rubric editor (Activity log → ⋯ → Grading rubric).</span>
+      </label>
+    </Card>
+  );
 }

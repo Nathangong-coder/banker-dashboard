@@ -5,7 +5,7 @@
 import { create } from "zustand";
 import { useStore } from "@/lib/store";
 import { serverCall } from "@/lib/serverSync";
-import { callPatches, chatsIn, type CalendarEvent } from "@/lib/calendarDay";
+import { callPatches, chatsIn, wrongCalls, type CalendarEvent } from "@/lib/calendarDay";
 import { loadCalendarSessions } from "./InfoSessionActions";
 
 const DAY = 86_400_000;
@@ -26,7 +26,11 @@ export async function syncCalendar() {
   const st = useStore.getState();
   const chats = chatsIn(r.events ?? [], st.contacts, st.settings.profile.name.trim().split(/\s+/)[0]);
   const patches = callPatches(chats, st.contacts, now);
+  // Undo calls an earlier sync put on the wrong person, before recording the right ones.
+  const wrong = wrongCalls(r.events ?? [], chats, st.contacts);
+  for (const { id, patch, guests } of wrong)
+    st.updateContact(id, patch, { at: new Date().toISOString(), type: "note", note: `Calendar event removed: it wasn't with them (invite went to ${guests.join(", ") || "someone else"})` });
   for (const { id, patch } of patches) st.updateContact(id, patch, patch.call ? { at: new Date().toISOString(), type: "note", note: `Call on Google Calendar: ${new Date(patch.call.at).toLocaleString()}` } : undefined);
-  return { calendar: r.calendar, chats: chats.length, updated: patches.length };
+  return { calendar: r.calendar, chats: chats.length, updated: patches.length, unmatched: wrong.length };
 }
 

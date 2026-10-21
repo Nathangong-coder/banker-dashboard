@@ -202,7 +202,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   dashboard's own invite (`call.eventId`), a contact as attendee, or a chat-like title with ≤3 guests (name match only then);
   `callPatches` sets `contact.call` (next upcoming, else latest) and status up to call_scheduled, so the text and Follow-ups see
   it. Rows: Prep before; after = "Log how it went" (`/log?log=<id>&kind=coffee_chat&date=YYYY-MM-DD` opens the pre-filled form)
-  + LinkedIn (profile, else a name + bank search). The evening text adds `digestFormat.ts#afterCallLines` per person talked to
+  + LinkedIn (profile, else a name + bank search). **Guest list wins over names (owner, 2026-10-20):** an event with guests only
+  matches a contact whose email is a guest or who has no email on file (`calendarMatch.ts#couldBeWith`, also applied to
+  events already on a contact). "Coffee w/ James" sent to a friend's Gmail had matched James Nichols by first name and
+  kept matching via `call.eventId`; `calendarDay.ts#wrongCalls` removes such calls on the next sync (status back to what
+  the emails say, unless a chat is logged) with a history note. The evening text adds `digestFormat.ts#afterCallLines` per person talked to
   today (log link + LinkedIn), skipped once that day's chat is logged (`CalPerson.loggedAt`); **Fri–Sun it goes out only when
   there were calls** (no follow-ups section). **No automatic LinkedIn connection requests:** LinkedIn has no API for it and
   automating it breaks its terms (same decision as scraping); the text links the profile for a one-tap Connect.
@@ -210,6 +214,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `planSends` / `planBatch`, so a follow-up is never queued early (Will Yi's #2 was queued Tue, 5 days after #1). `planSends` records
   why someone isn't on the first open day (`why`, kept as `serverSend.why`: window full = 20 per zone/day at 6-min spacing, or
   spacing). Follow-ups → Scheduled shows a "too soon" badge and "Move too-early sends" (`serverSync.ts#fixEarlySends`).
+- **Spacing counts calendar days (owner, 2026-10-20):** "7 days after" = any slot on that day in the recipient's zone
+  (`sendWindow.ts#tooSoon`, `planSends` skips days before it). It was to the minute, so Joseph Nichols (first email Thu
+  10/15, late morning) was queued for Tue 10/27: 10/22's earlier slots were "too soon" and Fri/Mon aren't send days. The
+  0–2 min jitter is added to the send time only, not the slot grid (it compounded: ~15–17 per window instead of 20).
+  `serverSync.ts#lateSends` / `moveLateSends` = Follow-ups banner "N queued emails are set later than needed → Move N
+  earlier". `check:outreach` covers both.
 - **Date bug (Michael Bender):** a save re-imports the file from disk when OneDrive/Excel touched it; a Contacted cell saved before a
   follow-up ("10/1/2026") replaced the follow-up's `lastTouchAt`, so follow-up #2 was timed from the first email. Merges now take
   `util.ts#latestIso` (store import + workbook dedupe): the last touch never moves back.
@@ -219,7 +229,9 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   improvements, the banker's commitments, thank-you points; saved as `contact.chats[]`. "They referred me" sets `contact.referral`.
 - **Grader rubric (owner, 2026-10-20):** 7 weighted areas with 5/3/1 anchors (`grade/route.ts#AREAS`: Connection & energy 25,
   Personal rapport 20, Listening 15, Questions & prep 15, Opening 10, Asks 10, Close 5); the overall score + letter are computed
-  server-side from them (all 3s = 69, all 4s = 84), not by the model. Tone: transcripts (Granola, Zoom) drop laughter, so the
+  server-side from them (`lib/gradeRubric.ts`; all 3s = 71 C-, all 4s = 84 B), not by the model. **Admin:** Settings → Backup →
+  Admin mode adds Activity log ⋯ → Grading rubric (`components/RubricEditor.tsx`: areas, weights, anchors → `settings.prep.rubric`,
+  sent as `rubric`, `cleanRubric` falls back to `DEFAULT_RUBRIC`). Admin mode is a view switch, not a lock (no logins). Tone: transcripts (Granola, Zoom) drop laughter, so the
   grader reads cues (haha / [laughter], long stories, running over) and trusts `ChatLog.feel` ("How it felt", typed on /log and
   /prep); no signal = 3, never a penalty. `toneRead` explains it. Advice the banker gave goes to `theirAdvice`, never into
   `improvements` (they used to just echo it). **Your rules beat the rubric:** `settings.prep.gradingRules` (default

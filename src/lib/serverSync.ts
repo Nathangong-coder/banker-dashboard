@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { useStore } from "./store";
 import { nightPlan } from "./reminders";
 import { earliestSend, pendingFollowUpDraft } from "./followups";
-import { planSends, windowOf } from "./sendWindow";
+import { planSends, tooSoon, windowOf } from "./sendWindow";
 import { vpPlusWarning } from "./seniority";
 import type { Contact } from "./types";
 
@@ -212,9 +212,45 @@ export async function rescheduleQueued() {
 export function earlySends(contacts: Contact[]) {
   return contacts.filter((c) => {
     if (!c.serverSend || new Date(c.serverSend.sendAt) <= new Date()) return false;
-    const nb = notBeforeOf(c);
-    return !!nb && new Date(c.serverSend.sendAt) < nb;
+    return tooSoon(new Date(c.serverSend.sendAt), notBeforeOf(c), c, windowOf(useStore.getState().settings));
   });
+}
+
+/**
+ * Queued sends that could go out on an earlier day than they're set for: planned before follow-up spacing was counted
+ * in days (Joseph Nichols, first email Thu 10/15, was queued for Tue 10/27 instead of Thu 10/22), or a day freed up
+ * since. Each is re-planned around everyone else's slots; listed when that lands on an earlier calendar day.
+ */
+export function lateSends(contacts: Contact[], now = new Date()) {
+  const w = windowOf(useStore.getState().settings);
+  const queued = contacts.filter((c) => c.serverSend && new Date(c.serverSend.sendAt) > now);
+  const out: { c: Contact; from: Date; to: Date }[] = [];
+  for (const c of queued) {
+    const taken = queued.filter((x) => x.id !== c.id).map((x) => new Date(x.serverSend!.sendAt));
+    const to = planSends([c], w, { now, taken, notBefore: notBeforeOf, jitter: () => 0 }).get(c.id);
+    const from = new Date(c.serverSend!.sendAt);
+    if (to && to.toDateString() !== from.toDateString() && to < from) out.push({ c, from, to });
+  }
+  return out;
+}
+
+/** Move the sends `lateSends` found to their earliest day (one at a time, so they never take the same slot). */
+export async function moveLateSends() {
+  const st = useStore.getState();
+  const moved: { name: string; from: Date; to: Date }[] = [];
+  for (const { c } of lateSends(st.contacts)) {
+    const fresh = useStore.getState().contacts;
+    const cur = fresh.find((x) => x.id === c.id);
+    if (!cur?.serverSend) continue;
+    const taken = fresh.filter((x) => x.serverSend && x.id !== c.id).map((x) => new Date(x.serverSend!.sendAt));
+    const to = planSends([cur], windowOf(st.settings), { taken, notBefore: notBeforeOf }).get(c.id);
+    const from = new Date(cur.serverSend.sendAt);
+    if (!to || to >= from) continue;
+    moved.push({ name: c.name, from, to });
+    st.updateContact(c.id, { serverSend: { ...cur.serverSend, sendAt: to.toISOString(), why: undefined } }, { at: new Date().toISOString(), type: "note", note: "Queued send moved earlier: follow-up spacing now counts whole days" });
+  }
+  if (moved.length) await syncServer();
+  return moved;
 }
 
 /** Move only the too-early sends to their first allowed slot; everyone else keeps theirs. Returns what moved. */

@@ -6,7 +6,7 @@
 
 import type { Contact, Status } from "./types";
 import { isInfoSessionTitle } from "./infoSessions";
-import { looksLikeChat, matchEvent } from "./calendarMatch";
+import { couldBeWith, looksLikeChat, matchEvent } from "./calendarMatch";
 
 export interface CalendarEvent {
   id: string;
@@ -32,14 +32,15 @@ export interface CalendarChat extends CalendarEvent {
  * (the last two only for chat-like titles, so "Dinner with Alex" isn't pinned on a contact named Alex).
  */
 export function chatsIn(events: CalendarEvent[], contacts: Contact[], myFirstName?: string): CalendarChat[] {
-  const byEvent = new Map(contacts.filter((c) => c.call?.eventId).map((c) => [c.call!.eventId, c.id]));
+  const byEvent = new Map(contacts.filter((c) => c.call?.eventId).map((c) => [c.call!.eventId, c]));
   const people = contacts.map((c) => ({ contactId: c.id, name: c.name, email: c.email || undefined }));
   const out: CalendarChat[] = [];
   for (const e of events) {
     if (e.allDay || isInfoSessionTitle(e.title)) continue;
+    // An event already on a contact, unless its guest list says it's someone else (a wrong match from an earlier sync).
     const own = byEvent.get(e.id);
-    if (own) {
-      out.push({ ...e, contactId: own });
+    if (own && couldBeWith(e, own)) {
+      out.push({ ...e, contactId: own.id });
       continue;
     }
     const byEmail = matchEvent({ summary: "", description: "", attendees: e.attendees }, people);
@@ -49,7 +50,7 @@ export function chatsIn(events: CalendarEvent[], contacts: Contact[], myFirstNam
     }
     // A big meeting (class, club, team call) isn't a coffee chat even if its title says "call".
     if (!looksLikeChat(e.title) || e.attendees.length > 3) continue;
-    const p = matchEvent({ summary: e.title, description: "", attendees: [] }, people, { firstName: myFirstName });
+    const p = matchEvent({ summary: e.title, description: "", attendees: e.attendees }, people, { firstName: myFirstName });
     out.push({ ...e, contactId: p?.contactId });
   }
   return out;
@@ -79,6 +80,26 @@ export function callPatches(chats: CalendarChat[], contacts: Contact[], now = Da
       patch.call = { at: e.start, eventId: e.id, link: e.link ?? (c.call?.eventId === e.id ? c.call.link : ""), invited: c.call?.eventId === e.id ? c.call.invited : false };
     if (BEFORE_CALL.includes(c.status)) patch.status = "call_scheduled";
     if (Object.keys(patch).length) out.push({ id, patch });
+  }
+  return out;
+}
+
+/**
+ * Calls a calendar sync put on the wrong person: their `call` is an event we just read that, matched again, isn't with
+ * them (the guest list has someone else's email). The call comes off, and a "Call scheduled" it caused goes back to
+ * what their emails say (replied / followed up / sent / new), unless they have a logged conversation.
+ */
+export function wrongCalls(events: CalendarEvent[], chats: CalendarChat[], contacts: Contact[]) {
+  const seen = new Set(events.map((e) => e.id));
+  const owner = new Map(chats.map((c) => [c.id, c.contactId]));
+  const out: { id: string; patch: Partial<Contact>; guests: string[] }[] = [];
+  for (const c of contacts) {
+    const id = c.call?.eventId;
+    if (!id || !seen.has(id) || owner.get(id) === c.id) continue;
+    const patch: Partial<Contact> = { call: undefined };
+    if (c.status === "call_scheduled" && !c.chats?.length)
+      patch.status = c.repliedAt ? "replied" : c.followUps > 0 ? "followed_up" : c.sentAt ? "sent" : c.draft ? "drafted" : "new";
+    out.push({ id: c.id, patch, guests: events.find((e) => e.id === id)?.attendees ?? [] });
   }
   return out;
 }
