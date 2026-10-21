@@ -46,6 +46,15 @@ export function queryWordCount(q: string, bank = "Perella Weinberg Partners") {
 export const DEFAULT_INTERESTS: PrepInterest[] = [{ sector: "Tech", subVerticals: ["Software", "Internet", "Vertical software"] }];
 
 /** Coffee chat questions that work with any banker (edited on the prep page). */
+/**
+ * The owner's view of a good coffee chat (2026-10-20), sent with every AI grade above the built-in rubric. Settings keep
+ * their own copy once edited (`settings.prep.gradingRules`); "Disagree" on a grade adds to it.
+ */
+export const DEFAULT_GRADING_RULES = [
+  "The best chats run long and get personal. When the banker engages in personal conversation (life, school, hobbies, stories), that is a strength: never suggest capping, shortening or steering away from it.",
+  "Judge the chat by how the banker reacted (laughing, telling stories, going over time, offering help unprompted) more than by whether a checklist of questions got asked.",
+];
+
 export const DEFAULT_GENERAL_QUESTIONS = [
   "How did you end up in banking, and what made you pick this firm?",
   "What does a typical week look like for you right now?",
@@ -161,7 +170,7 @@ export const DEFAULT_SETTINGS: Settings = {
     revealPersonalEmails: false,
   },
   emailStyle: { font: "sans" },
-  prep: { generalQuestions: DEFAULT_GENERAL_QUESTIONS, interests: DEFAULT_INTERESTS },
+  prep: { generalQuestions: DEFAULT_GENERAL_QUESTIONS, interests: DEFAULT_INTERESTS, gradingRules: undefined },
   emailBases: DEFAULT_BASES,
   hooks: DEFAULT_HOOKS,
   experiments: OUTREACH_EXPERIMENTS,

@@ -3,7 +3,7 @@
 import { Fragment, Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Coffee, ExternalLink, NotebookPen, Plus, Sparkles, Trash2, UserPlus } from "lucide-react";
+import { Coffee, ExternalLink, GraduationCap, NotebookPen, Plus, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { applyPatches, parseSnapshots } from "@/lib/workbook";
 import { KIND_LABEL, KINDS, kindOf, type ConversationRow } from "@/lib/conversations";
@@ -14,6 +14,7 @@ import { detectRegion } from "@/lib/region";
 import { cn } from "@/lib/util";
 import type { ChatLog, Contact, ConversationKind } from "@/lib/types";
 import { Badge, Button, Card, Empty, Field, Input, Kpi, Menu, Modal, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
+import { Disagree, GradingRulesEditor } from "@/components/GradingRules";
 
 type Row = { c: Contact; chat: ChatLog };
 type Filter = "all" | ConversationKind;
@@ -68,6 +69,7 @@ function LogInner() {
     if (next) setLogging(next);
   }
   const [busy, setBusy] = useState<string | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [now] = useState(() => Date.now());
   const router = useRouter();
 
@@ -114,7 +116,7 @@ function LogInner() {
     if (text.length < MIN_GRADE) return toast.err("Add a few more lines of notes (about 200 characters) so there's something to grade.");
     setBusy(chat.id);
     try {
-      const g = await requestGrade(c, text, chat.transcript ? chat.notes : undefined);
+      const g = await requestGrade(c, text, chat.transcript ? chat.notes : undefined, chat.feel);
       updateConversation(c.id, chat.id, { grade: g });
       setOpen(chat.id);
       toast.ok(`Graded: ${g.score}/100 (${g.letter}).`);
@@ -131,9 +133,12 @@ function LogInner() {
         title="Activity log"
         sub="Conversations, calls and emails you log by hand. Each one lands on the person and in their bank tab's Conversation table."
         right={
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setLogging({})}>
-            Log activity
-          </Button>
+          <>
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setLogging({})}>
+              Log activity
+            </Button>
+            <Menu items={[{ label: "Grading rules", hint: "What the AI grader should believe", icon: <GraduationCap />, onClick: () => setRulesOpen(true) }]} />
+          </>
         }
       />
 
@@ -212,7 +217,7 @@ function LogInner() {
                           <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                             <Menu
                               items={[
-                                !chat.grade && aiReady(settings) && { label: busy === chat.id ? "Grading…" : "Grade with AI", hint: "From the notes or transcript", icon: <Sparkles />, onClick: () => grade(r), disabled: !!busy },
+                                aiReady(settings) && { label: busy === chat.id ? "Grading…" : chat.grade ? "Regrade with AI" : "Grade with AI", hint: "From the notes or transcript", icon: <Sparkles />, onClick: () => grade(r), disabled: !!busy },
                                 { label: "Coffee chat prep", icon: <Coffee />, onClick: () => router.push(`/prep?id=${encodeURIComponent(c.id)}`) },
                                 !!chat.docUrl && { label: "Open notes doc", icon: <ExternalLink />, onClick: () => window.open(chat.docUrl, "_blank", "noreferrer") },
                                 chat.source !== "spreadsheet" && "divider",
@@ -243,6 +248,12 @@ function LogInner() {
         )}
       </Card>
 
+      {rulesOpen && (
+        <Modal open onClose={() => setRulesOpen(false)} title="Grading rules">
+          <GradingRulesEditor />
+        </Modal>
+      )}
+
       {logging && (
         <LogModal
           key={`${logging.contactId ?? ""}:${logging.date ?? ""}`}
@@ -264,6 +275,19 @@ function Details({ row: { c, chat }, busy, onGrade, canGrade }: { row: Row; busy
       <div className="min-w-0">
         <div className="mb-1 text-[12px] text-muted">Notes</div>
         <p className="whitespace-pre-wrap text-ink-2">{chat.notes || "No notes."}</p>
+        <label className="mt-2 block">
+          <span className="text-[12px] text-muted">How it felt</span>
+          <Input
+            key={chat.id}
+            className="mt-0.5 h-8 text-[12.5px]"
+            defaultValue={chat.feel ?? ""}
+            placeholder="e.g. he was laughing throughout (used when it's graded)"
+            onBlur={(e) => {
+              const v = e.target.value.trim() || undefined;
+              if (v !== chat.feel) updateConversation(c.id, chat.id, { feel: v });
+            }}
+          />
+        </label>
         {chat.docUrl && (
           <a href={chat.docUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-navy hover:underline">
             <ExternalLink className="size-3.5" /> Notes doc
@@ -282,6 +306,7 @@ function Details({ row: { c, chat }, busy, onGrade, canGrade }: { row: Row; busy
               Grade · {g.letter} ({g.score}/100)
             </div>
             <p className="text-ink-2">{g.summary}</p>
+            {g.toneRead && <p className="mt-1 text-[12.5px] text-muted">How it felt: {g.toneRead}</p>}
             {g.commitments.length > 0 && (
               <div className="mt-2">
                 <div className="text-[12px] text-muted">They said they&apos;d</div>
@@ -297,10 +322,27 @@ function Details({ row: { c, chat }, busy, onGrade, canGrade }: { row: Row; busy
                 <div className="text-[12px] text-muted">Next time</div>
                 <ul className="mt-0.5 list-disc pl-5 text-ink-2">
                   {g.improvements.slice(0, 3).map((x) => (
-                    <li key={x.issue}>{x.suggestion}</li>
+                    <li key={x.issue}>
+                      {x.suggestion} <Disagree about={`${x.issue} → ${x.suggestion}`} />
+                    </li>
                   ))}
                 </ul>
               </div>
+            )}
+            {!!g.theirAdvice?.length && (
+              <div className="mt-2">
+                <div className="text-[12px] text-muted">Their advice to you</div>
+                <ul className="mt-0.5 list-disc pl-5 text-ink-2">
+                  {g.theirAdvice.map((x) => (
+                    <li key={x}>{x}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {canGrade && (
+              <Button size="sm" variant="ghost" icon={<Sparkles className="size-3.5" />} loading={busy} onClick={onGrade} className="mt-2">
+                Regrade
+              </Button>
             )}
           </>
         ) : (
@@ -395,6 +437,7 @@ function LogModal({ start, onClose }: { start: LogStart; onClose: () => void }) 
   const [date, setDate] = useState(() => start.date ?? today());
   const [notes, setNotes] = useState(start.orphan ? start.orphan.notes : "");
   const [doc, setDoc] = useState("");
+  const [feel, setFeel] = useState("");
   const [gradeIt, setGradeIt] = useState(true);
   const [busy, setBusy] = useState(false);
   const byLabel = useMemo(() => new Map(contacts.map((c) => [`${c.name} · ${c.bank}`, c])), [contacts]);
@@ -417,7 +460,7 @@ function LogModal({ start, onClose }: { start: LogStart; onClose: () => void }) 
       if (!person) return;
       // Noon local, so the day never shifts across time zones.
       const at = new Date(`${date}T12:00:00`).toISOString();
-      const { chat, row } = logConversation(person.id, { kind, at, notes, docUrl: doc });
+      const { chat, row } = logConversation(person.id, { kind, at, notes, docUrl: doc, feel });
       const fresh = useStore.getState().contacts.find((x) => x.id === person!.id);
       toast.ok(
         row && fresh?.convRef
@@ -429,7 +472,7 @@ function LogModal({ start, onClose }: { start: LogStart; onClose: () => void }) 
       onClose();
       if (gradeIt && canGrade) {
         try {
-          const g = await requestGrade(fresh ?? person, notesForGrading(notes));
+          const g = await requestGrade(fresh ?? person, notesForGrading(notes), undefined, feel);
           updateConversation(person.id, chat.id, { grade: g });
           toast.ok(`Graded: ${g.score}/100 (${g.letter}).`);
         } catch (e) {
@@ -476,6 +519,9 @@ function LogModal({ start, onClose }: { start: LogStart; onClose: () => void }) 
         </Field>
         <Field label="Notes" hint="What you talked about, what they offered, how it went. ~200+ characters can be graded.">
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={5} />
+        </Field>
+        <Field label="How it felt" hint="Optional. Transcripts and notes lose tone, so the grader trusts this (laughing, ran long, flat).">
+          <Input value={feel} onChange={(e) => setFeel(e.target.value.slice(0, 1000))} placeholder="e.g. he was laughing the whole time, ran 20 min over" />
         </Field>
         <Field label="Notes doc" hint="Optional: your Google Doc postmortem" error={docError}>
           <Input value={doc} onChange={(e) => setDoc(e.target.value)} placeholder="https://docs.google.com/document/d/…" />

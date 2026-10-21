@@ -8,6 +8,7 @@ import { ensureConvRef, requestGrade } from "@/lib/conversationActions";
 import type { ChatGrade, ChatLog, Contact } from "@/lib/types";
 import { cn, relDays, uid } from "@/lib/util";
 import { Badge, Button, Card, Checkbox, Input, Textarea, toast } from "@/components/ui";
+import { Disagree, GradingRulesEditor } from "@/components/GradingRules";
 
 const MAX_CHARS = 120_000;
 const MIN_CHARS = 200;
@@ -106,6 +107,7 @@ export function ChatGrades({ c }: { c: Contact }) {
   const [date, setDate] = useState(() => defaultDate(c));
   const [text, setText] = useState("");
   const [source, setSource] = useState("");
+  const [feel, setFeel] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(() => chats?.[0]?.id ?? null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -133,20 +135,21 @@ export function ChatGrades({ c }: { c: Contact }) {
     }
   };
 
-  const grade = (transcript: string, notes?: string): Promise<ChatGrade> => requestGrade(c, transcript, notes);
+  const grade = (transcript: string, notes?: string, how?: string): Promise<ChatGrade> => requestGrade(c, transcript, notes, how);
 
   const add = async (withGrade: boolean) => {
     const t = tidy(text);
     if (!t) return toast.err("Upload or paste a transcript first.");
     if (withGrade && t.length < MIN_CHARS) return toast.err("That's too short to grade. Paste the whole call.");
     if (withGrade && !canGrade) return toast.err("Add an AI key in Settings to grade calls. You can still save the transcript.");
-    const log: ChatLog = { id: uid("chat"), at: isoOf(date), transcript: t, source: source || "pasted" };
+    const log: ChatLog = { id: uid("chat"), at: isoOf(date), transcript: t, source: source || "pasted", feel: feel.trim() || undefined };
     setBusy("new");
     try {
-      if (withGrade) log.grade = await grade(t);
+      if (withGrade) log.grade = await grade(t, undefined, log.feel);
       save([log, ...latest()].sort((a, b) => b.at.localeCompare(a.at)));
       setText("");
       setSource("");
+      setFeel("");
       setOpen(log.id);
       toast.ok(withGrade ? `Graded: ${log.grade!.score}/100 (${log.grade!.letter}).` : "Transcript saved.");
     } catch (e) {
@@ -161,7 +164,7 @@ export function ChatGrades({ c }: { c: Contact }) {
     if (!canGrade) return toast.err("Add an AI key in Settings first.");
     setBusy(log.id);
     try {
-      const g = await grade(log.transcript, log.notes);
+      const g = await grade(log.transcript, log.notes, log.feel);
       save(latest().map((x) => (x.id === log.id ? { ...x, grade: g } : x)));
       setOpen(log.id);
       toast.ok(`Graded: ${g.score}/100 (${g.letter}).`);
@@ -208,6 +211,11 @@ export function ChatGrades({ c }: { c: Contact }) {
           }}
           placeholder="…or paste the transcript here. Speaker names help (“Nathan: …”, “Elixa: …”)."
         />
+        <Input
+          value={feel}
+          onChange={(e) => setFeel(e.target.value.slice(0, 1000))}
+          placeholder="How did it feel? (optional, e.g. he was laughing the whole time, ran 20 min over) Transcripts lose tone."
+        />
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="brass" size="sm" loading={busy === "new"} disabled={!!busy || !text.trim()} icon={<Sparkles className="size-3.5" />} onClick={() => add(true)}>
             Grade it
@@ -221,6 +229,13 @@ export function ChatGrades({ c }: { c: Contact }) {
           </span>
         </div>
       </div>
+
+      <details className="mt-3 rounded-lg border border-line px-3 py-2">
+        <summary className="cursor-pointer text-[12.5px] font-medium text-ink-2">Your grading rules</summary>
+        <div className="mt-2">
+          <GradingRulesEditor />
+        </div>
+      </details>
 
       {/* Referral */}
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[12.5px]">
@@ -277,6 +292,19 @@ export function ChatGrades({ c }: { c: Contact }) {
                 </div>
                 {expanded && (
                   <div className="border-t border-line px-3 py-3">
+                    <label className="mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-ink-2">
+                      How it felt
+                      <Input
+                        key={log.id}
+                        className="h-7 min-w-0 flex-1 basis-[240px] text-[12.5px]"
+                        defaultValue={log.feel ?? ""}
+                        placeholder="e.g. he was laughing throughout (used on the next grade)"
+                        onBlur={(e) => {
+                          const v = e.target.value.trim() || undefined;
+                          if (v !== log.feel) save(latest().map((x) => (x.id === log.id ? { ...x, feel: v } : x)));
+                        }}
+                      />
+                    </label>
                     {log.grade ? <GradeView g={log.grade} name={c.firstName || c.name} /> : <p className="text-[12.5px] text-muted">Not graded yet.</p>}
                     {log.transcript && (
                       <details className="mt-3 text-[12.5px]">
@@ -323,6 +351,7 @@ function GradeView({ g, name }: { g: ChatGrade; name: string }) {
         </div>
         <div className="min-w-0 flex-1 basis-[240px]">
           <p className="text-[13.5px] leading-relaxed">{g.summary}</p>
+          {g.toneRead && <p className="mt-1 text-[12.5px] text-ink-2">How it felt: {g.toneRead}</p>}
           <p className="mt-1 text-[11.5px] text-muted">Graded {relDays(g.gradedAt)}</p>
         </div>
       </div>
@@ -344,6 +373,7 @@ function GradeView({ g, name }: { g: ChatGrade; name: string }) {
                     <div className={cn("h-full rounded-full", r.score >= 4 ? "bg-green" : r.score === 3 ? "bg-brass" : "bg-red")} style={{ width: `${(r.score / 5) * 100}%` }} />
                   </div>
                   <div className="mt-0.5 text-[12px] text-ink-2">{r.comment}</div>
+                  <Disagree about={`${r.area} ${r.score}/5: ${r.comment}`} />
                 </div>
               </li>
             ))}
@@ -370,11 +400,25 @@ function GradeView({ g, name }: { g: ChatGrade; name: string }) {
                 <div className="font-medium">{x.issue}</div>
                 {x.quote && <div className="mt-0.5 border-l-2 border-line-2 pl-2 text-[12px] text-muted italic">“{x.quote}”</div>}
                 <div className="mt-0.5 text-ink-2">→ {x.suggestion}</div>
+                <Disagree about={`${x.issue} → ${x.suggestion}`} />
               </li>
             ))}
           </ol>
         </div>
       </div>
+
+      {!!g.theirAdvice?.length && (
+        <div>
+          <Title>{name}&apos;s advice to you</Title>
+          <ul className="space-y-1 text-[13px]">
+            {g.theirAdvice.map((s, i) => (
+              <li key={i} className="flex gap-1.5">
+                <span className="text-navy">●</span> {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-2">
         <div>

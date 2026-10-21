@@ -6,10 +6,10 @@
 import { useStore } from "./store";
 import { callApi } from "./api";
 import { hookFor } from "./hooks";
-import { DEFAULT_GENERAL_QUESTIONS } from "./defaults";
+import { DEFAULT_GENERAL_QUESTIONS, DEFAULT_GRADING_RULES } from "./defaults";
 import { allocateConversationRow } from "./workbook";
 import { latestIso, uid } from "./util";
-import type { ChatGrade, ChatLog, Contact, ConversationKind, Status } from "./types";
+import type { ChatGrade, ChatLog, Contact, ConversationKind, Settings, Status } from "./types";
 import type { ConversationRow } from "./conversations";
 
 const takenRows = (contacts: Contact[]) => new Set(contacts.flatMap((c) => (c.convRef ? [`${c.convRef.sheet}:${c.convRef.row}`] : [])));
@@ -38,6 +38,8 @@ export interface LogInput {
   at: string;
   notes?: string;
   docUrl?: string;
+  /** How it felt (tone the notes don't carry). */
+  feel?: string;
   transcript?: string;
   grade?: ChatGrade;
   source?: string;
@@ -58,6 +60,7 @@ export function logConversation(contactId: string, input: LogInput): { chat: Cha
     kind: input.kind,
     notes: input.notes?.trim() || undefined,
     docUrl: input.docUrl?.trim() || undefined,
+    feel: input.feel?.trim() || undefined,
     transcript: input.transcript?.trim() || undefined,
     grade: input.grade,
     source: input.source ?? "log",
@@ -108,7 +111,11 @@ const MAX = 120_000;
  * The AI grade of a conversation (api/prep/grade). Works from a transcript or from your notes / postmortem (it needs
  * about 200 characters to say anything useful).
  */
-export async function requestGrade(c: Contact, text: string, notes?: string): Promise<ChatGrade> {
+/** Your grading rules (Settings, grown by "Disagree" on a grade), else the defaults. */
+export const gradingRules = (settings: Settings) => settings.prep?.gradingRules ?? DEFAULT_GRADING_RULES;
+
+/** `feel` = how the call felt in your words (tone a transcript loses). */
+export async function requestGrade(c: Contact, text: string, notes?: string, feel?: string): Promise<ChatGrade> {
   const settings = useStore.getState().settings;
   const p = settings.profile;
   const prep = c.prep;
@@ -123,6 +130,8 @@ export async function requestGrade(c: Contact, text: string, notes?: string): Pr
         ? { brief: prep.brief.slice(0, 2000), intro: prep.intro.slice(0, 2000), questions: [...prep.tailored.map((t) => t.question), ...general].slice(0, 20).map((q) => q.slice(0, 400)) }
         : undefined,
       notes: (notes ?? prep?.notes)?.slice(0, 4000) || undefined,
+      feel: feel?.trim().slice(0, 1000) || undefined,
+      rules: gradingRules(settings).slice(0, 40).map((r) => r.slice(0, 500)),
     },
     settings,
   );

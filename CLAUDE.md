@@ -217,6 +217,15 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   referrals 25; avg chat grade 15) + your stars/notes in `coverage.ratings`.
 - **Transcripts** (`components/ChatGrades.tsx` on /prep, `api/prep/grade`): upload .txt/.vtt/.srt/.md/.docx or paste → AI rubric grade,
   improvements, the banker's commitments, thank-you points; saved as `contact.chats[]`. "They referred me" sets `contact.referral`.
+- **Grader rubric (owner, 2026-10-20):** 7 weighted areas with 5/3/1 anchors (`grade/route.ts#AREAS`: Connection & energy 25,
+  Personal rapport 20, Listening 15, Questions & prep 15, Opening 10, Asks 10, Close 5); the overall score + letter are computed
+  server-side from them (all 3s = 69, all 4s = 84), not by the model. Tone: transcripts (Granola, Zoom) drop laughter, so the
+  grader reads cues (haha / [laughter], long stories, running over) and trusts `ChatLog.feel` ("How it felt", typed on /log and
+  /prep); no signal = 3, never a penalty. `toneRead` explains it. Advice the banker gave goes to `theirAdvice`, never into
+  `improvements` (they used to just echo it). **Your rules beat the rubric:** `settings.prep.gradingRules` (default
+  `defaults.ts#DEFAULT_GRADING_RULES`: long personal chats are a strength, never cap them) are sent with every grade;
+  "Disagree" on any rubric line / improvement (`components/GradingRules.tsx`) adds one; /log ⋯ → Grading rules edits them.
+  This is the first step of the owner's idea of human feedback steering the grader; info sessions aren't graded yet.
 - **Bank brief** (`components/BankBrief.tsx` on /prep, for the selected contact's bank or any bank typed in its picker; `api/prep/bank`):
   webSearch (≤6 queries: per sub-vertical, the sector, the bank's culture/program) → AI returns ≤6 recent deals the bank advised on in
   `settings.prep.interests` (sector → sub-verticals; default Tech → Software, Internet, Vertical software; edited in Settings → Profile

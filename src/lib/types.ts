@@ -240,6 +240,8 @@ export interface ChatLog {
   notes?: string;
   /** Your notes / postmortem doc. */
   docUrl?: string;
+  /** How it felt, in your words ("he was laughing the whole time", "ran 20 min over"): tone a transcript loses. */
+  feel?: string;
   grade?: ChatGrade;
 }
 
@@ -253,6 +255,10 @@ export interface ChatGrade {
   /** Per-area scores, 1–5, with one line of evidence each. */
   rubric: { area: string; score: number; comment: string }[];
   strengths: string[];
+  /** How the call felt (energy, laughter, did it run long) and what that's based on; says so when the text can't tell. */
+  toneRead?: string;
+  /** Advice the banker gave you directly (kept apart from the coach's own improvements). */
+  theirAdvice?: string[];
   improvements: { issue: string; suggestion: string; quote?: string }[];
   /** Things they said they'd do (refer you, intro to someone, send a resume to HR), so you can check in on them. */
   commitments: string[];
@@ -415,7 +421,15 @@ export interface Settings {
    * Coffee chat prep: the general questions that work for anyone, and the sectors / sub-verticals you're interested in
    * (steer the bank brief's deal search and your "why this bank" answer).
    */
-  prep: { generalQuestions: string[]; interests: PrepInterest[] };
+  prep: {
+    generalQuestions: string[];
+    interests: PrepInterest[];
+    /**
+     * Your beliefs about what makes a good chat, sent with every AI grade and ranked above the grader's own rubric
+     * (undefined = DEFAULT_GRADING_RULES). Grown by "Disagree" on a grade (components/GradingRules.tsx).
+     */
+    gradingRules?: string[];
+  };
   /** Shared email skeletons (see EmailBase). */
   emailBases: EmailBase[];
   /** {{my_pitch}} sentences by kind of banker (see lib/hooks.ts). */
