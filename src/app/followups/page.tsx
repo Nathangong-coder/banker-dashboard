@@ -22,6 +22,7 @@ import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
+import { FOLLOW_UP_SPREAD } from "@/lib/sendWindow";
 import { earlySends, fixEarlySends, lateSends, markServerConnected, moveLateSends, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
 import { AutoSendCard } from "@/components/AutoSend";
 import { repliedToSchedule, ScheduleCallsTable } from "@/components/Scheduling";
@@ -1242,8 +1243,9 @@ function movedNote(why: Map<string, string>) {
 function LateSendsBanner() {
   const contacts = useStore((s) => s.contacts);
   const sendWindow = useStore((s) => s.settings.sendWindow);
+  const followUp = useStore((s) => s.settings.followUp);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- lateSends reads the window and spacing from the store
-  const late = useMemo(() => lateSends(contacts), [contacts, sendWindow]);
+  const late = useMemo(() => lateSends(contacts), [contacts, sendWindow, followUp]);
   const [busy, setBusy] = useState(false);
   if (!late.length) return null;
   const day = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" });
@@ -1271,7 +1273,7 @@ function LateSendsBanner() {
         </Button>
       }
     >
-      <b>{late.length}</b> queued email{late.length > 1 ? "s are" : " is"} set later than needed:{" "}
+      <b>{late.length}</b> queued follow-up{late.length > 1 ? "s are" : " is"} past the {Math.max(1, followUp.firstAfterDays - FOLLOW_UP_SPREAD)}–{followUp.firstAfterDays + FOLLOW_UP_SPREAD} day range:{" "}
       {late.slice(0, 6).map((x, i) => (
         <span key={x.c.id}>
           {i ? ", " : ""}
@@ -1315,7 +1317,7 @@ function EarlySendsBanner() {
         </Button>
       }
     >
-      <b>{early.length}</b> queued follow-up{early.length > 1 ? "s go" : " goes"} out sooner than {followUp.nextAfterDays} days after your last email (
+      <b>{early.length}</b> queued follow-up{early.length > 1 ? "s go" : " goes"} out sooner than {Math.max(1, followUp.nextAfterDays - FOLLOW_UP_SPREAD)} days after your last email (
       {early.slice(0, 4).map((c) => c.name).join(", ")}
       {early.length > 4 ? "…" : ""}).
     </Notice>

@@ -261,10 +261,33 @@ for (const [what, ok] of checks) {
     ["Thursday afternoon → next Tuesday", dayIn(planSends([people[0]], w, { now: zonedDate(2026, 10, 15, 15, 0, "America/Los_Angeles"), jitter: () => 0 }).get("ny1")!, "America/New_York") === "Tue"],
     ["An old 'weekdays' setting becomes Tue–Thu", JSON.stringify(windowOf({ sendWindow: { start: 9, end: 11, basis: "recipient", weekdaysOnly: true } as never }).days) === "[2,3,4]"],
     ["Days read as words", daysLabel([2, 3, 4]) === "Tue–Thu" && daysLabel([1, 3, 5]) === "Mon, Wed, Fri"],
-    ["Two NY sends are spread out", Math.abs(plan.get("ny1")!.getTime() - plan.get("ny2")!.getTime()) >= 5 * 60_000],
+    ["Two NY sends are spread out", Math.abs(plan.get("ny1")!.getTime() - plan.get("ny2")!.getTime()) >= 3 * 60_000],
     ["Tue 8 AM PT: NY → Wed, SF → today 9 AM", dayIn(plan2.get("ny1")!, "America/New_York") === "Wed" && dayIn(plan2.get("sf1")!, "America/Los_Angeles") === "Tue"],
     ["DST week: still 9 AM Eastern", hourIn(dst, "America/New_York") === 9 && dayIn(dst, "America/New_York") === "Tue"],
-    ["30 at once: all inside 9–11, some on the next day", [...big.values()].every((d) => hourIn(d, "America/New_York") >= 9 && hourIn(d, "America/New_York") < 11) && new Set([...big.values()].map((d) => dayIn(d, "America/New_York"))).size > 1],
+    ["30 at once: no cap, all inside 9–11, 3+ min apart, never a round minute", (() => {
+      const t = [...big.values()].map((d) => d.getTime()).sort((a, b) => a - b);
+      return [...big.values()].every((d) => hourIn(d, "America/New_York") >= 9 && hourIn(d, "America/New_York") < 11 && d.getUTCMinutes() % 5 !== 0) && t.every((x, i) => !i || x - t[i - 1] >= 3 * 60_000) && big.size === 30;
+    })()],
+    ["Random: follow-ups land 6, 7 and 8 days after, never sooner, on Tue/Wed/Thu", (() => {
+      // Last emails spread over a week; 300 follow-ups planned with real randomness.
+      const lots = Array.from({ length: 300 }, (_, i) => ({ ...person({ id: `r${i}`, region: "NY", location: "NY" }), last: zonedDate(2026, 10, 12 + (i % 5), 10, 0, "America/New_York") }));
+      const p = planSends(lots, w, { now: zonedDate(2026, 10, 11, 6, 0, "America/New_York"), notBefore: (c) => new Date(c.last.getTime() + 6 * 86_400_000) });
+      const gaps = new Set<number>();
+      const days = new Set<string>();
+      for (const c of lots) {
+        const d = p.get(c.id)!;
+        const gap = Math.round((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(c.last.getUTCFullYear(), c.last.getUTCMonth(), c.last.getUTCDate())) / 86_400_000);
+        gaps.add(gap);
+        days.add(dayIn(d, "America/New_York"));
+        if (gap < 6) return false;
+      }
+      return [6, 7, 8].every((g) => gaps.has(g)) && ["Tue", "Wed", "Thu"].every((x) => days.has(x)) && [...days].every((x) => ["Tue", "Wed", "Thu"].includes(x));
+    })()],
+    ["Random: first emails spread over the next 3 send days", (() => {
+      const lots = Array.from({ length: 60 }, (_, i) => person({ id: `n${i}`, region: "SF", location: "SF" }));
+      const p = planSends(lots, w, { now: zonedDate(2026, 10, 9, 15, 0, "America/Los_Angeles") });
+      return new Set([...p.values()].map((d) => dayIn(d, "America/Los_Angeles"))).size === 3;
+    })()],
     // Follow-up spacing is in days (Joseph Nichols: first email Thu 10/15 late morning was queued for Tue 10/27).
     ["7 days after a 10:58 AM email = that Thursday, at 9", (() => {
       const sent = zonedDate(2026, 10, 15, 10, 58, "America/New_York");

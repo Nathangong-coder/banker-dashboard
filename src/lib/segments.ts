@@ -87,7 +87,7 @@ export const TIME_WINDOWS = [
 
 /* ---------------- dimensions ---------------- */
 
-export type Dimension = "font" | "time" | "day" | "wording" | "template" | "hook" | `exp:${string}`;
+export type Dimension = "font" | "time" | "day" | "fuGap" | "fuDay" | "wording" | "template" | "hook" | `exp:${string}`;
 
 export interface DimCtx {
   settings: Settings;
@@ -99,6 +99,8 @@ export function dimensions(s: Settings): { id: Dimension; label: string }[] {
     { id: "font", label: "Font" },
     { id: "time", label: "Send time" },
     { id: "day", label: "Day sent" },
+    { id: "fuGap", label: "Follow-up gap (days)" },
+    { id: "fuDay", label: "Follow-up day" },
     { id: "hook", label: "Hook" },
     { id: "template", label: "Template" },
     { id: "wording", label: "Shared wording" },
@@ -138,6 +140,15 @@ export function dimensionOf(c: Contact, dim: Dimension, ctx: DimCtx): { key: str
     if (dim === "day") return { key: day, label: day };
     const b = TIME_BUCKETS.find((x) => hour >= x.from && hour < x.to)!;
     return { key: b.id, label: b.label };
+  }
+  if (dim === "fuGap" || dim === "fuDay") {
+    // The last follow-up sent before they replied (or the latest one): what the reply answered.
+    const log = (c.followUpLog ?? []).filter((x) => !c.repliedAt || x.at <= c.repliedAt);
+    const f = log[log.length - 1];
+    if (!f) return undefined;
+    if (dim === "fuGap") return { key: String(f.gapDays).padStart(2, "0"), label: `${f.gapDays} days` };
+    const day = localTime(f.at, c.region).day;
+    return { key: day, label: day };
   }
   if (dim === "hook") {
     const h = hookUsed(c, s);
@@ -185,7 +196,7 @@ export function crossTab(contacts: Contact[], dim: Dimension, seg: Segment, ctx:
   const rows = new Map<string, Map<string, Cell>>();
   const totals = new Map<string, Cell>();
   let untagged = 0;
-  const order = dim === "day" ? DAYS : dim === "time" ? TIME_BUCKETS.map((b) => b.id) : undefined;
+  const order = dim === "day" || dim === "fuDay" ? DAYS : dim === "time" ? TIME_BUCKETS.map((b) => b.id) : undefined;
   for (const c of contacts) {
     if (!wasSent(c)) continue;
     const v = dimensionOf(c, dim, ctx);

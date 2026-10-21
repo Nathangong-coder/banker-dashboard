@@ -2,9 +2,10 @@
 
 import { create } from "zustand";
 import { useStore } from "./store";
+import { latestIso } from "./util";
 import { nightPlan } from "./reminders";
 import { earliestSend, pendingFollowUpDraft } from "./followups";
-import { planSends, tooSoon, windowOf } from "./sendWindow";
+import { FOLLOW_UP_SPREAD, pastRange, planSends, tooSoon, windowOf } from "./sendWindow";
 import { vpPlusWarning } from "./seniority";
 import type { Contact } from "./types";
 
@@ -84,10 +85,12 @@ function applyFinished(list: Finished[]) {
     if (!c || c.serverSend?.draftId !== f.draftId) continue;
     const at = f.doneAt ?? new Date().toISOString();
     if (f.status === "sent") {
+      const prev = latestIso(c.lastEmailedAt, c.lastTouchAt ?? c.sentAt);
+      const log = f.step > 0 && prev ? [...(c.followUpLog ?? []), { step: f.step, at, gapDays: Math.round((Date.parse(at) - Date.parse(prev)) / 86_400_000) }] : c.followUpLog;
       const patch: Partial<Contact> =
         f.step === 0
           ? { status: "sent", sentAt: c.sentAt ?? at, lastTouchAt: at, threadId: f.threadId ?? c.threadId, draft: c.draft && { ...c.draft, gmailDraftId: undefined } }
-          : { status: "followed_up", followUps: Math.max(c.followUps, f.step), lastTouchAt: at, threadId: f.threadId ?? c.threadId, followUpDraft: undefined };
+          : { status: "followed_up", followUps: Math.max(c.followUps, f.step), lastTouchAt: at, threadId: f.threadId ?? c.threadId, followUpDraft: undefined, followUpLog: log };
       st.updateContact(c.id, { ...patch, serverSend: undefined }, { at, type: "note", note: f.step === 0 ? "First email sent automatically" : `Follow-up #${f.step} sent automatically` });
     } else {
       st.updateContact(c.id, { serverSend: undefined, ...(f.status === "missing" ? { followUpDraft: f.step ? undefined : c.followUpDraft } : {}) }, { at, type: "note", note: `Automatic send didn't happen: ${f.error ?? f.status}` });
@@ -168,6 +171,9 @@ export function sendableDraft(c: Contact): { draftId: string; step: number } | n
  * Queue these people's Gmail drafts in your send window (Settings → Email → Sending; default 9–11 AM their time,
  * weekdays), spread a few minutes apart around sends already queued. Returns how many.
  */
+/** The gap (days) a follow-up's earliest day stands for: your follow-up setting minus the spread (7 → 6). */
+const minGap = () => Math.max(1, useStore.getState().settings.followUp.firstAfterDays - FOLLOW_UP_SPREAD);
+
 /** The earliest a queued / to-be-queued email to this person may go out (follow-ups only). */
 export function notBeforeOf(c: Contact) {
   const step = c.serverSend?.step ?? sendableDraft(c)?.step ?? 0;
@@ -186,7 +192,7 @@ export async function queueSends(contacts: Contact[], why = new Map<string, stri
     .map((c) => ({ c, d: sendableDraft(c) }))
     .filter((x): x is { c: Contact; d: { draftId: string; step: number } } => !!x.d);
   const taken = st.contacts.filter((c) => c.serverSend && !ids.has(c.id)).map((c) => new Date(c.serverSend!.sendAt));
-  const plan = planSends(ready.map((x) => x.c), windowOf(st.settings), { taken, notBefore: notBeforeOf, why });
+  const plan = planSends(ready.map((x) => x.c), windowOf(st.settings), { taken, notBefore: notBeforeOf, why, minGapDays: minGap() });
   for (const { c, d } of ready) {
     const at = plan.get(c.id);
     if (at) st.updateContact(c.id, { serverSend: { draftId: d.draftId, step: d.step, sendAt: at.toISOString(), queuedAt: new Date().toISOString(), why: why.get(c.id) } });
@@ -199,7 +205,7 @@ export async function queueSends(contacts: Contact[], why = new Map<string, stri
 export async function rescheduleQueued() {
   const st = useStore.getState();
   const queued = st.contacts.filter((c) => c.serverSend && new Date(c.serverSend.sendAt) > new Date());
-  const plan = planSends(queued, windowOf(st.settings), { notBefore: notBeforeOf });
+  const plan = planSends(queued, windowOf(st.settings), { notBefore: notBeforeOf, minGapDays: minGap() });
   for (const c of queued) {
     const at = plan.get(c.id);
     if (at) st.updateContact(c.id, { serverSend: { ...c.serverSend!, sendAt: at.toISOString() } });
@@ -217,24 +223,27 @@ export function earlySends(contacts: Contact[]) {
 }
 
 /**
- * Queued sends that could go out on an earlier day than they're set for: planned before follow-up spacing was counted
- * in days (Joseph Nichols, first email Thu 10/15, was queued for Tue 10/27 instead of Thu 10/22), or a day freed up
- * since. Each is re-planned around everyone else's slots; listed when that lands on an earlier calendar day.
+ * Queued follow-ups set past the 6-8 day range after your last email when a day inside it was open: planned before
+ * spacing counted whole days (Joseph Nichols, first email Thu 10/15, was queued for Tue 10/27 instead of Thu 10/22).
+ * Days inside the range are chosen at random on purpose (gap / weekday data), so only sends beyond it are listed.
  */
 export function lateSends(contacts: Contact[], now = new Date()) {
   const w = windowOf(useStore.getState().settings);
-  const queued = contacts.filter((c) => c.serverSend && new Date(c.serverSend.sendAt) > now);
   const out: { c: Contact; from: Date; to: Date }[] = [];
-  for (const c of queued) {
-    const taken = queued.filter((x) => x.id !== c.id).map((x) => new Date(x.serverSend!.sendAt));
-    const to = planSends([c], w, { now, taken, notBefore: notBeforeOf, jitter: () => 0 }).get(c.id);
-    const from = new Date(c.serverSend!.sendAt);
-    if (to && to.toDateString() !== from.toDateString() && to < from) out.push({ c, from, to });
+  for (const c of contacts) {
+    if (!c.serverSend || new Date(c.serverSend.sendAt) <= now) continue;
+    const nb = notBeforeOf(c);
+    if (!nb) continue;
+    const from = new Date(c.serverSend.sendAt);
+    if (!pastRange(from, nb, c, w)) continue;
+    // The first allowed day in the range (deterministic, so the banner doesn't flicker).
+    const to = planSends([c], w, { now, notBefore: notBeforeOf, jitter: () => 0 }).get(c.id);
+    if (to && !pastRange(to, nb, c, w) && to < from) out.push({ c, from, to });
   }
   return out;
 }
 
-/** Move the sends `lateSends` found to their earliest day (one at a time, so they never take the same slot). */
+/** Move the sends `lateSends` found to a random day inside the 6-8 day range (around everyone else's sends). */
 export async function moveLateSends() {
   const st = useStore.getState();
   const moved: { name: string; from: Date; to: Date }[] = [];
@@ -243,11 +252,12 @@ export async function moveLateSends() {
     const cur = fresh.find((x) => x.id === c.id);
     if (!cur?.serverSend) continue;
     const taken = fresh.filter((x) => x.serverSend && x.id !== c.id).map((x) => new Date(x.serverSend!.sendAt));
-    const to = planSends([cur], windowOf(st.settings), { taken, notBefore: notBeforeOf }).get(c.id);
+    const why = new Map<string, string>();
+    const to = planSends([cur], windowOf(st.settings), { taken, notBefore: notBeforeOf, why, minGapDays: minGap() }).get(c.id);
     const from = new Date(cur.serverSend.sendAt);
     if (!to || to >= from) continue;
     moved.push({ name: c.name, from, to });
-    st.updateContact(c.id, { serverSend: { ...cur.serverSend, sendAt: to.toISOString(), why: undefined } }, { at: new Date().toISOString(), type: "note", note: "Queued send moved earlier: follow-up spacing now counts whole days" });
+    st.updateContact(c.id, { serverSend: { ...cur.serverSend, sendAt: to.toISOString(), why: why.get(c.id) } }, { at: new Date().toISOString(), type: "note", note: "Queued follow-up moved earlier: it was past the 6-8 day range" });
   }
   if (moved.length) await syncServer();
   return moved;
@@ -259,7 +269,7 @@ export async function fixEarlySends() {
   const early = earlySends(st.contacts);
   const ids = new Set(early.map((c) => c.id));
   const taken = st.contacts.filter((c) => c.serverSend && !ids.has(c.id)).map((c) => new Date(c.serverSend!.sendAt));
-  const plan = planSends(early, windowOf(st.settings), { taken, notBefore: notBeforeOf });
+  const plan = planSends(early, windowOf(st.settings), { taken, notBefore: notBeforeOf, minGapDays: minGap() });
   const moved: { name: string; from: string; to: Date }[] = [];
   for (const c of early) {
     const at = plan.get(c.id);

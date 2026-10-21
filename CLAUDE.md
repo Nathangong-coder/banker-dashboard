@@ -212,14 +212,17 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   automating it breaks its terms (same decision as scraping); the text links the profile for a one-tap Connect.
 - **Follow-up spacing when scheduling:** `followups.ts#earliestSend` (last email + first/nextAfterDays) is passed as `notBefore` to
   `planSends` / `planBatch`, so a follow-up is never queued early (Will Yi's #2 was queued Tue, 5 days after #1). `planSends` records
-  why someone isn't on the first open day (`why`, kept as `serverSend.why`: window full = 20 per zone/day at 6-min spacing, or
-  spacing). Follow-ups → Scheduled shows a "too soon" badge and "Move too-early sends" (`serverSync.ts#fixEarlySends`).
-- **Spacing counts calendar days (owner, 2026-10-20):** "7 days after" = any slot on that day in the recipient's zone
-  (`sendWindow.ts#tooSoon`, `planSends` skips days before it). It was to the minute, so Joseph Nichols (first email Thu
-  10/15, late morning) was queued for Tue 10/27: 10/22's earlier slots were "too soon" and Fri/Mon aren't send days. The
-  0–2 min jitter is added to the send time only, not the slot grid (it compounded: ~15–17 per window instead of 20).
-  `serverSync.ts#lateSends` / `moveLateSends` = Follow-ups banner "N queued emails are set later than needed → Move N
-  earlier". `check:outreach` covers both.
+  why someone isn't on the first open day (`why`, kept as `serverSend.why`). Follow-ups → Scheduled shows a "too soon" badge and "Move too-early sends" (`serverSync.ts#fixEarlySends`).
+- **Spacing counts calendar days (owner, 2026-10-20):** "N days after" = any slot on that day in the recipient's zone
+  (`sendWindow.ts#tooSoon`). It was to the minute, so Joseph Nichols (first email Thu 10/15, late morning) was queued for
+  Tue 10/27. `serverSync.ts#lateSends` / `moveLateSends` = Follow-ups banner for queued follow-ups past the 6-8 day range.
+- **Random days and minutes, no cap (owner, 2026-10-20, for reply data):** `planSends` gives each follow-up a random allowed
+  day 6, 7 or 8 days after the last email (`earliestSend` = setting − `FOLLOW_UP_SPREAD`; never sooner than 6; past the range
+  only if no send day falls in it) and each first email a random one of the next 3 send days (Tue/Wed/Thu). The minute is
+  random in the window, never a multiple of 5 (round times look scheduled), ≥3 min from other sends in that zone/day; no
+  per-day cap (the old 6-min grid + 20 cap is gone). `why` says the gap ("Wed, 6 days after your last email"). Server-sent
+  follow-ups record `contact.followUpLog {step, at, gapDays}`; the lab's "Follow-up gap" / "Follow-up day" dimensions read it
+  (`segments.ts`; Gmail Schedule-send follow-ups aren't logged). `check:outreach` + `check:night` cover it.
 - **Date bug (Michael Bender):** a save re-imports the file from disk when OneDrive/Excel touched it; a Contacted cell saved before a
   follow-up ("10/1/2026") replaced the follow-up's `lastTouchAt`, so follow-up #2 was timed from the first email. Merges now take
   `util.ts#latestIso` (store import + workbook dedupe): the last touch never moves back.
@@ -511,8 +514,8 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   follow-up rules. Experiments = `components/LabSetup.tsx` (experiments, shared wording, generator, moved out of /lab, which now
   shows results only; `/lab?view=setup` forwards). Reminders = `AutoSendCard` (components/AutoSend.tsx) + alert channels.
 - **Send window** (`settings.sendWindow`, `lib/sendWindow.ts`): default 9–11 AM in the recipient's zone (`recipientTz`: NY Eastern,
-  Chicago/Texas Central, else Pacific), weekdays only. `planSends` gives a batch spots 6 min apart (+0–2 min jitter) around sends already
-  queued, overflowing to the next weekday; `zonedDate` is DST-safe. `queueSends` uses it; `rescheduleQueued` ("Move N queued emails
+  Chicago/Texas Central, else Pacific), weekdays only. `planSends` picks random days/minutes (see "Random days and minutes" above) around sends already
+  queued; `zonedDate` is DST-safe. `queueSends` uses it; `rescheduleQueued` ("Move N queued emails
   into this window") re-plans everything queued. check:outreach covers zones, weekends, spreading, overflow and DST.
 
 ## Firm facts: where they come from and the guardrails

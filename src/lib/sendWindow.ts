@@ -71,6 +71,12 @@ export function tooSoon(at: Date, notBefore: Date | undefined, c: Pick<Contact, 
   return dayNum(at, tz) < dayNum(notBefore, tz);
 }
 
+/** Past the follow-up range: more than 2 × FOLLOW_UP_SPREAD days after the earliest allowed day (8+ days for a 7-day setting). */
+export function pastRange(at: Date, notBefore: Date, c: Pick<Contact, "region" | "location">, w: SendWindow) {
+  const tz = tzOf(c, w);
+  return daysBetween(dayNum(notBefore, tz), dayNum(at, tz)) > 2 * FOLLOW_UP_SPREAD;
+}
+
 /** The instant that reads y-m-d h:min on a wall clock in `tz` (DST-safe: corrects by the zone's offset twice). */
 export function zonedDate(y: number, m: number, d: number, h: number, min: number, tz: string) {
   const want = Date.UTC(y, m - 1, d, h, min);
@@ -83,71 +89,100 @@ export function zonedDate(y: number, m: number, d: number, h: number, min: numbe
   return new Date(t);
 }
 
-const GAP_MIN = 6;
+/**
+ * Follow-ups go out 6, 7 or 8 days after your last email (`firstAfterDays` ± this, at least 6), and first emails on one
+ * of the next few send days, picked at random: replies can then be compared by gap and by weekday (owner, 2026-10-20).
+ */
+export const FOLLOW_UP_SPREAD = 1;
+/** First emails: a random one of this many next allowed send days (Tue / Wed / Thu by default). */
+const FIRST_EMAIL_DAYS = 3;
+/** Sends to one zone on one day are at least this far apart, so two never leave in the same minute. */
+const MIN_APART_MIN = 3;
 
-/** How many sends fit in one window per zone and day at GAP_MIN spacing (9–11 AM = 20). */
-export const windowCapacity = (w: SendWindow) => Math.max(1, Math.floor(((w.end - w.start) * 60) / GAP_MIN));
+const MINUTE = 60_000;
+const DAY_MS = 86_400_000;
+const daysBetween = (a: number, b: number) => {
+  const utc = (n: number) => Date.UTC(Math.floor(n / 10_000), (Math.floor(n / 100) % 100) - 1, n % 100);
+  return Math.round((utc(b) - utc(a)) / DAY_MS);
+};
 
 /**
- * Send times for a batch, in order: each person gets the first window (today if it's still open, else the next
- * allowed day) with a free spot, spots `GAP_MIN` minutes apart (+0–2 min so they don't look machine-timed).
- * `taken` = times already queued for other people, which keep their spots. `notBefore` = the earliest each person may
- * be emailed (a follow-up's spacing after your last email; followups.ts#earliestSend). `why` collects, per person,
- * why they didn't get the first open day ("Tue 9–11 AM ET was full"), so a day that moved isn't a mystery.
+ * Send times for a batch (owner, 2026-10-20): no per-day cap and no fixed grid. Each person gets a random day (a
+ * follow-up: any allowed day from `notBefore` to 2 days after it, i.e. 6-8 days after your last email; a first email:
+ * one of the next FIRST_EMAIL_DAYS allowed days) and a random minute in the window that isn't a round :00 / :05 / :10…
+ * (round times look scheduled) and is MIN_APART_MIN from other sends in that zone that day. `taken` = times already
+ * queued for other people. `notBefore` = followups.ts#earliestSend. `why` gets a short reason per person.
+ * `random` (0..1) makes it testable; passing `jitter` (the old option) means "deterministic": earliest day, earliest minute.
  */
 export function planSends<C extends Pick<Contact, "id" | "region" | "location">>(
   people: C[],
   w: SendWindow,
-  opts: { now?: Date; taken?: Date[]; jitter?: () => number; notBefore?: (c: C) => Date | undefined; why?: Map<string, string> } = {},
+  opts: {
+    now?: Date;
+    taken?: Date[];
+    jitter?: () => number;
+    random?: () => number;
+    notBefore?: (c: C) => Date | undefined;
+    why?: Map<string, string>;
+    /** How many days after `notBefore` a follow-up may land (default 2: 6, 7 or 8 days after the last email). */
+    spreadDays?: number;
+    /** The gap `notBefore` stands for (default 6), for the `why` text only. */
+    minGapDays?: number;
+  } = {},
 ) {
   const now = opts.now ?? new Date();
-  const jitter = opts.jitter ?? (() => Math.floor(Math.random() * 3));
+  const rand = opts.random ?? (opts.jitter ? () => 0 : Math.random);
+  const spread = opts.spreadDays ?? 2 * FOLLOW_UP_SPREAD;
   const mine = myTz();
   const used = new Map<string, number[]>();
-  const keyFor = (tz: string, y: number, m: number, d: number) => `${tz}|${y}-${m}-${d}`;
-  for (const t of opts.taken ?? [])
+  const keyFor = (tz: string, n: number) => `${tz}|${n}`;
+  const mark = (t: number) => {
     for (const tz of new Set(["America/New_York", "America/Chicago", "America/Los_Angeles", mine])) {
-      const p = partsIn(t, tz);
-      used.set(keyFor(tz, p.y, p.m, p.d), [...(used.get(keyFor(tz, p.y, p.m, p.d)) ?? []), t.getTime()]);
+      const k = keyFor(tz, dayNum(new Date(t), tz));
+      used.set(k, [...(used.get(k) ?? []), t]);
     }
+  };
+  for (const t of opts.taken ?? []) mark(t.getTime());
   const out = new Map<string, Date>();
-  const earliest = now.getTime() + 10 * 60_000;
-  const zoneName = (tz: string) => new Date().toLocaleTimeString("en-US", { timeZone: tz, timeZoneName: "short" }).split(" ").pop()!.replace(/^[PECM][DS]T$/, (z) => `${z[0]}T`);
+  const earliest = now.getTime() + 10 * MINUTE;
   for (const c of people) {
     const tz = tzOf(c, w, mine);
     const notBefore = opts.notBefore?.(c)?.getTime() ?? 0;
-    // Spacing counts whole days in their zone (see tooSoon): any slot on the allowed day is fine.
     const nbDay = notBefore ? dayNum(new Date(notBefore), tz) : 0;
-    const start = new Date(Math.max(now.getTime(), notBefore));
-    const first = partsIn(start, tz);
-    const full: string[] = [];
-    for (let add = 0; add < 28; add++) {
+    const first = partsIn(new Date(Math.max(now.getTime(), notBefore)), tz);
+    // Allowed days with the window still open, from the first possible one on.
+    const days: { n: number; wd: string; from: number; close: number }[] = [];
+    for (let add = 0; add < 40 && days.length < 12; add++) {
       const day = partsIn(zonedDate(first.y, first.m, first.d + add, 12, 0, tz), tz);
-      if (!w.days.includes(WD.indexOf(day.wd))) continue;
-      if (day.y * 10_000 + day.m * 100 + day.d < nbDay) continue;
-      const open = zonedDate(day.y, day.m, day.d, w.start, 0, tz).getTime();
+      const n = day.y * 10_000 + day.m * 100 + day.d;
+      if (!w.days.includes(WD.indexOf(day.wd)) || n < nbDay) continue;
+      const from = Math.max(zonedDate(day.y, day.m, day.d, w.start, 0, tz).getTime(), earliest);
       const close = zonedDate(day.y, day.m, day.d, w.end, 0, tz).getTime();
-      const from = Math.max(open, earliest);
-      if (from >= close) continue;
-      const k = keyFor(tz, day.y, day.m, day.d);
-      const spots = used.get(k) ?? [];
-      let at = from;
-      // Next free spot: GAP_MIN after anything already there.
-      for (const s of [...spots].sort((a, b) => a - b)) if (Math.abs(s - at) < GAP_MIN * 60_000) at = s + GAP_MIN * 60_000;
-      if (at >= close) {
-        full.push(`${day.wd} (${spots.length} already queued in ${w.start}–${w.end} ${zoneName(tz)})`);
-        continue;
-      }
-      // The 0–2 min jitter goes on the send time only, not on the slot grid: added to the grid it compounded (each spot
-      // pushed the next 7–8 min out), so a 9–11 window held ~15–17 instead of 20 and the rest slid to the next send day.
-      out.set(c.id, new Date(Math.min(at + jitter() * 60_000, close - 60_000)));
-      used.set(k, [...spots, at]);
-      const reasons: string[] = [];
-      if (notBefore > now.getTime()) reasons.push(`not before ${new Date(notBefore).toLocaleDateString("en-US", { timeZone: tz, weekday: "short", month: "numeric", day: "numeric" })} (spacing since your last email)`);
-      if (full.length) reasons.push(`window full on ${full.join(", ")}`);
-      if (reasons.length) opts.why?.set(c.id, reasons.join("; "));
-      break;
+      if (from < close - MINUTE) days.push({ n, wd: day.wd, from, close });
     }
+    if (!days.length) continue;
+    const inRange = notBefore ? days.filter((d) => daysBetween(nbDay, d.n) <= spread) : days.slice(0, FIRST_EMAIL_DAYS);
+    const pool = inRange.length ? inRange : days.slice(0, 1);
+    const day = pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
+    const spots = used.get(keyFor(tz, day.n)) ?? [];
+    const ok = (t: number) => t < day.close && new Date(t).getUTCMinutes() % 5 !== 0 && spots.every((s) => Math.abs(s - t) >= MIN_APART_MIN * MINUTE);
+    const minutes = Math.floor((day.close - day.from) / MINUTE);
+    const base = Math.ceil(day.from / MINUTE) * MINUTE;
+    // A random minute, else the first free one from a random point (wrapping), so a busy day still fits.
+    let at: number | undefined;
+    const startAt = Math.floor(rand() * minutes);
+    for (let i = 0; i < minutes && at === undefined; i++) {
+      const t = base + ((startAt + i) % minutes) * MINUTE;
+      if (ok(t)) at = t;
+    }
+    // Every minute taken (hundreds of sends in one zone and day): any non-round minute will do.
+    at ??= base + MINUTE;
+    out.set(c.id, new Date(at));
+    mark(at);
+    if (notBefore) {
+      const gap = (opts.minGapDays ?? 6) + daysBetween(nbDay, day.n);
+      opts.why?.set(c.id, `${day.wd}, ${gap} days after your last email${inRange.length ? "" : " (first send day after the 6-8 day range)"}`);
+    } else if (pool.length > 1) opts.why?.set(c.id, `${day.wd} (picked at random from your next ${pool.length} send days)`);
   }
   return out;
 }

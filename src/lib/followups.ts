@@ -1,4 +1,5 @@
 import type { BankMeta, Contact, Settings } from "./types";
+import { FOLLOW_UP_SPREAD } from "./sendWindow";
 import { addDays, latestIso } from "./util";
 
 export type ActionKind = "reach_out" | "send" | "scheduled" | "follow_up" | "move_on" | "none";
@@ -50,14 +51,15 @@ export function nextAction(c: Contact, s: Settings["followUp"], bank?: BankMeta)
 }
 
 /**
- * The earliest follow-up #`step` may go out: `firstAfterDays` (step 1) or `nextAfterDays` after your last email to them
+ * The earliest follow-up #`step` may go out: `firstAfterDays` (step 1) or `nextAfterDays`, minus FOLLOW_UP_SPREAD, after your last email to them
  * (Gmail's latest sent date when synced). Undefined for a first email or with no date. The schedulers never place a
  * follow-up before it: bulk "Draft & schedule" once queued Will Yi's #2 five days after #1.
  */
 export function earliestSend(c: Pick<Contact, "lastEmailedAt" | "lastTouchAt" | "sentAt">, s: Settings["followUp"], step: number) {
   if (step <= 0) return undefined;
   const last = latestIso(c.lastEmailedAt, c.lastTouchAt ?? c.sentAt);
-  return last ? addDays(last, step === 1 ? s.firstAfterDays : s.nextAfterDays) : undefined;
+  // The planner spreads follow-ups over 6-8 days for a 7-day setting (sendWindow.ts#FOLLOW_UP_SPREAD): this is the 6.
+  return last ? addDays(last, Math.max(1, (step === 1 ? s.firstAfterDays : s.nextAfterDays) - FOLLOW_UP_SPREAD)) : undefined;
 }
 
 /** When the next email to this person goes out by itself: Gmail Schedule send, or a send queued on the server. */

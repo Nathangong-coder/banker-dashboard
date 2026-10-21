@@ -117,6 +117,11 @@ export interface Contact {
   /** A send queued in Gmail ("Schedule send") that hasn't gone out yet. Follow-ups are timed from the real send. */
   scheduledAt?: string;
   followUps: number;
+  /**
+   * Follow-ups the dashboard sent, with the gap since your previous email (days) and when, for the Email lab's
+   * "Follow-up gap" / "Follow-up day" results (the planner picks 6, 7 or 8 days and Tue / Wed / Thu at random).
+   */
+  followUpLog?: { step: number; at: string; gapDays: number }[];
   repliedAt?: string;
   /** The latest email you sent them, replies included (Gmail sync). Check-ins and thank-yous are timed from it. */
   lastEmailedAt?: string;
