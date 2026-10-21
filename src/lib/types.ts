@@ -51,7 +51,9 @@ export type ContactField =
   /** When they were first emailed (lib/contacted.ts). */
   | "contacted"
   /** The latest email or call with them ("Last emailed/contacted"). */
-  | "lastContacted";
+  | "lastContacted"
+  /** The "Referral?" checkbox column (lib/checkboxes.ts). */
+  | "referral";
 
 export interface HistoryEvent {
   at: string;
@@ -83,6 +85,8 @@ export interface Contact {
   school?: string;
   headline?: string;
   sheetStatus?: string;
+  /** The "Referral?" checkbox as last read from the sheet (undefined = no such column, or free text in it). */
+  sheetReferral?: boolean;
   status: Status;
   source: "sheet" | "prospect" | "manual";
   ref?: CellRef;

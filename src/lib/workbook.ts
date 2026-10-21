@@ -9,6 +9,7 @@ import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, typ
 import { detectRegion } from "./region";
 import { appChats, gradeLine, kindsSummary, latestChat, matchRow, mergeCell, notesLine, sheetChat, withSheetChat, type ConversationRow } from "./conversations";
 import { EMPTY_OPS, opsOf, type SheetOps } from "./sheetOps";
+import { REFERRAL_HEADERS, REFERRAL_TITLE, mergeReferral, parseCheck, writeCheckboxes, type CheckboxCells } from "./checkboxes";
 import { CONTACTED_HEADERS, LAST_CONTACTED_HEADERS, LAST_CONTACTED_TITLE, formatContacted, formatDay, parseContacted, parseLastContacted, sameContacted, sameDayIso } from "./contacted";
 
 const MAX_ROWS = 1500;
@@ -76,6 +77,7 @@ const HEADERS: Record<ContactField | "first" | "last", string[]> = {
   company: ["company", "firm", "bank", "institution", "organization", "institution name"],
   contacted: CONTACTED_HEADERS,
   lastContacted: LAST_CONTACTED_HEADERS,
+  referral: REFERRAL_HEADERS,
 };
 
 function matchHeaders(row: Map<number, string>) {
@@ -376,7 +378,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
       const colOf = (...names: string[]) => [...head].find(([, t]) => names.includes(norm(t)))?.[0];
       const convCol = colOf("conversation", "conversations");
       const cols: ContactTable["cols"] = {};
-      for (const k of ["name", "email", "linkedin", "position", "location", "team", "status", "comment", "company", "contacted", "lastContacted"] as const) {
+      for (const k of ["name", "email", "linkedin", "position", "location", "team", "status", "comment", "company", "contacted", "lastContacted", "referral"] as const) {
         if (h[k] !== undefined) cols[k] = h[k];
       }
       const table: ContactTable = {
@@ -440,6 +442,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
         // The Last emailed/contacted column: the latest email or call. Before they replied it's the last outreach (follow-ups
         // are timed from it); after, it's when you last wrote (check-ins).
         const lastAt = parseLastContacted(get(r, cols.lastContacted)?.v);
+        const referred = cols.referral ? parseCheck(get(r, cols.referral)?.v) : undefined;
         if (lastAt && dates.sentAt) {
           if (["sent", "followed_up"].includes(status)) dates.lastTouchAt = latestIso(dates.lastTouchAt, lastAt);
           else (dates as { lastEmailedAt?: string }).lastEmailedAt = lastAt;
@@ -459,6 +462,8 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
           linkedin: /linkedin\.com/i.test(linkedin) ? linkedin : "",
           comment: get(r, cols.comment)?.v ?? "",
           sheetStatus,
+          sheetReferral: referred,
+          ...(referred ? { referral: { at: new Date().toISOString() } } : {}),
           status,
           source: "sheet",
           ref,
@@ -598,6 +603,14 @@ export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]):
     if (last) {
       const col = cols.lastContacted ?? (cols.status ? addedColumn(snap.get(sheet), (out[sheet] ??= {}), ref, LAST_CONTACTED_HEADERS, LAST_CONTACTED_TITLE, "after") : undefined);
       if (col && !sameDayIso(parseLastContacted(cellAt(col)), last)) put(sheet, row, col, { v: formatDay(last) });
+    }
+    // The Referral? checkbox (added after the table when missing), ticked = `contact.referral`. Text typed into it is left alone.
+    if (cols.status) {
+      // Same place on every tab: after "Last emailed/contacted" (its header is added first when the tab has none yet).
+      if (!cols.referral && !cols.lastContacted) addedColumn(snap.get(sheet), (out[sheet] ??= {}), ref, LAST_CONTACTED_HEADERS, LAST_CONTACTED_TITLE, "after");
+      const col = cols.referral ?? addedColumn(snap.get(sheet), (out[sheet] ??= {}), ref, REFERRAL_HEADERS, REFERRAL_TITLE, "after");
+      const onSheet = col ? parseCheck(cellAt(col)) : undefined;
+      if (col && onSheet !== undefined && onSheet !== !!c.referral) put(sheet, row, col, { v: c.referral ? "TRUE" : "FALSE" });
     }
     const linkCell = cols.linkedin ? snap.get(sheet)?.cells[`${row}:${cols.linkedin}`] : undefined;
     if (c.linkedin && !linkCell) put(sheet, row, cols.linkedin, { v: c.linkedin, link: c.linkedin });
@@ -815,6 +828,11 @@ export function syncGridEdits(contacts: Contact[], snapshots: SheetSnapshot[], b
     }
     if ("email" in patch) patch.emailSource = n.email ? "sheet" : undefined;
     if ("sheetStatus" in patch) patch.status = n.status;
+    // The Referral? box ticked or unticked in the grid.
+    if (n.sheetReferral !== undefined && n.sheetReferral !== p?.sheetReferral) {
+      patch.sheetReferral = n.sheetReferral;
+      patch.referral = mergeReferral(p?.sheetReferral, n.sheetReferral, cur.referral);
+    }
     if (cur !== owner && JSON.stringify(cur.ref) !== JSON.stringify(n.ref)) patch.ref = n.ref;
     // Typed into (or cleared from) their Conversation row: the link and the hand-typed conversation follow the sheet.
     if (JSON.stringify(p?.convRef) !== JSON.stringify(n.convRef) && n.convRef) patch.convRef = n.convRef;
@@ -1150,7 +1168,53 @@ function copyRowStyle(wb: Workbook, sheet: string, row: number, from: number) {
   });
 }
 
-export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropdowns: Dropdown[] = [], ops: SheetOps = EMPTY_OPS): Promise<ArrayBuffer> {
+/** A column saved as Excel checkboxes (the Referral? column): its header row and the table body under it. */
+export interface CheckboxColumn {
+  sheet: string;
+  col: number;
+  header: number;
+  from: number;
+  to: number;
+}
+
+/** Every contact table's Referral? column, from under the header to the last person or numbered slot. */
+export function referralColumns(tables: ContactTable[], snapshots: SheetSnapshot[]): CheckboxColumn[] {
+  const snap = new Map(snapshots.map((s) => [s.name, s]));
+  const out: CheckboxColumn[] = [];
+  for (const t of tables) {
+    const s = snap.get(t.sheet);
+    const col = t.cols.referral;
+    if (!s || !col || t.kind === "conversation") continue;
+    const body = tableBody(t, tables, (r, c) => s.cells[`${r}:${c}`]?.v ?? "", s.rows);
+    if (body.to >= body.from) out.push({ sheet: t.sheet, col, header: t.headerRow, from: body.from, to: body.to });
+  }
+  return out;
+}
+
+/** No fill, borders or bold (ExcelJS reports `border: {}` and `pattern: "none"` for cells that look plain). */
+const plainCell = (s?: Partial<import("exceljs").Style>) =>
+  !(s?.fill && !(s.fill.type === "pattern" && s.fill.pattern === "none")) && !Object.keys(s?.border ?? {}).length && !s?.font?.bold;
+
+/**
+ * A cell the dashboard added (no look of its own) gets the font, fill and borders of the nearest styled cell to its
+ * left. For a header, the plain cells in between (another column the dashboard added) get it too, so the row matches.
+ */
+function styleLikeLeft(ws: import("exceljs").Worksheet, r: number, c: number, header = false) {
+  if (!plainCell(ws.getCell(r, c).style)) return;
+  let from = c - 1;
+  while (from >= 1 && from > c - 6 && plainCell(ws.getCell(r, from).style)) from--;
+  if (from < 1 || from <= c - 6) return;
+  const left = ws.getCell(r, from).style;
+  for (let k = header ? from + 1 : c; k <= c; k++) {
+    const style: Partial<import("exceljs").Style> = { alignment: { horizontal: k === c ? "center" : left.alignment?.horizontal, vertical: left.alignment?.vertical ?? "middle", wrapText: left.alignment?.wrapText } };
+    if (left.font) style.font = left.font;
+    if (left.fill) style.fill = left.fill;
+    if (left.border) style.border = left.border;
+    ws.getCell(r, k).style = style;
+  }
+}
+
+export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropdowns: Dropdown[] = [], ops: SheetOps = EMPTY_OPS, checkboxes: CheckboxColumn[] = []): Promise<ArrayBuffer> {
   const ExcelJS = await loadExcel();
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
@@ -1200,11 +1264,27 @@ export async function buildWorkbook(buffer: ArrayBuffer, patches: Patches, dropd
       else if (p.link || p.v === "") delete links[sheet]?.[addr];
     }
   }
+  // Checkbox columns: yes/no cells become booleans (blank = FALSE, like Excel writes) and are marked as checkboxes in the XML.
+  const boxes: CheckboxCells = {};
+  for (const b of checkboxes) {
+    const ws = wb.getWorksheet(b.sheet);
+    if (!ws) continue;
+    styleLikeLeft(ws, b.header, b.col, true);
+    for (let r = b.from; r <= b.to; r++) {
+      const cell = ws.getCell(r, b.col);
+      const on = parseCheck(cellText(cell.value));
+      if (on === undefined) continue;
+      styleLikeLeft(ws, r, b.col);
+      cell.value = on;
+      (boxes[b.sheet] ??= []).push(`${r}:${b.col}`);
+    }
+  }
   const out = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
-  return writeInternalLinks(out, links, (sheet, addr) => {
+  const linked = await writeInternalLinks(out, links, (sheet, addr) => {
     const [r, c] = addr.split(":").map(Number);
     return cellText(wb.getWorksheet(sheet)?.getCell(r, c).value).trim();
   });
+  return writeCheckboxes(linked, boxes);
 }
 
 const TARGET_NAME_HEADERS = new Set(["institution name", "institution", "bank", "bank name", "firm", "firm name", "company", "company name", "target"]);

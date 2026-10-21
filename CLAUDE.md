@@ -141,6 +141,14 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   the header in the empty column left of Status (H on the owner's tabs; GS already had "Contacted") when missing, and
   compares by meaning so the owner's own formats aren't rewritten. Before this the sheet had no dates at all, so every
   "Sent" person showed as due ("sent date unknown").
+- **Referral? column** (owner, 2026-10-20; `lib/checkboxes.ts`): every contact table gets a "Referral?" header after
+  "Last emailed/contacted" (L on the owner's tabs; that header is added first so the order is the same everywhere), styled like
+  the nearest real header. Saved as **native Excel cell checkboxes**: `buildWorkbook(…, checkboxes = referralColumns(tables))`
+  turns yes/no/blank cells into booleans and `writeCheckboxes` re-adds the checkbox cell format + `featurePropertyBag.xml`
+  (ExcelJS drops both on every save; XML copied from what Excel 365 writes, verified via COM `CellControl.Type = 2`). Free text
+  in the column is left alone. Ticked = `contact.referral` (the same flag as /prep's "They referred me"); `sheetReferral` is the
+  baseline, so a box ticked/unticked in Excel or the grid wins on re-import (`mergeReferral`; a brand-new column only adds).
+  The grid shows the cells as clickable checkboxes. Older Excel shows TRUE/FALSE.
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
   from the dashboard that were already saved into the file) so workflow state (status, dates, drafts) survives a re-import.
 

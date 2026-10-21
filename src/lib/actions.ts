@@ -1,7 +1,7 @@
 "use client";
 
 import { blobs, useStore } from "./store";
-import { allocateRow, applyPatches, blankTablesPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, splitLocationTeamPatches, type Patches } from "./workbook";
+import { allocateRow, applyPatches, blankTablesPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, referralColumns, splitLocationTeamPatches, type Patches } from "./workbook";
 import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
 import { reconcileTitle } from "./titles";
 import { callApi } from "./api";
@@ -172,8 +172,9 @@ export async function downloadBlankCopy() {
   const s = useStore.getState();
   const buf = await blobs.workbook();
   if (!s.workbook || !buf) throw new Error("Upload a spreadsheet first.");
-  const { patches, rows } = blankTablesPatches(s.snapshots, parseSnapshots(s.snapshots).tables, {});
-  const out = await buildWorkbook(buf, patches);
+  const { tables } = parseSnapshots(s.snapshots);
+  const { patches, rows } = blankTablesPatches(s.snapshots, tables, {});
+  const out = await buildWorkbook(buf, patches, [], undefined, referralColumns(tables, s.snapshots));
   const name = s.workbook.fileName.replace(/\.xlsx$/i, "") + " (blank).xlsx";
   download(out, name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   return { name, rows };
@@ -209,7 +210,10 @@ export async function saveWorkbook(mode: "in-place" | "download") {
   // New tabs whose content was undone (grid Ctrl+Z) aren't created empty.
   const pending = currentPatches();
   const ops = now.sheetOps ?? EMPTY_OPS;
-  const out = await buildWorkbook(buf, pending, dropdowns, { ...ops, clones: ops.clones.filter((c) => pending[c.name]) });
+  // The Referral? column on every contact table is saved as Excel checkboxes.
+  const view = applyPatches(now.snapshots, pending);
+  const checkboxes = referralColumns(parseSnapshots(view).tables, view);
+  const out = await buildWorkbook(buf, pending, dropdowns, { ...ops, clones: ops.clones.filter((c) => pending[c.name]) }, checkboxes);
   let name: string;
   const cur = useStore.getState().workbook!;
   if (mode === "in-place") {
@@ -225,9 +229,12 @@ export async function saveWorkbook(mode: "in-place" | "download") {
   await blobs.setSnapshots(parsed.snapshots);
   const lastModified = mode === "in-place" && handle ? (await readHandle(handle)).file.lastModified : cur.lastModified;
   // The Status cells as saved are the new baseline too, so a later re-import only treats real outside edits as changes.
-  const savedStatus = new Map(parsed.contacts.map((c) => [c.id, c.sheetStatus]));
+  const saved = new Map(parsed.contacts.map((c) => [c.id, c]));
   useStore.setState({
-    contacts: useStore.getState().contacts.map((c) => (savedStatus.has(c.id) && savedStatus.get(c.id) !== c.sheetStatus ? { ...c, sheetStatus: savedStatus.get(c.id) } : c)),
+    contacts: useStore.getState().contacts.map((c) => {
+      const x = saved.get(c.id);
+      return x && (x.sheetStatus !== c.sheetStatus || x.sheetReferral !== c.sheetReferral) ? { ...c, sheetStatus: x.sheetStatus, sheetReferral: x.sheetReferral } : c;
+    }),
     snapshots: parsed.snapshots,
     tables: parsed.tables,
     targets: parsed.targets,

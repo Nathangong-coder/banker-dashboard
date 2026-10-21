@@ -6,10 +6,11 @@
  */
 import fs from "node:fs";
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 import { followUpsFromSheet, statusFromSheet } from "../src/lib/workbook";
 import { formatContacted, parseContacted } from "../src/lib/contacted";
 import { teamMatches } from "../src/lib/desks";
-import { allocateRow, applyPatches, buildWorkbook, contactPatches, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, shiftTableRows, splitLocationTeamPatches, syncGridEdits, type Patches } from "../src/lib/workbook";
+import { allocateRow, applyPatches, buildWorkbook, contactPatches, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, referralColumns, shiftTableRows, splitLocationTeamPatches, syncGridEdits, type Patches } from "../src/lib/workbook";
 import { locationTeamOptions } from "../src/lib/locationTeam";
 
 const file = process.argv[2];
@@ -44,6 +45,38 @@ if (back?.email !== "roundtrip@example.com" || back.status !== "sent") {
   process.exit(1);
 }
 console.log("round-trip OK");
+
+// The Referral? column: added to every contact table, saved as Excel checkboxes (boolean cells + the checkbox format),
+// a referral comes back ticked, unticking in the sheet clears it, and saving again writes nothing.
+{
+  const problems: string[] = [];
+  const who = p.contacts.find((c) => c.ref?.cols.status);
+  if (who) {
+    const list = p.contacts.map((c) => (c.id === who.id ? { ...c, referral: { at: new Date().toISOString() } } : c));
+    const pt = contactPatches(list, p.snapshots);
+    const view = applyPatches(p.snapshots, pt);
+    const boxes = referralColumns(parseSnapshots(view).tables, view);
+    const saved = await buildWorkbook(ab, pt, [], undefined, boxes);
+    const back = await parseWorkbook(saved);
+    const b = back.contacts.find((c) => c.id === who.id);
+    const xml = await (await JSZip.loadAsync(saved)).file("xl/styles.xml")!.async("string");
+    console.log(`referral: ${boxes.length} checkbox columns, ${who.name} → ${b?.sheetReferral}`);
+    if (!boxes.length) problems.push("no Referral? column added");
+    if (b?.sheetReferral !== true || !b.referral) problems.push("referral didn't come back ticked");
+    if (back.contacts.some((c) => c.id !== who.id && c.sheetReferral)) problems.push("someone else came back ticked");
+    if (!xml.includes("xfpb:xfComplement")) problems.push("no checkbox format in styles.xml");
+    const again = contactPatches(back.contacts.map((c) => (c.id === who.id ? { ...c, referral: b?.referral } : c)), back.snapshots);
+    if (Object.values(again).some((cells) => Object.values(cells).some((x) => /^(TRUE|FALSE|Referral\?)$/.test(x.v)))) problems.push("second save rewrites the column");
+    const col = b?.ref?.cols.referral;
+    const un = col ? syncGridEdits(back.contacts, back.snapshots, {}, { [who.ref!.sheet]: { [`${b!.ref!.row}:${col}`]: { v: "FALSE" } } }) : undefined;
+    if (un?.contacts.find((c) => c.id === who.id)?.referral) problems.push("unticking in the grid kept the referral");
+  }
+  if (problems.length) {
+    console.error("REFERRAL FAILED", problems);
+    process.exit(1);
+  }
+  console.log("referral OK");
+}
 
 // Send dates live in the Contacted column (added next to Status when missing) and come back on re-import; sheet
 // statuses mean what the owner means by them.
@@ -138,8 +171,10 @@ if (table) {
 }
 
 
-// Untouched contacts must not produce write-backs (location/team are compared by meaning, not text).
+// Untouched contacts must not produce write-backs (location/team are compared by meaning, not text). The one exception
+// is the headers of the columns every contact table gets (Last emailed/contacted, Referral?) on a tab that lacks them.
 const idle = contactPatches(p.contacts, p.snapshots);
+for (const cells of Object.values(idle)) for (const [k, x] of Object.entries(cells)) if (x.v === "Last emailed/contacted" || x.v === "Referral?") delete cells[k];
 const idleCells = Object.values(idle).reduce((n, x) => n + Object.keys(x).length, 0);
 console.log("write-backs with no changes:", idleCells, idleCells ? JSON.stringify(idle).slice(0, 300) : "");
 if (idleCells) {

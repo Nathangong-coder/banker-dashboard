@@ -6,6 +6,7 @@ import type { CellStyle, Contact, SheetSnapshot } from "@/lib/types";
 import { draftFromRow, type CellPatch, type Patches, type RowDraft } from "@/lib/workbook";
 import { canonBank } from "@/lib/banks";
 import { parseSheetLink } from "@/lib/sheetLinks";
+import { parseCheck } from "@/lib/checkboxes";
 import { bankTabIndex } from "@/lib/bankTabs";
 import { useFirmKinds } from "./useFirmKinds";
 import { useStore } from "@/lib/store";
@@ -150,6 +151,11 @@ export function SheetGrid({
 
   // Location / Team cells get a suggestion list while editing (pick one or type a new value).
   const sheetTables = useMemo(() => tables.filter((t) => t.sheet === active).sort((a, b) => b.headerRow - a.headerRow), [tables, active]);
+  // The Referral? column shows its yes/no cells as checkboxes (saved as Excel checkboxes); a click ticks or unticks.
+  const isCheckCell = (r: number, c: number) => {
+    const t = sheetTables.find((x) => x.headerRow < r);
+    return !!t && t.kind !== "conversation" && c === t.cols.referral && r <= Math.max(t.lastRow, ...t.emptyRows);
+  };
   const suggestionsFor = (r: number, c: number) => {
     const t = sheetTables.find((x) => x.headerRow < r);
     if (!t) return undefined;
@@ -764,6 +770,17 @@ export function SheetGrid({
                           >
                             {cell.v || cell.link.slice(1)}
                           </a>
+                        ) : isCheckCell(r, c) && parseCheck(cell?.v) !== undefined ? (
+                          <span className="flex justify-center">
+                            <input
+                              type="checkbox"
+                              className="size-3.5 cursor-pointer accent-brass-strong"
+                              checked={!!parseCheck(cell?.v)}
+                              aria-label={`Referral, row ${r}`}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onChange={(e) => commit(r, c, e.target.checked ? "TRUE" : "FALSE")}
+                            />
+                          </span>
                         ) : (
                           cell?.v
                         )}

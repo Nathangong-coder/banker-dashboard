@@ -34,14 +34,14 @@ const decode = (s: string) =>
   );
 const encode = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-function attrs(tag: string) {
+export function attrs(tag: string) {
   const out: Record<string, string> = {};
   for (const m of tag.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)) out[m[1]] = decode(m[2]);
   return out;
 }
 
 /** Tab name → path of its sheet XML inside the zip. */
-async function sheetPaths(zip: JSZip) {
+export async function sheetPaths(zip: JSZip) {
   const out = new Map<string, string>();
   const wb = await zip.file("xl/workbook.xml")?.async("string");
   const rels = await zip.file("xl/_rels/workbook.xml.rels")?.async("string");
@@ -64,7 +64,7 @@ function parseAddr(a: string) {
   return m ? `${Number(m[2])}:${colNumber(m[1])}` : undefined;
 }
 
-function addrName(key: string) {
+export function addrName(key: string) {
   const [r, c] = key.split(":").map(Number);
   let s = "";
   for (let n = c; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
