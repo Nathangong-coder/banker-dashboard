@@ -82,6 +82,12 @@ async function main() {
     await chrome.tabs.create({ url: await getDashboard() });
     window.close();
   });
+  // Opens the side panel in this window (needs this click: sidePanel.open only works from a user gesture).
+  // The window id is read up front: awaiting anything before open() can lose the click.
+  const win = await chrome.windows.getCurrent();
+  document.getElementById("agent").addEventListener("click", () => {
+    chrome.sidePanel.open({ windowId: win.id }).then(() => window.close());
+  });
   document.getElementById("settings").addEventListener("click", (e) => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();

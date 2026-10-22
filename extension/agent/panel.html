@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Coverage agent test bench</title>
+    <link rel="stylesheet" href="../popup.css" />
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header>
+      <img src="../icons/32.png" alt="" width="20" height="20" />
+      <span class="brand">Agent test bench</span>
+      <span class="pill">experimental</span>
+    </header>
+
+    <section id="access" class="notice" hidden>
+      <p>The agent needs access to the pages it works on. Chrome will ask once.</p>
+      <button id="grant">Allow access to websites</button>
+    </section>
+
+    <section>
+      <h3>Model</h3>
+      <div class="grid2">
+        <label>Provider<select id="provider"></select></label>
+        <label>Model<input id="model" list="models" spellcheck="false" /></label>
+      </div>
+      <datalist id="models"></datalist>
+      <label>API key<input id="key" type="password" spellcheck="false" autocomplete="off" /></label>
+      <label id="baseRow" hidden>Base URL<input id="base" placeholder="https://api.deepseek.com/v1" spellcheck="false" /></label>
+      <div class="row">
+        <button class="secondary" id="listModels">List my models</button>
+        <button class="secondary" id="saveModel">Add to compare list</button>
+      </div>
+      <p class="muted small">Keys stay in this browser's extension storage and go only to that provider.</p>
+    </section>
+
+    <section>
+      <h3>Task</h3>
+      <div class="row wrap">
+        <button class="chip" data-preset="practice">Practice application</button>
+        <button class="chip" data-preset="search">Find a fact</button>
+      </div>
+      <textarea id="task" rows="4" placeholder="e.g. Fill in this application with: name Alex Kim, email alex@example.com, UCLA, class of 2028…"></textarea>
+      <label>Start at (optional)<input id="start" placeholder="the current tab" spellcheck="false" /></label>
+      <div class="grid2">
+        <label>Mode<select id="mode"><option value="text">Text (page as a list)</option><option value="screenshot">Screenshot + list</option></select></label>
+        <label>Max steps<input id="maxSteps" type="number" min="1" max="100" value="25" /></label>
+      </div>
+      <p class="muted small">It always stops and asks you before a submit / apply / send / connect / buy click.</p>
+      <label class="check warn"><input type="checkbox" id="allowLinkedIn" /> Allow LinkedIn (off by default)</label>
+      <p id="linkedInWarn" class="notice small" hidden>Automating LinkedIn breaks its User Agreement, and LinkedIn can restrict or ban the account. Use it for testing only, at your own risk.</p>
+      <div class="row">
+        <button id="run">Run</button>
+        <button class="secondary" id="stop" disabled>Stop</button>
+      </div>
+      <details id="compareBox">
+        <summary>Compare models (<span id="compareCount">0</span>)</summary>
+        <ul id="compareList" class="plain"></ul>
+        <button class="secondary" id="runAll">Run this task on every checked model</button>
+      </details>
+    </section>
+
+    <section id="confirmBox" class="notice" hidden>
+      <p id="confirmText"></p>
+      <div class="row">
+        <button id="approve">Do it</button>
+        <button class="secondary" id="skip">Skip</button>
+        <button class="secondary" id="halt">Stop</button>
+      </div>
+    </section>
+
+    <section>
+      <h3>Steps <span id="totals" class="muted small"></span></h3>
+      <ol id="log" class="log"></ol>
+    </section>
+
+    <section>
+      <h3>Results</h3>
+      <div class="tablewrap"><table id="results"></table></div>
+      <details>
+        <summary>Prices (optional, $ per million tokens)</summary>
+        <div id="prices"></div>
+      </details>
+      <div class="row"><button class="secondary" id="clear">Clear results</button></div>
+    </section>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

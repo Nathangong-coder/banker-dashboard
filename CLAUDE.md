@@ -451,8 +451,16 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (https, or http://localhost). `npm run pack:extension` renders icons + checks the manifest + zips to `dist/` (git-ignored).
   `extension/README.md` = load unpacked, how it works, Chrome Web Store / Edge Add-ons steps and paste-ready answers.
   Verified loading in headless Edge 155 (popup + options render, no errors); not yet tried on a live LinkedIn page.
-  Next parts: Granola note → Activity log, application autofill (user submits). No automated LinkedIn actions or
-  bulk applying (LinkedIn §8.2; same decision as scraping).
+  Next parts: Granola note → Activity log, application autofill (user submits).
+- **Agent test bench (owner, 2026-10-21, experimental):** popup → "Agent test bench" opens the side panel
+  (`agent/panel.*`): pick a provider/model (own key, `agent/llm.js`), a task, Text or Screenshot mode; `agent/agent.js`
+  loops observe (`page.js#observePage`, numbered elements + visible text) → one JSON action → act, logging tokens/time per
+  step; results table compares models (finished %, your ✓/✗, steps, tokens, cost from prices you type). It **always** asks
+  before submit/apply/send/connect/buy clicks (no switch, owner's call). LinkedIn is blocked unless "Allow LinkedIn" is ticked
+  (owner accepted the ban risk). Needs the optional `<all_urls>` permission (asked in the panel). Practice target:
+  `/agent-practice` (public, noindex, nothing sent; two steps, custom dropdown, checkbox → confirmation number).
+  Side panels can't use `confirm()`: inline warnings / two-click buttons instead. Not yet run end to end with a real key.
+  Before a store upload, decide whether the agent ships (all-sites access = stricter review); privacy page §7 doesn't cover it yet.
 
 ## Bank coverage (`src/lib/coverage.ts`, `src/lib/banks.ts`, `app/coverage`)
 
@@ -628,7 +636,9 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 
 - **Contact Information is the only list of people.** A bank tab's **Conversation** table (header row with a "Conversation"
   column and no LinkedIn/Status: `ContactTable.kind === "conversation"`, `convCols` = Date / Conversation / Notes / Comments)
-  never creates contacts. `workbook.ts#linkConversations` links each row (email → exact name → unique last name + first
+  never creates contacts. Hand-typed rows are coffee chats unless the Conversation text names another kind
+  (`conversations.ts#kindFromText`; "Other" only when it says so). A rating there ("8/10", the template's "x/10") is the
+  owner's own score: kept as "Your rating: 8/10" in the notes and never overwritten by the kinds summary (owner, 2026-10-21). `workbook.ts#linkConversations` links each row (email → exact name → unique last name + first
   initial at that bank, `conversations.ts#matchRow`) as `contact.convRef`; no match (or a 2nd row for someone) = `orphans`,
   which /log asks about ("Same person as…" → `linkOrphan`, or "New person" → Contact Information + link).
 - **One row per person.** `contact.chats[]` (`ChatLog` + `kind`, `docUrl`, `source`) is the record. Text typed into a row by

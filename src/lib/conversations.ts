@@ -23,15 +23,23 @@ export const KIND_LABEL: Record<ConversationKind, string> = {
 };
 export const KINDS = Object.keys(KIND_LABEL) as ConversationKind[];
 
-/** "coffee chat w/ Sam" → coffee_chat. Used for rows typed into the sheet by hand. */
+/** "8/10", "8.5 / 10": the owner's own rating of a chat, typed into the Conversation column (template "x/10"). */
+export const RATING = /^\s*(\d{1,2}(?:\.\d)?)\s*\/\s*10\s*$/;
+
+/**
+ * "coffee chat w/ Sam" → coffee_chat. Used for rows typed into the sheet by hand. A row someone typed into a bank tab's
+ * Conversation table is a coffee chat unless the text says otherwise (owner, 2026-10-21: Benjamin Hon at Mizuho, with
+ * a rating out of 10 in the column, showed as "Other"). "Other" only when it literally says so.
+ */
 export function kindFromText(text: string | undefined): ConversationKind {
   const t = (text ?? "").toLowerCase();
   if (/coffee/.test(t)) return "coffee_chat";
-  if (/info|session|recruit/.test(t)) return "info_session";
-  if (/call|phone|zoom|teams|meet/.test(t)) return "call";
-  if (/e-?mail/.test(t)) return "email";
-  if (/person|lunch|dinner|met |office|visit/.test(t)) return "in_person";
-  return t.trim() ? "other" : "coffee_chat";
+  if (/info ?session|recruiting event|networking event/.test(t)) return "info_session";
+  if (/\b(phone|call|zoom|teams|google meet)\b/.test(t)) return "call";
+  if (/\be-?mail/.test(t)) return "email";
+  if (/in person|in-person|lunch|dinner|office visit|\bvisit/.test(t)) return "in_person";
+  if (/^\s*other\b/.test(t)) return "other";
+  return "coffee_chat";
 }
 
 export const kindOf = (c: ChatLog): ConversationKind => c.kind ?? "coffee_chat";
@@ -133,11 +141,13 @@ export function sheetChat(row: ConversationRow): ChatLog | undefined {
   // A row the app filled (only "• " lines and its own kinds summary) holds nothing new.
   if (!notes && !row.date && !conversation) return undefined;
   if (!notes && !ownerText(row.comments) && [...row.notes.split("\n"), ...row.comments.split("\n")].some(isAppLine)) return undefined;
+  // A rating in the Conversation column ("8/10") is the owner's own score, kept with the notes.
+  const rating = conversation.match(RATING)?.[1];
   return {
     id: `sheet:${row.sheet}:${row.row}`,
     at: row.date ?? new Date(0).toISOString(),
-    kind: kindFromText(conversation),
-    notes: [notes, ownerText(row.comments)].filter(Boolean).join("\n") || undefined,
+    kind: kindFromText(rating ? "" : conversation),
+    notes: [rating ? `Your rating: ${rating}/10` : "", notes, ownerText(row.comments)].filter(Boolean).join("\n") || undefined,
     source: "spreadsheet",
   };
 }

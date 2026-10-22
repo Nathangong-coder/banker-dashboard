@@ -24,7 +24,7 @@ import { savedSignatureLogo } from "@/lib/signatureLogo";
 setSignatureLogoSource(savedSignatureLogo);
 
 /** Pages that render without waiting for the local store (no personal data on them). */
-const PUBLIC_PATHS = ["/privacy", "/terms", "/capture"];
+const PUBLIC_PATHS = ["/privacy", "/terms", "/capture", "/agent-practice"];
 
 /**
  * Two-level navigation (owner, 2026-10-19): the top bar picks a group, the sidebar lists that group's pages. The group

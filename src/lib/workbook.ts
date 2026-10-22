@@ -7,7 +7,7 @@ import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
 import { detectRegion } from "./region";
-import { appChats, gradeLine, kindsSummary, latestChat, matchRow, mergeCell, notesLine, sheetChat, withSheetChat, type ConversationRow } from "./conversations";
+import { RATING, appChats, gradeLine, kindsSummary, latestChat, matchRow, mergeCell, notesLine, sheetChat, withSheetChat, type ConversationRow } from "./conversations";
 import { EMPTY_OPS, opsOf, type SheetOps } from "./sheetOps";
 import { REFERRAL_HEADERS, REFERRAL_TITLE, mergeReferral, parseCheck, referralDate, writeCheckboxes, type CheckboxCells } from "./checkboxes";
 import { CONTACTED_HEADERS, LAST_CONTACTED_HEADERS, LAST_CONTACTED_TITLE, formatContacted, formatDay, parseContacted, parseLastContacted, sameContacted, sameDayIso } from "./contacted";
@@ -651,7 +651,8 @@ function conversationPatches(c: Contact, s: SheetSnapshot | undefined, put: (she
   if (!mine.length) return;
   const last = latestChat(c.chats);
   if (cc.date && last && last.at > (parseLastContacted(cell(cc.date)) ?? "") && !sameDayIso(parseLastContacted(cell(cc.date)), last.at)) put(s.name, ref.row, cc.date, { v: formatDay(last.at) });
-  copy(cc.conversation, kindsSummary(c.chats));
+  // The Conversation column holds the kinds summary, unless the owner put their own rating there ("8/10"): never overwrite it.
+  if (!RATING.test(cell(cc.conversation))) copy(cc.conversation, kindsSummary(c.chats));
   if (cc.notes) {
     const v = mergeCell(cell(cc.notes), mine.map(notesLine));
     if (v !== raw(cc.notes)) put(s.name, ref.row, cc.notes, { v });

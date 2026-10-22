@@ -35,6 +35,10 @@
    cost per user and per route, over time. Needed before offering users **free tokens for paid AI with limits** (per-user
    quotas, server-side metering of the owner-paid key; today every AI call uses the user's own keys and nothing is logged
    except `[ai]` lines in Vercel logs).
+9. **Spreadsheet typing is slow (owner, 2026-10-21, "super slow"):** after the extension work (agent test bench, then
+   Granola), profile and fix input latency on /sheet. Likely suspects: every cell commit runs `syncGridEdits` (two full
+   `parseSnapshots` passes over all tabs) plus `contactPatches` for every contact, and the whole grid re-renders. Measure
+   first (React profiler / performance marks), then e.g. parse only the edited tab, memoize derived patches, virtualize rows.
 
 ## 0. Owner's next priorities (2026-10-06)
 
