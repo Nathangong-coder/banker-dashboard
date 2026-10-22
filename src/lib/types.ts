@@ -128,7 +128,20 @@ export interface Contact {
   /** Their latest email to you (Gmail sync). Newer than `lastEmailedAt` = you owe them a reply. */
   lastHeardAt?: string;
   /** They referred you / did what they said they'd do (Follow-ups, /prep). Check-in reminders stop. */
-  referral?: { at: string; note?: string };
+  referral?: {
+    at: string;
+    note?: string;
+    /** Who they referred you to (filled when you confirm an intro / referral found in Gmail, or by hand). */
+    to?: { name: string; email?: string; contactId?: string }[];
+    /** Where it came from: "gmail" (found + confirmed), "sheet" (Referral? ticked; the date is a guess), "manual". */
+    source?: "gmail" | "sheet" | "manual";
+  };
+  /** Someone you were referred to: who referred you and when (owner, 2026-10-22). */
+  referredBy?: { contactId?: string; name: string; at: string };
+  /** Other addresses they've written from (learned by the server's Gmail tracking: Isaiah iestrella@ → IDeLaCruz@). */
+  aliases?: string[];
+  /** What their replies said, found in Gmail (lib/replyTracking.ts + api/replies/classify): suggestions to confirm. */
+  signals?: ReplySignal[];
   /** Conversations with them (coffee chats, calls, info sessions, emails, in person): notes / transcript and the AI's grade. */
   chats?: ChatLog[];
   /** Their row in the bank tab's Conversation table (lib/conversations.ts): one row per person, written by the app. */
@@ -229,6 +242,22 @@ export interface SessionPerson {
   profile?: string;
   /** Where it came from: the capture item id, or "manual". */
   from: string;
+}
+
+/** Something a banker's reply said or did: an intro (they cc'd someone), a referral, a promise. */
+export interface ReplySignal {
+  /** "intro:<gmail message id>" or "ai:<gmail message id>". */
+  id: string;
+  messageId: string;
+  threadId?: string;
+  at: string;
+  kind: "intro" | "referral" | "promise";
+  people?: { name: string; email?: string; role?: string }[];
+  /** One line: the AI's summary, or what Gmail showed. */
+  text: string;
+  /** Your first email to the person they introduced (after the intro). */
+  youWroteAt?: string;
+  status: "new" | "accepted" | "dismissed";
 }
 
 export type ConversationKind = "coffee_chat" | "call" | "info_session" | "email" | "in_person" | "other";

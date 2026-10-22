@@ -26,8 +26,8 @@ export function parseCheck(v: string | undefined): boolean | undefined {
  * date and note), unticked since last time → not. A column that's new (`before` undefined) only ever adds a referral,
  * so a blank column someone just made doesn't wipe the ones logged on /prep.
  */
-export function mergeReferral<T extends { at: string }>(before: boolean | undefined, now: boolean | undefined, current: T | undefined, at?: string): T | { at: string } | undefined {
-  if (now === true && !before) return current ?? { at: at ?? new Date().toISOString() };
+export function mergeReferral<T extends { at: string }>(before: boolean | undefined, now: boolean | undefined, current: T | undefined, at?: string): T | { at: string; source: "sheet" } | undefined {
+  if (now === true && !before) return current ?? { at: at ?? new Date().toISOString(), source: "sheet" as const };
   if (now === false && before === true) return undefined;
   return current;
 }

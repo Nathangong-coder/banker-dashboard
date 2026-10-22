@@ -101,7 +101,7 @@ export function syncAllWithGmail(opts: { interactive: boolean; onProgress?: (don
             Object.assign(extra, { email: found, emailSource: "gmail" as const });
             summary.emailsFound++;
           }
-          let r = await syncContact(clientId, email);
+          let r = await syncContact(clientId, email, c.aliases);
           summary.checked++;
           let cur = useStore.getState().contacts.find((x) => x.id === c.id) ?? c;
           // Marked as emailed, but nothing went to the address on file: maybe they were emailed somewhere else (a

@@ -28,6 +28,7 @@ import { AutoSendCard } from "@/components/AutoSend";
 import { repliedToSchedule, ScheduleCallsTable } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
 import { replacementLists, ReplacementsTable } from "@/components/Replacements";
+import { referralCount, ReferralsTable } from "@/components/Referrals";
 import { ScheduledRow } from "@/components/ScheduledRow";
 import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
@@ -238,7 +239,7 @@ function useActions() {
 }
 
 /** The lists inside the Queue card. */
-type View = "due" | "drafted" | "scheduled" | "replied" | "replace";
+type View = "due" | "drafted" | "scheduled" | "replied" | "referrals" | "replace";
 
 function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => void; onSync: () => void; syncing: boolean; onAuto: () => void }) {
   const { contacts, banks, settings } = useStore();
@@ -413,6 +414,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const replied = useMemo(() => repliedToSchedule(contacts).length, [contacts]);
   const fails = useMemo(() => replacementLists(contacts), [contacts]);
   const replaceCount = fails.suspected.length + fails.failed.length;
+  const referrals = useMemo(() => referralCount(contacts), [contacts]);
   const shownView: View = view === "replace" && !replaceCount ? "due" : view;
 
   /** "Select all" for one list (the table header checkbox). */
@@ -547,6 +549,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     ["drafted", "Drafted", drafted.length],
     ["scheduled", "Scheduled", scheduled.length],
     ["replied", "Replied", replied],
+    ["referrals", "Referrals", referrals],
   ];
   if (replaceCount) views.push(["replace", "Needs new contact", replaceCount]);
 
@@ -555,6 +558,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     drafted: auto ? "First emails written but not sent. Schedule sends each one at the person's slot." : "First emails written but not sent or scheduled. Send or schedule them in Gmail, then sync.",
     scheduled: "Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out.",
     replied: "Offer your free times in their time zone, then send the calendar invite.",
+    referrals: "Intros and referrals found in bankers' replies (confirm them), and what's next with each person you were referred to.",
     replace: "Bounced emails, people who left, and clear no's: no follow-ups go to them, and their desk gets someone new.",
   };
 
@@ -768,6 +772,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           ))}
 
         {shownView === "replied" && <ScheduleCallsTable onOpen={onOpen} />}
+        {shownView === "referrals" && <ReferralsTable onOpen={onOpen} />}
         {shownView === "replace" && <ReplacementsTable onOpen={onOpen} />}
       </Card>
 

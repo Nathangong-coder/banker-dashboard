@@ -32,12 +32,15 @@ export interface Account {
   createdAt: string;
   tz: string;
   /** `calendar`: read-only Calendar access was granted too (today's calls for the 9 PM text). */
-  google?: { refresh: string; email: string; connectedAt: string; calendar?: boolean };
+  /** `read`: read-only Gmail was granted too (hourly reply / thank-you / intro tracking, lib/server/gmailTrack.ts). */
+  google?: { refresh: string; email: string; connectedAt: string; calendar?: boolean; read?: boolean };
   whatsapp?: { phone: string; apiKey: string };
   /** Local day (YYYY-MM-DD in `tz`) → what the 9 PM text says. */
   digests: Record<string, { items: DigestItem[]; queued: number }>;
   /** People today's calendar events are matched against (name + email only). */
   people?: CalPerson[];
+  /** People whose Gmail the server watches (pushed by the dashboard): names + addresses only. */
+  track?: TrackedPerson[];
   /**
    * Phone capture (info sessions): sha256 of a random capture token (auth for /capture and the share target) and the
    * same token sealed, so the server can put the link into reminder texts. Separate from the account token: it only
@@ -46,6 +49,19 @@ export interface Account {
   capture?: { hash: string; sealed: string };
   /** Your own Twilio number for texting photos / names in: sid + token sealed; only `myPhone` is accepted as sender. */
   twilio?: { sid: string; token: string; number: string; myPhone: string };
+}
+
+export interface TrackedPerson {
+  contactId: string;
+  name: string;
+  /** Address on file, then learned ones. */
+  emails: string[];
+  /** Look at mail from this day on (first email, else 120 days back). */
+  since?: string;
+  /** Recently active (emailed / heard / talked in the last 3 weeks): checked hourly; others every 6 hours. */
+  hot?: boolean;
+  /** The last email to them the dashboard knew of when it made tonight's plan: anything newer settles "owed" items. */
+  knownLast?: string;
 }
 
 export interface CalPerson {
@@ -106,7 +122,7 @@ export async function deleteAccount(id: string) {
   const itemIds = ((await db().hkeys(INBOX(id))) ?? []) as string[];
   if (itemIds.length) await db().del(...itemIds.map((i) => CAPIMG(id, i)));
   if (a?.twilio && (await db().get<string>(TWNUM(a.twilio.number))) === id) await db().del(TWNUM(a.twilio.number));
-  await db().del(KEY(id), SENDS(id), DIGEST_DAY(id), DIGEST_ERR(id), INBOX(id));
+  await db().del(KEY(id), SENDS(id), DIGEST_DAY(id), DIGEST_ERR(id), INBOX(id), TRACK(id));
   await db().srem(ACCOUNTS, id);
 }
 
@@ -114,6 +130,8 @@ export async function deleteAccount(id: string) {
 // and a whole-record read-modify-write would let one undo the other.
 const SENDS = (id: string) => `sends:${id}`;
 export const DIGEST_DAY = (id: string) => `digestday:${id}`;
+/** Hash: contactId → TrackState (lib/server/gmailTrack.ts). */
+export const TRACK = (id: string) => `track:${id}`;
 export const DIGEST_ERR = (id: string) => `digesterr:${id}`;
 
 export async function getSends(id: string) {

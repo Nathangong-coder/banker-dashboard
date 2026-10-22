@@ -19,11 +19,12 @@ export const LABELS = {
   thankOwed: "Thank-you not sent yet",
   replyOwed: "They wrote back: reply",
   checkIn: "Check in (7+ days since your last email)",
+  referral: "Referral to-do",
   moveOn: "Move on?",
 } as const;
 
 /** Section order: tonight's thank-yous, then people who replied, then cold outreach (last chances first). */
-const ORDER: string[] = [LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.checkIn, LABELS.moveOn];
+const ORDER: string[] = [LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.referral, LABELS.checkIn, LABELS.moveOn];
 const sectionRank = (label: string) => {
   const i = ORDER.indexOf(label);
   return i >= 0 ? i : ORDER.length + Number(label.match(/#(\d+)/)?.[1] ?? 9);

@@ -16,6 +16,11 @@ export const SERVER_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"];
  * with Gmail; if it's unticked on Google's screen, sending still works and the text uses only the dashboard's calls.
  */
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
+/**
+ * Optional (owner, 2026-10-22): read-only Gmail, so the server can see replies, thank-yous and intros every hour
+ * (lib/server/gmailTrack.ts) instead of only when the dashboard is open. Unticked = sending still works.
+ */
+export const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 export const CALLBACK_PATH = "/api/server/google/callback";
 
 function client() {
@@ -30,7 +35,7 @@ export function authUrl(redirectUri: string, state: string, loginHint?: string) 
     client_id: client().id,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: [...SERVER_SCOPES, CALENDAR_SCOPE].join(" "),
+    scope: [...SERVER_SCOPES, CALENDAR_SCOPE, GMAIL_READ_SCOPE].join(" "),
     access_type: "offline",
     // Always ask, so Google returns a refresh token even if this account connected before.
     prompt: "consent",
@@ -61,7 +66,7 @@ export async function exchangeCode(code: string, redirectUri: string) {
   const j = await tokenCall({ code, redirect_uri: redirectUri, grant_type: "authorization_code" });
   if (!j.refresh_token) throw new HttpError(502, "Google didn't return offline access. Remove the app's access at myaccount.google.com/permissions and connect again.");
   if (!SERVER_SCOPES.every((s) => (j.scope ?? "").includes(s))) throw new HttpError(400, "Gmail permission wasn't granted. Connect again and tick the Gmail box.");
-  return { access: j.access_token!, refresh: j.refresh_token, calendar: (j.scope ?? "").includes(CALENDAR_SCOPE) };
+  return { access: j.access_token!, refresh: j.refresh_token, calendar: (j.scope ?? "").includes(CALENDAR_SCOPE), read: (j.scope ?? "").includes(GMAIL_READ_SCOPE) };
 }
 
 export async function accessToken(a: Account) {
@@ -69,7 +74,7 @@ export async function accessToken(a: Account) {
   return (await tokenCall({ refresh_token: unseal(a.google.refresh), grant_type: "refresh_token" })).access_token!;
 }
 
-async function gmail<T>(access: string, path: string, init?: RequestInit) {
+export async function gmail<T>(access: string, path: string, init?: RequestInit) {
   const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json", ...(init?.headers ?? {}) },

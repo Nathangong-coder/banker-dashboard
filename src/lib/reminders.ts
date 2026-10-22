@@ -4,6 +4,7 @@ import type { BankMeta, Contact, Settings } from "./types";
 import { nextAction } from "./followups";
 import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, nextTextDay, type DigestItem } from "./digestFormat";
 import { DAY, latestIso } from "./util";
+import { referralRows } from "./referralRows";
 
 export interface DayDigest {
   date: string; // YYYY-MM-DD (local)
@@ -145,6 +146,15 @@ export function nightPlan(contacts: Contact[], banks: Record<string, BankMeta>, 
       }
     }
     for (const { c, a } of actions) if (!seen.has(c.id) && a.due! <= horizon) items.push({ contactId: c.id, name: c.name, email: c.email || undefined, label: a.label });
+    // Referrals: email the person you were referred to, and tell the referrer how it went (their follow-ups are above).
+    for (const r of referralRows(contacts)) {
+      if (!r.due || new Date(r.due) > horizon || !/^(Email |Tell )/.test(r.next)) continue;
+      const who = r.next.startsWith("Email ") ? r.person : r.referrer;
+      const id = who?.id ?? `ref:${r.referrer.id}:${r.name}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      items.push({ contactId: id, name: `${r.next.replace(/ \(.*\)$/, "")}`, email: who?.email || undefined, label: LABELS.referral });
+    }
     // Emails that go out by themselves before the next text.
     const tonight = endOf(day);
     const queued = contacts.filter((c) => !QUIET_STATUSES.includes(c.status) && [c.scheduledAt, c.serverSend?.sendAt].some((t) => t && new Date(t) > tonight && new Date(t) <= horizon)).length;

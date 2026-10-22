@@ -8,6 +8,7 @@ import { earliestSend, pendingFollowUpDraft } from "./followups";
 import { FOLLOW_UP_SPREAD, pastRange, planSends, tooSoon, windowOf } from "./sendWindow";
 import { vpPlusWarning } from "./seniority";
 import type { Contact } from "./types";
+import { applyTracking, readReplies, trackList, type TrackStateWire } from "./referrals";
 
 /**
  * The browser half of automatic sending (server half: app/api/server). The browser keeps the source of truth and
@@ -20,6 +21,8 @@ export interface ServerStatus {
   whatsapp: boolean;
   /** The server may read your Google Calendar (for the 9 PM thank-you reminders). False = reconnect to add it. */
   calendar?: boolean;
+  /** The server may read Gmail (hourly reply / thank-you / referral tracking). False = reconnect to add it. */
+  gmailRead?: boolean;
   lastDigestDay?: string | null;
   lastDigestError?: string | null;
   syncedAt?: string;
@@ -101,6 +104,8 @@ function applyFinished(list: Finished[]) {
 }
 
 let inflight: Promise<ServerStatus | null> | null = null;
+/** Reply texts read by the AI since the last sync: the server deletes them on the next one. */
+let pendingAck: { contactId: string; ids: string[] }[] = [];
 
 /** Push the queue + digest plan, pull results. No-op until Gmail has been connected for the server. */
 export function syncServer(): Promise<ServerStatus | null> {
@@ -117,19 +122,28 @@ export function syncServer(): Promise<ServerStatus | null> {
       digests: whatsappOn ? nightPlan(st.contacts, st.banks, st.settings.followUp) : {},
       // People you're talking to, so the server can match today's Google Calendar events to them for thank-you reminders.
       people: whatsappOn ? calendarPeople(st.contacts) : [],
+      // Everyone the server should watch in Gmail for replies, thank-yous and intros (used only with read access).
+      track: trackList(st.contacts),
+      trackAck: pendingAck,
       sends: st.contacts
         .filter((c) => c.serverSend)
         .map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt })),
       ack: [] as string[],
     };
     try {
-      let r = await call<ServerStatus & { sends: Finished[] }>("/api/server/sync", body);
+      let r = await call<ServerStatus & { sends: Finished[]; tracking?: Record<string, TrackStateWire> }>("/api/server/sync", body);
+      pendingAck = [];
+      if (r.tracking) {
+        applyTracking(r.tracking);
+        // Not awaited by the status: the AI read can take a few seconds.
+        void readReplies(r.tracking).then((ack) => (pendingAck = [...pendingAck, ...ack]));
+      }
       const { ack, problems } = applyFinished(r.sends);
       if (ack.length) {
         const after = useStore.getState().contacts.filter((c) => c.serverSend);
-        r = await call("/api/server/sync", { ...body, sends: after.map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt })), ack });
+        r = await call("/api/server/sync", { ...body, trackAck: [], sends: after.map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt })), ack });
       }
-      const status: ServerStatus = { email: r.email, whatsapp: r.whatsapp, calendar: r.calendar, lastDigestDay: r.lastDigestDay, lastDigestError: r.lastDigestError, syncedAt: new Date().toISOString(), error: problems.length ? problems.join("; ") : undefined };
+      const status: ServerStatus = { email: r.email, whatsapp: r.whatsapp, calendar: r.calendar, gmailRead: r.gmailRead, lastDigestDay: r.lastDigestDay, lastDigestError: r.lastDigestError, syncedAt: new Date().toISOString(), error: problems.length ? problems.join("; ") : undefined };
       useServerStatus.setState({ status });
       return status;
     } catch (e) {

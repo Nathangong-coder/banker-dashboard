@@ -462,6 +462,34 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Side panels can't use `confirm()`: inline warnings / two-click buttons instead. Not yet run end to end with a real key.
   Before a store upload, decide whether the agent ships (all-sites access = stricter review); privacy page §7 doesn't cover it yet.
 
+## Reply / thank-you / referral tracking (owner, 2026-10-22)
+
+- **Why:** thank-yous showed as "not sent" because only the browser read Gmail (open tab + token), and runs missed
+  people: the server's copy had Jack Brun's last email as 10/9 (thank-you went 10/20), Sherrick none. Keyword matching
+  ("thanks" in the subject) was rejected: every email's signature says "Thanks, Nathan.", and thank-yous are often
+  replies in the original chain.
+- **Rules (`lib/replyTracking.ts`, pure, `npm run check:tracking`):** thanked = any SENT message with them in To/Cc/Bcc
+  after the call. Their addresses are learned: same firm domain in a thread with them and (their first/last name in the
+  display name or address, or answering your 1:1 thread to you alone, not someone already on the thread). Isaiah
+  Estrella was emailed at iestrella@ and replies from IDeLaCruz@. Intro = their real reply adds someone new to To/Cc
+  (role addresses ignored); `youWroteAt` = your first email to that person after it (Benjamin Hon cc'd Kevin Zhu 10/16).
+- **Server (`lib/server/gmailTrack.ts`):** optional `gmail.readonly` on the automatic-sending Google connection
+  (`account.google.read`; old connections → AutoSend "Reconnect Google"). The dashboard pushes `track` (trackList:
+  everyone emailed / talked to with an address, `hot` = active ≤ 21 days, `knownLast`). Hourly tick (any account with
+  read, not only WhatsApp) + each sync (20 s budget): threads.list `{from: to: cc: bcc:} after:` → threads.get metadata →
+  analyzePerson; hot hourly, others 6 h. Stored in `track:<id>` (+ reply texts ≤1,500 chars until the dashboard acks
+  them, ≤14 days). The 9 PM text drops "owed" items settled by a newer email (vs `knownLast`), uses tracked dates for
+  calendar thank-yous, and adds fresh "They wrote back" items.
+- **Dashboard (`lib/referrals.ts`):** `applyTracking` (dates forward, status up, aliases, intro → `contact.signals`),
+  `readReplies` → `api/replies/classify` (AI: referral without a cc, promises, dates) → signals; acked on the next sync.
+  Follow-ups → **Referrals** (`components/Referrals.tsx`): confirm / dismiss signals (`confirmSignal` creates or links
+  the referred person with `referredBy`, sets their first email from `youWroteAt`, and the referrer's `referral {at, to,
+  source:"gmail"}`), then `referralRows` (pure, `lib/referralRows.ts`): email them → follow up 7 days after → after the
+  call "tell <referrer> how it went". Those steps go in the 9 PM text (`LABELS.referral`). Sheet-ticked referrals are
+  `source: "sheet"` (date guessed). Browser Gmail sync also searches To/Cc/Bcc and aliases now.
+- Not yet verified live: needs a deploy + reconnect (consent screen gains "View your email messages"; the Google Cloud
+  OAuth consent config must list `gmail.readonly`). Privacy §2/§3 updated, `legalUpdated` 10/22.
+
 ## Claude plugin (`plugin/coverage`, owner, 2026-10-21)
 
 - Step 1 of "Coverage as a Claude connector": a Claude Code / Cowork plugin, installed from this repo

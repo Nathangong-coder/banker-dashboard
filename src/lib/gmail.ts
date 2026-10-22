@@ -304,10 +304,13 @@ const when = (m: MsgMeta) => Number(m.internalDate);
  * When we emailed someone and whether they wrote back. Follow-ups are counted only up to their first
  * reply, so back-and-forth scheduling emails don't inflate "follow-ups sent".
  */
-export async function syncContact(clientId: string, email: string): Promise<SyncResult> {
+export async function syncContact(clientId: string, email: string, aliases: string[] = []): Promise<SyncResult> {
+  // Every address they've used (aliases come from the server's tracking), and To, Cc or Bcc: a thank-you you sent with
+  // them in Bcc, or to the new address they reply from, still counts.
+  const all = [email, ...aliases.filter((a) => a.toLowerCase() !== email.toLowerCase())].slice(0, 4);
   const [sent, replies, bounces, scheduled] = await Promise.all([
-    listMessages(clientId, `in:sent to:${email}`, 15),
-    listMessages(clientId, `from:${email}`, 5),
+    listMessages(clientId, `in:sent {${all.flatMap((e) => [`to:${e}`, `cc:${e}`, `bcc:${e}`]).join(" ")}}`, 20),
+    listMessages(clientId, `{${all.map((e) => `from:${e}`).join(" ")}}`, 10),
     listMessages(clientId, `from:(mailer-daemon OR postmaster) "${email}"`, 2),
     listMessages(clientId, `in:scheduled to:${email}`, 3),
   ]);

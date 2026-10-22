@@ -43,6 +43,12 @@ export default function PrivacyPage() {
         </li>
         <li>Your time zone, so reminders arrive at 9 PM your time.</li>
         <li>
+          If you allow <b>reply tracking</b> (read-only Gmail): the names and email addresses of the people in your tracker you&apos;ve emailed or talked
+          to, and for each one what Gmail showed: dates you emailed them and they replied, Gmail message and thread IDs, other addresses they wrote
+          from, and people they added to a reply (name and email). The text of their newest replies (at most 1,500 characters each, quoted history
+          removed) waits for at most 14 days until your dashboard reads it, and is deleted as soon as it does.
+        </li>
+        <li>
           If you use <b>info-session capture</b>: the photos, screenshots and text you send from your phone (the capture page, your phone&apos;s share
           sheet, or a text to your own Twilio number), and which info session they belong to. They wait for at most 14 days until your dashboard pulls
           them in, and are deleted as soon as it does. Also a random capture key (a one-way hash, plus an encrypted copy so reminder texts can include your
@@ -61,8 +67,12 @@ export default function PrivacyPage() {
       <H2>3. Gmail and Google data</H2>
       <p>
         With your permission, {SITE.name} uses Google&apos;s Gmail API. In your browser it can read your sent mail and replies to people in your tracker (to
-        fill in when you emailed them and whether they replied) and create drafts. On our server, with automatic sending on, it can only send drafts you
-        scheduled (the <code>gmail.compose</code> permission). If you also allow read-only Calendar access
+        fill in when you emailed them and whether they replied) and create drafts. On our server, with automatic sending on, it can send drafts you
+        scheduled (the <code>gmail.compose</code> permission). If you also allow read-only Gmail access (<code>gmail.readonly</code>), the server
+        searches your mail every hour (people you were recently in touch with) or every six hours (everyone else) for messages to or from the people
+        your dashboard tracks, and reads the headers of those threads (from, to, cc, subject, date) and the text of their replies, to know whether you
+        thanked them, whether they replied, and whether they introduced you to someone. It reads nothing else in your mailbox, and keeps only what
+        section 2 lists. If an AI model is set up in your dashboard, your browser sends those reply texts to it to spot referrals and promises. If you also allow read-only Calendar access
         (<code>calendar.events.readonly</code>), the server reads that day&apos;s events once in the evening (9 PM your time), only
         to list the people you met so you remember to thank them, log the conversation and connect on LinkedIn. With WhatsApp reminders on, it also reads the next few hours of your calendar
         every hour to find info sessions (events titled like &ldquo;… Info Session&rdquo;) and text you before and after each one, and it lists

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { HttpError, errorResponse } from "@/lib/server/http";
 import { DIGEST_DAY, DIGEST_ERR, authAccount, db, dropSends, getSends, putSend, saveAccount, seal, type QueuedSend } from "@/lib/server/accounts";
 import { ensureTick, queueSendJob } from "@/lib/server/jobs";
+import { ackTexts, pruneTracked, trackAccount, trackStates } from "@/lib/server/gmailTrack";
 
 const Item = z.object({ contactId: z.string().max(200), name: z.string().max(200), email: z.string().max(320).optional(), label: z.string().max(60) });
 const Body = z.object({
@@ -24,6 +25,22 @@ const Body = z.object({
     )
     .max(400)
     .optional(),
+  /** People whose replies / thank-yous / intros the server watches in Gmail (needs read access). */
+  track: z
+    .array(
+      z.object({
+        contactId: z.string().max(200),
+        name: z.string().max(200),
+        emails: z.array(z.string().email().max(320)).min(1).max(4),
+        since: z.string().max(40).optional(),
+        hot: z.boolean().optional(),
+        knownLast: z.string().max(40).optional(),
+      }),
+    )
+    .max(400)
+    .optional(),
+  /** Reply texts the dashboard has read (dropped from the server). */
+  trackAck: z.array(z.object({ contactId: z.string().max(200), ids: z.array(z.string().max(100)).max(50) })).max(400).default([]),
   /** Every send the dashboard wants queued. Queued sends missing from this list are cancelled. */
   sends: z.array(z.object({ draftId: z.string().min(5).max(200), contactId: z.string().max(200), name: z.string().max(200), step: z.number().int().min(0).max(10), sendAt: z.string().datetime() })).max(400),
   /** Finished sends the dashboard has applied (removed from the server). */
@@ -43,7 +60,7 @@ export async function POST(req: Request) {
     } catch {
       throw new HttpError(400, `Unknown time zone ${b.tz}.`);
     }
-    const next = { ...a, tz: b.tz, ...(b.digests ? { digests: Object.fromEntries(Object.entries(b.digests).slice(0, 31)) } : {}), ...(b.people ? { people: b.people } : {}) };
+    const next = { ...a, tz: b.tz, ...(b.digests ? { digests: Object.fromEntries(Object.entries(b.digests).slice(0, 31)) } : {}), ...(b.people ? { people: b.people } : {}), ...(b.track ? { track: b.track } : {}) };
     if (b.whatsapp === null) delete next.whatsapp;
     else if (b.whatsapp) next.whatsapp = { phone: seal(b.whatsapp.phone), apiKey: seal(b.whatsapp.apiKey) };
     await saveAccount(next);
@@ -61,7 +78,16 @@ export async function POST(req: Request) {
       await putSend(a.id, q);
       await queueSendJob(req, a.id, s.draftId, s.sendAt);
     }
-    if (next.whatsapp) await ensureTick(req);
+    if (next.whatsapp || next.google?.read) await ensureTick(req);
+
+    // Reply tracking: drop texts already read, then check whoever is due (short budget; the hourly tick does the rest).
+    let tracking: Awaited<ReturnType<typeof trackStates>> | undefined;
+    if (next.google?.read) {
+      await ackTexts(a.id, b.trackAck);
+      if (b.track) await pruneTracked(a.id, new Set(b.track.map((p) => p.contactId)));
+      await trackAccount(next, 20_000).catch(() => 0);
+      tracking = await trackStates(a.id);
+    }
 
     const after = await getSends(a.id);
     const [lastDigestDay, lastDigestError] = await Promise.all([db().get<string>(DIGEST_DAY(a.id)), db().get<string>(DIGEST_ERR(a.id))]);
@@ -69,6 +95,8 @@ export async function POST(req: Request) {
       email: next.google?.email ?? null,
       whatsapp: !!next.whatsapp,
       calendar: !!next.google?.calendar,
+      gmailRead: !!next.google?.read,
+      tracking,
       lastDigestDay,
       lastDigestError,
       sends: Object.values(after),

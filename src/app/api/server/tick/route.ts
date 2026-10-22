@@ -2,6 +2,7 @@ import { errorResponse } from "@/lib/server/http";
 import { DIGEST_DAY, DIGEST_ERR, accountIds, appUrl, captureUrl, db, getSends, loadAccount, localNow, type Account } from "@/lib/server/accounts";
 import { accessToken, eventsOn, infoSessionsBetween } from "@/lib/server/google";
 import { verifyQstash } from "@/lib/server/jobs";
+import { trackAccount, trackStates, type TrackState } from "@/lib/server/gmailTrack";
 import { sendWhatsApp } from "@/lib/server/whatsapp";
 import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, nextTextDay, type CallPerson, type DigestItem } from "@/lib/digestFormat";
 import { looksLikeChat, matchEvent } from "@/lib/calendarMatch";
@@ -13,7 +14,7 @@ export const maxDuration = 300;
  * Today's calls from Google Calendar that haven't been thanked yet (no email to them since the call started).
  * Unmatched events that look like a chat are listed by their title. Fails soft: the text still goes out without them.
  */
-async function calendarThankYous(a: Account, day: string): Promise<{ items: DigestItem[]; met: CallPerson[]; note?: string }> {
+async function calendarThankYous(a: Account, day: string, tracked: Record<string, TrackState> = {}): Promise<{ items: DigestItem[]; met: CallPerson[]; note?: string }> {
   if (!a.google?.calendar) return { items: [], met: [] };
   try {
     const events = await eventsOn(await accessToken(a), day, (at) => localNow(a.tz, at).day);
@@ -25,7 +26,9 @@ async function calendarThankYous(a: Account, day: string): Promise<{ items: Dige
       const p = matchEvent(e, people);
       if (p && !met.some((m) => m.contactId === p.contactId)) met.push({ contactId: p.contactId, name: p.name, bank: p.bank, linkedin: p.linkedin });
       if (p) {
-        if (!p.thankedAt || p.thankedAt < e.start) items.push({ contactId: p.contactId, name: p.name, email: p.email, label: LABELS.thankToday });
+        // Thanked = any email to them after the call started (Gmail, read by the server when it can).
+        const thanked = [p.thankedAt, tracked[p.contactId]?.result.lastEmailedAt].filter(Boolean).sort().pop();
+        if (!thanked || thanked < e.start) items.push({ contactId: p.contactId, name: p.name, email: p.email, label: LABELS.thankToday });
       } else if (looksLikeChat(e.summary) && e.attendees.length <= 3) {
         items.push({ contactId: `cal:${e.id}`, name: e.summary || "Untitled call", email: e.attendees[0], label: LABELS.thankToday });
       }
@@ -49,7 +52,8 @@ async function nightText(a: Account, app: string) {
   if (hour < TEXT_HOUR) return false;
   const textDay = isTextDay(day);
   // Off nights: only worth a text when there were calls today (read before claiming the night).
-  const offCal = textDay ? undefined : await calendarThankYous(a, day);
+  const tracked = a.google?.read ? await trackStates(id) : {};
+  const offCal = textDay ? undefined : await calendarThankYous(a, day, tracked);
   if (offCal && !offCal.met.length && !offCal.items.length) return false;
   // (An off night where everyone's already logged and thanked sends nothing: see `messages` below.)
   // Claim tonight first, so an overlapping run can't send it twice.
@@ -58,9 +62,27 @@ async function nightText(a: Account, app: string) {
   const plan = textDay ? a.digests[day] : undefined;
   const sends = Object.values(await getSends(id));
   const doneSince = new Set(sends.filter((s) => s.status === "sent").map((s) => s.contactId));
-  const cal = offCal ?? (await calendarThankYous(a, day));
+  const cal = offCal ?? (await calendarThankYous(a, day, tracked));
   const calIds = new Set(cal.items.map((i) => i.contactId));
-  const items = [...cal.items, ...(plan?.items ?? []).filter((it) => !calIds.has(it.contactId) && !(doneSince.has(it.contactId) && /follow-up|move on/i.test(it.label)))];
+  // The plan was made when the dashboard was last open: an email you've sent them since (seen in Gmail) settles
+  // whatever was owed (thank-you, check-in, reply, follow-up). A reply from them since you last wrote adds "reply owed".
+  const knownLast = new Map((a.track ?? []).map((p) => [p.contactId, p.knownLast]));
+  const settled = (contactId: string) => {
+    const last = tracked[contactId]?.result.lastEmailedAt;
+    const known = knownLast.get(contactId);
+    return !!last && (!known || last > known);
+  };
+  const planned = (plan?.items ?? []).filter((it) => !calIds.has(it.contactId) && !(doneSince.has(it.contactId) && /follow-up|move on/i.test(it.label)) && !settled(it.contactId));
+  const listed = new Set([...calIds, ...planned.map((i) => i.contactId)]);
+  const owed: DigestItem[] = [];
+  if (textDay)
+    for (const p of a.track ?? []) {
+      const r = tracked[p.contactId]?.result;
+      if (!r?.lastHeardAt || listed.has(p.contactId) || (r.lastEmailedAt && r.lastEmailedAt > r.lastHeardAt)) continue;
+      // Only fresh ones (the last 10 days): older silences are the dashboard's call.
+      if (Date.now() - Date.parse(r.lastHeardAt) < 10 * 86_400_000) owed.push({ contactId: p.contactId, name: p.name, email: p.emails[0], label: LABELS.replyOwed });
+    }
+  const items = [...cal.items, ...planned, ...owed];
   const until = textDay ? nextTextDay(day) : day;
   const queued = sends.filter((s) => {
     if (s.status !== "queued") return false;
@@ -160,9 +182,13 @@ export async function POST(req: Request) {
     await verifyQstash(req);
     let sent = 0;
     let sessionTexts = 0;
+    let tracked = 0;
     for (const id of await accountIds()) {
       const a = await loadAccount(id);
-      if (!a?.whatsapp) continue;
+      if (!a) continue;
+      // Replies / thank-yous / intros first, so tonight's text is current.
+      if (a.google?.read) tracked += await trackAccount(a, 60_000).catch(() => 0);
+      if (!a.whatsapp) continue;
       try {
         sessionTexts += await infoSessionReminders(a, req);
       } catch {
@@ -170,7 +196,7 @@ export async function POST(req: Request) {
       }
       if (await nightText(a, appUrl(req))) sent++;
     }
-    return Response.json({ sent, sessionTexts });
+    return Response.json({ sent, sessionTexts, tracked });
   } catch (e) {
     return errorResponse(e);
   }

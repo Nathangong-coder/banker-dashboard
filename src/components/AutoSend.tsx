@@ -49,6 +49,17 @@ export function AutoSendCard() {
                 and tick Calendar (read-only) to add calls from your calendar.
               </div>
             )}
+            {status && (status.gmailRead ? (
+              <div className="text-[12px] text-muted">Reply tracking: on (Coverage checks Gmail every hour for replies, thank-yous and referrals)</div>
+            ) : (
+              <div className="text-[12px] text-ink-2">
+                Reply tracking is off: thank-yous and replies are only seen while this dashboard is open.{" "}
+                <button className="underline" onClick={() => run(() => connectServer())}>
+                  Reconnect Google
+                </button>{" "}
+                and tick &ldquo;View your email messages&rdquo; (read-only) so Coverage checks every hour.
+              </div>
+            ))}
             {status?.lastDigestError && <div className="text-[12px] text-red">WhatsApp: {status.lastDigestError}</div>}
             {status?.error && <div className="text-[12px] text-red">{status.error}</div>}
             <div className="flex flex-wrap gap-2 pt-1">
@@ -77,7 +88,7 @@ export function AutoSendCard() {
         ) : (
           <>
             <p className="text-ink-2">
-              One Google sign-in gives Coverage permission to <b>send drafts you&apos;ve made</b> (Gmail &ldquo;compose&rdquo; access) and, if you tick it, <b>read your calendar</b> so the 9 PM text can remind you to thank people you talked to that day.
+              One Google sign-in gives Coverage permission to <b>send drafts you&apos;ve made</b> (Gmail &ldquo;compose&rdquo; access) and, if you tick them, <b>read your calendar</b> (today&apos;s calls) and <b>read your email</b> (replies, thank-yous and referrals from the people you track, checked every hour) so the 9 PM text is always current.
               It sends only what you schedule here, and you can turn it off any time.
             </p>
             <Button size="sm" variant="primary" loading={busy} onClick={() => run(() => connectServer())}>

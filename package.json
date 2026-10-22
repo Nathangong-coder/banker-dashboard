@@ -20,7 +20,8 @@
     "check:selectors": "tsx scripts/check-selectors.mts",
     "check:night": "tsx scripts/check-night.mts",
     "check:conversations": "tsx scripts/check-conversations.mts",
-    "build:plugin": "node scripts/build-plugin.mjs"
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "check:tracking": "tsx scripts/check-tracking.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.62",
