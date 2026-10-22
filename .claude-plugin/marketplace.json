@@ -1,0 +1,13 @@
+{
+  "name": "coverage",
+  "owner": { "name": "Nathan Gong" },
+  "metadata": { "description": "Coverage: IB recruiting tracker tools and skills for Claude Code and Cowork." },
+  "plugins": [
+    {
+      "name": "coverage",
+      "source": "./plugin/coverage",
+      "description": "Update your IB recruiting tracker (.xlsx), record and grade coffee chats, sort your Gmail threads into Chatted tiers, and plan follow-ups.",
+      "category": "productivity"
+    }
+  ]
+}

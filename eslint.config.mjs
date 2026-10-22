@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Agent skills installed by `vercel integration add` (vendored docs, not app code).
     ".agents/**",
     ".claude/**",
+    // Built by `npm run build:plugin` (bundled, minified).
+    "plugin/coverage/server/**",
   ]),
 ]);
 

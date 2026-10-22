@@ -1,0 +1,9 @@
+{
+  "name": "coverage",
+  "version": "0.1.0",
+  "description": "Coverage for IB recruiting: update your tracker spreadsheet, record and grade coffee chats, tag Gmail threads by how the chat went, and plan follow-ups.",
+  "author": { "name": "Nathan Gong" },
+  "homepage": "https://banker-dashboard-three.vercel.app",
+  "repository": "https://github.com/Nathangong-coder/banker-dashboard",
+  "keywords": ["recruiting", "investment banking", "networking", "excel", "gmail"]
+}

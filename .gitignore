@@ -52,3 +52,6 @@ Follow up Templates.docx
 
 .vercel
 .env*
+
+# Coverage plugin backups (next to a workbook)
+.coverage-backups/

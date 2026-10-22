@@ -462,6 +462,24 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Side panels can't use `confirm()`: inline warnings / two-click buttons instead. Not yet run end to end with a real key.
   Before a store upload, decide whether the agent ships (all-sites access = stricter review); privacy page §7 doesn't cover it yet.
 
+## Claude plugin (`plugin/coverage`, owner, 2026-10-21)
+
+- Step 1 of "Coverage as a Claude connector": a Claude Code / Cowork plugin, installed from this repo
+  (`.claude-plugin/marketplace.json` → `plugin/coverage`; `/plugin marketplace add Nathangong-coder/banker-dashboard`).
+  Skills: update-tracker, record-chat, tag-chatted-emails (Gmail labels `Chatted` + `Chatted/Follow-up - Good | OK |
+  Bad - Ghost`, applied only after the user confirms), follow-up-planner. Gmail / Granola come from Claude's own connectors.
+- Local stdio MCP server `coverage-sheet`: source `scripts/plugin/coverage-mcp.mts` (hand-rolled JSON-RPC, no SDK),
+  bundled with esbuild by `npm run build:plugin` into `plugin/coverage/server/coverage-mcp.mjs` (**commit the bundle**;
+  rebuild + bump `plugin.json` version after changing it or the src/lib code it uses). Workbook path:
+  `~/.coverage-plugin.json` or `COVERAGE_WORKBOOK`. Writes = `contactPatches` diff (only cells the change needs) or the
+  Conversation row as owner-typed text (no "• " lines, so `sheetChat` reads it back and the dashboard's live pickup
+  shows it); before saving, every other cell is compared with the parsed original (abort on any difference), Excel's
+  lock is checked, 15 backups in `.coverage-backups/`. Tiers: Good = referral / rating ≥ 8 / grade ≥ 84; Bad = rating < 4
+  / grade < 60; else OK (the skill moves people down to Ghost only from Gmail evidence: 2+ unanswered emails after the
+  chat, the latest 10+ days old). `due_followups` sees only the sheet, not the dashboard's server queue.
+- Tested over JSON-RPC on a copy of the live workbook and via `claude -p --plugin-dir`. `claude plugin validate` passes.
+- Step 2 (later): a remote connector for the Connectors Directory needs server-side data + OAuth (data is browser-only today).
+
 ## Bank coverage (`src/lib/coverage.ts`, `src/lib/banks.ts`, `app/coverage`)
 
 - `buildCoverage` merges banks by `canonBank()` (aliases + stop-words; test new aliases against the owner's names) from: contacts →
