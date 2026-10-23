@@ -1,5 +1,6 @@
 "use client";
 
+import { addSmartMention } from "@/lib/mentionDrafts";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Bell, CalendarClock, CalendarPlus, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Smartphone, Trash2, UserPlus, UserX, X } from "lucide-react";
@@ -29,6 +30,7 @@ import { repliedToSchedule, ScheduleCallsTable } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
 import { replacementLists, ReplacementsTable } from "@/components/Replacements";
 import { referralCount, ReferralsTable } from "@/components/Referrals";
+import { OffSheetTable, useOffSheet } from "@/components/OffSheet";
 import { ScheduledRow } from "@/components/ScheduledRow";
 import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
@@ -173,6 +175,8 @@ function useActions() {
     // In-thread replies keep the original subject; without one, fall back to a neutral subject.
     if (/\{\{\s*original_subject\s*\}\}/.test(subject)) subject = c.threadId ? "Re:" : `Following up: ${s.settings.profile.school || "networking"}`;
     let body = fillPlaceholders(t.body, c, s.settings);
+    // A good chat at their bank since your last email to them: say so (lib/smartMention.ts).
+    body = (await addSmartMention(c, body, "follow_up", aiReady(s.settings))).body;
     if (hasAiSlots(body) || missingPlaceholders(body).length) {
       if (aiReady(s.settings)) {
         const r = await callApi<{ subject: string; body: string }>(
@@ -239,7 +243,7 @@ function useActions() {
 }
 
 /** The lists inside the Queue card. */
-type View = "due" | "drafted" | "scheduled" | "replied" | "referrals" | "replace";
+type View = "due" | "drafted" | "scheduled" | "replied" | "referrals" | "offsheet" | "replace";
 
 function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => void; onSync: () => void; syncing: boolean; onAuto: () => void }) {
   const { contacts, banks, settings } = useStore();
@@ -415,6 +419,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const fails = useMemo(() => replacementLists(contacts), [contacts]);
   const replaceCount = fails.suspected.length + fails.failed.length;
   const referrals = useMemo(() => referralCount(contacts), [contacts]);
+  const offSheet = useOffSheet().filter((p) => p.bankDomain).length;
   const shownView: View = view === "replace" && !replaceCount ? "due" : view;
 
   /** "Select all" for one list (the table header checkbox). */
@@ -550,6 +555,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     ["scheduled", "Scheduled", scheduled.length],
     ["replied", "Replied", replied],
     ["referrals", "Referrals", referrals],
+    ["offsheet", "Not in tracker", offSheet],
   ];
   if (replaceCount) views.push(["replace", "Needs new contact", replaceCount]);
 
@@ -559,6 +565,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     scheduled: "Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out.",
     replied: "Offer your free times in their time zone, then send the calendar invite.",
     referrals: "Intros and referrals found in bankers' replies (confirm them), and what's next with each person you were referred to.",
+    offsheet: "Bankers you emailed at their work address who have no row in your tracker (e.g. a thank-you sent right after an info session). Add them so follow-ups are timed.",
     replace: "Bounced emails, people who left, and clear no's: no follow-ups go to them, and their desk gets someone new.",
   };
 
@@ -773,6 +780,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
 
         {shownView === "replied" && <ScheduleCallsTable onOpen={onOpen} />}
         {shownView === "referrals" && <ReferralsTable onOpen={onOpen} />}
+        {shownView === "offsheet" && <OffSheetTable />}
         {shownView === "replace" && <ReplacementsTable onOpen={onOpen} />}
       </Card>
 

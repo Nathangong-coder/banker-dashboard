@@ -303,6 +303,7 @@ export default function SettingsPage() {
                 ))}
               </Select>
             </Field>
+            <SmartMentionsField />
             <div className="md:col-span-2">
               <Field
                 label="Custom signature (optional)"
@@ -601,5 +602,36 @@ function AdminSetting() {
         <span className="text-[12px] text-muted">Adds the grading rubric editor (Activity log → ⋯ → Grading rubric).</span>
       </label>
     </Card>
+  );
+}
+
+/** Smart mentions (lib/smartMention.ts): on/off and the lowest chat rating that gets mentioned. */
+function SmartMentionsField() {
+  const cfg = useStore((s) => s.settings.emailStyle.smartMentions);
+  const setSettings = useStore((s) => s.setSettings);
+  const on = cfg?.on ?? true;
+  const min = cfg?.minRating ?? 6;
+  const set = (patch: Partial<{ on: boolean; minRating: number }>) =>
+    setSettings((st) => ({ ...st, emailStyle: { ...st.emailStyle, smartMentions: { on, minRating: min, ...patch } } }));
+  return (
+    <Field
+      label="Smart mentions"
+      hint="After a good chat at a bank, first emails and follow-ups to others there name that person and one or two things they told you, taken only from your chat notes (and the chat's Google Doc, if it's shared by link)."
+    >
+      <div className="flex flex-wrap items-center gap-2 text-[13px]">
+        <label className="inline-flex items-center gap-1.5">
+          <Checkbox checked={on} onChange={(v) => set({ on: v })} label="Smart mentions on" />
+          On, for chats rated
+        </label>
+        <Select className="w-20" value={String(min)} disabled={!on} onChange={(e) => set({ minRating: Number(e.target.value) })} aria-label="Lowest rating to mention">
+          {[5, 6, 7, 8, 9].map((n) => (
+            <option key={n} value={n}>
+              {n}/10
+            </option>
+          ))}
+        </Select>
+        <span className="text-muted">or better</span>
+      </div>
+    </Field>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import { useStore } from "./store";
-import { detectSentFont, draftExists, findEmailByName, gmailConnected, syncContact, type SyncResult } from "./gmail";
+import { detectSentFont, draftExists, findEmailByName, gmailConnected, sentRecipients, syncContact, type SyncResult } from "./gmail";
+import { STARTER_TARGETS, canonBank } from "./banks";
+import { domainOf, offSheetPeople, personalDomain, type OffSheetPerson } from "./offSheet";
 import { googleClientId } from "./keys";
 import type { Contact } from "./types";
 import { pool } from "./util";
@@ -154,6 +156,8 @@ export function syncAllWithGmail(opts: { interactive: boolean; onProgress?: (don
       (done) => opts.onProgress?.(done, list.length),
     );
     useStore.getState().setLastGmailSync(new Date().toISOString());
+    // Bankers emailed but not in the tracker (throttled to every 6 h; a failure here never fails the sync).
+    await scanOffSheet({ interactive: false }).catch(() => undefined);
     return summary;
   })().finally(() => {
     running = null;
@@ -208,4 +212,87 @@ export async function autoTagFontsFromGmail(onProgress?: (done: number, total: n
     (done) => onProgress?.(done, list.length),
   );
   return { checked: list.length, tagged, noMail };
+}
+
+/* ------------------------------------------------------------------ bankers emailed, not in the tracker */
+
+const OFF_SHEET_EVERY_MS = 6 * 3600_000;
+const OFF_SHEET_DAYS = 120;
+let scanning: Promise<number> | null = null;
+
+/** Every bank name the app knows (lists, coverage, contacts, starter list), for matching an unfamiliar domain. */
+export function bankNames() {
+  const s = useStore.getState();
+  return [...new Set([...STARTER_TARGETS, ...s.targets, ...s.coverage.added].map((t) => t.name).concat(s.contacts.map((c) => c.bank)).filter(Boolean))];
+}
+
+export function offSheetList() {
+  const s = useStore.getState();
+  return offSheetPeople(s.offSheet.recipients, s.contacts, { me: [s.settings.profile.email].filter(Boolean), banks: bankNames(), ignored: s.offSheet.ignored });
+}
+
+/**
+ * Read the recipients of your sent mail (last 120 days; only messages not read before) so lib/offSheet.ts can list
+ * bankers you emailed who aren't in the tracker. Runs after a Gmail sync at most every 6 h, or on demand.
+ */
+export function scanOffSheet(opts: { interactive: boolean; force?: boolean }): Promise<number> {
+  if (scanning) return scanning;
+  scanning = (async () => {
+    const s = useStore.getState();
+    const clientId = googleClientId(s.settings);
+    if (!clientId || (!opts.interactive && !gmailConnected(clientId))) return 0;
+    if (!opts.force && s.offSheet.scannedAt && Date.now() - Date.parse(s.offSheet.scannedAt) < OFF_SHEET_EVERY_MS) return offSheetList().length;
+    const since = new Date(Date.now() - OFF_SHEET_DAYS * 86_400_000);
+    const day = `${since.getFullYear()}/${String(since.getMonth() + 1).padStart(2, "0")}/${String(since.getDate()).padStart(2, "0")}`;
+    const { recipients, read } = await sentRecipients(clientId, day, new Set(s.offSheet.seen));
+    const me = [s.settings.profile.email].filter(Boolean);
+    // Only work addresses are worth keeping (friends, classmates and no-reply addresses never are).
+    const keep = recipients.filter((r) => !personalDomain(domainOf(r.email), me));
+    const cur = useStore.getState().offSheet;
+    const cutoff = since.getTime();
+    useStore.getState().setOffSheet({
+      scannedAt: new Date().toISOString(),
+      seen: [...cur.seen, ...read].slice(-4000),
+      recipients: [...cur.recipients.filter((r) => r.at >= cutoff), ...keep].slice(-4000),
+    });
+    return offSheetList().length;
+  })().finally(() => {
+    scanning = null;
+  });
+  return scanning;
+}
+
+/** Not a banker to track: hidden from the list from now on. */
+export function ignoreOffSheet(email: string) {
+  const s = useStore.getState();
+  s.setOffSheet({ ignored: [...new Set([...s.offSheet.ignored, email.toLowerCase()])] });
+}
+
+/**
+ * Add someone you emailed to the tracker (a row on the bank's tab when a workbook is loaded), then read their Gmail
+ * history so the first-email date, follow-up count and replies are right and Follow-ups shows them when due.
+ */
+export async function addOffSheet(p: OffSheetPerson) {
+  const { addManualContact } = await import("./actions");
+  const s = useStore.getState();
+  // Same bank as people you already track there: take that spelling .
+  const peer = s.contacts.find((c) => c.bank && canonBank(c.bank) === canonBank(p.bank));
+  const bank = peer?.bank ?? p.bank;
+  // Their office isn't in an email: "Other" until you set it (the bank tab still gets the row).
+  const region = "Other" as const;
+  const when = new Date(p.firstAt).toLocaleDateString();
+  const c = addManualContact(
+    { name: p.name || p.email, bank, email: p.email, linkedin: "", position: "", location: "", team: "", region, comment: `Emailed ${when} (found in Gmail, wasn't in the tracker): "${p.subject}"` },
+    true,
+  );
+  const clientId = googleClientId(s.settings);
+  if (clientId && gmailConnected(clientId)) {
+    const r = await syncContact(clientId, p.email);
+    const patch = patchFrom(c, r);
+    if (patch) useStore.getState().updateContact(c.id, { ...patch, emailSource: "gmail", gmailCheckedAt: new Date().toISOString() });
+  } else {
+    // No Gmail token this session: the scan's own dates, so follow-up timing still works.
+    useStore.getState().updateContact(c.id, { sentAt: p.firstAt, lastTouchAt: p.lastAt, lastEmailedAt: p.lastAt, status: "sent", threadId: p.threadId, emailSource: "gmail" });
+  }
+  return useStore.getState().contacts.find((x) => x.id === c.id) ?? c;
 }

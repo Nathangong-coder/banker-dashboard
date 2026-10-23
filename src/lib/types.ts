@@ -161,7 +161,7 @@ export interface Contact {
   /** Coffee chat prep generated for this person (see app/prep). */
   prep?: CoffeePrep;
   /** What produced the current draft, for A/B results: the template, the base, the hook, and when. */
-  draftMeta?: { templateId: string; baseId: string; hookId?: string; createdAt: string };
+  draftMeta?: { templateId: string; baseId: string; hookId?: string; createdAt: string; /** Who a smart mention named. */ mention?: string };
   /** Hook chosen by hand for this person; otherwise it follows their team (lib/hooks.ts). */
   hookId?: string;
   /** Set when the Gmail draft is made: the font it went out in and the arm of each running experiment. Kept on updates. */
@@ -453,6 +453,11 @@ export interface Settings {
     font: EmailFont;
     /** Logo under the signature (the image itself is in IndexedDB, blob:logo). Missing = no logo. */
     logo?: { name: string; width: number; link?: string; addedAt: string };
+    /**
+     * Smart mentions (lib/smartMention.ts): name a good chat at the same bank in first emails / follow-ups.
+     * Undefined = on, with chats you rated 6/10 or better.
+     */
+    smartMentions?: { on: boolean; minRating: number };
   };
   /**
    * Coffee chat prep: the general questions that work for anyone, and the sectors / sub-verticals you're interested in

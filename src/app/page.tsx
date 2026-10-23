@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Mail, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { nextAction } from "@/lib/followups";
@@ -12,6 +13,7 @@ import type { Contact } from "@/lib/types";
 import { DAY, cn, fmtDate, relDays } from "@/lib/util";
 import { Badge, Card, CardHeader, Kpi, PageHeader } from "@/components/ui";
 import { WorkbookEmpty } from "@/components/WorkbookControls";
+import { STARTED_KEY } from "@/components/landing/StartLink";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -45,6 +47,21 @@ const RANK = Object.keys(RELATIONSHIP);
 const REPLIED = new Set(["replied", "call_scheduled", "done"]);
 const EMAILED = new Set(["sent", "followed_up", ...REPLIED]);
 
+/** A first-time visitor (no workbook, no contacts, never clicked into the dashboard) sees the landing page instead. */
+function useLandingRedirect(empty: boolean) {
+  const router = useRouter();
+  useEffect(() => {
+    if (!empty) return;
+    let started = false;
+    try {
+      started = !!localStorage.getItem(STARTED_KEY);
+    } catch {
+      started = true;
+    }
+    if (!started) router.replace("/welcome");
+  }, [empty, router]);
+}
+
 export default function Overview() {
   const contacts = useStore((s) => s.contacts);
   const banks = useStore((s) => s.banks);
@@ -54,6 +71,7 @@ export default function Overview() {
   const tables = useStore((s) => s.tables);
   const targets = useStore((s) => s.targets);
   const coverage = useStore((s) => s.coverage);
+  useLandingRedirect(!meta && contacts.length === 0);
 
   const tonight = useMemo(() => {
     const now = new Date();

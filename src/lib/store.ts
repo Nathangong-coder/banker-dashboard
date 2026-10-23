@@ -1,5 +1,6 @@
 "use client";
 
+import type { SentRecipient } from "./offSheet";
 import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
@@ -61,6 +62,15 @@ export function bankKey(name: string, region: Region) {
   return `${name}|${region}`;
 }
 
+export interface OffSheetState {
+  scannedAt?: string;
+  /** Gmail message ids already read, so a scan only fetches new sent mail. */
+  seen: string[];
+  recipients: SentRecipient[];
+  /** Addresses you said aren't bankers to track. */
+  ignored: string[];
+}
+
 interface State {
   settings: Settings;
   contacts: Contact[];
@@ -89,6 +99,9 @@ interface State {
   gridUndo: GridState[];
   /** Info sessions (app/info-sessions): read from Google Calendar or added by hand, with who you met at each. */
   infoSessions: InfoSession[];
+  /** Recipients of your sent mail (lib/offSheet.ts finds bankers emailed but not in the tracker), and who to ignore. */
+  offSheet: OffSheetState;
+  setOffSheet: (patch: Partial<OffSheetState>) => void;
   /** Merge sessions read from the calendar (by id): calendar fields refresh, your fields (people, notes, attended…) stay. */
   upsertInfoSessions: (list: InfoSession[]) => void;
   updateInfoSession: (id: string, patch: Partial<InfoSession> | ((s: InfoSession) => Partial<InfoSession>)) => void;
@@ -241,6 +254,8 @@ export const useStore = create<State>()(
       sheetOps: EMPTY_OPS,
       aiCooldowns: {},
       infoSessions: [],
+      offSheet: { seen: [], recipients: [], ignored: [] },
+      setOffSheet: (patch) => set({ offSheet: { ...get().offSheet, ...patch } }),
       upsertInfoSessions: (list) => {
         const byId = new Map(get().infoSessions.map((s) => [s.id, s]));
         for (const s of list) {

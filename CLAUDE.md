@@ -490,6 +490,37 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Not yet verified live: needs a deploy + reconnect (consent screen gains "View your email messages"; the Google Cloud
   OAuth consent config must list `gmail.readonly`). Privacy §2/§3 updated, `legalUpdated` 10/22.
 
+## Landing page, off-sheet bankers, smart mentions (owner, 2026-10-23)
+
+- **Landing `/welcome`** (`app/welcome/page.tsx`, server component, no store; pieces in `components/landing/`): shaped
+  like the owner's quizlet-v2 landing (question headline, one button, horizontally scrolling tool slabs with drawn
+  mocks, zig-zag stories, closing slab) with a HubSpot-style nav (`LandingNav.tsx`: utility strip, Products /
+  Integrations / Resources mega menus, outline "Open dashboard" + filled "Get started free"). Tools are listed once in
+  `landing/features.ts`. Mocks use made-up names only. Shell renders it bare (`BARE_PATHS`). `/` sends a visitor with
+  no workbook, no contacts and no `localStorage["coverage:started"]` there (`app/page.tsx#useLandingRedirect`); every
+  dashboard link on the landing sets the flag (`StartLink`). Checked on 127.0.0.1 at desktop width; phone width not
+  click-tested (iframes are blocked by X-Frame-Options).
+- **Not in tracker** (`lib/offSheet.ts`, pure, `npm run check:offsheet`; Follow-ups → "Not in tracker",
+  `components/OffSheet.tsx`): bankers you emailed who have no row (Justin James, Morgan Stanley, thank-you 10/5 after
+  the info session, no follow-up). `gmailSync.ts#scanOffSheet` (after each Gmail sync, ≤ every 6 h, or "Scan sent
+  mail") reads To of sent mail from the last 120 days (`gmail.ts#sentRecipients`, only messages not seen before; ids
+  and work-domain recipients kept in `state.offSheet`). A recipient is a banker when the domain is one a contact
+  already uses, a `BANK_DOMAINS` one (or its subdomain), or reads as a known bank name (whole name / stem, never a
+  substring: citizensbank ≠ Citi). Personal / .edu / own / role addresses never show; other company domains are
+  listed apart. Already tracked = same address / alias, or the same name at that bank. "Add to tracker" =
+  `addManualContact` (row on the bank tab, region Other) + `syncContact` for the dates; ✗ = ignore list.
+- **Smart mentions** (`lib/smartMention.ts`, pure, `npm run check:mentions`; browser side `lib/mentionDrafts.ts`):
+  a chat with someone ELSE at the same bank (`canonBank`) rated ≥ 6/10 (your rating: "rating: 8/10" or a line that is
+  just "8/10", never a "9/10" date; else grade / 10) puts one sentence in first emails (start of the hook paragraph)
+  and follow-ups (own paragraph, only if the chat came after your last email to them); `{{chat_mention}}` in a
+  template places it. Not the person themselves or whoever referred them. With AI it's an `[[AI: …]]` slot carrying
+  the chat's notes (+ the live text of its Google Doc via `api/templates/gdoc` `format: "txt"`, link-shared docs
+  only) and a no-invention rule; `api/draft` treats a slot's notes as facts for that slot only. Without AI it only
+  names the person. Settings → Email → Writing → Smart mentions (`emailStyle.smartMentions`, undefined = on, 6/10).
+  `draftMeta.mention` records who was named. Plugin: `smart_mention` tool + `smart-outreach` skill (v0.2.0);
+  follow-up-planner also looks for off-sheet bankers. On the owner's workbook, Mizuho contacts get Benjamin Hon
+  (8.9/10), but his notes have no specifics, so the AI uses the plain sentence until richer notes are added.
+
 ## Claude connector (`api/mcp`, owner, 2026-10-22)
 
 - Remote MCP server (Streamable HTTP, JSON responses, stateless, hand-rolled JSON-RPC) over what the server already

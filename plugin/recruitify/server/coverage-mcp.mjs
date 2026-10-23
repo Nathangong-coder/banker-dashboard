@@ -65942,7 +65942,7 @@ function allocateConversationRow(c, tables, taken) {
 function contactedColumn(s, pending, ref) {
   return addedColumn(s, pending, ref, CONTACTED_HEADERS, "Contacted", "left-of-status");
 }
-function addedColumn(s, pending, ref, headers, title, where) {
+function addedColumn(s, pending, ref, headers, title, where2) {
   if (!s) return void 0;
   const known = Object.values(ref.cols).filter((c) => !!c);
   if (!ref.cols.name || !known.length) return void 0;
@@ -65953,7 +65953,7 @@ function addedColumn(s, pending, ref, headers, title, where) {
   for (let c = 1; c <= Math.max(...known) + 4; c++) if (headers.includes(text(hr, c).trim().toLowerCase())) return c;
   const status = ref.cols.status;
   let col;
-  if (where === "left-of-status" && status && status > 1 && !text(hr, status - 1) && !known.includes(status - 1)) col = status - 1;
+  if (where2 === "left-of-status" && status && status > 1 && !text(hr, status - 1) && !known.includes(status - 1)) col = status - 1;
   for (let c = Math.max(...known) + 1; !col && c <= Math.max(...known) + 4; c++) if (!text(hr, c)) col = c;
   if (!col) return void 0;
   pending[`${hr}:${col}`] = { v: title };
@@ -66722,8 +66722,71 @@ function isVpPlus(title) {
   });
 }
 
+// src/lib/smartMention.ts
+var MIN_RATING = 6;
+function chatRating(chat) {
+  const text = `${chat.notes ?? ""}
+${chat.feel ?? ""}`;
+  const own = text.match(/\brat(?:ing|ed)\b[^\d\n]{0,12}(10|\d(?:\.\d)?)\s*\/\s*10\b/i) ?? text.match(/(?:^|\n)[ \t]*(10|\d(?:\.\d)?)[ \t]*\/[ \t]*10[ \t]*(?=\n|$)/);
+  if (own) return Number(own[1]);
+  if (chat.grade) return Math.round(chat.grade.score) / 10;
+  return void 0;
+}
+function chatNotes(chat, limit = 1600) {
+  const g = chat.grade;
+  const parts = [
+    chat.notes?.replace(/\b(?:your )?rat(?:ing|ed)\b[^\d\n]{0,12}\d+(?:\.\d)?\s*\/\s*10\b/gi, "").trim(),
+    chat.feel && `How it felt: ${chat.feel}`,
+    g?.summary && `Summary: ${g.summary}`,
+    g?.theirAdvice?.length && `Their advice: ${g.theirAdvice.join("; ")}`,
+    g?.thankYouPoints?.length && `Things they said: ${g.thankYouPoints.join("; ")}`
+  ].filter(Boolean);
+  const lines = [...new Set(parts.join("\n").split(/\n+/).map((l2) => l2.trim()).filter(Boolean))];
+  return lines.join("\n").slice(0, limit);
+}
+function mentionFor(target, contacts, minRating = MIN_RATING) {
+  if (!target.bank) return void 0;
+  const bank = canonBank(target.bank);
+  let best;
+  for (const c of contacts) {
+    if (c.id === target.id || !c.bank || canonBank(c.bank) !== bank || c.id === target.referredBy?.contactId) continue;
+    for (const chat of c.chats ?? []) {
+      const rating = chatRating(chat);
+      if (rating === void 0 || rating < minRating) continue;
+      const m = {
+        contactId: c.id,
+        name: c.name,
+        firstName: c.firstName || c.name.split(" ")[0],
+        bank: c.bank,
+        team: c.team,
+        at: chat.at,
+        rating,
+        notes: chatNotes(chat),
+        docUrl: chat.docUrl
+      };
+      if (!best || m.at > best.at || m.at === best.at && m.rating > best.rating) best = m;
+    }
+  }
+  return best;
+}
+var where = (target) => {
+  const team = target.team && !/^(generalist|m&a|\?)$/i.test(target.team) ? target.team : "";
+  return team ? `${team} at ${target.bank}` : target.bank;
+};
+function mentionSentence(m, target, opts) {
+  const lead = opts.followUp ? "Since my last email, I had" : "I recently had";
+  if (!opts.ai || !(m.notes || opts.docText))
+    return `${lead} a great conversation with ${m.name} about ${m.firstName}'s experience at ${m.bank}, and I would love to hear your perspective on ${where(target)} as well.`;
+  const notes = [m.notes, opts.docText && `From the chat's notes doc:
+${opts.docText}`].filter(Boolean).join("\n\n").replace(/\]\]/g, "] ]");
+  return `[[AI: Write ONE sentence in the sender's own voice${opts.followUp ? ', starting "Since my last email,"' : ""}: they recently spoke with ${m.name} at ${m.bank}, name one or two specific things ${m.firstName} told them, taken ONLY from the notes below (no other facts, nothing about deals, numbers or people that the notes don't say; nothing negative, nothing private or confidential), and say they'd love to learn more about ${where(target)} from the recipient. Plain, warm, under 45 words. If the notes have nothing specific and positive, write: "I recently had a great conversation with ${m.name}, and I would love to hear your perspective on ${where(target)} as well." Notes:
+"""
+${notes}
+"""]]`;
+}
+
 // scripts/plugin/coverage-mcp.mts
-var VERSION = "0.1.0";
+var VERSION = "0.2.0";
 var CONFIG = path.join(os.homedir(), ".coverage-plugin.json");
 var KINDS2 = {
   coffee_chat: "Coffee chat",
@@ -67103,6 +67166,34 @@ var TOOLS = [
         return { ...brief(c), ...info, ...tierOf(c, info), conversation: void 0, notes: info.conversation?.notes ? info.conversation.notes.slice(0, 200) : void 0 };
       });
       return { count: people.length, people };
+    }
+  },
+  {
+    name: "smart_mention",
+    title: "Smart mention for an email",
+    description: `Before drafting a first email or follow-up to someone: is there a good chat (your rating 6/10+ by default, else grade 60+) with someone ELSE at their bank? Returns who, when, your notes from that chat, the chat's notes doc link if any, and the instruction for the one sentence to add ("I recently spoke with X, who told me about \u2026, and I'd love to learn more about <team> at <bank> from you"). Use only facts in those notes. Nothing found = write the email without it.`,
+    readOnly: true,
+    schema: obj2({ name: str("Who you're emailing (name or email)"), bank: str("Their bank, if the name is ambiguous"), min_rating: { type: "number", description: "Lowest rating to mention (default 6)" } }, ["name"]),
+    run: async (a) => {
+      const { p } = await load();
+      const target = findContact(p, String(a.name), a.bank);
+      const withChats = p.contacts.map((c) => {
+        const info = chatInfo(p, c);
+        if (info.rating === void 0 && info.grade === void 0 && !c.chats?.length) return c;
+        const notes = [info.rating !== void 0 ? `Your rating: ${info.rating}/10` : "", info.conversation?.notes, info.conversation?.comments, ...(c.chats ?? []).map((x) => x.notes ?? "")].filter(Boolean).join("\n");
+        const at = info.lastChat ? `${info.lastChat}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z";
+        const grade = info.rating === void 0 && info.grade !== void 0 ? { score: info.grade } : void 0;
+        return { ...c, chats: [{ id: `sheet:${c.id}`, at, notes, grade, docUrl: c.chats?.find((x) => x.docUrl)?.docUrl }] };
+      });
+      const me = withChats.find((c) => c.id === target.id) ?? target;
+      const m = mentionFor(me, withChats, Number(a.min_rating) || MIN_RATING);
+      if (!m) return { mention: null, why: `No chat rated ${Number(a.min_rating) || MIN_RATING}/10+ with anyone else at ${target.bank}.` };
+      return {
+        mention: { name: m.name, bank: m.bank, chatDate: m.at.slice(0, 10), rating: m.rating, notes: m.notes, notesDoc: m.docUrl },
+        instruction: mentionSentence(m, target, { ai: true }).replace(/^\[\[AI:\s*/, "").replace(/\]\]$/, ""),
+        withoutNotes: mentionSentence(m, target, { ai: false }),
+        placement: "First email: start of the paragraph with the hook and the ask. Follow-up: its own paragraph after the first one, only if the chat happened after your last email to them."
+      };
     }
   },
   {

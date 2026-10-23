@@ -24,7 +24,9 @@ import { savedSignatureLogo } from "@/lib/signatureLogo";
 setSignatureLogoSource(savedSignatureLogo);
 
 /** Pages that render without waiting for the local store (no personal data on them). */
-const PUBLIC_PATHS = ["/privacy", "/terms", "/capture", "/agent-practice"];
+const PUBLIC_PATHS = ["/privacy", "/terms", "/capture", "/agent-practice", "/welcome"];
+/** Pages with their own chrome (the landing page): no app header or sidebar. */
+const BARE_PATHS = ["/welcome"];
 
 /**
  * Two-level navigation (owner, 2026-10-19): the top bar picks a group, the sidebar lists that group's pages. The group
@@ -266,6 +268,15 @@ export function Shell({ children }: { children: ReactNode }) {
   const group = groupOf(path);
   const toReview = useStore((s) => s.infoSessions.reduce((n, x) => n + (x.pending?.length ?? 0), 0));
   const badge = (href: string) => (href === "/followups" ? due : href === "/info-sessions" ? toReview : 0);
+
+  if (BARE_PATHS.includes(path))
+    return (
+      <>
+        {children}
+        <Toaster />
+        <ConsentBanner />
+      </>
+    );
 
   return (
     <div className="flex min-h-screen flex-col">

@@ -68,7 +68,8 @@ export async function POST(req: Request) {
         "Leave all other wording exactly as written, keeping the same line breaks: exactly one blank line between paragraphs, no indentation. Keep the ending exactly as written: the sign-off line (e.g. \"Sincerely,\"), the sender's first name on the next line, ONE blank line, then the signature block starting with the sender's full name. Never merge or reorder those lines. Any leftover {{placeholder}} you cannot fill " +
         "from the facts should be removed gracefully. Use ONLY the facts provided — never invent shared schools, " +
         "mutual connections, deals or groups. A career-path slot comes ONLY from the Experience section of the contact's " +
-        "LinkedIn profile text (if there is none, write their current firm and group from the facts, nothing more). Never invent " +
+        "LinkedIn profile text (if there is none, write their current firm and group from the facts, nothing more). A slot can carry the sender's own notes " +
+        "(a chat with someone at the bank): those notes count as facts for that slot only, and nothing outside them may be added. Never invent " +
         "or imply experience for the sender beyond the SENDER facts (e.g. workshops or programs they didn't do). " +
         "Keep the tone concise, warm and professional; avoid em dashes and flattery. " +
         "Write job titles in lowercase mid-sentence (\"an associate\", \"a vice president\"); acronyms like MD or VP stay capitalized.",

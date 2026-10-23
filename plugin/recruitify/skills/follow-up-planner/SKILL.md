@@ -14,7 +14,14 @@ Uses **coverage-sheet** (`due_followups`, `get_contact`) and, for drafts, a **Gm
 2. **Check before trusting it:** the Coverage dashboard may already have a follow-up queued or sent that the sheet
    doesn't show yet. If Gmail is connected, look for a newer message to them (sent or scheduled) and drop those people.
    Otherwise tell the user to check Coverage → Follow-ups → Scheduled.
-3. Group the list: Follow-up #1 · Follow-up #2 · Move on? (2 follow-ups with no reply: suggest marking them moved on via
+3. **People who aren't in the tracker:** with Gmail connected, search sent mail from the last 120 days
+   (`in:sent after:YYYY/MM/DD`) for recipients at a bank's work domain (a domain already used by someone in
+   `list_contacts`, or one that reads like a bank, e.g. morganstanley.com, us.bnpparibas.com). Skip personal, school
+   and no-reply addresses and anyone `get_contact` finds. Thank-yous sent right after an info session are the usual case
+   (e.g. a 10/5 email to someone at Morgan Stanley with no row and no follow-up). List them with the date of your last
+   email and whether they replied; offer to add them with `/recruitify:update-tracker` so their follow-ups are timed.
+   The dashboard lists the same people under Follow-ups → Not in tracker.
+4. Group the list: Follow-up #1 · Follow-up #2 · Move on? (2 follow-ups with no reply: suggest marking them moved on via
    `/recruitify:update-tracker`).
 
 ## The owner's timing rules
@@ -29,6 +36,8 @@ Uses **coverage-sheet** (`due_followups`, `get_contact`) and, for drafts, a **Gm
 
 ## Drafting (only when asked)
 
+- Before writing, run the **smart-outreach** skill (`smart_mention`): a good chat with someone else at their bank since
+  your last email goes in as one sentence.
 - Reply **in the original thread** so it stacks under the first email. Keep it 2-4 sentences: a short nudge, no new
   ask. Sign-offs: follow-up #1 "Regards,", #2 "Kind regards,", then the first name, a blank line, and their signature.
 - Create Gmail **drafts** only. Never send. Gmail's API can't Schedule-send, so give them the planned time for each

@@ -1,5 +1,6 @@
 "use client";
 
+import { addSmartMention } from "@/lib/mentionDrafts";
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -167,7 +168,9 @@ function DraftsInner() {
         }
         let subject = fillPlaceholders(t.subject, cc, settings, {}, base);
         let body = fillPlaceholders(t.body, cc, settings, {}, base);
-        body = withSignature(body, settings.profile);
+        // A good chat with someone else at this bank: name them and what they shared (lib/smartMention.ts).
+        const smart = await addSmartMention(cc, body, t.kind === "follow_up" ? "follow_up" : "initial", aiReady(settings));
+        body = withSignature(smart.body, settings.profile);
         const needsAi = hasAiSlots(subject + body) || missingPlaceholders(subject + body).length > 0;
         if (needsAi && aiReady(settings)) {
           try {
@@ -192,7 +195,7 @@ function DraftsInner() {
         s.updateContact(c.id, {
           templateId: t.id,
           draft: { subject: normalizeSubject(subject), body: normalizeBody(body), createdAt, gmailDraftId: c.draft?.gmailDraftId },
-          draftMeta: { templateId: t.id, baseId: base.id, hookId: hookFor(c, settings).id, createdAt },
+          draftMeta: { templateId: t.id, baseId: base.id, hookId: hookFor(c, settings).id, createdAt, ...(smart.mention ? { mention: smart.mention.name } : {}) },
           ...(cc.trial !== c.trial ? { trial: cc.trial } : {}),
         });
       },

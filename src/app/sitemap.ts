@@ -5,6 +5,7 @@ import { SITE } from "@/lib/site";
 export default function sitemap(): MetadataRoute.Sitemap {
   const pages: [string, number][] = [
     ["", 1],
+    ["/welcome", 0.9],
     ["/coverage", 0.6],
     ["/firms", 0.5],
     ["/find", 0.6],

@@ -424,6 +424,39 @@ export function addressMatches(a: { name: string; email: string }, first: string
 }
 
 /**
+ * To-recipients of everything you sent since `sinceDay` (YYYY/MM/DD), for lib/offSheet.ts. Messages in `skip` (read
+ * by an earlier scan) aren't fetched again. Capped at `max` messages, newest first.
+ */
+export async function sentRecipients(clientId: string, sinceDay: string, skip: Set<string>, max = 800) {
+  const ids: string[] = [];
+  let page = "";
+  do {
+    const r = await gapi<{ messages?: { id: string }[]; nextPageToken?: string }>(
+      clientId,
+      `/messages?q=${encodeURIComponent(`in:sent after:${sinceDay}`)}&maxResults=500${page ? `&pageToken=${page}` : ""}`,
+    );
+    ids.push(...(r.messages ?? []).map((m) => m.id));
+    page = r.nextPageToken ?? "";
+  } while (page && ids.length < max);
+  const fresh = ids.slice(0, max).filter((id) => !skip.has(id));
+  const out: { email: string; name: string; at: number; subject: string; threadId: string }[] = [];
+  const read: string[] = [];
+  let i = 0;
+  const worker = async () => {
+    while (i < fresh.length) {
+      const id = fresh[i++];
+      const m = await gapi<MsgMeta>(clientId, `/messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Subject`);
+      read.push(id);
+      // A message Schedule-send hasn't sent yet isn't an email to follow up on.
+      if (m.labelIds?.includes("SCHEDULED") || when(m) > Date.now()) continue;
+      for (const a of parseAddresses(header(m, "To") ?? "")) out.push({ ...a, at: when(m), subject: header(m, "Subject") ?? "", threadId: m.threadId });
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  return { recipients: out, read, total: ids.length };
+}
+
+/**
  * Find the address we emailed a person at, by searching Sent mail for their name. Only returns an
  * address whose display name or mailbox matches the person, so a wrong "missing" fill is unlikely.
  */
