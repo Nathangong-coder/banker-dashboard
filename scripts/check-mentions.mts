@@ -3,6 +3,8 @@
  *   npm run check:mentions
  */
 import { chatRating, mentionFor, mentionSentence, withMention, dropMentionSlot } from "../src/lib/smartMention";
+import { docJsonText, findDocUrl, pickDoc, type DocPick, type DriveDoc } from "../src/lib/docMatch";
+import { withSheetChat } from "../src/lib/conversations";
 import type { ChatLog, Contact } from "../src/lib/types";
 
 let failed = 0;
@@ -66,6 +68,26 @@ const fu = "Hi Ana,\n\nI wanted to follow up on my previous email.\n\nRegards,\n
 check("follow-up: its own paragraph after the first", withMention(fu, "MENTION.", "follow_up").split("\n\n")[2] === "MENTION.");
 check("a template's {{chat_mention}} wins", withMention("Hi,\n\nA {{chat_mention}} B\n\nC", "X", "initial") === "Hi,\n\nA X B\n\nC");
 check("unused {{chat_mention}} slot is removed cleanly", dropMentionSlot("A {{chat_mention}} B") === "A B");
+
+// Chats ↔ Google Docs (lib/docMatch.ts)
+const doc = (id: string, name: string, extra: Partial<DriveDoc> = {}): DriveDoc => ({ id: id.padEnd(25, "x"), name, url: `https://docs.google.com/document/d/${id.padEnd(25, "x")}/edit`, via: "name", ...extra });
+const one = (p: DocPick) => (p && "doc" in p ? p.doc.name : p ? `choices:${p.candidates.length}` : "none");
+check("title with the full name wins", one(pickDoc([doc("a", "Benjamin Hon coffee chat"), doc("b", "Hon family recipes"), doc("c", "Coffee chat notes", { via: "text" })], "Benjamin Hon")) === "Benjamin Hon coffee chat");
+check("'Hon, Benjamin - Mizuho' counts", one(pickDoc([doc("a", "Hon, Benjamin - Mizuho")], "Benjamin Hon")) === "Hon, Benjamin - Mizuho");
+check("nickname 'Ben Hon' counts", one(pickDoc([doc("a", "Ben Hon chat")], "Benjamin Hon")) === "Ben Hon chat");
+check("a last name alone is not enough", one(pickDoc([doc("a", "Hon family recipes")], "Benjamin Hon")) === "none");
+check(
+  "two titled docs → the one edited near the chat",
+  one(pickDoc([doc("a", "Benjamin Hon", { modifiedTime: "2026-09-01T00:00:00Z" }), doc("b", "Benjamin Hon 2", { modifiedTime: "2026-10-16T22:00:00Z" })], "Benjamin Hon", { chatAt: "2026-10-16T19:00:00Z" })) === "Benjamin Hon 2",
+);
+check("two titled docs, no way to tell → choices", one(pickDoc([doc("a", "Benjamin Hon"), doc("b", "Benjamin Hon notes")], "Benjamin Hon")) === "choices:2");
+check("one running doc that mentions them → it", one(pickDoc([doc("c", "Coffee chat notes", { via: "text" })], "Benjamin Hon")) === "Coffee chat notes");
+check("docs API JSON → text (tabs, tables)", docJsonText({ tabs: [{ tabProperties: { title: "Mizuho" }, documentTab: { body: { content: [{ paragraph: { elements: [{ textRun: { content: "Ben: mentorship culture\n" } }] } }, { table: { tableRows: [{ tableCells: [{ content: [{ paragraph: { elements: [{ textRun: { content: "WLB" } }] } }] }, { content: [{ paragraph: { elements: [{ textRun: { content: "great" } }] } }] }] }] } }] } } }] }) === "Ben: mentorship culture\nWLB | great");
+check("a docs link is found in a cell", findDocUrl("notes here https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWx/edit?usp=sharing more") === "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWx/edit?usp=sharing");
+const sheetOld = { id: "sheet:MIZ:6", at: "2026-10-16T00:00:00Z", source: "spreadsheet", notes: "old", docUrl: "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWx/edit", docSource: "drive" } as ChatLog;
+const reread = withSheetChat([sheetOld], { id: "sheet:MIZ:6", at: "2026-10-16T00:00:00Z", source: "spreadsheet", notes: "new" });
+check("a Drive-linked doc survives a re-import of the sheet row", reread?.[0].docUrl === sheetOld.docUrl && reread?.[0].notes === "new");
+check("the row's own link wins over a Drive one", withSheetChat([sheetOld], { id: "sheet:MIZ:6", at: "", source: "spreadsheet", docUrl: "https://docs.google.com/document/d/2ZZZZZZZZZZZZZZZZZZZZZZZZ/edit", docSource: "sheet" })?.[0].docSource === "sheet");
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nall mention checks passed");
 process.exit(failed ? 1 : 0);

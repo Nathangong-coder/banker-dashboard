@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { ArrowRight, Bot, Check, Lock } from "lucide-react";
 import { SITE } from "@/lib/site";
 import { cn } from "@/lib/util";
 import { FEATURES } from "@/components/landing/features";
+import { LandingFooter } from "@/components/landing/LandingFooter";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { Mock } from "@/components/landing/mocks";
 import { StartLink } from "@/components/landing/StartLink";
@@ -71,7 +71,6 @@ function Story({
 const linkCls = "mt-5 inline-flex items-center gap-1.5 text-[14px] font-medium text-brass-ink underline-offset-4 hover:underline";
 
 export default function WelcomePage() {
-  const year = new Date().getFullYear();
   return (
     <div className="min-h-screen bg-panel text-ink">
       <LandingNav />
@@ -249,47 +248,7 @@ export default function WelcomePage() {
         </section>
       </main>
 
-      <footer className="border-t border-line bg-subtle">
-        <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
-          {(["Track", "Reach out", "Prep & follow up"] as const).map((g) => (
-            <nav key={g} aria-label={g}>
-              <h2 className="text-[13px] font-medium text-ink">{g}</h2>
-              <ul className="mt-3 space-y-2">
-                {FEATURES.filter((f) => f.group === g).map((f) => (
-                  <li key={f.slug}>
-                    <StartLink href={f.href} className="text-[13px] text-muted underline-offset-4 hover:text-ink hover:underline">
-                      {f.label}
-                    </StartLink>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          ))}
-          <nav aria-label="Company">
-            <h2 className="text-[13px] font-medium text-ink">Coverage</h2>
-            <ul className="mt-3 space-y-2 text-[13px]">
-              <li>
-                <Link href="/privacy" className="text-muted underline-offset-4 hover:text-ink hover:underline">
-                  Privacy
-                </Link>
-              </li>
-              <li>
-                <Link href="/terms" className="text-muted underline-offset-4 hover:text-ink hover:underline">
-                  Terms
-                </Link>
-              </li>
-              <li>
-                <a href={`mailto:${SITE.contact}`} className="text-muted underline-offset-4 hover:text-ink hover:underline">
-                  Contact
-                </a>
-              </li>
-            </ul>
-          </nav>
-        </div>
-        <div className="mx-auto flex max-w-6xl items-center gap-2 border-t border-line px-4 py-5 text-[12px] text-muted">
-          <span className="grid size-5 place-items-center rounded bg-brass-strong text-[10px] font-semibold text-white">C</span>© {year} {SITE.name}
-        </div>
-      </footer>
+      <LandingFooter />
     </div>
   );
 }

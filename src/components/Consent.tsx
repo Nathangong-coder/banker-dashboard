@@ -16,6 +16,8 @@ type Choice = "all" | "essential";
 
 const listeners = new Set<() => void>();
 function read(): Choice | null {
+  // Automated browsers (store screenshots, test runs) can't answer: no banner, no analytics.
+  if (navigator.webdriver) return "essential";
   try {
     const v = localStorage.getItem(KEY);
     return v === "all" || v === "essential" ? v : null;

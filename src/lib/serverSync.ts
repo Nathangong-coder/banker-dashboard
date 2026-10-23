@@ -23,6 +23,8 @@ export interface ServerStatus {
   calendar?: boolean;
   /** The server may read Gmail (hourly reply / thank-you / referral tracking). False = reconnect to add it. */
   gmailRead?: boolean;
+  /** The server may read your Google Docs (chat notes docs). False = reconnect to add it. */
+  docs?: boolean;
   lastDigestDay?: string | null;
   lastDigestError?: string | null;
   syncedAt?: string;
@@ -144,7 +146,7 @@ export function syncServer(): Promise<ServerStatus | null> {
         const after = useStore.getState().contacts.filter((c) => c.serverSend);
         r = await call("/api/server/sync", { ...body, trackAck: [], sends: after.map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt })), ack });
       }
-      const status: ServerStatus = { email: r.email, whatsapp: r.whatsapp, calendar: r.calendar, gmailRead: r.gmailRead, lastDigestDay: r.lastDigestDay, lastDigestError: r.lastDigestError, syncedAt: new Date().toISOString(), error: problems.length ? problems.join("; ") : undefined };
+      const status: ServerStatus = { email: r.email, whatsapp: r.whatsapp, calendar: r.calendar, gmailRead: r.gmailRead, docs: r.docs, lastDigestDay: r.lastDigestDay, lastDigestError: r.lastDigestError, syncedAt: new Date().toISOString(), error: problems.length ? problems.join("; ") : undefined };
       useServerStatus.setState({ status });
       return status;
     } catch (e) {

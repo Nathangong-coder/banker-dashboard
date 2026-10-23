@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     if (!a) return back(returnTo, { server: "error", reason: "Account not found. Try Connect again." });
     const t = await exchangeCode(u.searchParams.get("code") ?? "", `${base}${CALLBACK_PATH}`);
     const { emailAddress } = await gmailProfile(t.access);
-    await saveAccount({ ...a, google: { refresh: seal(t.refresh), email: emailAddress, connectedAt: new Date().toISOString(), calendar: t.calendar, read: t.read } });
+    await saveAccount({ ...a, google: { refresh: seal(t.refresh), email: emailAddress, connectedAt: new Date().toISOString(), calendar: t.calendar, read: t.read, docs: t.docs } });
     return back(returnTo, { server: "connected", email: emailAddress });
   } catch (e) {
     return back(returnTo, { server: "error", reason: (e as Error).message.slice(0, 200) });

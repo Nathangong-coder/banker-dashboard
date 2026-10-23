@@ -7,6 +7,14 @@ export const SITE = {
   url: (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : process.env.NEXT_PUBLIC_SITE_URL) || "https://banker-dashboard-three.vercel.app",
   /** Who to write to about privacy, terms or data deletion. The owner can change this. */
   contact: "nagong1@g.ucla.edu",
+  /**
+   * The browser extension (extension/, /extension pages). `chromeUrl` = its Chrome Web Store listing: empty until the
+   * listing is approved, then paste it here and the /extension page's buttons point to it.
+   */
+  extension: {
+    chromeUrl: "",
+    version: "1.0.0",
+  },
   /** Last time the privacy policy / terms were changed (shown on the pages). */
   legalUpdated: "October 23, 2026",
 };

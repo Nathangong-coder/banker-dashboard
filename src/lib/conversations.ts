@@ -55,6 +55,8 @@ export interface ConversationRow {
   conversation: string;
   notes: string;
   comments: string;
+  /** A Google Docs link in the row (a cell's hyperlink, e.g. the template's "(link)", or a pasted URL). */
+  docUrl?: string;
 }
 
 export const APP_LINE = "• ";
@@ -139,7 +141,7 @@ export function sheetChat(row: ConversationRow): ChatLog | undefined {
   const notes = ownerText(row.notes);
   const conversation = row.conversation.trim();
   // A row the app filled (only "• " lines and its own kinds summary) holds nothing new.
-  if (!notes && !row.date && !conversation) return undefined;
+  if (!notes && !row.date && !conversation && !row.docUrl) return undefined;
   if (!notes && !ownerText(row.comments) && [...row.notes.split("\n"), ...row.comments.split("\n")].some(isAppLine)) return undefined;
   // A rating in the Conversation column ("8/10") is the owner's own score, kept with the notes.
   const rating = conversation.match(RATING)?.[1];
@@ -149,12 +151,25 @@ export function sheetChat(row: ConversationRow): ChatLog | undefined {
     kind: kindFromText(rating ? "" : conversation),
     notes: [rating ? `Your rating: ${rating}/10` : "", notes, ownerText(row.comments)].filter(Boolean).join("\n") || undefined,
     source: "spreadsheet",
+    ...(row.docUrl ? { docUrl: row.docUrl, docSource: "sheet" as const } : {}),
   };
 }
 
 /** Swap in the sheet's version of a contact's hand-typed conversation (or drop it when the row was cleared). */
 export function withSheetChat(chats: ChatLog[] | undefined, fresh: ChatLog | undefined) {
   // One Conversation row per person, so at most one conversation comes from the sheet.
-  const out = [...(chats ?? []).filter((c) => c.source !== "spreadsheet"), ...(fresh ? [fresh] : [])];
+  const prev = (chats ?? []).find((c) => c.source === "spreadsheet");
+  // A doc linked in the dashboard (Drive search, pasted) isn't in the sheet: keep it unless the row now has its own link.
+  const keepDoc = !!prev?.docUrl && prev.docSource !== "sheet";
+  const kept: ChatLog | undefined =
+    fresh && prev && !fresh.docUrl
+      ? {
+          ...fresh,
+          ...(keepDoc ? { docUrl: prev.docUrl, docSource: prev.docSource } : {}),
+          ...(prev.docCheckedAt ? { docCheckedAt: prev.docCheckedAt } : {}),
+          ...(prev.docChoices && !keepDoc ? { docChoices: prev.docChoices } : {}),
+        }
+      : fresh;
+  const out = [...(chats ?? []).filter((c) => c.source !== "spreadsheet"), ...(kept ? [kept] : [])];
   return out.length ? out : undefined;
 }

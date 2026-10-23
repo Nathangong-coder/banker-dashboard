@@ -3,7 +3,7 @@
 import { Fragment, Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Coffee, ExternalLink, GraduationCap, NotebookPen, Plus, ShieldCheck, Sparkles, Trash2, UserPlus } from "lucide-react";
+import { Coffee, ExternalLink, FileText, GraduationCap, NotebookPen, Plus, ShieldCheck, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { applyPatches, parseSnapshots } from "@/lib/workbook";
 import { KIND_LABEL, KINDS, kindOf, type ConversationRow } from "@/lib/conversations";
@@ -16,6 +16,8 @@ import type { ChatLog, Contact, ConversationKind } from "@/lib/types";
 import { Badge, Button, Card, Empty, Field, Input, Kpi, Menu, Modal, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
 import { Disagree, GradingRulesEditor } from "@/components/GradingRules";
 import { RubricEditor } from "@/components/RubricEditor";
+import { linkChatDocs, setChatDoc } from "@/lib/chatDocs";
+import { wantsDoc } from "@/lib/docMatch";
 
 type Row = { c: Contact; chat: ChatLog };
 type Filter = "all" | ConversationKind;
@@ -129,6 +131,25 @@ function LogInner() {
     }
   };
 
+  const linkDocs = async () => {
+    setBusy("docs");
+    try {
+      const r = await linkChatDocs({ interactive: true, force: true });
+      if (r.unavailable) toast.err("Connect Google Docs first: Follow-ups → Reminders → Reconnect Google, and tick the two Google Docs / Drive boxes.");
+      else if (r.error && !r.linked.length) toast.err(r.error);
+      else if (!r.searched) toast.ok("Every chat already has its notes doc.");
+      else
+        toast.ok(
+          `${r.linked.length ? `Linked ${r.linked.length} chat${r.linked.length === 1 ? "" : "s"} to ${r.linked.length === 1 ? "its doc" : "their docs"} (${r.linked.map((l) => l.name).join(", ")}).` : "No new docs found."}` +
+            (r.choices ? ` ${r.choices} ${r.choices === 1 ? "chat has" : "chats have"} several possible docs: open ${r.choices === 1 ? "it" : "them"} to pick.` : ""),
+        );
+    } catch (e) {
+      toast.err((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
       <PageHeader
@@ -141,6 +162,7 @@ function LogInner() {
             </Button>
             <Menu
               items={[
+                { label: busy === "docs" ? "Linking Google Docs…" : "Link Google Docs", hint: "Find each chat's notes doc in your Drive", icon: <FileText />, onClick: linkDocs, disabled: busy === "docs" },
                 { label: "Grading rules", hint: "What the AI grader should believe", icon: <GraduationCap />, onClick: () => setRulesOpen(true) },
                 settings.admin && { label: "Grading rubric", hint: "Admin: areas, weights, what a 5 / 3 / 1 means", icon: <ShieldCheck />, onClick: () => setRubricOpen(true) },
               ]}
@@ -215,7 +237,16 @@ function LogInner() {
                         </td>
                         <td className="max-w-[340px] px-3 py-2.5">
                           <div className="truncate text-ink-2">{chat.notes || (chat.transcript ? "Transcript saved" : <span className="text-muted">–</span>)}</div>
-                          {chat.source === "spreadsheet" && <div className="text-[11.5px] text-muted">Typed into the spreadsheet</div>}
+                          <div className="flex gap-2 text-[11.5px] text-muted">
+                            {chat.source === "spreadsheet" && <span>Typed into the spreadsheet</span>}
+                            {chat.docUrl ? (
+                              <span className="inline-flex items-center gap-0.5">
+                                <FileText className="size-3" /> Notes doc
+                              </span>
+                            ) : chat.docChoices?.length ? (
+                              <span className="text-brass-ink">Pick its notes doc</span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-3 py-2.5">
                           {chat.grade ? <Badge tone={gradeTone(chat.grade.score)}>{chat.grade.letter} · {chat.grade.score}</Badge> : <span className="text-muted">–</span>}
@@ -301,11 +332,7 @@ function Details({ row: { c, chat }, busy, onGrade, canGrade }: { row: Row; busy
             }}
           />
         </label>
-        {chat.docUrl && (
-          <a href={chat.docUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-navy hover:underline">
-            <ExternalLink className="size-3.5" /> Notes doc
-          </a>
-        )}
+        {wantsDoc(chat.kind) || chat.docUrl ? <DocLink c={c} chat={chat} /> : null}
         <div className="mt-3">
           <Link href={`/prep?id=${encodeURIComponent(c.id)}`} className="text-[12.5px] text-navy hover:underline">
             Open {c.firstName || c.name} in coffee chat prep →
@@ -556,5 +583,89 @@ function LogModal({ start, onClose }: { start: LogStart; onClose: () => void }) 
         </Button>
       </div>
     </Modal>
+  );
+}
+
+const DOC_SOURCE = { drive: "found in your Drive", sheet: "from the spreadsheet row", manual: "linked by you" } as const;
+
+/** The chat's notes doc: open / change / unlink, the choices when Drive found several, or paste a link / search. */
+function DocLink({ c, chat }: { c: Contact; chat: ChatLog }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const save = (url: string | undefined) => {
+    try {
+      setChatDoc(c.id, chat.id, url);
+      setEditing(false);
+    } catch (e) {
+      toast.err((e as Error).message);
+    }
+  };
+  const search = async () => {
+    setBusy(true);
+    try {
+      const r = await linkChatDocs({ interactive: true, force: true, contactId: c.id });
+      if (r.unavailable) toast.err("Connect Google Docs first: Follow-ups → Reminders → Reconnect Google, and tick the Google Docs / Drive boxes.");
+      else if (r.error && !r.linked.length) toast.err(r.error);
+      else if (r.linked.length) toast.ok(`Linked "${r.linked[0].doc}". ${r.linked[0].why}.`);
+      else if (!r.choices) toast.ok(`No doc in your Drive names ${c.name}. Paste its link instead.`);
+    } catch (e) {
+      toast.err((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-3 rounded-lg border border-line bg-panel p-2.5">
+      <div className="mb-1 text-[12px] text-muted">Notes doc</div>
+      {chat.docUrl && !editing ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]">
+          <a href={chat.docUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-navy hover:underline">
+            <ExternalLink className="size-3.5" /> Open
+          </a>
+          {chat.docSource && <span className="text-muted">{DOC_SOURCE[chat.docSource]}</span>}
+          <button className="text-muted underline" onClick={() => setEditing(true)}>
+            Change
+          </button>
+          <button className="text-muted underline" onClick={() => save(undefined)}>
+            Unlink
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {!!chat.docChoices?.length && (
+            <div className="text-[12.5px]">
+              <div className="text-ink-2">Several docs could be this chat&apos;s. Which one?</div>
+              <ul className="mt-1 space-y-1">
+                {chat.docChoices.map((d) => (
+                  <li key={d.id} className="flex items-center gap-2">
+                    <Button size="sm" variant="brass" onClick={() => save(d.url)}>
+                      Use
+                    </Button>
+                    <a href={d.url} target="_blank" rel="noreferrer" className="truncate text-navy hover:underline">
+                      {d.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              save(String(new FormData(e.currentTarget).get("doc") ?? "").trim() || undefined);
+            }}
+          >
+            <Input name="doc" className="h-8 text-[12.5px]" defaultValue={chat.docUrl ?? ""} placeholder="https://docs.google.com/document/d/…" aria-label="Google Doc link" />
+            <Button size="sm" type="submit">
+              Link
+            </Button>
+          </form>
+          <button className="text-[12.5px] text-navy underline disabled:opacity-60" disabled={busy} onClick={search}>
+            {busy ? "Searching your Drive…" : `Find ${c.firstName || c.name}'s doc in my Drive`}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

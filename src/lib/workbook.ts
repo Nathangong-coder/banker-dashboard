@@ -7,7 +7,8 @@ import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
 import { detectRegion } from "./region";
-import { RATING, appChats, gradeLine, kindsSummary, latestChat, matchRow, mergeCell, notesLine, sheetChat, withSheetChat, type ConversationRow } from "./conversations";
+import { findDocUrl } from "./docMatch";
+import { RATING, appChats, gradeLine, kindsSummary, latestChat, matchRow, mergeCell, notesLine, ownerText, sheetChat, withSheetChat, type ConversationRow } from "./conversations";
 import { EMPTY_OPS, opsOf, type SheetOps } from "./sheetOps";
 import { REFERRAL_HEADERS, REFERRAL_TITLE, mergeReferral, parseCheck, referralDate, writeCheckboxes, type CheckboxCells } from "./checkboxes";
 import { CONTACTED_HEADERS, LAST_CONTACTED_HEADERS, LAST_CONTACTED_TITLE, formatContacted, formatDay, parseContacted, parseLastContacted, sameContacted, sameDayIso } from "./contacted";
@@ -426,6 +427,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
             conversation: get(r, cc.conversation)?.v ?? "",
             notes: get(r, cc.notes)?.v ?? "",
             comments: get(r, cc.comments)?.v ?? "",
+            docUrl: [...(rowText.get(r)?.keys() ?? [])].map((col) => cells[`${r}:${col}`]).map((x) => (x?.link && findDocUrl(x.link)) || findDocUrl(ownerText(x?.v))).find(Boolean),
           });
           continue;
         }

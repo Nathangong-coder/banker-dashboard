@@ -96,6 +96,7 @@ export async function POST(req: Request) {
       whatsapp: !!next.whatsapp,
       calendar: !!next.google?.calendar,
       gmailRead: !!next.google?.read,
+      docs: !!next.google?.docs,
       tracking,
       lastDigestDay,
       lastDigestError,

@@ -16,8 +16,9 @@ import { StartLink } from "./StartLink";
 type MenuId = "products" | "integrations" | "resources";
 
 const RESOURCES = [
-  { label: "How it works", line: "The season, step by step", href: "#how" },
-  { label: "Coverage for Claude", line: "Connector + Recruitify plugin", href: "#claude" },
+  { label: "How it works", line: "The season, step by step", href: "/welcome#how" },
+  { label: "Browser extension", line: "LinkedIn → Coverage in one click", href: "/extension" },
+  { label: "Coverage for Claude", line: "Connector + Recruitify plugin", href: "/welcome#claude" },
   { label: "Privacy", line: "What stays in your browser", href: "/privacy" },
   { label: "Terms", line: "The short version", href: "/terms" },
 ];
@@ -91,7 +92,10 @@ export function LandingNav() {
             <Link href="/privacy" className="hover:text-top-ink">
               Privacy
             </Link>
-            <Link href="#claude" className="hover:text-top-ink">
+            <Link href="/extension" className="hover:text-top-ink">
+              Get the extension
+            </Link>
+            <Link href="/welcome#claude" className="hover:text-top-ink">
               Add to Claude
             </Link>
             <StartLink href="/settings" className="hover:text-top-ink">
@@ -113,7 +117,7 @@ export function LandingNav() {
             {trigger("products", "Products")}
             {trigger("integrations", "Integrations")}
             {trigger("resources", "Resources")}
-            <Link href="#how" onClick={close} className="inline-flex h-full items-center px-3.5 text-[14px] font-medium text-ink hover:text-brass-ink">
+            <Link href="/welcome#how" onClick={close} className="inline-flex h-full items-center px-3.5 text-[14px] font-medium text-ink hover:text-brass-ink">
               How it works
             </Link>
           </nav>

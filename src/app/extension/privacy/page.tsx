@@ -1,0 +1,105 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { SITE } from "@/lib/site";
+import { H2 } from "@/components/LegalPage";
+
+export const metadata: Metadata = {
+  title: "Extension privacy policy",
+  description: `What the ${SITE.name} browser extension reads, where it goes, and what it never does.`,
+  alternates: { canonical: "/extension/privacy" },
+};
+
+/**
+ * The extension's own privacy policy: the Chrome Web Store listing's privacy URL. Keep it in step with
+ * extension/manifest.json (store build: activeTab, scripting, storage) and privacy page §7. Bump SITE.legalUpdated
+ * when it changes.
+ */
+export default function ExtensionPrivacyPage() {
+  return (
+    <article className="mx-auto max-w-[760px]">
+      <h1 className="text-[34px] leading-tight font-medium tracking-tight text-ink">Extension privacy policy</h1>
+      <p className="mt-1 text-[13px] text-muted">
+        {SITE.name} for Chrome and Edge · Last updated {SITE.legalUpdated}
+      </p>
+      <div className="mt-8 space-y-4 text-[14.5px] leading-relaxed text-ink-2">
+        <p>
+          The {SITE.name} extension has one job: when you click its button on a LinkedIn page, it sends that page&apos;s text to your own {SITE.name} dashboard. This page
+          explains exactly what that involves. The dashboard itself is covered by the{" "}
+          <Link href="/privacy" className="text-navy underline">
+            {SITE.name} Privacy Policy
+          </Link>
+          .
+        </p>
+
+        <H2>1. What it reads</H2>
+        <p>Only when you click &ldquo;Send … to Coverage&rdquo; in its popup, and only in the tab you&apos;re looking at:</p>
+        <ul className="list-disc space-y-1 pl-6">
+          <li>
+            On a LinkedIn profile: the text shown on that page (name, headline, location, experience, education and similar sections) and the profile&apos;s address.
+          </li>
+          <li>On a LinkedIn People search: the names, headlines and profile addresses of the people listed on the page.</li>
+        </ul>
+        <p>
+          That&apos;s website content you can already see. The extension doesn&apos;t read pages you haven&apos;t clicked it on, other tabs, your browsing history, passwords,
+          messages or anything else. It never clicks, scrolls, types or loads pages for you.
+        </p>
+
+        <H2>2. Where it goes</H2>
+        <p>
+          The extension opens your dashboard ({SITE.url}, or another address you set) in a new tab, with the text in the address&apos;s fragment (the part after
+          &ldquo;#&rdquo;). Browsers never send the fragment to a server, so the text goes straight from the LinkedIn tab to your dashboard in your browser, which keeps it
+          in your browser&apos;s storage. The extension sends nothing to us, to analytics services or to anyone else.
+        </p>
+
+        <H2>3. What it stores</H2>
+        <p>
+          One setting: your dashboard&apos;s address, in your browser&apos;s extension storage (it follows your browser profile if you use browser sync). It keeps no copy of
+          what it reads.
+        </p>
+
+        <H2>4. What it never does</H2>
+        <ul className="list-disc space-y-1 pl-6">
+          <li>Sell or transfer your data to anyone, or use it for advertising, credit or lending decisions.</li>
+          <li>Run in the background, or on any site before you click it there.</li>
+          <li>Load code from the internet: everything it runs ships inside the extension.</li>
+          <li>Track you, or include analytics.</li>
+        </ul>
+        <p>
+          The use of information received from the extension adheres to the{" "}
+          <a href="https://developer.chrome.com/docs/webstore/program-policies/policies" className="text-navy underline" target="_blank" rel="noreferrer">
+            Chrome Web Store User Data Policy
+          </a>
+          , including the Limited Use requirements.
+        </p>
+
+        <H2>5. Permissions</H2>
+        <ul className="list-disc space-y-1 pl-6">
+          <li>
+            <b>activeTab</b>: access to the current tab only, granted by your click, and only until you leave that page.
+          </li>
+          <li>
+            <b>scripting</b>: runs the read-only function that collects the visible text from that tab.
+          </li>
+          <li>
+            <b>storage</b>: saves your dashboard&apos;s address.
+          </li>
+        </ul>
+
+        <H2>6. Removing it</H2>
+        <p>
+          Remove the extension from <code>chrome://extensions</code> (or <code>edge://extensions</code>) and its one setting is deleted with it. To delete profiles you
+          sent to your dashboard, use the dashboard (Settings → Backup → Clear all data, or delete the contact).
+        </p>
+
+        <H2>7. Changes and contact</H2>
+        <p>
+          If what the extension does changes, this page changes first, with a new date at the top. Questions or requests:{" "}
+          <a href={`mailto:${SITE.contact}`} className="text-navy underline">
+            {SITE.contact}
+          </a>
+          .
+        </p>
+      </div>
+    </article>
+  );
+}

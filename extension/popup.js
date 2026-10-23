@@ -84,10 +84,14 @@ async function main() {
   });
   // Opens the side panel in this window (needs this click: sidePanel.open only works from a user gesture).
   // The window id is read up front: awaiting anything before open() can lose the click.
-  const win = await chrome.windows.getCurrent();
-  document.getElementById("agent").addEventListener("click", () => {
-    chrome.sidePanel.open({ windowId: win.id }).then(() => window.close());
-  });
+  // The store build has no agent (scripts/pack-extension.mjs strips it), so the button may not exist.
+  const agent = document.getElementById("agent");
+  if (agent && chrome.sidePanel) {
+    const win = await chrome.windows.getCurrent();
+    agent.addEventListener("click", () => {
+      chrome.sidePanel.open({ windowId: win.id }).then(() => window.close());
+    });
+  }
   document.getElementById("settings").addEventListener("click", (e) => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();

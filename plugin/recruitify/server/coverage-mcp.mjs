@@ -65143,6 +65143,9 @@ function detectRegion(...hints) {
   return "Other";
 }
 
+// src/lib/docMatch.ts
+var findDocUrl = (text) => text.match(/https:\/\/docs\.google\.com\/document\/(?:u\/\d+\/)?d\/[\w-]{20,}[^\s)"'<>]*/)?.[0];
+
 // src/lib/conversations.ts
 var KIND_LABEL = {
   coffee_chat: "Coffee chat",
@@ -65221,7 +65224,7 @@ function matchRow(row, contacts, sameBank2) {
 function sheetChat(row) {
   const notes = ownerText(row.notes);
   const conversation = row.conversation.trim();
-  if (!notes && !row.date && !conversation) return void 0;
+  if (!notes && !row.date && !conversation && !row.docUrl) return void 0;
   if (!notes && !ownerText(row.comments) && [...row.notes.split("\n"), ...row.comments.split("\n")].some(isAppLine)) return void 0;
   const rating = conversation.match(RATING)?.[1];
   return {
@@ -65229,7 +65232,8 @@ function sheetChat(row) {
     at: row.date ?? (/* @__PURE__ */ new Date(0)).toISOString(),
     kind: kindFromText(rating ? "" : conversation),
     notes: [rating ? `Your rating: ${rating}/10` : "", notes, ownerText(row.comments)].filter(Boolean).join("\n") || void 0,
-    source: "spreadsheet"
+    source: "spreadsheet",
+    ...row.docUrl ? { docUrl: row.docUrl, docSource: "sheet" } : {}
   };
 }
 
@@ -65720,7 +65724,8 @@ function parseSnapshots(snapshots) {
             date: parseLastContacted(get(r, cc.date)?.v),
             conversation: get(r, cc.conversation)?.v ?? "",
             notes: get(r, cc.notes)?.v ?? "",
-            comments: get(r, cc.comments)?.v ?? ""
+            comments: get(r, cc.comments)?.v ?? "",
+            docUrl: [...rowText.get(r)?.keys() ?? []].map((col) => cells[`${r}:${col}`]).map((x) => x?.link && findDocUrl(x.link) || findDocUrl(ownerText(x?.v))).find(Boolean)
           });
           continue;
         }

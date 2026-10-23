@@ -6,6 +6,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const pages: [string, number][] = [
     ["", 1],
     ["/welcome", 0.9],
+    ["/extension", 0.8],
+    ["/extension/privacy", 0.5],
+    ["/extension/support", 0.4],
     ["/coverage", 0.6],
     ["/firms", 0.5],
     ["/find", 0.6],

@@ -35,8 +35,12 @@ To point it at a local dev server: right-click the icon → **Options** → `htt
 ## Package it
 
 ```bash
-npm run pack:extension   # icons from src/app/icon.svg + manifest checks → dist/coverage-extension-<version>.zip
+npm run pack:extension                # store build → dist/coverage-extension-<version>.zip (no agent test bench)
+npm run pack:extension -- --with-agent  # full build with the agent side panel → …-<version>-agent.zip (testing only)
 ```
+
+The store build (owner, 2026-10-23) strips `agent/`, the `sidePanel` permission, the optional all-sites access and the
+popup's agent button, so it asks only for `activeTab`, `scripting` and `storage`. The script fails if any of it is left.
 
 Bump `"version"` in `manifest.json` before every store upload (the stores reject a version they've already seen).
 `dist/` is git-ignored.
@@ -56,7 +60,11 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
    - Remote code: **No** (all code ships in the package).
    - Data usage: check **Website content**. It's used only for the extension's single purpose, not sold, not used for
      ads or credit. Tick the three certifications.
-   - Privacy policy URL: `https://banker-dashboard-three.vercel.app/privacy` (section 7 covers the extension).
+   - Privacy policy URL: `https://banker-dashboard-three.vercel.app/extension/privacy` (the extension's own policy;
+     the main `/privacy` §7 links to it).
+   - Homepage URL `…/extension`, support URL `…/extension/support` (Store listing tab).
+7. **After approval:** paste the listing URL into `src/lib/site.ts` → `SITE.extension.chromeUrl`; the /extension page's
+   buttons switch from "Install it now" (load unpacked) to "Add to Chrome".
 5. **Distribution**: *Unlisted* (only people with the link can install it, good for you plus a few testers),
    *Private* (specific emails / a Google Group), or *Public*.
 6. **Submit for review**. Small, narrow-permission extensions are usually reviewed in a few days. Updates: bump the version,

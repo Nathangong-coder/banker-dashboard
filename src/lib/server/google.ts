@@ -2,6 +2,7 @@ import "server-only";
 import { HttpError } from "./http";
 import { unseal, type Account } from "./accounts";
 import { isInfoSessionTitle, meetingLink, type CalendarSession } from "../infoSessions";
+import type { DocsJson } from "../docMatch";
 
 /**
  * Server-side Gmail for automatic sending: the authorization-code flow with offline access (a refresh token, so sends
@@ -21,6 +22,11 @@ export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.r
  * (lib/server/gmailTrack.ts) instead of only when the dashboard is open. Unticked = sending still works.
  */
 export const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+/**
+ * Optional (owner, 2026-10-23): read-only Google Docs + Drive file names, so chats get linked to their notes docs and
+ * smart mentions read what's in them (api/server/docs), private docs included. Unticked = everything else still works.
+ */
+export const DOCS_SCOPES = ["https://www.googleapis.com/auth/documents.readonly", "https://www.googleapis.com/auth/drive.metadata.readonly"];
 export const CALLBACK_PATH = "/api/server/google/callback";
 
 function client() {
@@ -35,7 +41,7 @@ export function authUrl(redirectUri: string, state: string, loginHint?: string) 
     client_id: client().id,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: [...SERVER_SCOPES, CALENDAR_SCOPE, GMAIL_READ_SCOPE].join(" "),
+    scope: [...SERVER_SCOPES, CALENDAR_SCOPE, GMAIL_READ_SCOPE, ...DOCS_SCOPES].join(" "),
     access_type: "offline",
     // Always ask, so Google returns a refresh token even if this account connected before.
     prompt: "consent",
@@ -66,7 +72,7 @@ export async function exchangeCode(code: string, redirectUri: string) {
   const j = await tokenCall({ code, redirect_uri: redirectUri, grant_type: "authorization_code" });
   if (!j.refresh_token) throw new HttpError(502, "Google didn't return offline access. Remove the app's access at myaccount.google.com/permissions and connect again.");
   if (!SERVER_SCOPES.every((s) => (j.scope ?? "").includes(s))) throw new HttpError(400, "Gmail permission wasn't granted. Connect again and tick the Gmail box.");
-  return { access: j.access_token!, refresh: j.refresh_token, calendar: (j.scope ?? "").includes(CALENDAR_SCOPE), read: (j.scope ?? "").includes(GMAIL_READ_SCOPE) };
+  return { access: j.access_token!, refresh: j.refresh_token, calendar: (j.scope ?? "").includes(CALENDAR_SCOPE), read: (j.scope ?? "").includes(GMAIL_READ_SCOPE), docs: DOCS_SCOPES.every((x) => (j.scope ?? "").includes(x)) };
 }
 
 export async function accessToken(a: Account) {
@@ -93,6 +99,38 @@ export async function revoke(a: Account) {
   if (!a.google) return;
   await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(unseal(a.google.refresh))}`, { method: "POST" }).catch(() => undefined);
 }
+
+/* ---------------- Google Docs / Drive (read-only) ---------------- */
+
+async function googleGet<T>(access: string, url: string, what: string): Promise<T> {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` }, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) {
+    const text = await res.text();
+    if (/has not been used|is disabled|SERVICE_DISABLED|accessNotConfigured/i.test(text))
+      throw new HttpError(503, `The ${what} API isn't enabled for Coverage's Google project yet (Google Cloud → APIs & Services → Library → ${what} API).`);
+    if (res.status === 403 || res.status === 401) throw new HttpError(403, `Coverage can't read your ${what}. Reconnect Google on Follow-ups → Reminders and allow Google Docs (read-only).`);
+    if (res.status === 404) throw new HttpError(404, "That doc doesn't exist or isn't shared with your Google account.");
+    throw new HttpError(502, `${what}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as T;
+}
+
+type DriveFile = { id: string; name: string; modifiedTime?: string; createdTime?: string; webViewLink?: string };
+
+/** Google Docs whose title has `name`'s last name, plus docs whose text has the full name (lib/docMatch.ts#driveQueries). */
+export async function searchDocs(access: string, queries: { name: string; text: string }) {
+  const list = async (q: string, via: "name" | "text") => {
+    const p = new URLSearchParams({ q, pageSize: "15", fields: "files(id,name,modifiedTime,createdTime,webViewLink)", spaces: "drive", corpora: "user" });
+    const r = await googleGet<{ files?: DriveFile[] }>(access, `https://www.googleapis.com/drive/v3/files?${p}`, "Google Drive");
+    return (r.files ?? []).map((f) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime, createdTime: f.createdTime, url: f.webViewLink ?? `https://docs.google.com/document/d/${f.id}/edit`, via }));
+  };
+  const [byName, byText] = await Promise.all([list(queries.name, "name"), list(queries.text, "text").catch(() => [])]);
+  return [...byName, ...byText.filter((t) => !byName.some((n) => n.id === t.id))];
+}
+
+/** A doc's JSON (all tabs), for lib/docMatch.ts#docJsonText. */
+export const getDoc = (access: string, id: string) =>
+  googleGet<DocsJson>(access, `https://docs.googleapis.com/v1/documents/${encodeURIComponent(id)}?includeTabsContent=true`, "Google Docs");
 
 export interface CalEvent {
   id: string;

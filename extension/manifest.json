@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Coverage – IB Networking",
   "short_name": "Coverage",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Send the LinkedIn profile or search you're viewing to your Coverage dashboard in one click.",
   "homepage_url": "https://banker-dashboard-three.vercel.app",
   "permissions": ["activeTab", "scripting", "storage", "sidePanel"],

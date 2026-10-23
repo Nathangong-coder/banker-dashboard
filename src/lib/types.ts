@@ -277,6 +277,12 @@ export interface ChatLog {
   notes?: string;
   /** Your notes / postmortem doc. */
   docUrl?: string;
+  /** How the doc got linked: typed / pasted, a link in the sheet row, or found in your Drive (lib/docMatch.ts). */
+  docSource?: "manual" | "sheet" | "drive";
+  /** Last Drive search for this chat's doc (searched again after a day while nothing is linked). */
+  docCheckedAt?: string;
+  /** Several docs could be it: the log page asks which one. */
+  docChoices?: { id: string; name: string; url: string }[];
   /** How it felt, in your words ("he was laughing the whole time", "ran 20 min over"): tone a transcript loses. */
   feel?: string;
   grade?: ChatGrade;

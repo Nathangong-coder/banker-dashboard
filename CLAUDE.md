@@ -461,6 +461,15 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `/agent-practice` (public, noindex, nothing sent; two steps, custom dropdown, checkbox → confirmation number).
   Side panels can't use `confirm()`: inline warnings / two-click buttons instead. Not yet run end to end with a real key.
   Before a store upload, decide whether the agent ships (all-sites access = stricter review); privacy page §7 doesn't cover it yet.
+- **Chrome Web Store v1.0.0 (owner, 2026-10-23): no agent.** `npm run pack:extension` = the store build (strips `agent/`,
+  `sidePanel`, optional `<all_urls>` and the popup button between `<!-- agent:start/end -->`; fails if any remain →
+  activeTab + scripting + storage only); `-- --with-agent` = the full build for testing. Listing pages on the site:
+  `/extension` (overview, install, permissions, FAQ), `/extension/privacy` (the listing's privacy URL; keep in step
+  with the manifest), `/extension/support` (help, contact, "What's new"): `app/extension/layout.tsx` with
+  LandingNav + `ExtensionTabs` + `LandingFooter`, public and bare in Shell. `SITE.extension.chromeUrl` (empty until
+  approved) switches the install buttons from load-unpacked steps to "Add to Chrome". `npm run assets:extension`
+  renders `dist/store/` screenshot 1280×800 + promo tile 440×280 with headless Chrome against a running build
+  (Consent shows no banner when `navigator.webdriver`). Store steps + paste-ready answers: extension/README.md.
 
 ## Reply / thank-you / referral tracking (owner, 2026-10-22)
 
@@ -520,6 +529,17 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `draftMeta.mention` records who was named. Plugin: `smart_mention` tool + `smart-outreach` skill (v0.2.0);
   follow-up-planner also looks for off-sheet bankers. On the owner's workbook, Mizuho contacts get Benjamin Hon
   (8.9/10), but his notes have no specifics, so the AI uses the plain sentence until richer notes are added.
+- **Chats ↔ Google Docs** (`lib/docMatch.ts` pure, covered by `check:mentions`; `lib/chatDocs.ts` browser): a chat's
+  `docUrl` comes from (1) a Docs link in its Conversation row (any cell's hyperlink or text, not the app's "• " lines;
+  `docSource: "sheet"`), (2) a Drive search by the person's name (`docSource: "drive"`: a title naming them wins;
+  else the only doc whose text has their full name, e.g. a running notes doc; ambiguous → `docChoices`, picked on
+  /log), or (3) a pasted link (`manual`). `withSheetChat` keeps a drive/manual link across re-imports. Searches run
+  from Shell (20 s after load, every 30 min, ≤25 people, each chat ≤ once a day), from /log ⋯ → "Link Google Docs",
+  per chat in the expanded row, and from `addSmartMention` for the chat it names. Access: the automatic-sending
+  Google connection's optional `documents.readonly` + `drive.metadata.readonly` (`account.google.docs`,
+  `api/server/docs`, no popup, private docs) → else a browser GIS token (`lib/gdocs.ts`, one click per session) →
+  else link-shared docs only (`api/templates/gdoc`). The Google Cloud project needs the **Docs API and Drive API**
+  enabled and both scopes on the consent screen; old connections show "Reconnect Google" on the AutoSend card.
 
 ## Claude connector (`api/mcp`, owner, 2026-10-22)
 

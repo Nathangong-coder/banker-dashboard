@@ -24,9 +24,9 @@ import { savedSignatureLogo } from "@/lib/signatureLogo";
 setSignatureLogoSource(savedSignatureLogo);
 
 /** Pages that render without waiting for the local store (no personal data on them). */
-const PUBLIC_PATHS = ["/privacy", "/terms", "/capture", "/agent-practice", "/welcome"];
+const PUBLIC_PATHS = ["/privacy", "/terms", "/capture", "/agent-practice", "/welcome", "/extension", "/extension/privacy", "/extension/support"];
 /** Pages with their own chrome (the landing page): no app header or sidebar. */
-const BARE_PATHS = ["/welcome"];
+const BARE_PATHS = ["/welcome", "/extension", "/extension/privacy", "/extension/support"];
 
 /**
  * Two-level navigation (owner, 2026-10-19): the top bar picks a group, the sidebar lists that group's pages. The group
@@ -208,6 +208,17 @@ function useServerSync(ready: boolean) {
     if (!ready || !connected) return;
     const i = setInterval(() => syncServer().catch(() => undefined), 10 * 60_000);
     return () => clearInterval(i);
+  }, [ready, connected]);
+  // Chats → their Google Docs (lib/chatDocs.ts): a Drive search for chats with no doc, at most once a day each.
+  useEffect(() => {
+    if (!ready || !connected) return;
+    const run = () => void import("@/lib/chatDocs").then((m) => m.linkChatDocs()).catch(() => undefined);
+    const t = setTimeout(run, 20_000);
+    const i = setInterval(run, 30 * 60_000);
+    return () => {
+      clearTimeout(t);
+      clearInterval(i);
+    };
   }, [ready, connected]);
 }
 

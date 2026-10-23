@@ -89,6 +89,14 @@ export default function PrivacyPage() {
         and lists and not stored (only a marker that a reminder was sent, for 3 days).
       </p>
       <p>
+        If you allow read-only <b>Google Docs</b> access (<code>documents.readonly</code> and <code>drive.metadata.readonly</code>, on the
+        automatic-sending connection or, without it, as a separate permission in your browser), {SITE.name} searches your Google Drive by the
+        names of people you&apos;ve had conversations with (file names, and docs that mention them) to link each conversation to its notes doc,
+        and reads the text of a linked doc when it writes an email that mentions that conversation. The doc&apos;s text is sent to your
+        browser and, if an AI model is set up, the part about that person is sent to it to write one sentence. Nothing from your docs is stored on
+        our server; the dashboard keeps only the doc&apos;s link and title in your browser.
+      </p>
+      <p>
         If you use <b>Schedule calls</b>, your browser also reads the latest email from that banker (to see which days and time zone they asked
         for, and their phone number), and, with a separate permission, your Google Calendar: your free/busy times, so offered times skip your
         events, and creating the call event with the banker as a guest. Calendar data is used only in your browser and isn&apos;t stored on our
@@ -151,7 +159,11 @@ export default function PrivacyPage() {
         The optional {SITE.name} extension for Chrome and Edge works the same way. It reads the page in your current tab only when you click its button
         (the browser&apos;s &ldquo;activeTab&rdquo; permission), and opens your dashboard with that text in the address&apos;s fragment, which browsers don&apos;t
         send to any server. It has no access to other tabs or sites, doesn&apos;t run in the background, and sends nothing to us or anyone else. It stores one
-        setting, your dashboard&apos;s address, in your browser&apos;s extension storage.
+        setting, your dashboard&apos;s address, in your browser&apos;s extension storage. Details:{" "}
+        <a href="/extension/privacy" className="text-navy underline">
+          extension privacy policy
+        </a>
+        .
       </p>
 
       <H2>8. Your choices and rights</H2>

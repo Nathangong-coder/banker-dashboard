@@ -33,7 +33,7 @@ export interface Account {
   tz: string;
   /** `calendar`: read-only Calendar access was granted too (today's calls for the 9 PM text). */
   /** `read`: read-only Gmail was granted too (hourly reply / thank-you / intro tracking, lib/server/gmailTrack.ts). */
-  google?: { refresh: string; email: string; connectedAt: string; calendar?: boolean; read?: boolean };
+  google?: { refresh: string; email: string; connectedAt: string; calendar?: boolean; read?: boolean; docs?: boolean };
   whatsapp?: { phone: string; apiKey: string };
   /** Local day (YYYY-MM-DD in `tz`) → what the 9 PM text says. */
   digests: Record<string, { items: DigestItem[]; queued: number }>;
