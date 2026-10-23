@@ -97,7 +97,8 @@ function applyFinished(list: Finished[]) {
       st.updateContact(c.id, { ...patch, serverSend: undefined }, { at, type: "note", note: f.step === 0 ? "First email sent automatically" : `Follow-up #${f.step} sent automatically` });
     } else {
       st.updateContact(c.id, { serverSend: undefined, ...(f.status === "missing" ? { followUpDraft: f.step ? undefined : c.followUpDraft } : {}) }, { at, type: "note", note: `Automatic send didn't happen: ${f.error ?? f.status}` });
-      problems.push(`${c.name}: ${f.error ?? f.status}`);
+      // Cancelled on purpose (the Claude connector's cancel_send) isn't a problem to flag.
+      if (f.error !== "Cancelled from Claude") problems.push(`${c.name}: ${f.error ?? f.status}`);
     }
   }
   return { ack, problems };

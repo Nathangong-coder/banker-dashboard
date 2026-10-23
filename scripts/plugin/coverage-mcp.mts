@@ -2,7 +2,7 @@
  * The Coverage plugin's local MCP server (stdio): Claude Code / Cowork read and update the owner's tracker .xlsx with the
  * app's own parser and writer (lib/workbook.ts), so the sheet rules hold here too: only the cells a change needs are
  * written, the rest of the file is checked to be untouched before saving, a backup is kept, and Excel's lock is respected.
- * Built into plugin/coverage/server/coverage-mcp.mjs by `npm run build:plugin` (one self-contained file, Node 20+).
+ * Built into plugin/recruitify/server/coverage-mcp.mjs by `npm run build:plugin` (one self-contained file, Node 20+).
  *
  * Writes look like the owner typing into the sheet (no "• " app lines), so the dashboard's live Excel pickup
  * (actions.ts#pickUpExcelEdits) reads them back as a hand-typed conversation.

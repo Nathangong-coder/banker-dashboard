@@ -123,6 +123,10 @@ export async function deleteAccount(id: string) {
   if (itemIds.length) await db().del(...itemIds.map((i) => CAPIMG(id, i)));
   if (a?.twilio && (await db().get<string>(TWNUM(a.twilio.number))) === id) await db().del(TWNUM(a.twilio.number));
   await db().del(KEY(id), SENDS(id), DIGEST_DAY(id), DIGEST_ERR(id), INBOX(id), TRACK(id));
+  // Claude connector tokens (lib/server/oauth.ts keeps their keys in this set).
+  const tokens = ((await db().smembers(`oauthtok:${id}`)) ?? []) as string[];
+  if (tokens.length) await db().del(...tokens);
+  await db().del(`oauthtok:${id}`);
   await db().srem(ACCOUNTS, id);
 }
 

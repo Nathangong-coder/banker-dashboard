@@ -1,4 +1,4 @@
-# Coverage plugin for Claude Code and Cowork
+# Recruitify (by Coverage): plugin for Claude Code and Cowork
 
 Claude works on your IB recruiting tracker (.xlsx) the same way the Coverage dashboard does, without uploading it anywhere.
 
@@ -8,13 +8,17 @@ Claude works on your IB recruiting tracker (.xlsx) the same way the Coverage das
 
 | Skill | Use it to… |
 |---|---|
-| `/coverage:update-tracker` | look people up, set a status, tick Referral?, fix a team / office / title / email |
-| `/coverage:record-chat` | log a coffee chat or call (from Granola, a transcript, or your notes), grade it, update the row |
-| `/coverage:tag-chatted-emails` | label Gmail threads `Chatted` → `Follow-up - Good` / `OK` / `Bad - Ghost` |
-| `/coverage:follow-up-planner` | see who's due, when to send (Tue–Thu, 9–11 AM their time, 6–8 days), draft follow-ups |
+| `/recruitify:update-tracker` | look people up, set a status, tick Referral?, fix a team / office / title / email |
+| `/recruitify:record-chat` | log a coffee chat or call (from Granola, a transcript, or your notes), grade it, update the row |
+| `/recruitify:tag-chatted-emails` | label Gmail threads `Chatted` → `Follow-up - Good` / `OK` / `Bad - Ghost` |
+| `/recruitify:follow-up-planner` | see who's due, when to send (Tue–Thu, 9–11 AM their time, 6–8 days), draft follow-ups |
 
 **Tools** (`coverage-sheet`, runs on your computer with Node 20+): `find_workbooks`, `set_workbook`, `list_contacts`,
 `get_contact`, `update_contact`, `log_chat`, `grading_rubric`, `chatted_people`, `due_followups`.
+
+**Connector** (`coverage`, on Coverage's website): tonight's to-dos, recent replies, thank-yous, intros found in
+replies, and scheduled sends (with cancel). It works in Claude Code, Cowork and on claude.ai. The first use asks you to
+sign in: approve on the Connect page in the browser where you use Coverage (automatic sending must be on).
 
 ## Install
 
@@ -22,7 +26,7 @@ Claude Code:
 
 ```
 /plugin marketplace add Nathangong-coder/banker-dashboard
-/plugin install coverage@coverage
+/plugin install recruitify@recruitify
 ```
 
 Cowork / Claude desktop: Customize → Plugins → Add marketplace → `Nathangong-coder/banker-dashboard` → install

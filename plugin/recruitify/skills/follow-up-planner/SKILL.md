@@ -15,7 +15,7 @@ Uses **coverage-sheet** (`due_followups`, `get_contact`) and, for drafts, a **Gm
    doesn't show yet. If Gmail is connected, look for a newer message to them (sent or scheduled) and drop those people.
    Otherwise tell the user to check Coverage → Follow-ups → Scheduled.
 3. Group the list: Follow-up #1 · Follow-up #2 · Move on? (2 follow-ups with no reply: suggest marking them moved on via
-   `/coverage:update-tracker`).
+   `/recruitify:update-tracker`).
 
 ## The owner's timing rules
 

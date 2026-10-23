@@ -36,4 +36,4 @@ Master Spreadsheet…" is the likely one; skip backups), then `set_workbook`.
 - **Don't email VP and above** (VP, Director, MD, Head, Partner) unless there's a strong tie (UCLA, UCLA Anderson,
   Seattle/Washington). `vpPlus: true` marks them.
 - Never re-contact someone already emailed.
-- Chats go through `/coverage:record-chat`, not this skill.
+- Chats go through `/recruitify:record-chat`, not this skill.

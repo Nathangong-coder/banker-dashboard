@@ -3,6 +3,7 @@ import { DIGEST_DAY, DIGEST_ERR, accountIds, appUrl, captureUrl, db, getSends, l
 import { accessToken, eventsOn, infoSessionsBetween } from "@/lib/server/google";
 import { verifyQstash } from "@/lib/server/jobs";
 import { trackAccount, trackStates, type TrackState } from "@/lib/server/gmailTrack";
+import { planItems } from "@/lib/server/tonight";
 import { sendWhatsApp } from "@/lib/server/whatsapp";
 import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, nextTextDay, type CallPerson, type DigestItem } from "@/lib/digestFormat";
 import { looksLikeChat, matchEvent } from "@/lib/calendarMatch";
@@ -61,28 +62,10 @@ async function nightText(a: Account, app: string) {
   if (prev === day) return false;
   const plan = textDay ? a.digests[day] : undefined;
   const sends = Object.values(await getSends(id));
-  const doneSince = new Set(sends.filter((s) => s.status === "sent").map((s) => s.contactId));
   const cal = offCal ?? (await calendarThankYous(a, day, tracked));
   const calIds = new Set(cal.items.map((i) => i.contactId));
-  // The plan was made when the dashboard was last open: an email you've sent them since (seen in Gmail) settles
-  // whatever was owed (thank-you, check-in, reply, follow-up). A reply from them since you last wrote adds "reply owed".
-  const knownLast = new Map((a.track ?? []).map((p) => [p.contactId, p.knownLast]));
-  const settled = (contactId: string) => {
-    const last = tracked[contactId]?.result.lastEmailedAt;
-    const known = knownLast.get(contactId);
-    return !!last && (!known || last > known);
-  };
-  const planned = (plan?.items ?? []).filter((it) => !calIds.has(it.contactId) && !(doneSince.has(it.contactId) && /follow-up|move on/i.test(it.label)) && !settled(it.contactId));
-  const listed = new Set([...calIds, ...planned.map((i) => i.contactId)]);
-  const owed: DigestItem[] = [];
-  if (textDay)
-    for (const p of a.track ?? []) {
-      const r = tracked[p.contactId]?.result;
-      if (!r?.lastHeardAt || listed.has(p.contactId) || (r.lastEmailedAt && r.lastEmailedAt > r.lastHeardAt)) continue;
-      // Only fresh ones (the last 10 days): older silences are the dashboard's call.
-      if (Date.now() - Date.parse(r.lastHeardAt) < 10 * 86_400_000) owed.push({ contactId: p.contactId, name: p.name, email: p.emails[0], label: LABELS.replyOwed });
-    }
-  const items = [...cal.items, ...planned, ...owed];
+  const fromPlan = planItems(a, day, tracked, sends, calIds, textDay);
+  const items = [...cal.items, ...fromPlan.items];
   const until = textDay ? nextTextDay(day) : day;
   const queued = sends.filter((s) => {
     if (s.status !== "queued") return false;

@@ -2,7 +2,12 @@
   "mcpServers": {
     "coverage-sheet": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/server/coverage-mcp.mjs"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/coverage-mcp.mjs"],
+      "env": { "COVERAGE_WORKBOOK": "${user_config.workbook}" }
+    },
+    "coverage": {
+      "type": "http",
+      "url": "https://banker-dashboard-three.vercel.app/api/mcp"
     }
   }
 }

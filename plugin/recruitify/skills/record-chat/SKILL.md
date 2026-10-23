@@ -41,7 +41,7 @@ to `log_chat`, which computes the overall score and letter (all 3s = 71, all 4s 
    `referral`, `grade` (areas, one-line summary, commitments). Show the user the cells.
 3. On their OK, run it again without `dry_run`. It keeps a backup in `.coverage-backups` next to the workbook.
 4. Then tell them what to do next from the commitments and the thank-you points: e.g. "send a thank-you tonight that
-   mentions X", and suggest `/coverage:tag-chatted-emails` to re-sort their Gmail.
+   mentions X", and suggest `/recruitify:tag-chatted-emails` to re-sort their Gmail.
 
 ## Rules
 

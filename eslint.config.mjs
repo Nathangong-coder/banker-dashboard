@@ -16,7 +16,7 @@ const eslintConfig = defineConfig([
     ".agents/**",
     ".claude/**",
     // Built by `npm run build:plugin` (bundled, minified).
-    "plugin/coverage/server/**",
+    "plugin/recruitify/server/**",
   ]),
 ]);
 

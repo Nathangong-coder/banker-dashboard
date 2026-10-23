@@ -60,6 +60,13 @@ export default function PrivacyPage() {
         </li>
       </ul>
       <p>
+        If you <b>connect Coverage to Claude</b> (or another AI app that supports MCP connectors) and approve it on the Connect page, that app can read
+        what this section lists for your account (tonight&apos;s to-dos, replies, thank-yous, intros found in replies, scheduled sends) and cancel a
+        scheduled send when you ask it to. It can&apos;t send email or read the rest of your mailbox. What it reads is handled by that app under its own
+        terms (for Claude, Anthropic&apos;s). We keep the app&apos;s registration and one-way hashes of its access tokens (1 hour) and refresh tokens (90
+        days); turning automatic sending off revokes them.
+      </p>
+      <p>
         Turning automatic sending off deletes all of this and revokes our Google access. To limit abuse, the server also keeps your IP address for up to an
         hour in a rate-limit counter. It is not linked to your account.
       </p>

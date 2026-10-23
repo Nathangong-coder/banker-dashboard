@@ -1,11 +1,11 @@
 {
-  "name": "coverage",
+  "name": "recruitify",
   "owner": { "name": "Nathan Gong" },
-  "metadata": { "description": "Coverage: IB recruiting tracker tools and skills for Claude Code and Cowork." },
+  "metadata": { "description": "Recruitify (by Coverage): IB recruiting tracker tools and skills for Claude Code and Cowork." },
   "plugins": [
     {
-      "name": "coverage",
-      "source": "./plugin/coverage",
+      "name": "recruitify",
+      "source": "./plugin/recruitify",
       "description": "Update your IB recruiting tracker (.xlsx), record and grade coffee chats, sort your Gmail threads into Chatted tiers, and plan follow-ups.",
       "category": "productivity"
     }

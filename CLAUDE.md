@@ -490,14 +490,30 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Not yet verified live: needs a deploy + reconnect (consent screen gains "View your email messages"; the Google Cloud
   OAuth consent config must list `gmail.readonly`). Privacy §2/§3 updated, `legalUpdated` 10/22.
 
-## Claude plugin (`plugin/coverage`, owner, 2026-10-21)
+## Claude connector (`api/mcp`, owner, 2026-10-22)
+
+- Remote MCP server (Streamable HTTP, JSON responses, stateless, hand-rolled JSON-RPC) over what the server already
+  keeps: `account_status`, `due_tonight` (`lib/server/tonight.ts#planItems`, shared with the 9 PM text), `recent_replies`,
+  `thank_yous`, `intros_found`, `scheduled_sends`, `cancel_send` (marks the send failed "Cancelled from Claude", so the
+  dashboard clears it and sync doesn't requeue). Contacts / sheet / chats aren't on the server, so they aren't here.
+- **OAuth 2.1, Coverage is its own AS (`lib/server/oauth.ts`):** `/.well-known/oauth-authorization-server`,
+  `/.well-known/oauth-protected-resource` (+ `/api/mcp` suffix), DCR `api/oauth/register` (https or localhost redirects),
+  approval page `/connect` (needs the browser's `settings.server` account + automatic sending on; posts to
+  `api/oauth/authorize` with the account's Bearer id.token), `api/oauth/token` (code + PKCE S256, refresh rotation,
+  RFC 6749 errors; tokens `cova_` 1 h / `covr_` 90 d, only sha256 stored, keys in `oauthtok:<acct>`), `api/oauth/revoke`.
+  `deleteAccount` revokes them. 401 from `api/mcp` carries `WWW-Authenticate: Bearer resource_metadata=…`.
+- Tested end to end against the real Redis with a local `next start` and a throwaway account (deleted after):
+  register, check, deny, PKCE failure, one-time code, tokens, refresh rotation, all 7 tools, cancel. Not yet tried
+  from claude.ai itself (needs the deploy). The plugin's `.mcp.json` lists it as `coverage` (type http).
+
+## Claude plugin (`plugin/recruitify`, owner, 2026-10-21)
 
 - Step 1 of "Coverage as a Claude connector": a Claude Code / Cowork plugin, installed from this repo
-  (`.claude-plugin/marketplace.json` → `plugin/coverage`; `/plugin marketplace add Nathangong-coder/banker-dashboard`).
+  (`.claude-plugin/marketplace.json` → `plugin/recruitify`; `/plugin marketplace add Nathangong-coder/banker-dashboard`).
   Skills: update-tracker, record-chat, tag-chatted-emails (Gmail labels `Chatted` + `Chatted/Follow-up - Good | OK |
   Bad - Ghost`, applied only after the user confirms), follow-up-planner. Gmail / Granola come from Claude's own connectors.
 - Local stdio MCP server `coverage-sheet`: source `scripts/plugin/coverage-mcp.mts` (hand-rolled JSON-RPC, no SDK),
-  bundled with esbuild by `npm run build:plugin` into `plugin/coverage/server/coverage-mcp.mjs` (**commit the bundle**;
+  bundled with esbuild by `npm run build:plugin` into `plugin/recruitify/server/coverage-mcp.mjs` (**commit the bundle**;
   rebuild + bump `plugin.json` version after changing it or the src/lib code it uses). Workbook path:
   `~/.coverage-plugin.json` or `COVERAGE_WORKBOOK`. Writes = `contactPatches` diff (only cells the change needs) or the
   Conversation row as owner-typed text (no "• " lines, so `sheetChat` reads it back and the dashboard's live pickup
@@ -767,7 +783,7 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   [team], or null = full-service) else a conservative built-in list (Leerink / Cain / MTS = Healthcare; Qatalyst / Tidal /
   Union Square / FT Partners = Tech; LionTree / Allen / Raine = TMT; Ducera = RX; TPH = Energy). `deskStatus(…, specialty)` marks an
   empty desk outside those teams `not_offered` (someone already found on it still counts), so a firm with none of the checked desks
-  is `notOffered` and leaves the counts, the columns and the "you applied to…" nudge. /coverage: `SpecialtyPicker` on each card
+  is `notOffered` and leaves the counts, the columns and the "you applied to…" nudge. /recruitify: `SpecialtyPicker` on each card
   (hover on full-service banks) and a "Specialists outside your desks" list to change them back. TMT matches the Tech desk only.
 - **Office cap:** you can usually apply to 2 offices per bank (`coverage.officesPerBank`). `desks.ts#pickOffices` picks offices
   already emailed, then with contacts, then plan order; `coverage.officePick[bankKey]` overrides (OfficePicker on the bank card).
