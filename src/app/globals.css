@@ -2,11 +2,52 @@
 
 /*
  * Four color themes (Settings → Appearance, `components/ThemePicker.tsx`; per browser in localStorage "coverage:theme",
- * set on <html data-theme> before paint by the script in layout.tsx). :root is A, the default; check:contrast reads every block.
+ * set on <html data-theme> before paint by the script in layout.tsx). :root is the default (recruitly, the logo's colors); check:contrast reads every block.
  * Old names stay: navy = the dark brand color (links, top bar), brass = the accent (decorative), brass-strong = the accent
  * that carries text or white text (buttons, badges), brass-ink = accent text on brass-soft.
  */
 :root,
+[data-theme="recruitly"] {
+  /* The default since 2026-10-23: the colors of the logo (navy #0e1a2b, cream #f4f3ef, green #1f7a5c). */
+  --paper: #f4f3ef;
+  --panel: #ffffff;
+  --ink: #0e1a2b;
+  --ink-2: #33404f;
+  --muted: #5c6672;
+  --line: #e4e2da;
+  --line-2: #d3d0c5;
+  --navy: #0e1a2b;
+  --navy-hover: #1c2b40;
+  --brass: #2a9a74;
+  --brass-soft: #e0f0e9;
+  --brass-strong: #1f7a5c;
+  --brass-hover: #18644b;
+  --brass-ink: #175c45;
+  --green: #1d7343;
+  --green-soft: #e1f1e6;
+  --red: #b4372f;
+  --red-soft: #f9e5e3;
+  --blue: #2553a8;
+  --blue-soft: #e5edfb;
+  --amber: #8a5a00;
+  --amber-soft: #fcf1d6;
+  --subtle: #faf9f6;
+  --hover: #eeece5;
+  --track: #e4e2da;
+  --top: #0e1a2b;
+  --top-ink: #f4f3ef;
+  --top-muted: #a5aebb;
+  --top-line: #0e1a2b;
+  --side: #0e1a2b;
+  --side-ink: #dfe3e8;
+  --side-muted: #98a3b1;
+  --side-active: #1f2e44;
+  --side-hover: #18263a;
+  --side-mark: #3cb98b;
+  --chart: #6fb59a;
+  --chart-soft: #dcefe6;
+}
+
 [data-theme="slate"] {
   --paper: #f5f8fa;
   --panel: #ffffff;

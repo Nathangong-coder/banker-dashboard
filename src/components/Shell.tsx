@@ -19,6 +19,7 @@ import { callApi } from "@/lib/api";
 import { syncServer } from "@/lib/serverSync";
 import { setSignatureLogoSource } from "@/lib/gmail";
 import { savedSignatureLogo } from "@/lib/signatureLogo";
+import { Logo } from "./Logo";
 
 // Every Gmail draft gets the signature logo saved in Settings (gmail.ts stays store-free for the check scripts).
 setSignatureLogoSource(savedSignatureLogo);
@@ -293,7 +294,7 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center border-b border-top-line bg-top text-top-ink">
         <Link href="/" className="flex h-full shrink-0 items-center gap-2.5 px-4 md:w-[232px] md:px-5">
-          <span className="grid size-7 place-items-center rounded-lg bg-brass-strong text-[13px] font-semibold text-white">C</span>
+          <Logo size={28} />
           <span className="hidden text-[16px] font-medium tracking-tight sm:inline">Coverage</span>
         </Link>
         <nav className="flex h-full min-w-0 flex-1 overflow-x-auto" aria-label="Sections">

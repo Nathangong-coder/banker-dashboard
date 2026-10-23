@@ -9,7 +9,7 @@ const sans = Lexend_Deca({ variable: "--font-app-sans", subsets: ["latin"], weig
 const mono = IBM_Plex_Mono({ variable: "--font-app-mono", subsets: ["latin"], weight: ["400", "500"] });
 
 /** Sets <html data-theme> from Settings → Appearance before the first paint, so a non-default theme doesn't flash. */
-const THEME_SCRIPT = `try{var t=localStorage.getItem("coverage:theme");if(t&&/^(slate|cream|navy|graphite)$/.test(t))document.documentElement.dataset.theme=t}catch(e){}`;
+const THEME_SCRIPT = `try{var t=localStorage.getItem("coverage:theme");if(t&&/^(recruitly|slate|cream|navy|graphite)$/.test(t))document.documentElement.dataset.theme=t}catch(e){}`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE.url),
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
 };
 
-export const viewport: Viewport = { themeColor: "#2d3e50", width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { themeColor: "#0e1a2b", width: "device-width", initialScale: 1 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

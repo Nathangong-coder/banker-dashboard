@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Coffee, EyeOff, MousePointerClick, Search, ShieldCheck, Users } from "lucide-react";
 import { SITE } from "@/lib/site";
+import { Logo } from "@/components/Logo";
 
 export const metadata: Metadata = {
   title: "Browser extension",
@@ -35,7 +36,7 @@ function PopupMock() {
   return (
     <div className="mx-auto w-full max-w-[340px] overflow-hidden rounded-xl border border-line bg-panel text-[13px] shadow-xl" aria-hidden="true">
       <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
-        <span className="grid size-5 place-items-center rounded bg-brass-strong text-[10px] font-semibold text-white">C</span>
+        <Logo size={20} />
         <span className="font-medium text-ink">Coverage</span>
         <span className="ml-auto text-[12px] text-brass-ink">Open dashboard</span>
       </div>

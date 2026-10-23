@@ -5,10 +5,11 @@ import { useState } from "react";
 import { cn } from "@/lib/util";
 
 /**
- * The four color themes (globals.css `[data-theme]` blocks). Per browser: localStorage "coverage:theme", applied to
- * <html data-theme> here and before first paint by layout.tsx's script. Slate is the default (owner, 2026-10-19).
+ * The color themes (globals.css `[data-theme]` blocks). Per browser: localStorage "coverage:theme", applied to
+ * <html data-theme> here and before first paint by layout.tsx's script. Recruitly (the logo's colors) is the default since 2026-10-23; slate was before.
  */
 export const THEMES = [
+  { id: "recruitly", name: "Recruitly", note: "Navy, cream and green (the logo)", top: "#0e1a2b", side: "#0e1a2b", paper: "#f4f3ef", accent: "#1f7a5c" },
   { id: "slate", name: "Slate", note: "Slate bars, orange accent", top: "#2d3e50", side: "#33475b", paper: "#f5f8fa", accent: "#ff7a59" },
   { id: "cream", name: "Cream", note: "Warm cream, black bar, orange", top: "#1f1f1f", side: "#fffdf8", paper: "#f8f5ee", accent: "#ff4800" },
   { id: "navy", name: "Navy", note: "Navy and brass (the original)", top: "#0f1d33", side: "#13233f", paper: "#f5f4ef", accent: "#b3862f" },
@@ -19,7 +20,7 @@ const KEY = "coverage:theme";
 
 function current(): ThemeId {
   const t = typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined;
-  return THEMES.some((x) => x.id === t) ? (t as ThemeId) : "slate";
+  return THEMES.some((x) => x.id === t) ? (t as ThemeId) : "recruitly";
 }
 
 export function setTheme(id: ThemeId) {
@@ -36,7 +37,7 @@ export function ThemePicker() {
   // Settings renders only in the browser (after the store loads), so the DOM can be read on first render.
   const [theme, set] = useState<ThemeId>(current);
   return (
-    <div className="grid grid-cols-2 gap-3 p-5 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 p-5 lg:grid-cols-5">
       {THEMES.map((t) => {
         const on = t.id === theme;
         return (

@@ -6,6 +6,7 @@ import { ArrowRight, ChevronDown, Menu, X } from "lucide-react";
 import { cn } from "@/lib/util";
 import { FEATURES, INTEGRATIONS, type Feature } from "./features";
 import { StartLink } from "./StartLink";
+import { Logo } from "../Logo";
 
 /**
  * The landing page's top bar, HubSpot-style (owner, 2026-10-23): a thin utility strip above the main bar, then logo,
@@ -109,7 +110,7 @@ export function LandingNav() {
       <div className="border-b border-line bg-panel/95 backdrop-blur">
         <div className="relative mx-auto flex h-16 max-w-6xl items-center gap-2 px-4">
           <Link href="/welcome" onClick={close} className="mr-3 flex shrink-0 items-center gap-2.5" aria-label="Coverage home">
-            <span className="grid size-8 place-items-center rounded-lg bg-brass-strong text-[14px] font-semibold text-white">C</span>
+            <Logo size={32} />
             <span className="text-[18px] font-medium tracking-tight text-ink">Coverage</span>
           </Link>
 

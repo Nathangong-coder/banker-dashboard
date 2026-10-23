@@ -774,8 +774,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **Navigation (`Shell.tsx#GROUPS`):** top bar = groups (Overview: Dashboard, Bank coverage, Firms, Spreadsheet · Outreach: Find
   people, Email drafts, Email lab · Prep & reminders: Follow-ups, Coffee chat prep, Info sessions); the sidebar lists the current
   group's pages (group follows the URL); Settings is the gear. Phones: the group's pages as a pill strip under the top bar.
-- **Themes:** 4 color themes as `[data-theme]` token blocks in `globals.css` (`:root` = slate, the default; cream, navy = the original,
-  graphite = white/teal). Picked in Settings → Appearance (`components/ThemePicker.tsx`), per browser in localStorage `coverage:theme`,
+- **Themes:** 5 color themes as `[data-theme]` token blocks in `globals.css` (`:root` = recruitly, the default since 2026-10-23:
+  the logo's navy #0e1a2b / cream #f4f3ef / green #1f7a5c accent; slate = the previous default; cream, navy = the original,
+  graphite = white/teal). **Logo** = `components/Logo.tsx` (same drawing as `src/app/icon.svg`, from the owner's "Recruitly
+  square logo.png"); `npm run render:icons` makes favicon.ico / apple-icon / icon-192/512 from icon.svg, and
+  `pack:extension` makes the extension icons from it. The link preview (`opengraph-image.tsx`) uses the same colors. Picked in Settings → Appearance (`components/ThemePicker.tsx`), per browser in localStorage `coverage:theme`,
   applied before paint by `layout.tsx#THEME_SCRIPT`. **Never hardcode hex colors in components**: use tokens (paper, panel, ink,
   ink-2, muted, line, line-2, subtle, hover, track, navy, brass = accent, brass-strong = accent that carries text / button fill,
   brass-hover, brass-ink = accent text on brass-soft, top-*, side-*, chart, chart-soft). `npm run check:contrast` checks every theme.

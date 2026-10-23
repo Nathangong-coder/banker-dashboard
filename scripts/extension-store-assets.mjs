@@ -55,12 +55,11 @@ fs.writeFileSync(
   html,body{margin:0;width:440px;height:280px;overflow:hidden}
   body{font-family:"Lexend Deca",system-ui,sans-serif;background:${c.soft};color:${c.ink};display:flex;flex-direction:column;justify-content:center;padding:0 32px;box-sizing:border-box}
   .brand{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:500}
-  .logo{width:34px;height:34px;border-radius:8px;background:${c.strong};color:#fff;display:grid;place-items:center;font-weight:600;font-size:17px}
   h1{font-size:27px;line-height:1.15;font-weight:500;letter-spacing:-.01em;margin:18px 0 10px}
   p{margin:0;font-size:14px;color:${c.ink2}}
   .btn{margin-top:16px;align-self:flex-start;background:${c.strong};color:#fff;border-radius:999px;padding:8px 16px;font-size:13px;font-weight:500}
 </style></head><body>
-  <div class="brand"><span class="logo">C</span>Coverage</div>
+  <div class="brand">${fs.readFileSync(path.join(root, "src/app/icon.svg"), "utf8").replace("<svg ", '<svg width="34" height="34" ')}Coverage</div>
   <h1>LinkedIn → your networking tracker, in one click</h1>
   <p>For students recruiting for investment banking.</p>
   <span class="btn">Send profile to Coverage</span>

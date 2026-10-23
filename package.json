@@ -13,6 +13,7 @@
     "check:coverage": "tsx scripts/check-coverage.mts",
     "check:outreach": "tsx scripts/check-outreach.mts",
     "fix:workbook": "tsx scripts/fix-workbook.mts",
+    "render:icons": "node scripts/render-icons.mjs",
     "pack:extension": "node scripts/pack-extension.mjs",
     "assets:extension": "node scripts/extension-store-assets.mjs",
     "check:firms": "tsx scripts/check-firms.mts",

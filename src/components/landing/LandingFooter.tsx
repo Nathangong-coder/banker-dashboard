@@ -2,6 +2,7 @@ import Link from "next/link";
 import { SITE } from "@/lib/site";
 import { FEATURES } from "./features";
 import { StartLink } from "./StartLink";
+import { Logo } from "../Logo";
 
 const linkCls = "text-[13px] text-muted underline-offset-4 hover:text-ink hover:underline";
 
@@ -49,7 +50,7 @@ export function LandingFooter() {
         </nav>
       </div>
       <div className="mx-auto flex max-w-6xl items-center gap-2 border-t border-line px-4 py-5 text-[12px] text-muted">
-        <span className="grid size-5 place-items-center rounded bg-brass-strong text-[10px] font-semibold text-white">C</span>© {year} {SITE.name}
+        <Logo size={20} />© {year} {SITE.name}
       </div>
     </footer>
   );

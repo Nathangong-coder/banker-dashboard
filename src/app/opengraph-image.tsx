@@ -8,19 +8,21 @@ export const contentType = "image/png";
 
 export default function Image() {
   const row = (label: string, value: string, tone: string) => (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid #e3e1d8", fontSize: 26 }}>
-      <span style={{ color: "#111a28" }}>{label}</span>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid #e4e2da", fontSize: 26 }}>
+      <span style={{ color: "#0e1a2b" }}>{label}</span>
       <span style={{ color: tone, fontWeight: 600 }}>{value}</span>
     </div>
   );
   return new ImageResponse(
     (
-      <div style={{ width: "100%", height: "100%", display: "flex", background: "#13233f", padding: 64, fontFamily: "serif" }}>
+      <div style={{ width: "100%", height: "100%", display: "flex", background: "#0e1a2b", padding: 64, fontFamily: "sans-serif" }}>
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", width: 560 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-            <svg width="64" height="64" viewBox="0 0 64 64">
-              <rect width="64" height="64" rx="14" fill="#1d3156" />
-              <path d="M42.2 20.4A16 16 0 1 0 42.2 43.6" fill="none" stroke="#c99a3c" strokeWidth="7.5" strokeLinecap="round" />
+            {/* The logo (components/Logo.tsx), with a light edge so it shows on the navy background. */}
+            <svg width="64" height="64" viewBox="0 0 128 128">
+              <rect x="2" y="2" width="124" height="124" rx="27" fill="#0e1a2b" stroke="#2b3a50" strokeWidth="4" />
+              <polyline points="27.5,81 49,63 61,73 88,45" fill="none" stroke="#f4f3ef" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="93" cy="40" r="13" fill="#1f7a5c" />
             </svg>
             <span style={{ color: "#ffffff", fontSize: 44 }}>{SITE.name}</span>
           </div>
@@ -30,14 +32,14 @@ export default function Image() {
               Track bankers, find verified emails, draft personal outreach and never miss a follow-up.
             </span>
           </div>
-          <span style={{ color: "#c99a3c", fontSize: 22, fontFamily: "sans-serif", letterSpacing: 3 }}>{SITE.tagline.toUpperCase()}</span>
+          <span style={{ color: "#3cb98b", fontSize: 22, fontFamily: "sans-serif", letterSpacing: 3 }}>{SITE.tagline.toUpperCase()}</span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", marginLeft: 56, flex: 1, background: "#f5f4ef", borderRadius: 18, overflow: "hidden", fontFamily: "sans-serif" }}>
-          <div style={{ display: "flex", padding: "22px 24px", background: "#ffffff", fontSize: 24, color: "#6b7280", borderBottom: "1px solid #e3e1d8" }}>Today</div>
+        <div style={{ display: "flex", flexDirection: "column", marginLeft: 56, flex: 1, background: "#f4f3ef", borderRadius: 18, overflow: "hidden", fontFamily: "sans-serif" }}>
+          <div style={{ display: "flex", padding: "22px 24px", background: "#ffffff", fontSize: 24, color: "#6b7280", borderBottom: "1px solid #e4e2da" }}>Today</div>
           {row("Follow-ups due", "13", "#b42318")}
-          {row("Scheduled to send", "92", "#13233f")}
-          {row("Banks reached", "27 / 60", "#1f7a4d")}
-          {row("Replies", "3", "#1f7a4d")}
+          {row("Scheduled to send", "92", "#0e1a2b")}
+          {row("Banks reached", "27 / 60", "#1f7a5c")}
+          {row("Replies", "3", "#1f7a5c")}
         </div>
       </div>
     ),
