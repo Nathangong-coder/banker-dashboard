@@ -13,12 +13,13 @@ export const metadata: Metadata = {
 const REPO = "https://github.com/Nathangong-coder/banker-dashboard/tree/main/extension";
 
 const PERMISSIONS = [
-  ["Your current tab, after you click (activeTab)", "Lets the button read the LinkedIn page you're on, only when you click it. It can't see other tabs, other sites or anything in the background."],
-  ["Run a script on that tab (scripting)", "The read-only function that collects the profile text you can already see. It never clicks, scrolls, types or sends anything to LinkedIn."],
-  ["Storage", "Saves one setting: your dashboard's address."],
+  ["Your current tab, after you click (activeTab)", "Lets the button read the LinkedIn page or application form you're on, only when you click it. It can't see other tabs, other sites or anything in the background."],
+  ["Run a script on that tab (scripting)", "On LinkedIn: reads the profile text you can already see, never clicking or scrolling. On an application: reads the form's questions, then types your answers in. It never presses Submit."],
+  ["Storage", "Saves your dashboard's address, and the last autofill summary for a tab until the browser closes."],
+  [`${SITE.name}'s own site`, "A small bridge script on your dashboard's pages only, so autofill can ask your open dashboard what goes in each field. Your application info stays there."],
 ];
 
-const NOT = ["Access to all websites", "Your browsing history", "Running in the background", "Code loaded from the internet", "Analytics or tracking", "Any server of ours (the text goes straight to your dashboard)"];
+const NOT = ["Access to all websites", "Your browsing history", "Submitting anything for you", "Code loaded from the internet", "Analytics or tracking", "Any server of ours (the text goes straight to your dashboard)"];
 
 const FAQ: [string, string][] = [
   ["Is it free?", `Yes, like ${SITE.name}.`],

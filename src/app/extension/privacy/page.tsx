@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 
 /**
  * The extension's own privacy policy: the Chrome Web Store listing's privacy URL. Keep it in step with
- * extension/manifest.json (store build: activeTab, scripting, storage) and privacy page §7. Bump SITE.legalUpdated
+ * extension/manifest.json (store build: activeTab, scripting, storage, plus the dashboard-only content script) and
+ * privacy page §7. Bump SITE.legalUpdated
  * when it changes.
  */
 export default function ExtensionPrivacyPage() {
@@ -23,8 +24,9 @@ export default function ExtensionPrivacyPage() {
       </p>
       <div className="mt-8 space-y-4 text-[14.5px] leading-relaxed text-ink-2">
         <p>
-          The {SITE.name} extension has one job: when you click its button on a LinkedIn page, it sends that page&apos;s text to your own {SITE.name} dashboard. This page
-          explains exactly what that involves. The dashboard itself is covered by the{" "}
+          The {SITE.name} extension does two things, both only when you click its button: on a LinkedIn page it sends that page&apos;s text to your own{" "}
+          {SITE.name} dashboard, and on a job application it fills the form from the application info you saved in your dashboard. This page explains
+          exactly what that involves. The dashboard itself is covered by the{" "}
           <Link href="/privacy" className="text-navy underline">
             {SITE.name} Privacy Policy
           </Link>
@@ -32,35 +34,50 @@ export default function ExtensionPrivacyPage() {
         </p>
 
         <H2>1. What it reads</H2>
-        <p>Only when you click &ldquo;Send … to Coverage&rdquo; in its popup, and only in the tab you&apos;re looking at:</p>
+        <p>Only when you click a button in its popup, and only in the tab you&apos;re looking at:</p>
         <ul className="list-disc space-y-1 pl-6">
           <li>
             On a LinkedIn profile: the text shown on that page (name, headline, location, experience, education and similar sections) and the profile&apos;s address.
           </li>
           <li>On a LinkedIn People search: the names, headlines and profile addresses of the people listed on the page.</li>
+          <li>
+            On a job application (&ldquo;Autofill this page&rdquo;): the form&apos;s questions (labels, field types and answer options, never the contents of
+            password fields) and the page&apos;s visible text, so the dashboard can tell what each field asks and what the job is.
+          </li>
         </ul>
         <p>
           That&apos;s website content you can already see. The extension doesn&apos;t read pages you haven&apos;t clicked it on, other tabs, your browsing history, passwords,
-          messages or anything else. It never clicks, scrolls, types or loads pages for you.
+          messages or anything else. On LinkedIn it never clicks, scrolls, types or loads pages for you. On a job application it only types into the form
+          fields it read (and ticks the answer you chose for multiple-choice questions); it never presses Submit or any other button, never fills
+          passwords, Social Security numbers, bank or card details, and you review the form before you submit it yourself.
         </p>
 
         <H2>2. Where it goes</H2>
         <p>
           The extension opens your dashboard ({SITE.url}, or another address you set) in a new tab, with the text in the address&apos;s fragment (the part after
           &ldquo;#&rdquo;). Browsers never send the fragment to a server, so the text goes straight from the LinkedIn tab to your dashboard in your browser, which keeps it
-          in your browser&apos;s storage. The extension sends nothing to us, to analytics services or to anyone else.
+          in your browser&apos;s storage.
+        </p>
+        <p>
+          For autofill, the extension passes the form&apos;s questions and the page text to your open {SITE.name} tab (through a small script that runs on{" "}
+          {SITE.name}&apos;s own pages only, never on other sites). Your dashboard decides each answer from the application info you saved there and sends back
+          only those values (and your resume file for upload fields), which the extension types into that form. If you have an AI key connected, open
+          questions are drafted by your AI provider as described in the {SITE.name} Privacy Policy, section 4. The employer receives your application only
+          when you submit it. The extension sends nothing to us, to analytics services or to anyone else.
         </p>
 
         <H2>3. What it stores</H2>
         <p>
-          One setting: your dashboard&apos;s address, in your browser&apos;s extension storage (it follows your browser profile if you use browser sync). It keeps no copy of
-          what it reads.
+          One setting: your dashboard&apos;s address, in your browser&apos;s extension storage (it follows your browser profile if you use browser sync). After an
+          autofill it keeps a short summary for that tab (how many fields were filled and which questions were left for you) in session storage, which
+          the browser clears when it closes. Your application info stays in your dashboard, not in the extension.
         </p>
 
         <H2>4. What it never does</H2>
         <ul className="list-disc space-y-1 pl-6">
           <li>Sell or transfer your data to anyone, or use it for advertising, credit or lending decisions.</li>
-          <li>Run in the background, or on any site before you click it there.</li>
+          <li>Run on any site before you click it there (the only exception is the bridge script on {SITE.name}&apos;s own pages).</li>
+          <li>Submit an application, or click any button on a page, for you.</li>
           <li>Load code from the internet: everything it runs ships inside the extension.</li>
           <li>Track you, or include analytics.</li>
         </ul>
@@ -81,7 +98,11 @@ export default function ExtensionPrivacyPage() {
             <b>scripting</b>: runs the read-only function that collects the visible text from that tab.
           </li>
           <li>
-            <b>storage</b>: saves your dashboard&apos;s address.
+            <b>storage</b>: saves your dashboard&apos;s address, and the last autofill summary for a tab until the browser closes.
+          </li>
+          <li>
+            <b>Access to {SITE.name}&apos;s own site</b> ({SITE.url}, and localhost for development): runs the bridge script that connects the extension to your
+            dashboard tab for autofill. It doesn&apos;t give access to any other site.
           </li>
         </ul>
 

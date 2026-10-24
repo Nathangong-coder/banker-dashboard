@@ -46,8 +46,11 @@ export function captureLinkedIn() {
   return { people: out.slice(0, 60), page: location.href.slice(0, 300) };
 }
 
-/** The dashboard address that receives the capture: a profile opens Coffee chat prep, a search opens Find people. */
-export function captureUrl(dashboard, capture) {
-  const payload = encodeURIComponent(JSON.stringify({ v: 1, page: capture.page, people: capture.people }));
+/**
+ * The dashboard address that receives the capture: a profile opens Coffee chat prep, a search opens Find people.
+ * `auto`: the dashboard adds (or updates) them and looks up emails straight away, with no review step.
+ */
+export function captureUrl(dashboard, capture, { auto = false } = {}) {
+  const payload = encodeURIComponent(JSON.stringify({ v: 1, page: capture.page, people: capture.people, ...(auto ? { auto: true } : {}) }));
   return `${dashboard}${isProfile(capture.page) ? "/prep" : "/find"}#li=${payload}`;
 }

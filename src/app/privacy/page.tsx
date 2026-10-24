@@ -22,7 +22,9 @@ export default function PrivacyPage() {
 
       <H2>1. What stays in your browser</H2>
       <p>
-        Your contacts, spreadsheet, drafts, templates, settings, resume, signature logo, coffee-chat transcripts and grades, the recipients of your last 120 days of sent mail (to spot bankers you emailed who aren&apos;t in your tracker), and the API keys you add are stored in your browser (IndexedDB and local storage) on the
+        Your contacts, spreadsheet, drafts, templates, settings, resume, signature logo, coffee-chat transcripts and grades, the recipients of your last 120 days of sent mail (to spot bankers you emailed who aren&apos;t in your tracker), your job applications and the
+        application info you enter for autofill (contact details, home address, education, work authorization, and any voluntary self-identification
+        answers such as gender, race, veteran or disability status), your writing samples and extra resumes, and the API keys you add are stored in your browser (IndexedDB and local storage) on the
         device you use. We can&apos;t see them. Clearing your browser data, or <b>Settings → Backup → Clear all data</b>, deletes them. Backups you export are
         files you control.
       </p>
@@ -130,7 +132,10 @@ export default function PrivacyPage() {
           screen candidates and write emails, a coffee-chat transcript you upload or paste, only when you click <b>Grade it</b>, to grade the call, and, when
           you click <b>Build brief</b> on a bank, the bank&apos;s name, your profile and interests, and your own notes about that bank and its contacts
           (firm notes, tracker comments, call notes, chat summaries), to write your &ldquo;Why this bank&rdquo; answer, and the photos and notes you
-          captured at an info session, sent by your browser when you review them, to read out the names of the people you met.
+          captured at an info session, sent by your browser when you review them, to read out the names of the people you met, and, when you use
+          application autofill, the open questions on that application form, the visible text of the application page, and your education, the
+          background and interests you wrote, your answer library and your writing samples, to draft answers in your voice. Your address, phone,
+          email, work authorization and self-identification answers are never sent to the AI.
         </li>
         <li>CallMeBot (WhatsApp), ntfy, Twilio: the reminder text, to send it to you. Twilio also delivers the texts and photos you send to your own Twilio number.</li>
       </ul>
@@ -158,8 +163,16 @@ export default function PrivacyPage() {
       <p className="mt-3">
         The optional {SITE.name} extension for Chrome and Edge works the same way. It reads the page in your current tab only when you click its button
         (the browser&apos;s &ldquo;activeTab&rdquo; permission), and opens your dashboard with that text in the address&apos;s fragment, which browsers don&apos;t
-        send to any server. It has no access to other tabs or sites, doesn&apos;t run in the background, and sends nothing to us or anyone else. It stores one
-        setting, your dashboard&apos;s address, in your browser&apos;s extension storage. Details:{" "}
+        send to any server. It has no access to other tabs or sites, and sends nothing to us or anyone else. It stores one setting, your dashboard&apos;s
+        address, in your browser&apos;s extension storage.
+      </p>
+      <p className="mt-3">
+        <b>Application autofill</b> (extension 1.1+): when you click <b>Autofill this page</b> on a job application, the extension reads that form&apos;s
+        questions and the page&apos;s visible text, and passes them to your open {SITE.name} tab, which decides what goes in each field from the
+        application info you saved and returns those values (and your resume file, for upload fields). The extension then types them into that
+        form. It never submits the form, clicks its buttons, or fills passwords, Social Security numbers, bank or card details. Until you submit,
+        nothing leaves your browser except the AI request described in section 4; when you submit, the employer receives your application under
+        its own privacy policy. To talk to your dashboard tab, the extension runs a small script on {SITE.name}&apos;s own pages only. Details:{" "}
         <a href="/extension/privacy" className="text-navy underline">
           extension privacy policy
         </a>

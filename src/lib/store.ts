@@ -1,6 +1,7 @@
 "use client";
 
 import type { SentRecipient } from "./offSheet";
+import { EMPTY_APPLY, type ApplyState } from "./apply";
 import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
@@ -56,6 +57,10 @@ export const blobs = {
   /** Signature logo image (settings.emailStyle.logo holds its name and size). */
   logo: () => idbGet<{ name: string; type: string; data: ArrayBuffer }>("blob:logo"),
   setLogo: (r: { name: string; type: string; data: ArrayBuffer } | undefined) => (r ? idbSet("blob:logo", r) : idbDel("blob:logo")),
+  /** Extra resumes for job applications (state.apply.resumes holds their names); the main one is `resume`. */
+  appResume: (id: string) => idbGet<{ name: string; type: string; data: ArrayBuffer }>(`blob:appresume:${id}`),
+  setAppResume: (id: string, r: { name: string; type: string; data: ArrayBuffer } | undefined) =>
+    r ? idbSet(`blob:appresume:${id}`, r) : idbDel(`blob:appresume:${id}`),
 };
 
 export function bankKey(name: string, region: Region) {
@@ -102,6 +107,9 @@ interface State {
   /** Recipients of your sent mail (lib/offSheet.ts finds bankers emailed but not in the tracker), and who to ignore. */
   offSheet: OffSheetState;
   setOffSheet: (patch: Partial<OffSheetState>) => void;
+  /** Job applications (app/applications): tracked jobs, your application info, writing samples, extra resumes. */
+  apply: ApplyState;
+  setApply: (fn: (a: ApplyState) => ApplyState) => void;
   /** Merge sessions read from the calendar (by id): calendar fields refresh, your fields (people, notes, attended…) stay. */
   upsertInfoSessions: (list: InfoSession[]) => void;
   updateInfoSession: (id: string, patch: Partial<InfoSession> | ((s: InfoSession) => Partial<InfoSession>)) => void;
@@ -256,6 +264,8 @@ export const useStore = create<State>()(
       infoSessions: [],
       offSheet: { seen: [], recipients: [], ignored: [] },
       setOffSheet: (patch) => set({ offSheet: { ...get().offSheet, ...patch } }),
+      apply: EMPTY_APPLY,
+      setApply: (fn) => set({ apply: fn(get().apply) }),
       upsertInfoSessions: (list) => {
         const byId = new Map(get().infoSessions.map((s) => [s.id, s]));
         for (const s of list) {
@@ -578,6 +588,8 @@ export const useStore = create<State>()(
           ...p,
           // New settings fields added in later versions get their defaults.
           settings: deepMerge(DEFAULT_SETTINGS, p.settings ?? {}) as Settings,
+          // So do application-profile fields added later.
+          apply: { ...EMPTY_APPLY, ...p.apply, profile: { ...EMPTY_APPLY.profile, ...p.apply?.profile } },
         };
       },
     },

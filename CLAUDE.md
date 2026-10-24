@@ -21,6 +21,7 @@ npm run check:contrast                        # WCAG AA contrast of the palette 
 npm run check:scheduling                      # availability → their time zone, calendar busy, phones, invite text
 npm run check:selectors                       # no zustand selector returns a fresh object/array (React #185 "This page couldn't load")
 npm run check:conversations                   # Conversation table: rows link to people (no duplicates), "• " lines only, idempotent writes
+npm run check:apply                           # application autofill planning: profile rules, AI-only questions, never-filled fields
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -470,6 +471,43 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   approved) switches the install buttons from load-unpacked steps to "Add to Chrome". `npm run assets:extension`
   renders `dist/store/` screenshot 1280×800 + promo tile 440×280 with headless Chrome against a running build
   (Consent shows no banner when `navigator.webdriver`). Store steps + paste-ready answers: extension/README.md.
+
+## Applications + autofill, LinkedIn auto-add (owner, 2026-10-24)
+
+- **/applications** (own nav group; tabs Jobs | My info | Writing | Resumes; `state.apply: ApplyState`, types and pure
+  logic in `lib/apply.ts`, `npm run check:apply`). Jobs = tracked applications (link, company guessed from the ATS URL,
+  status, deadline, resume version, networking at that firm by canonBank, AI answers kept per job; the workbook's
+  applications tab is listed with "Track here"). My info = the autofill profile incl. address, work authorization and
+  voluntary self-identification ("" = leave for me, "decline" = the form's prefer-not option); saved on blur.
+  Writing = samples (.docx via `lib/docxText.ts`, .txt/.md, paste) + answer library. Resumes = main (`blob:resume`) +
+  versions (`blob:appresume:<id>`). Privacy §1/§4/§7 + /extension/privacy updated, `legalUpdated` 10/24.
+- **Autofill flow** (extension 1.1; see extension/README.md part 3): popup → `background.js` → scan → your open
+  Coverage tab plans the values (`lib/applyBridge.ts#useExtensionBridge`, mounted in Shell; `planFill` rules first,
+  open questions → `api/apply/answer`) → fill → review box. "Autofill" on a job sets `apply.activeJob` so the fill is
+  filed under it (AI answers saved, status → In progress); "I submitted it" in the popup marks it Submitted.
+  **Prompt-injection / safety rules (don't loosen):** sensitive answers only by rule (`Rule.sensitive`), the AI gets
+  education + background + interests + samples + library only; `NEVER_FILL` (password/SSN/bank/card/DOB) in apply.ts
+  AND sites/apply.js; hidden/off-screen/clipped fields never scanned; consent boxes, salary left for you; AI output
+  limited to asked ids / offered options (server + worker); unknown sites (not a tracked job, not `knownJobSite`)
+  need a confirm click; LinkedIn refused; the job page has no channel to the extension; nothing ever clicks a button
+  or submits. Fact rules (City, Major…) only apply to short labels that aren't questions ("Please state why…").
+- **Bridge:** `content/dashboard.js` runs only on the dashboard origins (manifest `content_scripts`; pack-extension
+  fails on anything else). The worker finds the dashboard tab by pinging every tab: only the bridge answers, with its
+  origin, which must equal Options' dashboard address (tabs.query by URL needs a permission we don't ask for).
+  Requests: `plan`, `submitted`. The page posts `ping`, the bridge answers `hello` → "Extension connected".
+- **LinkedIn auto-add** (`lib/autoCapture.ts`): popup "Add to tracker + find email" sets `auto: true` in the `#li=`
+  payload. Profile → merge into an existing contact (slug / name + bank) or add (AI screen if a key, else
+  guessBank), keep the profile text, enrich (Apollo/Hunter); unknown firm → the usual Add card. Search → needs an AI
+  key; adds only `match` + known firm + not senior-skipped, the rest stay on Find people with verdicts. The
+  owner asked for an AI that clicks through LinkedIn itself: declined (same reason as the scraping decisions above);
+  this is the one-click version.
+- **Tested 2026-10-24:** `check:apply` (24 checks); headless Edge 155 with the unpacked extension (CDP, scratch harness
+  not kept): worker starts, bridge hello, My info via the UI, resume upload, scan of a mock form on another origin
+  (hidden/off-screen traps + password skipped, radio group labelled), unknown-site confirm, plan (profile values,
+  resume, SSN / certification / open question left for you), fill (values typed, existing value kept, file attached,
+  selects/radios right, nothing submitted, page didn't navigate, input events fired, review box). In Chrome on
+  127.0.0.1: profile auto-add + re-send merges, search without AI falls back. **Not yet run:** the AI answer path
+  with a real key, a real Workday / Greenhouse form, the popup's own buttons (can't be clicked headless).
 
 ## Reply / thank-you / referral tracking (owner, 2026-10-22)
 

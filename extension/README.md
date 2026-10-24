@@ -4,9 +4,27 @@ One Manifest V3 extension that runs in both Chrome and Edge. Plain JavaScript, n
 are what the browser runs. Built one part at a time (owner, 2026-10-21):
 
 1. **LinkedIn → Coverage** (done): on a profile or People search you're viewing, the toolbar button sends it to the
-   dashboard (a profile opens Coffee chat prep, a search opens Find people). It replaces the bookmarklet.
+   dashboard. "Add to tracker + find email" (1.1) adds or updates them and looks up emails with no review step
+   (`src/lib/autoCapture.ts`; a search adds only AI-screened matches at a known firm, never MD+ without a tie); "Just
+   open…" goes to Coffee chat prep / Find people as before. The extension never browses LinkedIn by itself.
 2. Granola → Coverage (next): send the note you have open (transcript + summary) to the Activity log, matched and graded.
-3. Application autofill: fill an application form from your saved profile; you review and submit.
+3. **Application autofill** (done, 1.1): on any other page, "Autofill this page" fills the form from Applications → My
+   info, uploads your resume and drafts open answers in your voice. It never submits. How it works:
+   - `background.js` runs it: `sites/apply.js#scanForm` reads the form (activeTab, granted by the popup click) → the
+     list goes to your open Coverage tab through `content/dashboard.js` (a content script on the dashboard's own pages
+     ONLY) → `src/lib/applyBridge.ts` plans every value there (`src/lib/apply.ts#planFill`, rules from your info;
+     open questions → `api/apply/answer`) → `fillForm` types them in and shows a review box.
+   - Your application info never lives in the extension; the dashboard tab must be open (it's opened if not).
+   - Guards: password / SSN / bank / card / DOB fields never filled (checked in the dashboard and again in the page);
+     hidden, off-screen and clipped fields skipped; consent / certification boxes and salary left for you; sensitive
+     answers (work authorization, EEO, address, contact) only by rule, never by the AI, which never sees them; the AI's
+     answers must match a scanned question id and, for choices, one of its options (checked on the server and in the
+     worker); a site that's neither a tracked job nor a known application system needs a second click; LinkedIn is
+     refused; the page itself can't message the extension; a redirect while the AI writes aborts the fill.
+   - Multi-page forms (Workday): click Autofill again on each page. Typeahead dropdowns (react-select / Workday) and
+     forms inside another site's iframe are left for you (the popup links the iframe so you can open it directly).
+   - Tested end to end in headless Edge with the unpacked extension against a mock form with traps (hidden fields,
+     SSN, password, certification box, prompt-injection text): see the 2026-10-24 notes in CLAUDE.md.
 
 ## How an extension "controls" a website
 

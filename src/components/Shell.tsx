@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy, Presentation, NotebookPen, CalendarDays, FileText } from "lucide-react";
+import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy, Presentation, NotebookPen, CalendarDays, FileText, BriefcaseBusiness } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
+import { useExtensionBridge } from "@/lib/applyBridge";
 import { FORMAT_VERSION, readFormats, withInternalLinks } from "@/lib/workbook";
 import { readInternalLinks } from "@/lib/sheetLinks";
 import { useSaveShortcut } from "./useSaveShortcut";
@@ -51,6 +52,10 @@ const GROUPS = [
       { href: "/templates", label: "Templates", icon: FileText },
       { href: "/lab", label: "Email lab", icon: FlaskConical },
     ],
+  },
+  {
+    label: "Applications",
+    pages: [{ href: "/applications", label: "Applications", icon: BriefcaseBusiness }],
   },
   {
     label: "Prep & reminders",
@@ -245,6 +250,7 @@ export function Shell({ children }: { children: ReactNode }) {
   useDailyWhatsApp(ready);
   useExcelEdits(ready);
   useServerSync(ready);
+  useExtensionBridge(ready);
   // The server switched to a backup model (primary hit a rate/quota limit): say so once per model.
   useEffect(() => {
     const seen = new Set<string>();

@@ -7,30 +7,16 @@ import { Bookmark, ExternalLink, Filter, Plus, Search, Sparkles, UserSearch, X }
 import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { addProspects, enrichContacts } from "@/lib/actions";
-import type { Prospect, Region } from "@/lib/types";
+import type { Prospect } from "@/lib/types";
 import { chunk, cn, guessDomain, linkedinSlug } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, PageHeader, Progress, Textarea, toast } from "@/components/ui";
 import { aiReady, hasKey } from "@/lib/keys";
 import { DEFAULT_QUERIES, queryWordCount } from "@/lib/defaults";
-import { bookmarkletHref, captureIsProfile, guessBank, linkedinSearchUrl, parseCapture } from "@/lib/linkedinCapture";
+import { bookmarkletHref, captureIsProfile, linkedinSearchUrl, parseCapture } from "@/lib/linkedinCapture";
 import { canonBank } from "@/lib/banks";
-import { reconcileTitle } from "@/lib/titles";
 import { rulesOf, seniorSkipReason, type OutreachRules } from "@/lib/outreach";
+import { autoAdd, autoSummary, captureAuto, withVerdict, type Verdict } from "@/lib/autoCapture";
 
-type Verdict = {
-  id: string;
-  verdict: "match" | "maybe" | "no";
-  score: number;
-  firstName: string;
-  lastName: string;
-  position: string;
-  team: string;
-  school: string;
-  location: string;
-  region: Region;
-  reasons: string;
-  employer?: string;
-};
 
 /** Outreach rule: VPs and below. MD / Head / Partner only with one of your senior-exception ties (Settings → Outreach rules). */
 const seniorSkip = (p: Prospect, rules: OutreachRules) =>
@@ -116,21 +102,7 @@ function FindInner() {
         for (const v of results) {
           const p = byId.get(v.id);
           if (!p) continue;
-          byId.set(v.id, {
-            ...p,
-            verdict: v.verdict,
-            score: v.score,
-            firstName: v.firstName || p.firstName,
-            lastName: v.lastName || p.lastName,
-            // The LinkedIn headline says the current title; the AI sometimes picks an old one from the snippet.
-            position: reconcileTitle(p.title, v.position),
-            team: v.team,
-            school: v.school,
-            location: v.location,
-            region: v.region,
-            reasons: v.reasons,
-            bank: p.bank === "Unknown" && v.employer ? (guessBank(v.employer, bankUniverse) ?? v.employer) : p.bank,
-          });
+          byId.set(v.id, withVerdict(p, v, bankUniverse));
         }
       } catch (e) {
         toast.err((e as Error).message);
@@ -154,7 +126,29 @@ function FindInner() {
       return;
     }
     const incoming = parseCapture(window.location.hash, bankUniverse, banks.length === 1 ? banks[0] : undefined);
+    const auto = captureAuto(window.location.hash);
     history.replaceState(null, "", window.location.pathname + window.location.search);
+    // "Add matches + find emails" from the extension: screen, add the matches, look up emails (lib/autoCapture.ts).
+    if (auto && incoming.length) {
+      toast.info(`Screening ${incoming.length} people from LinkedIn, adding the matches and looking up emails…`);
+      // After this effect (the hash import is an external event, not a render).
+      setTimeout(() => {
+        setPhase({ label: "Adding matches from LinkedIn", done: 0, total: incoming.length });
+        autoAdd(incoming, { single: false })
+          .then((r) => {
+            const current = useStore.getState().prospects;
+            const keep = r.rest.filter((p) => !current.some((x) => x.id === p.id));
+            setProspects([...keep, ...current]);
+            toast.ok(autoSummary(r, { single: false }));
+          })
+          .catch((e) => {
+            setProspects([...incoming.filter((p) => !existing(p)), ...useStore.getState().prospects]);
+            toast.err((e as Error).message);
+          })
+          .finally(() => setPhase(null));
+      }, 0);
+      return;
+    }
     const current = useStore.getState().prospects;
     const fresh = incoming.filter((p) => !existing(p) && !current.some((x) => x.id === p.id));
     if (!fresh.length) {

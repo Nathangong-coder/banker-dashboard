@@ -1,0 +1,435 @@
+"use client";
+
+import { Fragment, useMemo, useState } from "react";
+import Link from "next/link";
+import { BriefcaseBusiness, ChevronDown, ChevronRight, ExternalLink, Plus, Puzzle, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { useStore } from "@/lib/store";
+import { useExtension } from "@/lib/applyBridge";
+import { JOB_STATUSES, guessFromUrl, type JobApplication, type JobStatus } from "@/lib/apply";
+import { canonBank } from "@/lib/banks";
+import { cn, fmtDate, relDays, uid } from "@/lib/util";
+import { Badge, Button, Card, CardHeader, Empty, Field, Input, Kpi, Menu, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
+import { ApplyInfo } from "@/components/ApplyInfo";
+import { ApplyResumes, ApplyWriting } from "@/components/ApplyWriting";
+
+type Tab = "jobs" | "info" | "writing" | "resumes";
+const TABS: readonly (readonly [Tab, string])[] = [
+  ["jobs", "Jobs"],
+  ["info", "My info"],
+  ["writing", "Writing"],
+  ["resumes", "Resumes"],
+];
+
+const OPEN: JobStatus[] = ["saved", "applying"];
+/** Only http(s) links are opened or linked (a "javascript:" link would run inside the dashboard). */
+const webLink = (url: string) => (/^https?:\/\//i.test(url.trim()) ? url.trim() : "");
+
+export default function ApplicationsPage() {
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("tab");
+    return TABS.some(([id]) => id === t) ? (t as Tab) : "jobs";
+  });
+  const version = useExtension((s) => s.version);
+  const choose = (t: Tab) => {
+    setTab(t);
+    window.history.replaceState(null, "", t === "jobs" ? "/applications" : `/applications?tab=${t}`);
+  };
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
+      <PageHeader
+        title="Applications"
+        sub="Track the jobs you're applying to, keep your application info in one place, and let the Coverage extension fill the forms: your details, your resume, and first drafts of open answers in your own voice. You always review and submit."
+        right={<Segmented value={tab} onChange={choose} options={TABS} />}
+      />
+      <ExtensionNotice version={version} />
+      {tab === "jobs" && <JobsTab onTab={choose} />}
+      {tab === "info" && <ApplyInfo />}
+      {tab === "writing" && <ApplyWriting />}
+      {tab === "resumes" && <ApplyResumes />}
+    </div>
+  );
+}
+
+function ExtensionNotice({ version }: { version?: string }) {
+  if (version)
+    return (
+      <div className="-mt-2 flex items-center gap-2 text-[12.5px] text-green">
+        <Puzzle className="size-3.5" /> Coverage extension connected (v{version}). On an application form, click its toolbar icon → <b className="font-medium">Autofill this page</b>.
+      </div>
+    );
+  return (
+    <div className="-mt-2 flex flex-wrap items-center gap-2 rounded-md border border-line bg-subtle px-3 py-2 text-[12.5px] text-ink-2">
+      <Puzzle className="size-3.5 text-brass" />
+      Autofill needs the Coverage browser extension (version 1.1 or later), with this tab open while it fills.
+      <Link href="/extension" className="font-medium text-navy hover:underline">
+        Get the extension
+      </Link>
+    </div>
+  );
+}
+
+function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
+  const jobs = useStore((s) => s.apply.jobs);
+  const profile = useStore((s) => s.apply.profile);
+  const resumes = useStore((s) => s.apply.resumes);
+  const resumeName = useStore((s) => s.resumeName);
+  const contacts = useStore((s) => s.contacts);
+  const targets = useStore((s) => s.targets);
+  const setApply = useStore((s) => s.setApply);
+  const version = useExtension((s) => s.version);
+  const [view, setView] = useState<"open" | "done" | "all">("open");
+  const [open, setOpen] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ url: "", company: "", role: "", location: "", deadline: "" });
+  const [now] = useState(() => Date.now());
+
+  const update = (id: string, patch: Partial<JobApplication>) => setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)) }));
+  const remove = (j: JobApplication) => {
+    setApply((a) => ({ ...a, jobs: a.jobs.filter((x) => x.id !== j.id) }));
+    toast.info(`Removed ${j.company}${j.role ? ` · ${j.role}` : ""}.`);
+  };
+
+  const add = (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = draft.url.trim();
+    if (url && !/^https?:\/\//i.test(url)) return toast.err("The job link should start with https://");
+    const company = draft.company.trim() || guessFromUrl(url).company;
+    if (!company) return toast.err("Add the company (or a job link to guess it from).");
+    const job: JobApplication = {
+      id: uid("job"),
+      company,
+      role: draft.role.trim(),
+      url,
+      location: draft.location.trim() || undefined,
+      deadline: draft.deadline || undefined,
+      status: "saved",
+      createdAt: new Date().toISOString(),
+    };
+    setApply((a) => ({ ...a, jobs: [job, ...a.jobs] }));
+    setDraft({ url: "", company: "", role: "", location: "", deadline: "" });
+    toast.ok(`Tracking ${company}${job.role ? ` · ${job.role}` : ""}.`);
+  };
+
+  const autofill = (j: JobApplication) => {
+    const url = webLink(j.url);
+    if (!url) return toast.err("Add the job's application link first (open the row to edit it).");
+    setApply((a) => ({ ...a, activeJob: { id: j.id, at: new Date().toISOString() } }));
+    window.open(url, "_blank", "noopener");
+    if (!version) toast.info("Opened the job. Install the Coverage extension to fill it automatically.");
+    else toast.info("Opened the job. On the application form, click the Coverage icon → Autofill this page. Keep this tab open.");
+  };
+
+  // Networking at each firm, so you can see who to mention or reach out to before applying.
+  const network = useMemo(() => {
+    const m = new Map<string, { people: number; emailed: number; replied: number; referral: number }>();
+    for (const c of contacts) {
+      if (c.status === "ignored") continue;
+      const k = canonBank(c.bank);
+      const n = m.get(k) ?? { people: 0, emailed: 0, replied: 0, referral: 0 };
+      n.people++;
+      if (c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status)) n.emailed++;
+      if (c.repliedAt || ["replied", "call_scheduled", "done"].includes(c.status)) n.replied++;
+      if (c.referral) n.referral++;
+      m.set(k, n);
+    }
+    return m;
+  }, [contacts]);
+
+  const sheetApps = useMemo(
+    () => targets.flatMap((t) => (t.applied ?? []).map((a) => ({ firm: t.name, ...a }))).filter((a) => !jobs.some((j) => canonBank(j.company) === canonBank(a.firm) && j.role === a.program)),
+    [targets, jobs],
+  );
+
+  const shown = jobs
+    .filter((j) => view === "all" || (view === "open" ? OPEN.includes(j.status) : !OPEN.includes(j.status)))
+    .sort((a, b) => (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999") || b.createdAt.localeCompare(a.createdAt));
+  const counts = {
+    open: jobs.filter((j) => OPEN.includes(j.status)).length,
+    submitted: jobs.filter((j) => j.status === "submitted").length,
+    interview: jobs.filter((j) => j.status === "interview" || j.status === "offer").length,
+    soon: jobs.filter((j) => OPEN.includes(j.status) && j.deadline && Date.parse(j.deadline) - now < 7 * 86_400_000 && Date.parse(j.deadline) >= now - 86_400_000).length,
+  };
+  const infoGaps = [!profile.firstName && "name", !profile.email && "email", !profile.school && "school", !profile.authorized && "work authorization"].filter(Boolean);
+
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+        <Kpi label="To apply" value={counts.open} sub={counts.soon ? `${counts.soon} due within a week` : "no deadlines this week"} tone={counts.soon ? "bad" : undefined} />
+        <Kpi label="Submitted" value={counts.submitted} />
+        <Kpi label="Interviewing / offers" value={counts.interview} tone={counts.interview ? "good" : undefined} />
+        <Kpi
+          label="Autofill ready"
+          value={infoGaps.length ? "Not yet" : "Yes"}
+          sub={
+            infoGaps.length ? (
+              <button className="text-navy hover:underline" onClick={() => onTab("info")}>
+                Add your {infoGaps.join(", ")}
+              </button>
+            ) : (
+              `${resumeName || resumes.length ? "resume ready" : "no resume yet"}`
+            )
+          }
+          tone={infoGaps.length ? "bad" : "good"}
+        />
+      </div>
+
+      <Card>
+        <CardHeader title="Add a job" sub="Paste the application link; the company is guessed from it (Workday, Greenhouse, Lever…). Then hit Autofill when you're ready to apply." />
+        <form onSubmit={add} className="grid grid-cols-[minmax(0,1fr)] gap-3 px-4 pb-4 md:grid-cols-[2fr_1fr_1fr_1fr_auto] md:items-end">
+          <Field label="Application link">
+            <Input
+              value={draft.url}
+              placeholder="https://…myworkdayjobs.com/…"
+              onChange={(e) => setDraft({ ...draft, url: e.target.value })}
+              onBlur={() => !draft.company && draft.url && setDraft((d) => ({ ...d, company: guessFromUrl(d.url).company }))}
+            />
+          </Field>
+          <Field label="Company">
+            <Input value={draft.company} onChange={(e) => setDraft({ ...draft, company: e.target.value })} />
+          </Field>
+          <Field label="Role">
+            <Input value={draft.role} placeholder="2027 IB Summer Analyst" onChange={(e) => setDraft({ ...draft, role: e.target.value })} />
+          </Field>
+          <Field label="Deadline">
+            <Input type="date" value={draft.deadline} onChange={(e) => setDraft({ ...draft, deadline: e.target.value })} />
+          </Field>
+          <Button type="submit" variant="primary" icon={<Plus className="size-3.5" />}>
+            Track
+          </Button>
+        </form>
+      </Card>
+
+      <Card>
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              ["open", `To apply ${counts.open}`],
+              ["done", `Applied ${jobs.length - counts.open}`],
+              ["all", `All ${jobs.length}`],
+            ]}
+          />
+        </div>
+        {shown.length === 0 ? (
+          <Empty icon={<BriefcaseBusiness className="size-6" />} title={jobs.length ? "Nothing here" : "No jobs tracked yet"}>
+            {jobs.length ? "Switch tabs above." : "Paste an application link above to start."}
+          </Empty>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-[13px]">
+              <thead className="bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
+                <tr className="border-b border-line">
+                  <th className="px-4 py-2 font-medium">Job</th>
+                  <th className="px-2 py-2 font-medium">Status</th>
+                  <th className="px-2 py-2 font-medium">Deadline</th>
+                  <th className="px-2 py-2 font-medium">Networking there</th>
+                  <th className="px-2 py-2 font-medium">Resume</th>
+                  <th className="px-4 py-2 text-right font-medium" />
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((j) => {
+                  const n = network.get(canonBank(j.company));
+                  const isOpen = open === j.id;
+                  const days = j.deadline ? Math.ceil((Date.parse(j.deadline) - now) / 86_400_000) : undefined;
+                  return (
+                    <Fragment key={j.id}>
+                      <tr className={cn("group border-b border-line hover:bg-subtle", isOpen && "bg-subtle")}>
+                        <td className="px-4 py-2.5">
+                          <button type="button" className="flex items-center gap-1.5 text-left font-medium text-ink" onClick={() => setOpen(isOpen ? null : j.id)} aria-expanded={isOpen}>
+                            {isOpen ? <ChevronDown className="size-3.5 text-muted" /> : <ChevronRight className="size-3.5 text-muted" />}
+                            {j.company}
+                            {j.role && <span className="font-normal text-ink-2">· {j.role}</span>}
+                          </button>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 pl-5 text-[11.5px] text-muted">
+                            {webLink(j.url) ? (
+                              <a href={webLink(j.url)} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 hover:text-navy">
+                                {guessFromUrl(j.url).host} <ExternalLink className="size-3" />
+                              </a>
+                            ) : (
+                              <span>no link</span>
+                            )}
+                            {j.lastFilledAt && <span>filled {relDays(j.lastFilledAt)}</span>}
+                            {j.submittedAt && <span>submitted {fmtDate(j.submittedAt)}</span>}
+                          </div>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <Select
+                            className={cn("h-8 text-[12.5px]")}
+                            value={j.status}
+                            aria-label={`Status of ${j.company}`}
+                            onChange={(e) => {
+                              const status = e.target.value as JobStatus;
+                              update(j.id, { status, ...(status === "submitted" && !j.submittedAt ? { submittedAt: new Date().toISOString() } : {}) });
+                            }}
+                          >
+                            {JOB_STATUSES.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </td>
+                        <td className="px-2 py-2.5 text-[12.5px]">
+                          {j.deadline ? (
+                            <span className={cn(OPEN.includes(j.status) && days !== undefined && days <= 7 && "font-medium text-red")}>
+                              {fmtDate(j.deadline)}
+                              {OPEN.includes(j.status) && days !== undefined && days >= 0 && <span className="text-muted"> · {days === 0 ? "today" : `${days}d`}</span>}
+                            </span>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2.5 text-[12.5px]">
+                          {n ? (
+                            <Link href={`/coverage`} className="text-ink-2 hover:text-navy hover:underline" title="People you have at this firm">
+                              {n.people} people · {n.emailed} emailed
+                              {n.replied ? ` · ${n.replied} replied` : ""}
+                              {n.referral ? <Badge tone="green" className="ml-1 px-1 py-0 text-[10.5px]">referral</Badge> : null}
+                            </Link>
+                          ) : (
+                            <Link href={`/find?banks=${encodeURIComponent(j.company)}`} className="text-muted hover:text-navy hover:underline">
+                              Nobody yet: find people
+                            </Link>
+                          )}
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <Select className="h-8 max-w-[150px] text-[12.5px]" value={j.resumeId ?? ""} aria-label="Resume to upload" onChange={(e) => update(j.id, { resumeId: e.target.value || undefined })}>
+                            <option value="">{resumeName ? `Main (${resumeName})` : "Main resume"}</option>
+                            {resumes.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center justify-end gap-1">
+                            {OPEN.includes(j.status) && (
+                              <Button size="sm" variant="brass" icon={<Wand2 className="size-3.5" />} onClick={() => autofill(j)} disabled={!webLink(j.url)}>
+                                Autofill
+                              </Button>
+                            )}
+                            <Menu
+                              items={[
+                                !!webLink(j.url) && { label: "Open the job page", icon: <ExternalLink />, onClick: () => window.open(webLink(j.url), "_blank", "noopener") },
+                                { label: "Mark submitted", onClick: () => update(j.id, { status: "submitted", submittedAt: j.submittedAt ?? new Date().toISOString() }) },
+                                "divider",
+                                { label: "Delete", icon: <Trash2 />, danger: true, onClick: () => remove(j) },
+                              ]}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="border-b border-line bg-subtle">
+                          <td colSpan={6} className="px-4 py-4">
+                            <JobDetail j={j} onChange={(patch) => update(j.id, patch)} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {sheetApps.length > 0 && (
+        <details className="group rounded-lg border border-line bg-panel">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-[13.5px] font-semibold [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="size-4 text-muted transition-transform group-open:rotate-90" />
+            From your spreadsheet <span className="font-normal text-muted">({sheetApps.length} applications on your applications tab)</span>
+          </summary>
+          <ul className="divide-y divide-line border-t border-line">
+            {sheetApps.map((a) => (
+              <li key={`${a.sheet}:${a.row}`} className="flex flex-wrap items-center gap-2 px-4 py-2 text-[12.5px]">
+                <span className="font-medium">{a.firm}</span>
+                <span className="text-ink-2">{a.program}</span>
+                <span className="text-muted">{[a.submitted && `submitted ${a.submitted}`, a.status, a.location].filter(Boolean).join(" · ")}</span>
+                <div className="flex-1" />
+                <button
+                  className="text-[12px] font-medium text-navy hover:underline"
+                  onClick={() => {
+                    const submitted = !!a.submitted && !/oops/i.test(a.submitted);
+                    const status: JobStatus = /reject/i.test(a.status) ? "rejected" : /interview|superday/i.test(a.status) ? "interview" : submitted ? "submitted" : "saved";
+                    setApply((s) => ({ ...s, jobs: [{ id: uid("job"), company: a.firm, role: a.program, url: "", location: a.location || undefined, status, createdAt: new Date().toISOString() }, ...s.jobs] }));
+                    toast.ok(`Tracking ${a.firm} · ${a.program} here too. Add its link to autofill it.`);
+                  }}
+                >
+                  Track here
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
+  );
+}
+
+function JobDetail({ j, onChange }: { j: JobApplication; onChange: (patch: Partial<JobApplication>) => void }) {
+  const setApply = useStore((s) => s.setApply);
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-2">
+      <div className="grid gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
+          <Field label="Application link">
+            <Input
+              defaultValue={j.url}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v === j.url) return;
+                if (v && !webLink(v)) return toast.err("The job link should start with https://");
+                onChange({ url: v });
+              }}
+            />
+          </Field>
+          <Field label="Role">
+            <Input defaultValue={j.role} onBlur={(e) => e.target.value.trim() !== j.role && onChange({ role: e.target.value.trim() })} />
+          </Field>
+          <Field label="Company">
+            <Input defaultValue={j.company} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== j.company && onChange({ company: e.target.value.trim() })} />
+          </Field>
+          <Field label="Deadline">
+            <Input type="date" defaultValue={j.deadline ?? ""} onBlur={(e) => (e.target.value || undefined) !== j.deadline && onChange({ deadline: e.target.value || undefined })} />
+          </Field>
+        </div>
+        <Field label="Notes">
+          <Textarea rows={3} defaultValue={j.notes ?? ""} placeholder="Program details, who referred you, what to mention…" onBlur={(e) => e.target.value !== (j.notes ?? "") && onChange({ notes: e.target.value })} />
+        </Field>
+      </div>
+      <div className="min-w-0">
+        <h4 className="mb-2 flex items-center gap-1.5 text-[11.5px] font-medium uppercase tracking-[0.06em] text-muted">
+          <Sparkles className="size-3.5 text-brass" /> AI answers written for this job ({j.answers?.length ?? 0})
+        </h4>
+        {j.answers?.length ? (
+          <ul className="max-h-80 space-y-2 overflow-auto">
+            {j.answers.map((a, i) => (
+              <li key={i} className="rounded-md border border-line bg-panel p-2.5 text-[12.5px]">
+                <div className="font-medium text-ink">{a.question}</div>
+                <p className="mt-1 whitespace-pre-wrap text-ink-2">{a.answer}</p>
+                <div className="mt-1 flex items-center gap-3 text-[11.5px] text-muted">
+                  {fmtDate(a.at)}
+                  <button
+                    className="text-navy hover:underline"
+                    onClick={() => {
+                      setApply((s) => ({ ...s, library: [...s.library, { q: a.question, a: a.answer }].slice(-30) }));
+                      toast.ok("Saved to your answer library (Writing). Edit it there so the next one sounds like you.");
+                    }}
+                  >
+                    Save to answer library
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[12.5px] text-muted">None yet. Open questions the extension drafts for this job are kept here, so you can check or reuse them.</p>
+        )}
+      </div>
+    </div>
+  );
+}

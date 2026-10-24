@@ -8,6 +8,8 @@ import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { aiReady, hasKey } from "@/lib/keys";
 import { bookmarkletHref, captureIsProfile, parseCapture } from "@/lib/linkedinCapture";
+import { autoAdd, autoSummary, bankUniverseOf, captureAuto } from "@/lib/autoCapture";
+import type { Prospect } from "@/lib/types";
 import { DEFAULT_GENERAL_QUESTIONS } from "@/lib/defaults";
 import { hookFor } from "@/lib/hooks";
 import { bodyToPlain } from "@/lib/emailFormat";
@@ -38,12 +40,14 @@ function rank(c: Contact) {
 type Capture = { name: string; linkedin: string; text: string; bank?: string; title: string };
 
 /** Parse a bookmarklet capture from the URL hash (untrusted: parseCapture validates and caps it). */
-function readIncoming(): { match?: { id: string; name: string; text: string; linkedin: string }; capture?: Capture; error?: string } | null {
+function readIncoming(): { match?: { id: string; name: string; text: string; linkedin: string }; capture?: Capture; auto?: Prospect; error?: string } | null {
   if (typeof window === "undefined" || !window.location.hash.startsWith("#li=")) return null;
   const hash = window.location.hash;
   const all = useStore.getState().contacts;
-  const person = captureIsProfile(hash) ? parseCapture(hash, [...new Set(all.map((c) => c.bank))])[0] : undefined;
+  const person = captureIsProfile(hash) ? parseCapture(hash, bankUniverseOf())[0] : undefined;
   if (!person) return { error: "That wasn't a single LinkedIn profile. Open the person's profile page, then click the bookmark." };
+  // "Add to tracker + find email" from the extension: no review step (lib/autoCapture.ts).
+  if (captureAuto(hash)) return { auto: person };
   const slug = linkedinSlug(person.linkedin);
   const match =
     all.find((c) => c.linkedin && linkedinSlug(c.linkedin) === slug) ??
@@ -73,6 +77,20 @@ function PrepInner() {
     handled.current = true;
     history.replaceState(null, "", window.location.pathname + window.location.search);
     if (incoming.error) toast.err(incoming.error);
+    if (incoming.auto) {
+      toast.info(`Adding ${incoming.auto.name} and looking up their email…`);
+      autoAdd([incoming.auto], { single: true })
+        .then((r) => {
+          toast.ok(autoSummary(r, { single: true }));
+          if (r.contactId) router.replace(`/prep?id=${encodeURIComponent(r.contactId)}`);
+        })
+        .catch((e) => {
+          toast.err((e as Error).message);
+          // Fall back to the usual "Add as contact" card for this profile.
+          const p = incoming.auto!;
+          setCapture({ name: p.name, linkedin: p.linkedin, text: p.snippet, bank: p.bank !== "Unknown" ? p.bank : undefined, title: p.title });
+        });
+    }
     if (incoming.match) {
       useStore.getState().updateContact(incoming.match.id, {
         profile: { text: incoming.match.text, source: "linkedin", capturedAt: new Date().toISOString() },

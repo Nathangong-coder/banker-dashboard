@@ -7,7 +7,8 @@
  *
  * The store build leaves out the experimental agent test bench (owner, 2026-10-23: v1 ships LinkedIn → Coverage only):
  * no agent/ folder, no sidePanel permission, no optional all-sites access, no button in the popup. That keeps the
- * permissions to activeTab + scripting + storage, the fastest review. `npm run pack:extension -- --with-agent` makes
+ * permissions to activeTab + scripting + storage (plus a content script on the dashboard's own pages, the autofill
+ * bridge), the fastest review. `npm run pack:extension -- --with-agent` makes
  * the full build (dist/coverage-extension-<version>-agent.zip) for loading unpacked / testing.
  */
 import fs from "node:fs";
@@ -36,6 +37,12 @@ if (manifest.manifest_version !== 3) problems.push("manifest_version must be 3")
 if (!/^\d+(\.\d+){0,3}$/.test(manifest.version)) problems.push(`version "${manifest.version}" must be 1-4 dot-separated numbers`);
 if ((manifest.description ?? "").length > 132) problems.push("description must be 132 characters or fewer (store limit)");
 if (manifest.host_permissions?.length) problems.push("host_permissions widen the store review; activeTab is enough so far");
+// The only content script is the dashboard bridge (content/dashboard.js): it must never run on any other site.
+const DASHBOARD_MATCHES = new Set(["https://banker-dashboard-three.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"]);
+for (const cs of manifest.content_scripts ?? []) {
+  for (const m of cs.matches ?? []) if (!DASHBOARD_MATCHES.has(m)) problems.push(`content script matches ${m}: only the dashboard's own addresses are allowed`);
+  if (cs.js?.some((f) => f !== "content/dashboard.js")) problems.push("only content/dashboard.js may run as a content script");
+}
 if (!withAgent && (manifest.optional_host_permissions?.length || manifest.permissions.includes("sidePanel"))) problems.push("the store build must not ask for the agent's permissions");
 if (problems.length) {
   console.error("Manifest problems:\n- " + problems.join("\n- "));
@@ -63,5 +70,5 @@ if (!withAgent && (popup.includes('id="agent"') || Object.keys(zip.files).some((
   console.error("The store build still contains the agent.");
   process.exit(1);
 }
-console.log(`Packed ${Object.keys(zip.files).length} files → ${path.relative(root, out)}${withAgent ? " (with the agent test bench)" : " (store build: LinkedIn → Coverage only)"}`);
+console.log(`Packed ${Object.keys(zip.files).length} files → ${path.relative(root, out)}${withAgent ? " (with the agent test bench)" : " (store build: no agent test bench)"}`);
 console.log(`Permissions: ${manifest.permissions.join(", ")}${manifest.optional_host_permissions ? ` + optional ${manifest.optional_host_permissions.join(", ")}` : ""}`);
