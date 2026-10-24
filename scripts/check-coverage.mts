@@ -11,6 +11,7 @@ import { DESK_PRESETS, type DeskTarget } from "../src/lib/desks";
 import { coverageInsights } from "../src/lib/insights";
 import { DEFAULT_SETTINGS } from "../src/lib/defaults";
 import { readOfficeMap, setOfficeMap } from "../src/lib/offices";
+import { bankUrgency, bankWork } from "../src/lib/bankWork";
 
 const file = process.argv[2];
 if (!file) {
@@ -63,3 +64,24 @@ if (new Set(values).size !== values.length) {
   process.exit(1);
 }
 console.log("\ncoverage scoping OK (4 different scoreboards, no-desks = today's page)");
+
+// The ranked table (app/coverage): counts cover every contact at a bank, even with desks checked and no team set.
+const scopedRows = buildCoverage({ ...base, coverage: cov(only(0, 1, 2, 3, 4)) });
+const ranked = scopedRows
+  .filter((r) => !r.notOffered)
+  .map((r) => {
+    const w = bankWork({ name: r.name, contacts: r.allContacts, allContacts: p.contacts, banks: {}, followUp: DEFAULT_SETTINGS.followUp });
+    return { r, w, u: bankUrgency(r, w) };
+  })
+  .sort((a, b) => b.u.score - a.u.score);
+console.log("\n== urgency (all 5 desks checked), top 15");
+for (const { r, w, u } of ranked.slice(0, 15))
+  console.log(`  ${String(u.score).padStart(3)} ${r.name.padEnd(26)} ${w.contacts} contacts · ${w.emailed} emailed · ${w.live} live · ${w.replied} replied · ${w.referrals} ref · ${w.outstanding} to do → ${w.next?.label ?? "-"}`);
+for (const { r, w } of ranked) {
+  const active = r.allContacts.filter((c) => c.status !== "ignored").length;
+  if (w.contacts !== active || w.live > w.emailed) {
+    console.error(`\nBANK WORK MISCOUNTS ${r.name}: ${w.contacts} of ${active} contacts, ${w.live} live of ${w.emailed} emailed`);
+    process.exit(1);
+  }
+}
+console.log("bank work OK (every contact counted, live ≤ emailed)");

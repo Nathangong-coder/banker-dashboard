@@ -13,6 +13,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ["/firms", 0.5],
     ["/find", 0.6],
     ["/drafts", 0.6],
+    ["/templates", 0.5],
     ["/followups", 0.6],
     ["/sheet", 0.5],
     ["/lab", 0.4],

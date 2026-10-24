@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronRight, ExternalLink, PanelRightClose, PanelRightOpen, Table2 } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
+import { ExternalLink, Table2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { buildCoverage, type CoverageRow } from "@/lib/coverage";
 import { canonBank } from "@/lib/banks";
 import { DESK_STATE_LABEL, deskKey, deskLabel, deskOf, targetLabel } from "@/lib/desks";
 import { LIVE_STATUSES } from "@/lib/followups";
-import type { Contact } from "@/lib/types";
+import { STATUS_LABEL, type Contact } from "@/lib/types";
+import { teamOf } from "@/lib/locationTeam";
 import { cn, fmtDate, relDays } from "@/lib/util";
 import { Badge, StatusBadge } from "./ui";
 
@@ -173,71 +174,114 @@ export function FirmSummary({ r, highlight, compact }: { r: CoverageRow; highlig
   );
 }
 
-const STORE_KEY = "drafts-firm-panel";
+const STATUS_TEXT: Record<Contact["status"], string> = {
+  new: "text-muted",
+  drafted: "text-brass-ink",
+  sent: "text-navy",
+  followed_up: "text-amber",
+  replied: "font-medium text-green",
+  call_scheduled: "font-medium text-green",
+  done: "text-ink-2",
+  ignored: "text-muted line-through",
+};
 
-/** Collapsible right-hand panel on the Drafts page. */
-export function FirmPanel({ banks, highlight }: { banks: string[]; highlight: Set<string> }) {
+const SHEET_ORDER: Record<Contact["status"], number> = { call_scheduled: 0, replied: 1, done: 2, followed_up: 3, sent: 4, drafted: 5, new: 6, ignored: 7 };
+
+/**
+ * "At this firm" on the Drafts page, laid out like the spreadsheet: one banner row per firm (emailed / replied and
+ * the live count per desk against your cap), then one row per person with their desk, status and last email.
+ */
+export function FirmSheet({ banks, highlight }: { banks: string[]; highlight: Set<string> }) {
   const rows = useFirmRows(banks);
-  // The app renders client-side only (Shell waits for hydration), so reading localStorage here is safe.
-  const [open, setOpen] = useState(() => {
-    try {
-      return localStorage.getItem(STORE_KEY) !== "closed";
-    } catch {
-      return true;
-    }
-  });
-  const toggle = () => {
-    const next = !open;
-    setOpen(next);
-    try {
-      localStorage.setItem(STORE_KEY, next ? "open" : "closed");
-    } catch {}
-  };
-
-  if (!open)
-    return (
-      <button
-        onClick={toggle}
-        className="sticky top-6 flex h-fit flex-col items-center gap-2 rounded-lg border border-line bg-panel px-1.5 py-3 text-[12px] text-ink-2 hover:border-navy/40"
-        aria-label="Show firm context"
-        title="Who you’ve already contacted at these firms"
-      >
-        <PanelRightOpen className="size-4 text-brass" />
-        <span className="[writing-mode:vertical-rl]">At this firm{rows.length ? ` · ${rows.length}` : ""}</span>
-      </button>
-    );
-
+  const cap = useStore((s) => s.settings.followUp.livePerBank);
   return (
-    <aside className="sticky top-6 h-fit max-h-[calc(100vh-3rem)] w-[320px] overflow-y-auto rounded-lg border border-line bg-panel">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <div>
+    <aside className="flex max-h-[calc(100vh-3rem)] min-h-[320px] flex-col overflow-hidden rounded-lg border border-line bg-panel xl:sticky xl:top-6">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
+        <Table2 className="size-4 text-brass" />
+        <div className="min-w-0">
           <div className="text-[13.5px] font-semibold">At this firm</div>
-          <div className="text-[11.5px] text-muted">Who you’ve already reached, before you email more</div>
+          <div className="truncate text-[11.5px] text-muted">Everyone you have there, before you email more</div>
         </div>
-        <button onClick={toggle} className="rounded p-1 text-muted hover:bg-hover hover:text-ink" aria-label="Collapse panel">
-          <PanelRightClose className="size-4" />
-        </button>
       </div>
       {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-[12.5px] text-muted">
-          Select contacts (or filter by a bank) to see who else you’ve emailed or talked to there.
-        </p>
+        <p className="px-4 py-8 text-center text-[12.5px] text-muted">Select contacts (or filter by a bank) to see everyone you have at their firm.</p>
       ) : (
-        <div className="divide-y divide-line">
-          {rows.map((r) => (
-            <details key={r.key} open={rows.length <= 2} className="group px-4 py-3">
-              <summary className="flex cursor-pointer list-none items-center gap-1 text-[12.5px] font-medium text-ink-2 [&::-webkit-details-marker]:hidden">
-                <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
-                {r.name}
-                <span className="num ml-auto text-[11.5px] text-muted">
-                  {r.reached} reached · {r.replied} replied
-                </span>
-              </summary>
-              <div className="mt-2">
-                <FirmSummary r={r} highlight={highlight} />
-              </div>
-            </details>
-          ))}
+        <div className="min-h-0 flex-1 overflow-auto">
+          <table className="grid-sheet w-full">
+            <thead>
+              <tr>
+                <th className="w-7" />
+                <th className="text-left">Name</th>
+                <th className="text-left">Desk</th>
+                <th className="text-left">Status</th>
+                <th className="text-left">Last email</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const people = [...r.contacts].sort((a, b) => SHEET_ORDER[a.status] - SHEET_ORDER[b.status] || a.name.localeCompare(b.name));
+                const desks = [...people.filter((c) => LIVE_STATUSES.has(c.status)).reduce((m, c) => {
+                  const k = deskKey(c);
+                  const d = deskOf(c);
+                  m.set(k, { label: deskLabel(d.region, d.team), live: (m.get(k)?.live ?? 0) + 1 });
+                  return m;
+                }, new Map<string, { label: string; live: number }>()).values()];
+                const emailed = people.filter((c) => c.sentAt || (CONTACTED.has(c.status) && c.status !== "drafted" && c.status !== "ignored")).length;
+                return (
+                  <Fragment key={r.key}>
+                    <tr>
+                      <th />
+                      <td colSpan={4} className="!h-auto !max-w-none bg-subtle !py-1 font-semibold whitespace-normal text-ink">
+                        {r.name}
+                        <span className="num ml-2 text-[11.5px] font-normal text-muted">
+                          {people.length} · {emailed} emailed · {r.replied} replied
+                        </span>
+                        {desks.length > 0 && (
+                          <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+                            {desks.map((d) => (
+                              <span
+                                key={d.label}
+                                title={d.live >= cap ? `At your limit of ${cap} live people on this desk` : undefined}
+                                className={cn("num rounded px-1 text-[10.5px] font-normal", d.live >= cap ? "bg-red-soft text-red" : "bg-hover text-ink-2")}
+                              >
+                                {d.label} {d.live}/{cap}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                    {people.map((c, i) => (
+                      <tr key={c.id} className={cn(highlight.has(c.id) && "bg-blue-soft/50")}>
+                        <th>{i + 1}</th>
+                        <td title={[c.position, c.email].filter(Boolean).join(" · ")}>
+                          {c.linkedin ? (
+                            <a href={c.linkedin} target="_blank" rel="noreferrer" className="hover:text-navy hover:underline">
+                              {c.name}
+                            </a>
+                          ) : (
+                            c.name
+                          )}
+                          {!c.email && <span className="ml-1 text-[10.5px] text-red/80">no email</span>}
+                        </td>
+                        <td className="text-ink-2">{[c.region !== "Other" ? c.region : "", teamOf(c)].filter(Boolean).join(" · ") || "—"}</td>
+                        <td className={STATUS_TEXT[c.status]}>{STATUS_LABEL[c.status]}</td>
+                        <td className="num text-muted">{touchDate(c).replace(/^emailed /, "") || "—"}</td>
+                      </tr>
+                    ))}
+                    {!people.length && (
+                      <tr>
+                        <th />
+                        <td colSpan={4} className="text-muted">
+                          Nobody yet. You’d be the first email to {r.name}.
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </aside>

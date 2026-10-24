@@ -4,13 +4,13 @@ import { addSmartMention } from "@/lib/mentionDrafts";
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { FileText, FileUp, Mail, Paperclip, Pencil, Plus, Send, Sparkles, Wand2 } from "lucide-react";
+import { FileText, Mail, Send, Sparkles, Wand2 } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type Contact, type RequiredFact, type Template } from "@/lib/types";
-import { chunk, cn, pool, uid } from "@/lib/util";
+import { chunk, cn, pool } from "@/lib/util";
 import { teamOf } from "@/lib/locationTeam";
 import { overCapDesks } from "@/lib/desks";
 import { assignTrial, pickBase, pickVariant, trialTally, usageTally } from "@/lib/experiments";
@@ -18,16 +18,12 @@ import { assignOutreachArms, composeOutreach, emailVerified, leftFirm, rulesOf, 
 import { vpPlusWarning } from "@/lib/seniority";
 import { windowLabel, windowOf } from "@/lib/sendWindow";
 import { autoHook, hookFor, hooksOf } from "@/lib/hooks";
-import { HooksCard } from "@/components/Hooks";
 import { REQUIRED_FACTS, guessSchool, missingFacts } from "@/lib/template";
 import { bodyToPlain, normalizeBody, normalizeSubject, signOffIssues, withSignature } from "@/lib/emailFormat";
-import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
+import { Badge, Button, Card, Checkbox, Empty, Field, Input, Modal, PageHeader, Progress, Select, StatusBadge, Textarea, toast } from "@/components/ui";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
-import { TemplateEditor } from "@/components/TemplateEditor";
-import { ResumeCard } from "@/components/ResumeCard";
-import { TemplateImport } from "@/components/TemplateImport";
-import { FirmPanel, FirmSummary, useFirmRows } from "@/components/FirmContext";
-import { DEFAULT_TEMPLATES, ORIGINAL_BASE } from "@/lib/defaults";
+import { FirmSheet, FirmSummary, useFirmRows } from "@/components/FirmContext";
+import { ORIGINAL_BASE } from "@/lib/defaults";
 import { aiReady, googleClientId } from "@/lib/keys";
 
 export default function DraftsPage() {
@@ -42,9 +38,8 @@ function DraftsInner() {
   const params = useSearchParams();
   const s = useStore();
   const { settings, templates, contacts } = s;
-  const [f, setF] = useState<Filters>(() => ({ q: "", bank: params.get("bank") ?? "", region: "", status: "new", email: "" }));
+  const [f, setF] = useState<Filters>(() => ({ q: "", bank: params.get("bank") ?? "", region: "", status: params.get("status") ?? "new", email: "" }));
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState<Template | null>(null);
   const [preview, setPreview] = useState<Contact | null>(null);
   const [phase, setPhase] = useState<null | { label: string; done: number; total: number }>(null);
   // VP and above are skipped unless this is ticked (your rule: don't email VP+; exception ties only soften the warning).
@@ -53,7 +48,6 @@ function DraftsInner() {
     const w = vpPlusWarning(c, rulesOf(settings));
     return !!w && !w.tie && !allowSenior;
   };
-  const [importOpen, setImportOpen] = useState(false);
 
   const rows = useContactFilter(contacts, f);
   const chosen = contacts.filter((c) => sel.has(c.id));
@@ -68,7 +62,6 @@ function DraftsInner() {
     for (const c of contacts) if (c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status)) m.set(c.bank, [...(m.get(c.bank) ?? []), c]);
     return m;
   }, [contacts]);
-  const missingStarters = DEFAULT_TEMPLATES.filter((d) => !templates.some((t) => t.id === d.id || t.name.toLowerCase() === d.name.toLowerCase()));
   const profileMissing = !settings.profile.name || !settings.profile.school;
 
   const assign = async () => {
@@ -267,88 +260,27 @@ function DraftsInner() {
       <PageHeader
         title="Email drafts"
         sub="Select contacts, assign each a template, have AI fill in the personal lines, and create Gmail drafts with your resume attached. Nothing sends until you hit send in Gmail."
+        right={
+          <Link
+            href="/templates"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line-2 bg-panel px-3.5 text-[13.5px] font-medium text-ink hover:bg-hover"
+          >
+            <FileText className="size-3.5 text-brass" /> Templates, hooks &amp; resume
+          </Link>
+        }
       />
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[280px_minmax(0,1fr)_auto]">
-        <div className="space-y-6">
-          <Card>
-            <CardHeader
-              title="Templates"
-              right={
-                <>
-                  <Button size="sm" variant="ghost" icon={<FileUp className="size-3.5" />} onClick={() => setImportOpen(true)}>
-                    Import doc
-                  </Button>
-                  <Button
-                    size="sm"
-                    icon={<Plus className="size-3.5" />}
-                    onClick={() => setEditing({ id: uid("tpl"), name: "", whenToUse: "", subject: "", body: "Hi {{first_name}},\n\n", attachResume: true, kind: "initial" })}
-                  >
-                    New
-                  </Button>
-                </>
-              }
-            />
-            <ul className="divide-y divide-line">
-              {templates.map((t) => (
-                <li key={t.id}>
-                  <button onClick={() => setEditing(t)} className="group flex w-full items-start gap-2.5 px-4 py-2.5 text-left hover:bg-subtle">
-                    <FileText className="mt-0.5 size-3.5 shrink-0 text-brass" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 font-medium">
-                        {t.name || "Untitled"}
-                        {t.kind === "follow_up" && <Badge>follow-up</Badge>}
-                        {t.experimental && <Badge tone="brass">experiment</Badge>}
-                        {t.variantGroup && templates.filter((x) => x.variantGroup === t.variantGroup).length > 1 && <Badge tone="blue">A/B</Badge>}
-                        {t.attachResume && <Paperclip className="size-3 text-muted" />}
-                      </div>
-                      <div className="truncate text-[12px] text-muted">{t.whenToUse || "No rule set"}</div>
-                    </div>
-                    <Pencil className="size-3.5 text-muted opacity-0 group-hover:opacity-100" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-[11.5px] text-muted">
-              <span>
-                Import a Word / Google Doc with one section per template, or{" "}
-                <Link href="/lab" className="font-medium text-navy hover:underline">
-                  test and generate templates in the Email lab
-                </Link>
-                .
-              </span>
-              {missingStarters.length > 0 && (
-                <button
-                  className="font-medium text-navy hover:underline"
-                  onClick={() => {
-                    missingStarters.forEach((t) => s.upsertTemplate(t));
-                    toast.ok(`Added ${missingStarters.length} starter template${missingStarters.length > 1 ? "s" : ""}.`);
-                  }}
-                >
-                  + Add {missingStarters.length} starter template{missingStarters.length > 1 ? "s" : ""}
-                </button>
-              )}
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader title="Hooks" sub="The sentence after your intro, picked by team" />
-            <HooksCard />
-          </Card>
-
-          <ResumeCard />
-
-          {(profileMissing || !googleClientId(settings)) && (
-            <Card className="border-amber/30 bg-amber-soft/40 p-4 text-[12.5px] text-ink-2">
-              {profileMissing && <p>Your profile (name, school, year) fills the {"{{my_*}}"} placeholders.</p>}
-              {!googleClientId(settings) && <p className="mt-1">Gmail drafts need a Google OAuth Client ID.</p>}
-              <Link href="/settings" className="mt-2 inline-block font-medium text-navy underline">
-                Open settings
-              </Link>
-            </Card>
-          )}
+      {(profileMissing || !googleClientId(settings)) && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber/30 bg-amber-soft/40 px-3 py-2 text-[12.5px] text-ink-2">
+          {profileMissing && <span>Your profile (name, school, year) fills the {"{{my_*}}"} placeholders.</span>}
+          {!googleClientId(settings) && <span>Gmail drafts need a Google OAuth Client ID.</span>}
+          <Link href="/settings" className="font-medium text-navy underline">
+            Open settings
+          </Link>
         </div>
+      )}
 
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
         <Card className="flex min-h-[520px] flex-col overflow-hidden">
           <FilterBar f={f} setF={setF} contacts={contacts} />
           <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-2">
@@ -386,7 +318,7 @@ function DraftsInner() {
             </Empty>
           ) : (
             <div className="flex-1 overflow-auto">
-              <table className="w-full text-[13px]">
+              <table className="w-full min-w-[860px] text-[13px]">
                 <thead className="sticky top-0 z-10 bg-panel text-left text-[11px] uppercase tracking-wide text-muted">
                   <tr className="border-b border-line">
                     <th className="w-8 px-3 py-2">
@@ -425,7 +357,7 @@ function DraftsInner() {
                           }}
                         />
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="min-w-[210px] px-2 py-2">
                         <div className="font-medium">{c.name}</div>
                         <div className="text-[12px] text-muted">
                           {c.bank} · {c.email || <span className="text-red/80">no email</span>}
@@ -531,13 +463,9 @@ function DraftsInner() {
           )}
         </Card>
 
-        <div className="hidden xl:block">
-          <FirmPanel banks={contextBanks} highlight={sel} />
-        </div>
+        <FirmSheet banks={contextBanks} highlight={sel} />
       </div>
 
-      <TemplateImport open={importOpen} onClose={() => setImportOpen(false)} />
-      <TemplateEditor template={editing} onClose={() => setEditing(null)} onSave={s.upsertTemplate} onDelete={templates.some((t) => t.id === editing?.id) ? s.removeTemplate : undefined} />
       <DraftModal contact={preview} onClose={() => setPreview(null)} />
       <NeedsModal
         needs={needs}

@@ -577,6 +577,17 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 
 ## Bank coverage (`src/lib/coverage.ts`, `src/lib/banks.ts`, `app/coverage`)
 
+- **Ranked table (owner, 2026-10-23):** /coverage is a Firms-style table ranked by urgency (`lib/bankWork.ts`, pure, covered
+  by `check:coverage`). `bankWork` counts over EVERY contact at the bank (`r.allContacts`): the old cards counted only
+  contacts on a checked desk, and a contact with no team is on no desk, so 87 of 204 vanished (JPM showed 0 of 17).
+  "Live" = emailed with no reply (`isLive`; drafts don't count, unlike `LIVE_STATUSES`, which is the cap). To-dos reuse
+  `relationshipItem` (reply / thank-you / check-in), `nextAction` (follow-ups, drafts), `referralRows`, new signals and
+  `nextUpByDesk`. `bankUrgency` = prestige 25 (tier, or your /firms stars) + applications 25 + coverage gap 30 + to-dos 20,
+  plus timeline 20 once `BankTimeline` exists (the owner's planned feature; the score is normalized over known parts).
+  Desks checked in the plan only pick which banks are listed; the plan lives in a collapsed "Recruiting plan" section.
+- **Drafts / Templates (owner, 2026-10-23):** templates, hooks and the resume moved to `/templates` (Outreach group).
+  /drafts = contacts table (~70%) + `FirmContext.tsx#FirmSheet` (~30%): "At this firm" as a spreadsheet grid, one banner
+  row per firm with live/cap per desk. `/drafts?status=drafted` pre-sets the status filter.
 - `buildCoverage` merges banks by `canonBank()` (aliases + stop-words; test new aliases against the owner's names) from: contacts →
   bank tabs (`tables`, even with 0 contacts) → `targets` (target-list tabs, parsed by `workbook.ts#extractTargets`) → `coverage.added`
   → optional `STARTER_TARGETS`. Buckets: reached (any `sentAt` or sent/replied status) / ready (active contacts, none reached) / cold / hidden.
