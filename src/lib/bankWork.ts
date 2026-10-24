@@ -4,7 +4,9 @@ import { nextAction, queuedAt } from "./followups";
 import { relationshipItem } from "./reminders";
 import { LABELS } from "./digestFormat";
 import { referralRows } from "./referralRows";
-import { nextUpByDesk } from "./desks";
+import { deskStatus, locationMatches, nextUpByDesk, teamMatches } from "./desks";
+import { officeInfo } from "./offices";
+import { teamOf } from "./locationTeam";
 import { DAY } from "./util";
 
 /**
@@ -281,4 +283,48 @@ export function bankUrgency(
   const got = parts.reduce((n, p) => n + p.points, 0);
   const max = parts.reduce((n, p) => n + p.max, 0);
   return { score: Math.round((got / max) * 100), parts };
+}
+
+/* ---------------- stages and location / group filters (the coverage board) ---------------- */
+
+/**
+ * The four columns on the coverage board, furthest along first: someone referred you; you've talked (a reply, a call
+ * booked or had, a logged chat); you've emailed and are waiting; nobody emailed yet.
+ */
+export type BankStage = "referral" | "chatted" | "outreach" | "cold";
+
+/** Talked to them, or about to: a reply, a call (past or booked), or a logged chat. */
+export const talkedTo = (c: Contact) => gotReply(c) || !!c.call || !!c.chats?.length;
+
+export function bankStage(contacts: Contact[]): BankStage {
+  if (contacts.some((c) => !!c.referral)) return "referral";
+  if (contacts.some(talkedTo)) return "chatted";
+  if (contacts.some(wasEmailed)) return "outreach";
+  return "cold";
+}
+
+/** "SF" / "LA" / "NY" / "Chicago" / "Texas" (blank = any) and a group like "Tech" (blank = any). */
+export interface DeskFilter {
+  office: string;
+  team: string;
+}
+
+/**
+ * Contacts at a bank on one office / group. `unsorted` = at that office with no team set (they might be on it), so a
+ * card can say so instead of quietly dropping them.
+ */
+export function onDesk(contacts: Contact[], f: DeskFilter): { matched: Contact[]; unsorted: Contact[] } {
+  if (!f.office && !f.team) return { matched: contacts, unsorted: [] };
+  const here = f.office ? contacts.filter((c) => locationMatches(f.office, c)) : contacts;
+  if (!f.team) return { matched: here, unsorted: [] };
+  return { matched: here.filter((c) => teamMatches(f.team, teamOf(c))), unsorted: here.filter((c) => !teamOf(c)) };
+}
+
+/** Does the bank hire into this office / group (COVERAGE tab, built-in office lists, specialist firms)? */
+export function offeredAt(bank: string, f: DeskFilter, specialty?: string[]): boolean {
+  if (!f.office && !f.team) return true;
+  if (f.office && f.team)
+    return deskStatus({ id: "filter", location: f.office, team: f.team, scope: "all", tiers: [], banks: [], enabled: true }, [], bank, specialty).state !== "not_offered";
+  if (f.office) return officeInfo(bank, f.office)?.hires !== false;
+  return !specialty?.length || specialty.some((t) => teamMatches(f.team, t));
 }

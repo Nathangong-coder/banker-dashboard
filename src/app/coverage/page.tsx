@@ -2,15 +2,29 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ArrowRight, ChevronDown, ChevronRight, EyeOff, Lightbulb, ListChecks, Plus, Search, Undo2, X } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, Columns3, EyeOff, Lightbulb, List, ListChecks, Plus, Search, Undo2, X } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { buildCoverage, tierRank, type CoverageRow, type FirmRating } from "@/lib/coverage";
-import { activeDesks, targetLabel } from "@/lib/desks";
-import { bankUrgency, bankWork, isLive, wasEmailed, type BankTodo, type BankWork, type Urgency } from "@/lib/bankWork";
+import { DESK_PRESETS, activeDesks, targetLabel } from "@/lib/desks";
+import {
+  bankStage,
+  bankUrgency,
+  bankWork,
+  isLive,
+  offeredAt,
+  onDesk,
+  talkedTo,
+  wasEmailed,
+  type BankStage,
+  type BankTodo,
+  type BankWork,
+  type DeskFilter,
+  type Urgency,
+} from "@/lib/bankWork";
 import { coverageInsights, type Insight } from "@/lib/insights";
 import { STARTER_TARGETS } from "@/lib/banks";
 import { regionInfo, type Contact } from "@/lib/types";
-import { teamOf } from "@/lib/locationTeam";
+import { DEFAULT_TEAMS, teamOf } from "@/lib/locationTeam";
 import { parseWorkbook } from "@/lib/workbook";
 import { ensureBankTabs } from "@/lib/actions";
 import { isPrivateEquity } from "@/lib/bankTabs";
@@ -18,7 +32,8 @@ import { cn, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, Kpi, PageHeader, Segmented, Select, StatusBadge, toast } from "@/components/ui";
 import { DeskChecklist, DeskChips, OfficePicker, RecruitingPlan, SpecialtyPicker } from "@/components/RecruitingPlan";
 
-type View = "all" | "todo" | "cold" | "applied";
+type Layout = "board" | "list";
+type Show = "all" | "todo" | "applied";
 type Sort = "urgency" | "todo" | "contacts" | "name";
 const SORTS: { id: Sort; label: string }[] = [
   { id: "urgency", label: "Urgency" },
@@ -27,9 +42,20 @@ const SORTS: { id: Sort; label: string }[] = [
   { id: "name", label: "Name" },
 ];
 
-type Row = { r: CoverageRow; w: BankWork; u: Urgency };
+const STAGES: { id: BankStage; title: string; sub: string; dot: string }[] = [
+  { id: "referral", title: "Referrals", sub: "Someone referred you. Keep them posted.", dot: "bg-green" },
+  { id: "chatted", title: "Chatted", sub: "They replied, a call is booked, or you've talked.", dot: "bg-navy" },
+  { id: "outreach", title: "Outreach", sub: "Emailed, waiting on replies.", dot: "bg-brass" },
+  { id: "cold", title: "Cold", sub: "Nobody emailed yet. People found first.", dot: "bg-line-2" },
+];
+
+const OFFICES = ["SF", "LA", "NY", "Chicago", "Texas"];
+
+/** One bank, seen through the office / group filter: `people` are the contacts on it, `unsorted` have no team set. */
+type Row = { r: CoverageRow; w: BankWork; u: Urgency; people: Contact[]; unsorted: Contact[]; stage: BankStage };
 
 const NO_RATINGS: Record<string, FirmRating> = {};
+const PREFS = "coverage:board";
 
 function urgencyTone(n: number) {
   if (n >= 65) return "red" as const;
@@ -37,12 +63,34 @@ function urgencyTone(n: number) {
   return "neutral" as const;
 }
 
+/** Board / list and the office / group filter, remembered per browser (render fine without it). */
+function loadPrefs(): { layout: Layout; desk: DeskFilter } {
+  try {
+    const p = JSON.parse(localStorage.getItem(PREFS) ?? "{}");
+    return { layout: p.layout === "list" ? "list" : "board", desk: { office: p.desk?.office ?? "", team: p.desk?.team ?? "" } };
+  } catch {
+    return { layout: "board", desk: { office: "", team: "" } };
+  }
+}
+
 export default function CoveragePage() {
   const { contacts, tables, targets, coverage, banks, settings, workbook, setCoverage } = useStore();
   const ratings = coverage.ratings ?? NO_RATINGS;
+  const [prefs, setPrefs] = useState(loadPrefs);
+  const { layout, desk } = prefs;
+  const savePrefs = (p: Partial<typeof prefs>) =>
+    setPrefs((cur) => {
+      const next = { ...cur, ...p };
+      try {
+        localStorage.setItem(PREFS, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  const setDesk = (d: DeskFilter) => savePrefs({ desk: d });
   const [tier, setTier] = useState("");
   const [q, setQ] = useState("");
-  const [view, setView] = useState<View>("all");
+  const [show, setShow] = useState<Show>("all");
+  const [stage, setStage] = useState<BankStage | "">("");
   const [sort, setSort] = useState<Sort>("urgency");
   const [open, setOpen] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
@@ -74,30 +122,43 @@ export default function CoveragePage() {
     [contacts, tables, targets, coverage, banks, settings.followUp, pe],
   );
   const peCount = useMemo(() => targets.filter((t) => isPrivateEquity(t.tier)).length + coverage.added.filter((t) => isPrivateEquity(t.tier)).length, [targets, coverage.added]);
-  // The desks checked in the plan pick which banks are listed; the numbers always cover everyone at the bank.
+  // The desks checked in the plan pick which banks are listed; the office / group filter picks whose numbers count.
   const active = useMemo(() => (pe ? [] : activeDesks(coverage.plan)), [coverage.plan, pe]);
   const visible = useMemo(() => rows.filter((r) => r.bucket !== "hidden" && !r.notOffered), [rows]);
+  const filtering = !pe && !!(desk.office || desk.team);
 
-  const ranked: Row[] = useMemo(
-    () =>
-      visible.map((r) => {
-        const empty = r.desks.find((d) => d.state === "empty")?.target;
-        const w = bankWork({ name: r.name, contacts: r.allContacts, allContacts: contacts, banks, followUp: settings.followUp, emptyDesk: empty });
-        return { r, w, u: bankUrgency(r, w, { stars: ratings[r.key]?.stars }) };
-      }),
-    [visible, contacts, banks, settings.followUp, ratings],
-  );
+  const ranked: Row[] = useMemo(() => {
+    const f = pe ? { office: "", team: "" } : desk;
+    const out: Row[] = [];
+    for (const r of visible) {
+      const { matched, unsorted } = onDesk(r.allContacts, f);
+      // A bank that doesn't hire into this office / group leaves the view (unless you already have someone there).
+      if (!matched.length && !offeredAt(r.name, f, r.specialty?.teams)) continue;
+      const empty = f.office && f.team ? { location: f.office, team: f.team } : !f.office && !f.team ? r.desks.find((d) => d.state === "empty")?.target : undefined;
+      const w = bankWork({ name: r.name, contacts: matched, allContacts: contacts, banks, followUp: settings.followUp, emptyDesk: empty });
+      out.push({ r, w, u: bankUrgency(r, w, { stars: ratings[r.key]?.stars }), people: matched, unsorted, stage: bankStage(matched) });
+    }
+    return out;
+  }, [visible, desk, pe, contacts, banks, settings.followUp, ratings]);
 
   const tiers = [...new Set(visible.map((r) => r.tier).filter(Boolean) as string[])].sort((a, b) => tierRank(a) - tierRank(b));
-  const counts = useMemo(
-    () => ({
-      todo: ranked.filter((x) => x.w.outstanding > 0).length,
-      cold: ranked.filter((x) => !x.w.contacts && !x.w.emailed).length,
-      applied: ranked.filter((x) => x.r.applied?.length).length,
-    }),
-    [ranked],
-  );
-  const shown = useMemo(() => {
+  const teams = useMemo(() => [...new Set([...DEFAULT_TEAMS, ...contacts.map((c) => teamOf(c)).filter(Boolean)])].sort(), [contacts]);
+  const quick = useMemo(() => {
+    const plan = (coverage.plan ?? []).length ? coverage.plan! : DESK_PRESETS;
+    const seen = new Set<string>();
+    return plan.map((t) => ({ office: t.location, team: t.team })).filter((d) => !seen.has(`${d.office}|${d.team}`) && !!seen.add(`${d.office}|${d.team}`));
+  }, [coverage.plan]);
+
+  const filtered = useMemo(() => {
+    const ql = q.trim().toLowerCase();
+    return ranked.filter(
+      (x) =>
+        (!tier || x.r.tier === tier) &&
+        (!ql || x.r.name.toLowerCase().includes(ql)) &&
+        (show === "all" || (show === "todo" && x.w.outstanding > 0) || (show === "applied" && !!x.r.applied?.length)),
+    );
+  }, [ranked, tier, q, show]);
+  const sorted = useMemo(() => {
     const byName = (a: Row, b: Row) => a.r.name.localeCompare(b.r.name);
     const cmp: Record<Sort, (a: Row, b: Row) => number> = {
       urgency: (a, b) => b.u.score - a.u.score || b.w.outstanding - a.w.outstanding || tierRank(a.r.tier) - tierRank(b.r.tier) || byName(a, b),
@@ -105,22 +166,12 @@ export default function CoveragePage() {
       contacts: (a, b) => b.w.contacts - a.w.contacts || byName(a, b),
       name: byName,
     };
-    const ql = q.trim().toLowerCase();
-    return ranked
-      .filter(
-        (x) =>
-          (!tier || x.r.tier === tier) &&
-          (!ql || x.r.name.toLowerCase().includes(ql)) &&
-          (view === "all" ||
-            (view === "todo" && x.w.outstanding > 0) ||
-            (view === "cold" && !x.w.contacts && !x.w.emailed) ||
-            (view === "applied" && !!x.r.applied?.length)),
-      )
-      .sort(cmp[sort]);
-  }, [ranked, tier, q, view, sort]);
+    return [...filtered].sort(cmp[sort]);
+  }, [filtered, sort]);
+  const byStage = (s: BankStage) => sorted.filter((x) => x.stage === s);
 
   const totals = useMemo(() => {
-    const people = visible.flatMap((r) => r.allContacts);
+    const people = ranked.flatMap((x) => x.people);
     return {
       banks: ranked.length,
       reached: ranked.filter((x) => x.w.emailed > 0).length,
@@ -131,7 +182,7 @@ export default function CoveragePage() {
       referrals: ranked.reduce((n, x) => n + x.w.referrals, 0),
       referralFirms: ranked.filter((x) => x.w.referrals > 0).length,
     };
-  }, [ranked, visible]);
+  }, [ranked]);
 
   const insights = useMemo(
     () =>
@@ -165,14 +216,15 @@ export default function CoveragePage() {
     );
 
   const noun = pe ? "firm" : "bank";
+  const deskLabel = filtering ? [desk.office, desk.team].filter(Boolean).join(" · ") : "";
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
       <PageHeader
         title="Bank coverage"
         sub={
           pe
-            ? "Private equity firms on your lists, ranked by what needs you most."
-            : "Every bank you're recruiting at, ranked by urgency: how prestigious it is, whether you've applied, how far along you are and what's waiting on you."
+            ? "Private equity firms on your lists: who referred you, who you've talked to, who you're waiting on, and where you haven't started."
+            : "Every bank you're recruiting at: who referred you, who you've talked to, who you're waiting on, and where you haven't started. Pick an office or group to see just that desk."
         }
         right={
           peCount > 0 ? (
@@ -192,7 +244,12 @@ export default function CoveragePage() {
       />
 
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label={`${pe ? "Firms" : "Banks"} reached`} value={totals.reached} ring={totals.banks ? totals.reached / totals.banks : 0} sub={`of ${totals.banks} you're tracking`} />
+        <Kpi
+          label={`${pe ? "Firms" : "Banks"} reached${deskLabel ? ` · ${deskLabel}` : ""}`}
+          value={totals.reached}
+          ring={totals.banks ? totals.reached / totals.banks : 0}
+          sub={`of ${totals.banks} ${deskLabel ? "that hire there" : "you're tracking"}`}
+        />
         <Kpi label="Live contacts" value={totals.live} sub={totals.drafts ? `emailed, waiting on a reply · ${totals.drafts} draft${totals.drafts > 1 ? "s" : ""} not sent` : "emailed, waiting on a reply"} />
         <Kpi
           label="Outstanding"
@@ -203,37 +260,78 @@ export default function CoveragePage() {
         <Kpi label="Referrals" value={totals.referrals} sub={totals.referrals ? `at ${totals.referralFirms} ${noun}${totals.referralFirms > 1 ? "s" : ""}` : "none yet"} tone={totals.referrals ? "good" : undefined} />
       </div>
 
-      {active.length > 0 && (
-        <div className="-mb-2 flex flex-wrap items-center gap-2 text-[12.5px]">
-          <span className="flex items-center gap-1.5 rounded-full border border-navy/30 bg-blue-soft/50 px-2.5 py-1 text-ink">
-            Banks for: <b className="font-medium">{active.map(targetLabel).join(", ")}</b>
-            <button onClick={clearDesks} className="ml-0.5 flex items-center gap-0.5 text-navy hover:underline" title="Uncheck every desk and list every bank">
-              <X className="size-3" /> clear
-            </button>
-          </span>
-          <span className="text-muted">Counts include everyone at the bank, on any desk.</span>
-        </div>
-      )}
-
       <Insights items={insights} scoped={active.length > 0} />
 
-      <Card>
-        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+      {/* Office / group filter: one click for your usual desks, or any office × group. */}
+      <Card className="p-3">
+        {!pe && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[12px] font-medium text-muted">Desk</span>
+            <DeskChip on={!filtering} onClick={() => setDesk({ office: "", team: "" })}>
+              Everything
+            </DeskChip>
+            {quick.map((d) => (
+              <DeskChip key={`${d.office}|${d.team}`} on={desk.office === d.office && desk.team === d.team} onClick={() => setDesk(d)}>
+                {d.office} · {d.team}
+              </DeskChip>
+            ))}
+            <span className="mx-1 h-5 w-px bg-line" />
+            <Select className="h-8" value={desk.office} onChange={(e) => setDesk({ ...desk, office: e.target.value })} aria-label="Office">
+              <option value="">Any office</option>
+              {OFFICES.map((o) => (
+                <option key={o}>{o}</option>
+              ))}
+            </Select>
+            <Select className="h-8" value={desk.team} onChange={(e) => setDesk({ ...desk, team: e.target.value })} aria-label="Group">
+              <option value="">Any group</option>
+              {teams.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </Select>
+            {active.length > 0 && (
+              <span className="ml-auto flex items-center gap-1 text-[12px] text-muted">
+                Banks for {active.map(targetLabel).join(", ")}
+                <button onClick={clearDesks} className="flex items-center gap-0.5 text-navy hover:underline" title="Uncheck every desk in the plan and list every bank">
+                  <X className="size-3" /> clear
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+        <div className={cn("flex flex-wrap items-center gap-2", !pe && "mt-2.5 border-t border-line pt-2.5")}>
           <Segmented
-            value={view}
-            onChange={setView}
+            value={layout}
+            onChange={(v) => savePrefs({ layout: v })}
             options={[
-              ["all", `All ${ranked.length}`],
-              ["todo", `To do ${counts.todo}`],
-              ["cold", `Cold ${counts.cold}`],
-              ["applied", `Applied ${counts.applied}`],
+              [
+                "board",
+                <span key="b" className="flex items-center gap-1.5">
+                  <Columns3 className="size-3.5" /> Board
+                </span>,
+              ],
+              [
+                "list",
+                <span key="l" className="flex items-center gap-1.5">
+                  <List className="size-3.5" /> Ranked list
+                </span>,
+              ],
             ]}
           />
-          <div className="flex-1" />
-          <div className="relative w-48">
-            <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted" />
-            <Input className="h-8 pl-8" placeholder={`Search ${noun}s…`} value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
+          {layout === "list" && (
+            <Select className="h-8" value={stage} onChange={(e) => setStage(e.target.value as BankStage | "")} aria-label="Stage">
+              <option value="">Every stage</option>
+              {STAGES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title} ({ranked.filter((x) => x.stage === s.id).length})
+                </option>
+              ))}
+            </Select>
+          )}
+          <Select className="h-8" value={show} onChange={(e) => setShow(e.target.value as Show)} aria-label="Show">
+            <option value="all">All {noun}s</option>
+            <option value="todo">Something to do ({ranked.filter((x) => x.w.outstanding > 0).length})</option>
+            <option value="applied">Applied ({ranked.filter((x) => x.r.applied?.length).length})</option>
+          </Select>
           {tiers.length > 1 && (
             <Select className="h-8" value={tier} onChange={(e) => setTier(e.target.value)} aria-label="Tier">
               <option value="">All tiers</option>
@@ -242,6 +340,11 @@ export default function CoveragePage() {
               ))}
             </Select>
           )}
+          <div className="flex-1" />
+          <div className="relative w-48">
+            <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted" />
+            <Input className="h-8 pl-8" placeholder={`Search ${noun}s…`} value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
           <Select className="h-8" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort">
             {SORTS.map((s) => (
               <option key={s.id} value={s.id}>
@@ -250,53 +353,87 @@ export default function CoveragePage() {
             ))}
           </Select>
         </div>
-        {shown.length === 0 ? (
-          <Empty title={`No ${noun}s here`}>{view === "all" ? "Nothing matches the search." : "Switch back to All to see every bank."}</Empty>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-[13px]">
-              <thead className="bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
-                <tr className="border-b border-line">
-                  <th className="px-4 py-2 font-medium">{pe ? "Firm" : "Bank"}</th>
-                  <th className="px-2 py-2 font-medium" title="0–100: prestige, applications, coverage gap and to-dos">
-                    Urgency
-                  </th>
-                  <th className="px-2 py-2 text-right font-medium">Contacts</th>
-                  <th className="px-2 py-2 text-right font-medium">Emailed</th>
-                  <th className="px-2 py-2 text-right font-medium" title="Emailed, no reply yet (drafts don't count)">
-                    Live
-                  </th>
-                  <th className="px-2 py-2 text-right font-medium">Replied</th>
-                  <th className="px-2 py-2 text-right font-medium">Referrals</th>
-                  <th className="px-2 py-2 font-medium">Outstanding</th>
-                  <th className="px-4 py-2 font-medium">Next step</th>
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((x) => {
-                  const isOpen = open === x.r.key;
-                  return (
-                    <Fragment key={x.r.key}>
-                      <BankRow x={x} open={isOpen} onToggle={() => setOpen(isOpen ? null : x.r.key)} onHide={() => hide(x.r.key)} />
-                      {isOpen && (
-                        <tr className="border-b border-line bg-subtle">
-                          <td colSpan={10} className="px-4 py-4">
-                            <BankDetail x={x} />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
       </Card>
+
+      {layout === "board" ? (
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+          <div className="grid grid-cols-[repeat(4,minmax(290px,1fr))] gap-4">
+            {STAGES.map((s) => {
+              // Cold: banks where you've found people come first (they're one draft away).
+              const list = s.id === "cold" ? [...byStage(s.id)].sort((a, b) => Number(b.w.contacts > 0) - Number(a.w.contacts > 0)) : byStage(s.id);
+              return (
+                <section key={s.id} className="min-w-0">
+                  <header className="mb-1 flex items-center gap-2 px-1">
+                    <span className={cn("size-2.5 rounded-full", s.dot)} />
+                    <h2 className="text-[14px] font-semibold">{s.title}</h2>
+                    <span className="num text-[13px] text-muted">{list.length}</span>
+                  </header>
+                  <p className="mb-2 px-1 text-[12px] text-muted">{s.sub}</p>
+                  <ul className="space-y-2">
+                    {list.map((x) => (
+                      <BoardCard key={x.r.key} x={x} desk={deskLabel} open={open === x.r.key} onToggle={() => setOpen(open === x.r.key ? null : x.r.key)} onHide={() => hide(x.r.key)} />
+                    ))}
+                    {!list.length && <li className="rounded-lg border border-dashed border-line-2 px-3 py-6 text-center text-[12.5px] text-muted">Nothing here</li>}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <Card>
+          {(() => {
+            const list = stage ? sorted.filter((x) => x.stage === stage) : sorted;
+            return list.length === 0 ? (
+              <Empty title={`No ${noun}s here`}>Nothing matches these filters.</Empty>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[920px] text-[13px]">
+                  <thead className="bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
+                    <tr className="border-b border-line">
+                      <th className="px-4 py-2 font-medium">{pe ? "Firm" : "Bank"}</th>
+                      <th className="px-2 py-2 font-medium" title="0–100: prestige, applications, coverage gap and to-dos">
+                        Urgency
+                      </th>
+                      <th className="px-2 py-2 text-right font-medium">Contacts</th>
+                      <th className="px-2 py-2 text-right font-medium">Emailed</th>
+                      <th className="px-2 py-2 text-right font-medium" title="Emailed, no reply yet (drafts don't count)">
+                        Live
+                      </th>
+                      <th className="px-2 py-2 text-right font-medium">Replied</th>
+                      <th className="px-2 py-2 text-right font-medium">Referrals</th>
+                      <th className="px-2 py-2 font-medium">Outstanding</th>
+                      <th className="px-4 py-2 font-medium">Next step</th>
+                      <th className="w-8" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.map((x) => {
+                      const isOpen = open === x.r.key;
+                      return (
+                        <Fragment key={x.r.key}>
+                          <BankRow x={x} open={isOpen} onToggle={() => setOpen(isOpen ? null : x.r.key)} onHide={() => hide(x.r.key)} />
+                          {isOpen && (
+                            <tr className="border-b border-line bg-subtle">
+                              <td colSpan={10} className="px-4 py-4">
+                                <BankDetail x={x} />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </Card>
+      )}
       <p className="-mt-2 text-[12px] text-muted">
         Urgency = prestige (25: tier, or your stars on Firms) + applications (25: full while one is in) + coverage gap (30: nobody found = full, waiting at your
         cap = little) + to-dos (20: replies and thank-yous owed count double). Application timelines will join it once they&apos;re tracked.
+        {filtering && " With a desk picked, every number counts only the people on it; banks that don't hire there are left out."}
       </p>
 
       {!pe && (
@@ -389,10 +526,195 @@ export default function CoveragePage() {
   );
 }
 
-function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggle: () => void; onHide: () => void }) {
-  const { r, w, u } = x;
+function DeskChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={cn("rounded-full border px-2.5 py-1 text-[12px]", on ? "border-navy bg-navy text-white" : "border-line-2 bg-panel text-ink-2 hover:border-navy/50")}
+    >
+      {children}
+    </button>
+  );
+}
+
+const md = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
+const first = (c: Contact) => c.firstName || c.name;
+
+/** The few lines that say where a bank stands, by column: who referred you, who you talked to, who you're waiting on. */
+function storyLines(x: Row): string[] {
+  const { people, stage, w } = x;
+  const now = Date.now();
+  if (stage === "referral")
+    return people
+      .filter((c) => c.referral)
+      .map((c) => `${c.name} referred you${c.referral!.to?.length ? ` to ${c.referral!.to.map((t) => t.name).join(", ")}` : ""} · ${md(c.referral!.at)}`);
+  if (stage === "chatted")
+    return people
+      .filter(talkedTo)
+      .slice(0, 4)
+      .map((c) => {
+        const chat = [...(c.chats ?? [])].sort((a, b) => b.at.localeCompare(a.at))[0];
+        if (chat) return `Chatted with ${c.name} ${md(chat.at)}${chat.grade ? ` · ${chat.grade.letter}` : ""}`;
+        if (c.call) return Date.parse(c.call.at) > now ? `Call with ${c.name} ${new Date(c.call.at).toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" })}` : `Call with ${c.name} ${md(c.call.at)}`;
+        return `${c.name} replied${c.repliedAt ? ` ${md(c.repliedAt)}` : ""}: book a call`;
+      });
+  if (stage === "outreach") {
+    const live = people.filter(isLive);
+    const last = live.map((c) => c.lastEmailedAt ?? c.lastTouchAt ?? c.sentAt).filter((d): d is string => !!d).sort().pop();
+    return live.length ? [`Waiting on ${live.slice(0, 3).map(first).join(", ")}${live.length > 3 ? ` +${live.length - 3}` : ""}${last ? ` · last email ${md(last)}` : ""}`] : ["Emailed before; nobody live now"];
+  }
+  if (!people.length) return ["Nobody found yet"];
+  return [`${people.length} found, none emailed${w.needEmail ? ` · ${w.needEmail} without an email` : ""}`];
+}
+
+function BoardCard({ x, desk, open, onToggle, onHide }: { x: Row; desk: string; open: boolean; onToggle: () => void; onHide: () => void }) {
+  const { r, w, u, people, unsorted } = x;
   const offices = w.offices.filter((o) => o.region !== "Other");
-  const chips = [
+  const elsewhere = r.allContacts.filter((c) => c.status !== "ignored").length - w.contacts;
+  const chips = outstandingChips(w);
+  return (
+    <li className={cn("group rounded-lg border bg-panel px-3 py-2.5", w.todos.some((t) => t.kind === "reply" || t.kind === "thank") ? "border-red/40" : "border-line")}>
+      <div className="flex items-start gap-2">
+        <button type="button" onClick={onToggle} aria-expanded={open} className="min-w-0 flex-1 text-left">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-medium">{r.name}</span>
+            {r.applied?.length ? (
+              <span title={r.applied.map((a) => `${a.program}${a.submitted ? ` · submitted ${a.submitted}` : ""}${a.status ? ` · ${a.status}` : ""}`).join("\n")}>
+                <Badge tone="green" className="px-1.5 py-0 text-[10.5px]">
+                  Applied{r.applied.length > 1 ? ` ×${r.applied.length}` : ""}
+                </Badge>
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px] text-muted">
+            {r.tier && <span>{r.tier}</span>}
+            {offices.map((o) => (
+              <span key={o.region} className="num" title={`${o.contacts} contact${o.contacts > 1 ? "s" : ""} in ${regionInfo(o.region).label}, ${o.emailed} emailed`}>
+                <b className="font-medium text-ink-2">{regionInfo(o.region).short}</b> {o.emailed}/{o.contacts}
+              </span>
+            ))}
+          </div>
+        </button>
+        <span title={u.parts.map((p) => `${p.label}: ${p.points}/${p.max}`).join("\n")}>
+          <Badge tone={urgencyTone(u.score)} className="num text-[11.5px]">
+            {u.score}
+          </Badge>
+        </span>
+        <button onClick={onHide} className="rounded p-0.5 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-ink focus:opacity-100" title="Not recruiting here: hide" aria-label={`Hide ${r.name}`}>
+          <EyeOff className="size-3.5" />
+        </button>
+      </div>
+
+      <div className="num mt-1.5 grid grid-cols-4 gap-1 rounded-md bg-subtle px-2 py-1 text-center text-[11px] text-muted">
+        <span>
+          <b className="block text-[13px] font-medium text-ink">{w.contacts}</b>people
+        </span>
+        <span>
+          <b className="block text-[13px] font-medium text-ink">{w.emailed}</b>emailed
+        </span>
+        <span>
+          <b className={cn("block text-[13px] font-medium", w.replied ? "text-green" : "text-ink")}>{w.replied}</b>replied
+        </span>
+        <span>
+          <b className={cn("block text-[13px] font-medium", w.referrals ? "text-green" : "text-ink")}>{w.referrals}</b>referral{w.referrals === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <ul className="mt-1.5 space-y-0.5 text-[12px] text-ink-2">
+        {storyLines(x).map((line, i) => (
+          <li key={i}>{line}</li>
+        ))}
+      </ul>
+      {desk && elsewhere > 0 && <div className="mt-0.5 text-[11.5px] text-muted">+{elsewhere} elsewhere at {r.name}</div>}
+      {unsorted.length > 0 && (
+        <Link href={`/sheet?view=contacts&filter=noteam&bank=${encodeURIComponent(r.name)}`} className="mt-0.5 block text-[11.5px] text-amber hover:underline">
+          {unsorted.length} here with no team set ({unsorted.slice(0, 2).map(first).join(", ")}
+          {unsorted.length > 2 ? "…" : ""}){unsorted.some(wasEmailed) ? `, ${unsorted.filter(wasEmailed).length} emailed` : ""}: set their team
+        </Link>
+      )}
+
+      {chips.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {chips.map((c, i) => (
+            <Badge key={i} tone={c.tone} className="px-1.5 py-0 text-[10.5px]">
+              {c.text}
+            </Badge>
+          ))}
+        </div>
+      )}
+      <div className="mt-1.5 flex items-center gap-2">
+        <NextStep t={w.next} />
+        <div className="flex-1" />
+        <button onClick={onToggle} className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[11.5px] text-muted hover:text-ink" aria-expanded={open}>
+          {open ? "Less" : `People${people.length ? ` (${people.length})` : ""}`}
+          {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-2 border-t border-line pt-2">
+          {w.todos.length > 1 && (
+            <ul className="mb-2 space-y-0.5 text-[12px]">
+              {w.todos.slice(1).map((t, i) => (
+                <li key={i} className="flex items-center gap-1.5">
+                  <span className={cn("size-1.5 shrink-0 rounded-full", t.kind === "reply" || t.kind === "thank" ? "bg-red" : t.outstanding ? "bg-brass" : "bg-line-2")} />
+                  {t.href ? (
+                    <Link href={t.href} className="text-navy hover:underline">
+                      {t.label}
+                    </Link>
+                  ) : (
+                    <span className="text-muted">{t.label}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {people.length ? (
+            <ul className="divide-y divide-line text-[12px]">
+              {[...people].sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name)).map((c) => (
+                <li key={c.id} className={cn("flex items-center gap-2 py-1", c.status === "ignored" && "opacity-55")}>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">
+                      {c.name}
+                      {c.referral && <span className="ml-1 text-[10.5px] text-green">referral</span>}
+                    </div>
+                    <div className="truncate text-[11px] text-muted">
+                      {[c.region !== "Other" ? regionInfo(c.region).short : c.location, teamOf(c), lastTouch(c)].filter((s) => s && s !== "—").join(" · ")}
+                    </div>
+                  </div>
+                  <StatusBadge status={c.status} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[12px] text-muted">Nobody here yet.</p>
+          )}
+          {(r.desks.length > 0 || r.offices.all.length > r.offices.cap) && (
+            <div className="mt-2">
+              <DeskChips r={r} />
+              <OfficePicker r={r} />
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap gap-3 text-[11.5px]">
+            <Link href={`/find?banks=${encodeURIComponent(r.name)}`} className="font-medium text-navy hover:underline">
+              Find people
+            </Link>
+            <Link href={`/drafts?bank=${encodeURIComponent(r.name)}`} className="font-medium text-navy hover:underline">
+              Draft emails
+            </Link>
+            <Link href={`/sheet?view=contacts&bank=${encodeURIComponent(r.name)}`} className="font-medium text-navy hover:underline">
+              Spreadsheet
+            </Link>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function outstandingChips(w: BankWork) {
+  return [
     ...w.todos.filter((t) => t.kind === "reply" || t.kind === "thank").map((t) => ({ text: `${t.people.length} ${t.kind === "reply" ? "reply" : "thank-you"} owed`, tone: "red" as const })),
     ...w.todos.filter((t) => t.kind === "follow_up").map((t) => ({ text: `${t.people.length} follow-up${t.people.length > 1 ? "s" : ""} due`, tone: "brass" as const })),
     ...(w.drafts ? [{ text: `${w.drafts} draft${w.drafts > 1 ? "s" : ""} to send`, tone: "brass" as const }] : []),
@@ -400,6 +722,12 @@ function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggl
     ...w.todos.filter((t) => t.kind === "check_in" || t.kind === "move_on").map((t) => ({ text: t.kind === "check_in" ? `${t.people.length} check-in` : `${t.people.length} move on?`, tone: "neutral" as const })),
     ...(w.queued ? [{ text: `${w.queued} queued`, tone: "blue" as const }] : []),
   ];
+}
+
+function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggle: () => void; onHide: () => void }) {
+  const { r, w, u } = x;
+  const offices = w.offices.filter((o) => o.region !== "Other");
+  const chips = outstandingChips(w);
   return (
     <tr className={cn("group cursor-pointer border-b border-line hover:bg-subtle", open && "bg-subtle")} onClick={onToggle}>
       <td className="px-4 py-2.5">
@@ -424,6 +752,7 @@ function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggl
         </button>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 pl-5 text-[11.5px] text-muted">
           {r.tier && <span>{r.tier}</span>}
+          <span>{STAGES.find((s) => s.id === x.stage)?.title}</span>
           {offices.map((o) => (
             <span key={o.region} className="num" title={`${o.contacts} contact${o.contacts > 1 ? "s" : ""} in ${regionInfo(o.region).label}, ${o.emailed} emailed`}>
               <b className="font-medium text-ink-2">{regionInfo(o.region).short}</b> {o.emailed}/{o.contacts}
@@ -484,7 +813,7 @@ function NextStep({ t }: { t?: BankTodo }) {
 
 function BankDetail({ x }: { x: Row }) {
   const { r, w, u } = x;
-  const people = [...r.allContacts].sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
+  const people = [...x.people].sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4">
@@ -556,7 +885,11 @@ function BankDetail({ x }: { x: Row }) {
                     <td className="px-3 py-1.5">
                       <div className="flex items-center gap-1.5">
                         <span className="font-medium">{c.name}</span>
-                        {c.referral && <Badge tone="green" className="px-1 py-0 text-[10px]">Referral</Badge>}
+                        {c.referral && (
+                          <Badge tone="green" className="px-1 py-0 text-[10px]">
+                            Referral
+                          </Badge>
+                        )}
                       </div>
                       <div className="truncate text-[11px] text-muted">{c.position || (c.email ? c.email : "no email")}</div>
                     </td>
@@ -573,6 +906,7 @@ function BankDetail({ x }: { x: Row }) {
         ) : (
           <p className="text-[12.5px] text-muted">Nobody found here yet.</p>
         )}
+        {x.unsorted.length > 0 && <p className="mt-1.5 text-[11.5px] text-muted">{x.unsorted.length} more at this office with no team set: {x.unsorted.map((c) => c.name).join(", ")}.</p>}
         <div className="mt-2 flex flex-wrap gap-3 text-[12px]">
           <Link href={`/find?banks=${encodeURIComponent(r.name)}`} className="font-medium text-navy hover:underline">
             Find people
@@ -638,4 +972,3 @@ function Insights({ items, scoped }: { items: Insight[]; scoped: boolean }) {
     </Card>
   );
 }
-

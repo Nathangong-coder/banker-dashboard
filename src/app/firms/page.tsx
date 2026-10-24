@@ -2,14 +2,14 @@
 
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, Star, Trophy } from "lucide-react";
+import { ChevronDown, ChevronRight, Star, Trophy, X } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { firmScore, firmStats, overallReplyRate, type FirmScore, type FirmStats } from "@/lib/firmScore";
+import { firmScore, firmStats, gotReplied, overallReplyRate, wasEmailed, type FirmScore, type FirmStats } from "@/lib/firmScore";
 import { tierIndex } from "@/lib/segments";
 import type { FirmRating } from "@/lib/coverage";
 import type { Contact } from "@/lib/types";
 import { cn, fmtDate, relDays } from "@/lib/util";
-import { Badge, Card, CardHeader, Checkbox, Empty, PageHeader, Select, Stat, StatusBadge, Textarea } from "@/components/ui";
+import { Badge, Card, CardHeader, Checkbox, Empty, PageHeader, Select, StatusBadge, Textarea } from "@/components/ui";
 
 type Sort = "score" | "stars" | "replies" | "name";
 const SORTS: { id: Sort; label: string }[] = [
@@ -22,6 +22,36 @@ const SORTS: { id: Sort; label: string }[] = [
 type Row = FirmStats & { rating?: FirmRating; result?: FirmScore; tier?: string };
 
 const NO_RATINGS: Record<string, FirmRating> = {};
+
+/** The summary tiles: each one is a set of firms, and clicking it shows which firms (and which people) make it up. */
+type Zoom = "emailed" | "replied" | "chatted" | "referral";
+
+/** You've talked to them, or a call is booked: a logged chat, a call on the calendar, or status done. */
+const chatted = (c: Contact) => !!c.chats?.length || !!c.call || c.status === "done";
+
+const md = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "numeric", day: "numeric" }) : "");
+
+const ZOOMS: { id: Zoom; label: string; people: (c: Contact) => boolean; line: (c: Contact) => string }[] = [
+  { id: "emailed", label: "Firms emailed", people: wasEmailed, line: (c) => `${c.name}${c.sentAt ? ` · ${md(c.sentAt)}` : ""}${c.followUps ? ` · ${c.followUps} follow-up${c.followUps > 1 ? "s" : ""}` : ""}` },
+  { id: "replied", label: "Firms that replied", people: gotReplied, line: (c) => `${c.name}${c.repliedAt ? ` replied ${md(c.repliedAt)}` : " replied"}` },
+  {
+    id: "chatted",
+    label: "Firms you've chatted with",
+    people: chatted,
+    line: (c) => {
+      const chat = [...(c.chats ?? [])].sort((a, b) => b.at.localeCompare(a.at))[0];
+      if (chat) return `${c.name} · ${md(chat.at)}${chat.grade ? ` · ${chat.grade.letter} (${chat.grade.score})` : ""}${(c.chats?.length ?? 0) > 1 ? ` · ${c.chats!.length} chats` : ""}`;
+      if (c.call) return `${c.name} · call ${Date.parse(c.call.at) > Date.now() ? "booked " : ""}${md(c.call.at)}`;
+      return c.name;
+    },
+  },
+  {
+    id: "referral",
+    label: "Firms with referrals",
+    people: (c) => !!c.referral,
+    line: (c) => `${c.name}${c.referral!.to?.length ? ` → ${c.referral!.to.map((t) => t.name).join(", ")}` : ""} · ${md(c.referral!.at)}${c.referral!.source === "sheet" ? " (ticked in sheet)" : ""}`,
+  },
+];
 
 function saveRating(key: string, patch: Partial<FirmRating>) {
   useStore.getState().setCoverage((c) => {
@@ -48,6 +78,7 @@ export default function FirmsPage() {
   const [sort, setSort] = useState<Sort>("score");
   const [emailedOnly, setEmailedOnly] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<Zoom | null>(null);
 
   const stats = useMemo(() => firmStats(contacts), [contacts]);
   const overall = useMemo(() => overallReplyRate(stats), [stats]);
@@ -62,8 +93,10 @@ export default function FirmsPage() {
       replies: (a, b) => b.replied - a.replied || b.replyRate - a.replyRate || byName(a, b),
       name: byName,
     };
-    return list.filter((r) => !emailedOnly || r.emailed > 0).sort(cmp[sort]);
-  }, [stats, ratings, overall, tiers, sort, emailedOnly]);
+    const z = ZOOMS.find((x) => x.id === zoom);
+    // Zoomed into a tile: only the firms behind it (the "emailed only" box doesn't apply then).
+    return list.filter((r) => (z ? r.contacts.some(z.people) : !emailedOnly || r.emailed > 0)).sort(cmp[sort]);
+  }, [stats, ratings, overall, tiers, sort, emailedOnly, zoom]);
 
   const totals = useMemo(() => {
     const started = stats.filter((s) => s.emailed > 0);
@@ -73,6 +106,9 @@ export default function FirmsPage() {
       replied: stats.filter((s) => s.replied > 0).length,
       calls: stats.reduce((n, s) => n + s.calls, 0),
       referrals: stats.reduce((n, s) => n + s.referrals, 0),
+      chatted: stats.filter((s) => s.contacts.some(chatted)).length,
+      referralFirms: stats.filter((s) => s.referrals > 0).length,
+      people: Object.fromEntries(ZOOMS.map((z) => [z.id, stats.reduce((n, s) => n + s.contacts.filter(z.people).length, 0)])) as Record<Zoom, number>,
     };
   }, [stats]);
 
@@ -102,19 +138,61 @@ export default function FirmsPage() {
       />
 
       <Card className="grid grid-cols-2 divide-line md:grid-cols-4 md:divide-x">
-        <Stat label="Firms emailed" value={totals.started} sub={`of ${totals.firms} with contacts`} />
-        <Stat label="Firms that replied" value={totals.replied} sub={`${Math.round(overall * 100)}% of emails get a reply`} />
-        <Stat label="Calls had" value={totals.calls} />
-        <Stat label="Referrals" value={totals.referrals} tone={totals.referrals ? "green" : undefined} />
+        {(
+          [
+            ["emailed", totals.started, `of ${totals.firms} with contacts · ${totals.people.emailed} people`],
+            ["replied", totals.replied, `${totals.people.replied} people · ${Math.round(overall * 100)}% of emails get a reply`],
+            ["chatted", totals.chatted, `${totals.people.chatted} ${totals.people.chatted === 1 ? "person" : "people"} talked to or booked · ${totals.calls} calls had`],
+            ["referral", totals.referralFirms, `${totals.referrals} referral${totals.referrals === 1 ? "" : "s"}`],
+          ] as const
+        ).map(([id, value, sub]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setZoom(zoom === id ? null : id)}
+            aria-pressed={zoom === id}
+            className={cn("px-5 py-4 text-left transition-colors hover:bg-subtle", zoom === id && "bg-blue-soft/40 shadow-[inset_0_-2px_0_var(--navy)]")}
+          >
+            <div className="flex items-center justify-between gap-2 text-[12.5px] text-muted">
+              {ZOOMS.find((z) => z.id === id)!.label}
+              <span className="shrink-0 text-[11px] text-navy">{zoom === id ? "Close" : "See which"}</span>
+            </div>
+            <div className={cn("num mt-1.5 text-[28px] leading-none font-medium tracking-tight", id === "referral" && value > 0 && "text-green")}>{value}</div>
+            <div className="mt-1.5 text-[12px] text-muted">{sub}</div>
+          </button>
+        ))}
       </Card>
+
+      {zoom && (
+        <ZoomPanel
+          zoom={zoom}
+          stats={stats}
+          onClose={() => setZoom(null)}
+          onOpen={(k) => {
+            setOpen(k);
+            requestAnimationFrame(() => document.getElementById(`firm-${k}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+          }}
+        />
+      )}
 
       <Card>
         <CardHeader
           title="Your firms"
-          sub="Click a firm for the score breakdown, your notes and its people."
+          sub={
+            zoom ? (
+              <span className="flex items-center gap-1.5">
+                Only {ZOOMS.find((z) => z.id === zoom)!.label.toLowerCase()}
+                <button className="flex items-center gap-0.5 text-navy hover:underline" onClick={() => setZoom(null)}>
+                  <X className="size-3" /> show all
+                </button>
+              </span>
+            ) : (
+              "Click a firm for the score breakdown, your notes and its people."
+            )
+          }
           right={
             <>
-              <Checkbox checked={emailedOnly} onChange={setEmailedOnly} label="Only firms I've emailed" />
+              {!zoom && <Checkbox checked={emailedOnly} onChange={setEmailedOnly} label="Only firms I've emailed" />}
               <label className="flex items-center gap-1.5 text-[12.5px] text-muted">
                 Sort
                 <Select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="h-8" aria-label="Sort firms">
@@ -152,6 +230,7 @@ export default function FirmsPage() {
                   return (
                     <Fragment key={r.key}>
                       <tr
+                        id={`firm-${r.key}`}
                         className={cn("cursor-pointer border-b border-line hover:bg-subtle", isOpen && "bg-subtle")}
                         onClick={() => setOpen(isOpen ? null : r.key)}
                       >
@@ -221,6 +300,57 @@ export default function FirmsPage() {
         referrals (25, full at 1) + chat grade (15, half when nothing is graded). Your stars are your own call and don&apos;t change the score.
       </p>
     </div>
+  );
+}
+
+/** Which firms make up a tile, most people first, with the people (and what happened) under each. */
+function ZoomPanel({ zoom, stats, onClose, onOpen }: { zoom: Zoom; stats: FirmStats[]; onClose: () => void; onOpen: (key: string) => void }) {
+  const z = ZOOMS.find((x) => x.id === zoom)!;
+  const firms = stats
+    .map((s) => ({ s, people: s.contacts.filter(z.people) }))
+    .filter((f) => f.people.length)
+    .sort((a, b) => b.people.length - a.people.length || a.s.name.localeCompare(b.s.name));
+  const max = Math.max(1, ...firms.map((f) => f.people.length));
+  return (
+    <Card>
+      <CardHeader
+        title={`${z.label}: ${firms.length}`}
+        sub={`${firms.reduce((n, f) => n + f.people.length, 0)} people. Bars compare firms; click a firm to open it in the table.`}
+        right={
+          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-hover hover:text-ink" aria-label="Close">
+            <X className="size-4" />
+          </button>
+        }
+      />
+      {firms.length === 0 ? (
+        <p className="px-4 pb-4 text-[12.5px] text-muted">None yet.</p>
+      ) : (
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-3 px-4 pb-4 sm:grid-cols-2 xl:grid-cols-3">
+          {firms.map(({ s, people }) => (
+            <li key={s.key} className="min-w-0 rounded-lg border border-line bg-panel p-3">
+              <button type="button" onClick={() => onOpen(s.key)} className="flex w-full items-baseline justify-between gap-2 text-left">
+                <span className="truncate font-medium text-ink hover:underline">{s.name}</span>
+                <span className="num shrink-0 text-[12.5px] text-ink-2">
+                  {people.length}
+                  {zoom !== "emailed" && s.emailed > 0 && <span className="text-muted"> of {s.emailed} emailed</span>}
+                </span>
+              </button>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-track">
+                <div className="h-full rounded-full bg-brass" style={{ width: `${(people.length / max) * 100}%` }} />
+              </div>
+              <ul className="mt-2 space-y-0.5 text-[12px] text-ink-2">
+                {people.slice(0, 5).map((c) => (
+                  <li key={c.id} className="truncate" title={z.line(c)}>
+                    {z.line(c)}
+                  </li>
+                ))}
+                {people.length > 5 && <li className="text-muted">+{people.length - 5} more</li>}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

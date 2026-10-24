@@ -585,6 +585,14 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `nextUpByDesk`. `bankUrgency` = prestige 25 (tier, or your /firms stars) + applications 25 + coverage gap 30 + to-dos 20,
   plus timeline 20 once `BankTimeline` exists (the owner's planned feature; the score is normalized over known parts).
   Desks checked in the plan only pick which banks are listed; the plan lives in a collapsed "Recruiting plan" section.
+- **Board (owner, 2026-10-23, default view; "Ranked list" = the table):** columns by `bankWork.ts#bankStage`:
+  Referrals (any `referral`) → Chatted (`talkedTo`: reply, call booked/had, logged chat) → Outreach (emailed) → Cold.
+  Office / group filter (quick chips from the plan's desks or `DESK_PRESETS`, plus office + group selects; remembered
+  in localStorage `coverage:board`): `onDesk` picks the contacts on it (no-team people at that office are `unsorted`,
+  shown on the card with a link to set their team), `offeredAt` drops banks that don't hire there, and every number,
+  stage and urgency is recomputed from those people.
+- **/firms tiles zoom (owner, 2026-10-23):** Firms emailed / replied / chatted with / with referrals are buttons;
+  one opens `ZoomPanel` (which firms, a bar each, and the people behind it) and filters the table to those firms.
 - **Drafts / Templates (owner, 2026-10-23):** templates, hooks and the resume moved to `/templates` (Outreach group).
   /drafts = contacts table (~70%) + `FirmContext.tsx#FirmSheet` (~30%): "At this firm" as a spreadsheet grid, one banner
   row per firm with live/cap per desk. `/drafts?status=drafted` pre-sets the status filter.
