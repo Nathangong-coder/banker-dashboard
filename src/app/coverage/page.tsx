@@ -7,12 +7,14 @@ import { blobs, useStore } from "@/lib/store";
 import { buildCoverage, tierRank, type CoverageRow, type FirmRating } from "@/lib/coverage";
 import { DESK_PRESETS, activeDesks, targetLabel } from "@/lib/desks";
 import {
+  BANK_STAGES,
   bankStage,
   bankUrgency,
   bankWork,
   isLive,
   offeredAt,
   onDesk,
+  stageKey,
   talkedTo,
   wasEmailed,
   type BankStage,
@@ -29,7 +31,7 @@ import { parseWorkbook } from "@/lib/workbook";
 import { ensureBankTabs } from "@/lib/actions";
 import { isPrivateEquity } from "@/lib/bankTabs";
 import { cn, fmtDate, relDays } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, Kpi, PageHeader, Segmented, Select, StatusBadge, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, Kpi, Menu, PageHeader, Segmented, Select, StatusBadge, toast } from "@/components/ui";
 import { DeskChecklist, DeskChips, OfficePicker, RecruitingPlan, SpecialtyPicker } from "@/components/RecruitingPlan";
 
 type Layout = "board" | "list";
@@ -45,14 +47,29 @@ const SORTS: { id: Sort; label: string }[] = [
 const STAGES: { id: BankStage; title: string; sub: string; dot: string }[] = [
   { id: "referral", title: "Referrals", sub: "Someone referred you. Keep them posted.", dot: "bg-green" },
   { id: "chatted", title: "Chatted", sub: "They replied, a call is booked, or you've talked.", dot: "bg-navy" },
-  { id: "outreach", title: "Outreach", sub: "Emailed, waiting on replies.", dot: "bg-brass" },
-  { id: "cold", title: "Cold", sub: "Nobody emailed yet. People found first.", dot: "bg-line-2" },
+  { id: "emailed", title: "Emailed", sub: "Emailed, waiting on replies.", dot: "bg-blue" },
+  { id: "outreach", title: "Outreach", sub: "People found, nothing sent yet (drafts and queued emails).", dot: "bg-brass" },
+  { id: "cold", title: "Cold", sub: "Nobody found yet.", dot: "bg-line-2" },
 ];
+const stageTitle = (s: BankStage) => STAGES.find((x) => x.id === s)!.title;
 
 const OFFICES = ["SF", "LA", "NY", "Chicago", "Texas"];
 
-/** One bank, seen through the office / group filter: `people` are the contacts on it, `unsorted` have no team set. */
-type Row = { r: CoverageRow; w: BankWork; u: Urgency; people: Contact[]; unsorted: Contact[]; stage: BankStage };
+/**
+ * One bank, seen through the office / group filter: `people` are the contacts on it, `unsorted` have no team set.
+ * `stage` = your hand-set stage when there is one (`manual`), else `auto` (what the contacts imply).
+ */
+type Row = { r: CoverageRow; w: BankWork; u: Urgency; people: Contact[]; unsorted: Contact[]; stage: BankStage; auto: BankStage; manual: boolean; stageKey: string };
+
+/** Move a bank to a stage by hand; picking the stage its contacts already imply (or null) goes back to automatic. */
+function setStage(x: Row, to: BankStage | null) {
+  useStore.getState().setCoverage((c) => {
+    const stages = { ...(c.stages ?? {}) };
+    if (!to || to === x.auto) delete stages[x.stageKey];
+    else stages[x.stageKey] = to;
+    return { ...c, stages };
+  });
+}
 
 const NO_RATINGS: Record<string, FirmRating> = {};
 const PREFS = "coverage:board";
@@ -90,9 +107,11 @@ export default function CoveragePage() {
   const [tier, setTier] = useState("");
   const [q, setQ] = useState("");
   const [show, setShow] = useState<Show>("all");
-  const [stage, setStage] = useState<BankStage | "">("");
+  const [stageFilter, setStageFilter] = useState<BankStage | "">("");
   const [sort, setSort] = useState<Sort>("urgency");
   const [open, setOpen] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<BankStage | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<BankStage>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
   const [newBank, setNewBank] = useState("");
   const [newTier, setNewTier] = useState("Elite Boutique");
@@ -136,10 +155,14 @@ export default function CoveragePage() {
       if (!matched.length && !offeredAt(r.name, f, r.specialty?.teams)) continue;
       const empty = f.office && f.team ? { location: f.office, team: f.team } : !f.office && !f.team ? r.desks.find((d) => d.state === "empty")?.target : undefined;
       const w = bankWork({ name: r.name, contacts: matched, allContacts: contacts, banks, followUp: settings.followUp, emptyDesk: empty });
-      out.push({ r, w, u: bankUrgency(r, w, { stars: ratings[r.key]?.stars }), people: matched, unsorted, stage: bankStage(matched) });
+      const auto = bankStage(matched);
+      const key = stageKey(r.key, f);
+      const set = coverage.stages?.[key] as BankStage | undefined;
+      const manual = !!set && BANK_STAGES.includes(set) && set !== auto;
+      out.push({ r, w, u: bankUrgency(r, w, { stars: ratings[r.key]?.stars }), people: matched, unsorted, stage: manual ? set! : auto, auto, manual, stageKey: key });
     }
     return out;
-  }, [visible, desk, pe, contacts, banks, settings.followUp, ratings]);
+  }, [visible, desk, pe, contacts, banks, settings.followUp, ratings, coverage.stages]);
 
   const tiers = [...new Set(visible.map((r) => r.tier).filter(Boolean) as string[])].sort((a, b) => tierRank(a) - tierRank(b));
   const teams = useMemo(() => [...new Set([...DEFAULT_TEAMS, ...contacts.map((c) => teamOf(c)).filter(Boolean)])].sort(), [contacts]);
@@ -318,7 +341,7 @@ export default function CoveragePage() {
             ]}
           />
           {layout === "list" && (
-            <Select className="h-8" value={stage} onChange={(e) => setStage(e.target.value as BankStage | "")} aria-label="Stage">
+            <Select className="h-8" value={stageFilter} onChange={(e) => setStageFilter(e.target.value as BankStage | "")} aria-label="Stage">
               <option value="">Every stage</option>
               {STAGES.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -357,18 +380,38 @@ export default function CoveragePage() {
 
       {layout === "board" ? (
         <div className="-mx-1 overflow-x-auto px-1 pb-1">
-          <div className="grid grid-cols-[repeat(4,minmax(290px,1fr))] gap-4">
+          <div className="grid grid-cols-[repeat(5,minmax(250px,1fr))] gap-3">
             {STAGES.map((s) => {
-              // Cold: banks where you've found people come first (they're one draft away).
-              const list = s.id === "cold" ? [...byStage(s.id)].sort((a, b) => Number(b.w.contacts > 0) - Number(a.w.contacts > 0)) : byStage(s.id);
+              const list = byStage(s.id);
               return (
-                <section key={s.id} className="min-w-0">
+                <section
+                  key={s.id}
+                  className={cn("min-w-0 rounded-lg p-1 transition-colors", dragOver === s.id && "bg-blue-soft/50 ring-2 ring-navy/30")}
+                  // Drop a card here to move the bank to this stage by hand.
+                  onDragOver={(e) => {
+                    if (!e.dataTransfer.types.includes("text/x-bank")) return;
+                    e.preventDefault();
+                    setDragOver(s.id);
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(null);
+                    const x = ranked.find((y) => y.r.key === e.dataTransfer.getData("text/x-bank"));
+                    if (x && x.stage !== s.id) {
+                      setStage(x, s.id);
+                      toast.ok(`${x.r.name} → ${s.title}${deskLabel ? ` (${deskLabel})` : ""}. Undo from the card's ⋯ menu.`);
+                    }
+                  }}
+                >
                   <header className="mb-1 flex items-center gap-2 px-1">
                     <span className={cn("size-2.5 rounded-full", s.dot)} />
                     <h2 className="text-[14px] font-semibold">{s.title}</h2>
                     <span className="num text-[13px] text-muted">{list.length}</span>
                   </header>
-                  <p className="mb-2 px-1 text-[12px] text-muted">{s.sub}</p>
+                  <p className="mb-2 min-h-[2.4em] px-1 text-[12px] leading-snug text-muted">{s.sub}</p>
                   <ul className="space-y-2">
                     {list.map((x) => (
                       <BoardCard key={x.r.key} x={x} desk={deskLabel} open={open === x.r.key} onToggle={() => setOpen(open === x.r.key ? null : x.r.key)} onHide={() => hide(x.r.key)} />
@@ -382,52 +425,87 @@ export default function CoveragePage() {
         </div>
       ) : (
         <Card>
-          {(() => {
-            const list = stage ? sorted.filter((x) => x.stage === stage) : sorted;
-            return list.length === 0 ? (
-              <Empty title={`No ${noun}s here`}>Nothing matches these filters.</Empty>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[920px] text-[13px]">
-                  <thead className="bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
-                    <tr className="border-b border-line">
-                      <th className="px-4 py-2 font-medium">{pe ? "Firm" : "Bank"}</th>
-                      <th className="px-2 py-2 font-medium" title="0–100: prestige, applications, coverage gap and to-dos">
-                        Urgency
-                      </th>
-                      <th className="px-2 py-2 text-right font-medium">Contacts</th>
-                      <th className="px-2 py-2 text-right font-medium">Emailed</th>
-                      <th className="px-2 py-2 text-right font-medium" title="Emailed, no reply yet (drafts don't count)">
-                        Live
-                      </th>
-                      <th className="px-2 py-2 text-right font-medium">Replied</th>
-                      <th className="px-2 py-2 text-right font-medium">Referrals</th>
-                      <th className="px-2 py-2 font-medium">Outstanding</th>
-                      <th className="px-4 py-2 font-medium">Next step</th>
-                      <th className="w-8" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {list.map((x) => {
-                      const isOpen = open === x.r.key;
-                      return (
-                        <Fragment key={x.r.key}>
-                          <BankRow x={x} open={isOpen} onToggle={() => setOpen(isOpen ? null : x.r.key)} onHide={() => hide(x.r.key)} />
-                          {isOpen && (
-                            <tr className="border-b border-line bg-subtle">
-                              <td colSpan={10} className="px-4 py-4">
-                                <BankDetail x={x} />
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
+          {sorted.length === 0 ? (
+            <Empty title={`No ${noun}s here`}>Nothing matches these filters.</Empty>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[960px] text-[13px]">
+                <thead className="bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
+                  <tr className="border-b border-line">
+                    <th className="px-4 py-2 font-medium">{pe ? "Firm" : "Bank"}</th>
+                    <th className="px-2 py-2 font-medium" title="0–100: prestige, applications, coverage gap and to-dos">
+                      Urgency
+                    </th>
+                    <th className="px-2 py-2 text-right font-medium">Contacts</th>
+                    <th className="px-2 py-2 text-right font-medium">Emailed</th>
+                    <th className="px-2 py-2 text-right font-medium" title="Emailed, no reply yet (drafts don't count)">
+                      Live
+                    </th>
+                    <th className="px-2 py-2 text-right font-medium">Replied</th>
+                    <th className="px-2 py-2 text-right font-medium">Referrals</th>
+                    <th className="px-2 py-2 font-medium">Outstanding</th>
+                    <th className="px-4 py-2 font-medium">Next step</th>
+                    <th className="w-16" />
+                  </tr>
+                </thead>
+                {/* One section per stage, furthest along first; urgency orders the banks inside each. */}
+                {STAGES.filter((s) => !stageFilter || s.id === stageFilter).map((s) => {
+                  const list = byStage(s.id);
+                  const folded = collapsed.has(s.id);
+                  return (
+                    <tbody key={s.id}>
+                      <tr className="border-b border-line bg-subtle/70">
+                        <td colSpan={10} className="px-4 py-2">
+                          <button
+                            type="button"
+                            className="flex items-center gap-2 text-left"
+                            aria-expanded={!folded}
+                            onClick={() =>
+                              setCollapsed((cur) => {
+                                const next = new Set(cur);
+                                if (next.has(s.id)) next.delete(s.id);
+                                else next.add(s.id);
+                                return next;
+                              })
+                            }
+                          >
+                            {folded ? <ChevronRight className="size-3.5 text-muted" /> : <ChevronDown className="size-3.5 text-muted" />}
+                            <span className={cn("size-2.5 rounded-full", s.dot)} />
+                            <span className="text-[13px] font-semibold text-ink">{s.title}</span>
+                            <span className="num text-[12.5px] text-muted">{list.length}</span>
+                            <span className="text-[12px] text-muted">· {s.sub}</span>
+                          </button>
+                        </td>
+                      </tr>
+                      {!folded &&
+                        list.map((x) => {
+                          const isOpen = open === x.r.key;
+                          return (
+                            <Fragment key={x.r.key}>
+                              <BankRow x={x} open={isOpen} onToggle={() => setOpen(isOpen ? null : x.r.key)} onHide={() => hide(x.r.key)} />
+                              {isOpen && (
+                                <tr className="border-b border-line bg-subtle">
+                                  <td colSpan={10} className="px-4 py-4">
+                                    <BankDetail x={x} />
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      {!folded && !list.length && (
+                        <tr className="border-b border-line">
+                          <td colSpan={10} className="px-4 py-3 text-[12.5px] text-muted">
+                            Nothing here
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  );
+                })}
+              </table>
+            </div>
+          )}
         </Card>
       )}
       <p className="-mt-2 text-[12px] text-muted">
@@ -560,13 +638,66 @@ function storyLines(x: Row): string[] {
         if (c.call) return Date.parse(c.call.at) > now ? `Call with ${c.name} ${new Date(c.call.at).toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" })}` : `Call with ${c.name} ${md(c.call.at)}`;
         return `${c.name} replied${c.repliedAt ? ` ${md(c.repliedAt)}` : ""}: book a call`;
       });
-  if (stage === "outreach") {
+  if (stage === "emailed") {
     const live = people.filter(isLive);
     const last = live.map((c) => c.lastEmailedAt ?? c.lastTouchAt ?? c.sentAt).filter((d): d is string => !!d).sort().pop();
     return live.length ? [`Waiting on ${live.slice(0, 3).map(first).join(", ")}${live.length > 3 ? ` +${live.length - 3}` : ""}${last ? ` · last email ${md(last)}` : ""}`] : ["Emailed before; nobody live now"];
   }
-  if (!people.length) return ["Nobody found yet"];
-  return [`${people.length} found, none emailed${w.needEmail ? ` · ${w.needEmail} without an email` : ""}`];
+  if (!people.length) return [x.manual ? "Moved here by you" : "Nobody found yet"];
+  const queued = w.queued ? ` · ${w.queued} queued` : "";
+  const drafts = w.drafts ? ` · ${w.drafts} draft${w.drafts > 1 ? "s" : ""}` : "";
+  return [`${people.length} found, none emailed${drafts}${queued}${w.needEmail ? ` · ${w.needEmail} without an email` : ""}`];
+}
+
+function ManualBadge({ x }: { x: Row }) {
+  return (
+    <span title={`You moved it here. Its contacts say ${stageTitle(x.auto)}.`}>
+      <Badge tone="navy" className="px-1.5 py-0 text-[10.5px]">
+        set by you
+      </Badge>
+    </span>
+  );
+}
+
+/** ⋯ on a bank: move it to another stage by hand (or back to automatic), or hide it. */
+function StageMenu({ x, onHide }: { x: Row; onHide: () => void }) {
+  return (
+    <Menu
+      label={`Move ${x.r.name} to another stage`}
+      trigger={(toggle, isOpen) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggle();
+          }}
+          aria-label={`Move ${x.r.name} to another stage`}
+          aria-expanded={isOpen}
+          title="Move to another stage, or hide"
+          className="rounded px-1 text-[15px] leading-none text-muted hover:bg-hover hover:text-ink"
+        >
+          ⋯
+        </button>
+      )}
+      items={[
+        ...STAGES.map((s) => ({
+          label: (
+            <span className="flex items-center gap-2">
+              <span className={cn("size-2 rounded-full", s.dot)} />
+              {s.id === x.stage ? <b className="font-medium">{s.title}</b> : `Move to ${s.title}`}
+              {s.id === x.auto && <span className="text-[11.5px] text-muted">automatic</span>}
+            </span>
+          ),
+          disabled: s.id === x.stage,
+          onClick: () => setStage(x, s.id),
+        })),
+        x.manual && "divider",
+        x.manual && { label: "Back to automatic", hint: `Its contacts say ${stageTitle(x.auto)}`, icon: <Undo2 />, onClick: () => setStage(x, null) },
+        "divider",
+        { label: "Hide this bank", hint: "Not recruiting here", icon: <EyeOff />, onClick: onHide },
+      ]}
+    />
+  );
 }
 
 function BoardCard({ x, desk, open, onToggle, onHide }: { x: Row; desk: string; open: boolean; onToggle: () => void; onHide: () => void }) {
@@ -575,8 +706,18 @@ function BoardCard({ x, desk, open, onToggle, onHide }: { x: Row; desk: string; 
   const elsewhere = r.allContacts.filter((c) => c.status !== "ignored").length - w.contacts;
   const chips = outstandingChips(w);
   return (
-    <li className={cn("group rounded-lg border bg-panel px-3 py-2.5", w.todos.some((t) => t.kind === "reply" || t.kind === "thank") ? "border-red/40" : "border-line")}>
-      <div className="flex items-start gap-2">
+    <li
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/x-bank", r.key);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      className={cn(
+        "group cursor-grab rounded-lg border bg-panel px-3 py-2.5 active:cursor-grabbing",
+        w.todos.some((t) => t.kind === "reply" || t.kind === "thank") ? "border-red/40" : "border-line",
+      )}
+    >
+      <div className="flex items-start gap-1.5">
         <button type="button" onClick={onToggle} aria-expanded={open} className="min-w-0 flex-1 text-left">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-medium">{r.name}</span>
@@ -587,6 +728,7 @@ function BoardCard({ x, desk, open, onToggle, onHide }: { x: Row; desk: string; 
                 </Badge>
               </span>
             ) : null}
+            {x.manual && <ManualBadge x={x} />}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px] text-muted">
             {r.tier && <span>{r.tier}</span>}
@@ -602,9 +744,7 @@ function BoardCard({ x, desk, open, onToggle, onHide }: { x: Row; desk: string; 
             {u.score}
           </Badge>
         </span>
-        <button onClick={onHide} className="rounded p-0.5 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-ink focus:opacity-100" title="Not recruiting here: hide" aria-label={`Hide ${r.name}`}>
-          <EyeOff className="size-3.5" />
-        </button>
+        <StageMenu x={x} onHide={onHide} />
       </div>
 
       <div className="num mt-1.5 grid grid-cols-4 gap-1 rounded-md bg-subtle px-2 py-1 text-center text-[11px] text-muted">
@@ -623,7 +763,7 @@ function BoardCard({ x, desk, open, onToggle, onHide }: { x: Row; desk: string; 
       </div>
 
       <ul className="mt-1.5 space-y-0.5 text-[12px] text-ink-2">
-        {storyLines(x).map((line, i) => (
+        {(storyLines(x).length ? storyLines(x) : [`Moved here by you (its contacts say ${stageTitle(x.auto)})`]).map((line, i) => (
           <li key={i}>{line}</li>
         ))}
       </ul>
@@ -644,7 +784,7 @@ function BoardCard({ x, desk, open, onToggle, onHide }: { x: Row; desk: string; 
           ))}
         </div>
       )}
-      <div className="mt-1.5 flex items-center gap-2">
+      <div className="mt-1.5 flex min-w-0 items-center gap-2">
         <NextStep t={w.next} />
         <div className="flex-1" />
         <button onClick={onToggle} className="flex shrink-0 items-center gap-0.5 whitespace-nowrap text-[11.5px] text-muted hover:text-ink" aria-expanded={open}>
@@ -752,7 +892,7 @@ function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggl
         </button>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 pl-5 text-[11.5px] text-muted">
           {r.tier && <span>{r.tier}</span>}
-          <span>{STAGES.find((s) => s.id === x.stage)?.title}</span>
+          {x.manual && <ManualBadge x={x} />}
           {offices.map((o) => (
             <span key={o.region} className="num" title={`${o.contacts} contact${o.contacts > 1 ? "s" : ""} in ${regionInfo(o.region).label}, ${o.emailed} emailed`}>
               <b className="font-medium text-ink-2">{regionInfo(o.region).short}</b> {o.emailed}/{o.contacts}
@@ -788,10 +928,8 @@ function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggl
       <td className="px-4 py-2.5">
         <NextStep t={w.next} />
       </td>
-      <td className="pr-2" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onHide} className="rounded p-1 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-ink focus:opacity-100" title="Not recruiting here: hide" aria-label={`Hide ${r.name}`}>
-          <EyeOff className="size-3.5" />
-        </button>
+      <td className="pr-3 text-right" onClick={(e) => e.stopPropagation()}>
+        <StageMenu x={x} onHide={onHide} />
       </td>
     </tr>
   );
@@ -804,7 +942,7 @@ function NextStep({ t }: { t?: BankTodo }) {
     <Link
       href={t.href}
       onClick={(e) => e.stopPropagation()}
-      className={cn("inline-flex max-w-[260px] items-center gap-1 text-[12.5px] font-medium hover:underline", t.outstanding ? "text-brass-ink" : "text-navy")}
+      className={cn("inline-flex max-w-[260px] min-w-0 items-center gap-1 text-[12.5px] font-medium hover:underline", t.outstanding ? "text-brass-ink" : "text-navy")}
     >
       <span className="truncate">{t.label}</span> <ArrowRight className="size-3 shrink-0" />
     </Link>

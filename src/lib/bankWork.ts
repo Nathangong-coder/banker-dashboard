@@ -288,10 +288,13 @@ export function bankUrgency(
 /* ---------------- stages and location / group filters (the coverage board) ---------------- */
 
 /**
- * The four columns on the coverage board, furthest along first: someone referred you; you've talked (a reply, a call
- * booked or had, a logged chat); you've emailed and are waiting; nobody emailed yet.
+ * The five columns on the coverage board, furthest along first: someone referred you; you've talked (a reply, a call
+ * booked or had, a logged chat); you've emailed and are waiting; people found but nothing sent yet (drafts and queued
+ * emails count here); nobody found. The owner can move a bank to another stage by hand (`coverage.stages`).
  */
-export type BankStage = "referral" | "chatted" | "outreach" | "cold";
+export type BankStage = "referral" | "chatted" | "emailed" | "outreach" | "cold";
+
+export const BANK_STAGES: BankStage[] = ["referral", "chatted", "emailed", "outreach", "cold"];
 
 /** Talked to them, or about to: a reply, a call (past or booked), or a logged chat. */
 export const talkedTo = (c: Contact) => gotReply(c) || !!c.call || !!c.chats?.length;
@@ -299,9 +302,16 @@ export const talkedTo = (c: Contact) => gotReply(c) || !!c.call || !!c.chats?.le
 export function bankStage(contacts: Contact[]): BankStage {
   if (contacts.some((c) => !!c.referral)) return "referral";
   if (contacts.some(talkedTo)) return "chatted";
-  if (contacts.some(wasEmailed)) return "outreach";
+  if (contacts.some(wasEmailed)) return "emailed";
+  if (contacts.some((c) => c.status !== "ignored")) return "outreach";
   return "cold";
 }
+
+/**
+ * Where a hand-set stage is stored: per bank, or per bank + office / group while a desk filter is on (marking a bank
+ * "Chatted" overall shouldn't move it on a desk where you've talked to nobody).
+ */
+export const stageKey = (bank: string, f: DeskFilter) => (f.office || f.team ? `${bank}|${f.office}|${f.team}` : bank);
 
 /** "SF" / "LA" / "NY" / "Chicago" / "Texas" (blank = any) and a group like "Tech" (blank = any). */
 export interface DeskFilter {

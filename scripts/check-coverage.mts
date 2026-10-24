@@ -11,7 +11,7 @@ import { DESK_PRESETS, type DeskTarget } from "../src/lib/desks";
 import { coverageInsights } from "../src/lib/insights";
 import { DEFAULT_SETTINGS } from "../src/lib/defaults";
 import { readOfficeMap, setOfficeMap } from "../src/lib/offices";
-import { bankUrgency, bankWork } from "../src/lib/bankWork";
+import { BANK_STAGES, bankStage, bankUrgency, bankWork } from "../src/lib/bankWork";
 
 const file = process.argv[2];
 if (!file) {
@@ -84,4 +84,6 @@ for (const { r, w } of ranked) {
     process.exit(1);
   }
 }
+const stageCounts = Object.fromEntries(BANK_STAGES.map((st) => [st, ranked.filter((x) => bankStage(x.r.allContacts) === st).length]));
+console.log(`board stages: ${BANK_STAGES.map((st) => `${st} ${stageCounts[st]}`).join(" · ")}`);
 console.log("bank work OK (every contact counted, live ≤ emailed)");

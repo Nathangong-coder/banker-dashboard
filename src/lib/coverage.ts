@@ -71,6 +71,11 @@ export type CoverageSettings = {
   ratings?: Record<string, FirmRating>;
   /** Coffee-chat bank briefs (/prep, components/BankBrief.tsx), cached per canonBank key until "Refresh". */
   bankBriefs?: Record<string, BankBrief>;
+  /**
+   * Stages set by hand on the coverage board ("referral" | "chatted" | "emailed" | "outreach" | "cold"), keyed by
+   * `bankWork.ts#stageKey`: canonBank key, or key|office|team for one desk. They win over the stage the contacts imply.
+   */
+  stages?: Record<string, string>;
 };
 
 /** A deal the bank advised on, found in web results (api/prep/bank). Every field comes from a cited source. */

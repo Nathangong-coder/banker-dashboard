@@ -585,8 +585,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `nextUpByDesk`. `bankUrgency` = prestige 25 (tier, or your /firms stars) + applications 25 + coverage gap 30 + to-dos 20,
   plus timeline 20 once `BankTimeline` exists (the owner's planned feature; the score is normalized over known parts).
   Desks checked in the plan only pick which banks are listed; the plan lives in a collapsed "Recruiting plan" section.
-- **Board (owner, 2026-10-23, default view; "Ranked list" = the table):** columns by `bankWork.ts#bankStage`:
-  Referrals (any `referral`) → Chatted (`talkedTo`: reply, call booked/had, logged chat) → Outreach (emailed) → Cold.
+- **Board (owner, 2026-10-23/24, default view):** five columns by `bankWork.ts#bankStage`: Referrals (any
+  `referral`) → Chatted (`talkedTo`: reply, call booked/had, logged chat) → Emailed (any email sent) → Outreach (people
+  found, nothing sent; drafts / queued count here) → Cold (nobody found). "Ranked list" = the table, in one collapsible
+  section per stage (urgency orders banks inside each). **Stages set by hand:** drag a card to a column or use its ⋯
+  menu; stored in `coverage.stages` under `stageKey` (bank key, or key|office|team while a desk filter is on, so a
+  bank-level mark doesn't move it on other desks). Picking the automatic stage clears the override; cards show "set by you".
   Office / group filter (quick chips from the plan's desks or `DESK_PRESETS`, plus office + group selects; remembered
   in localStorage `coverage:board`): `onDesk` picks the contacts on it (no-team people at that office are `unsorted`,
   shown on the card with a link to set their team), `offeredAt` drops banks that don't hire there, and every number,
