@@ -12,8 +12,8 @@ export const SITE = {
    * listing is approved, then paste it here and the /extension page's buttons point to it.
    */
   extension: {
-    chromeUrl: "",
-    version: "1.0.0",
+    chromeUrl: "https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp",
+    version: "1.2.0",
   },
   /** Last time the privacy policy / terms were changed (shown on the pages). */
   legalUpdated: "October 24, 2026",

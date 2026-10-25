@@ -54,3 +54,54 @@ export function captureUrl(dashboard, capture, { auto = false } = {}) {
   const payload = encodeURIComponent(JSON.stringify({ v: 1, page: capture.page, people: capture.people, ...(auto ? { auto: true } : {}) }));
   return `${dashboard}${isProfile(capture.page) ? "/prep" : "/find"}#li=${payload}`;
 }
+
+/** A LinkedIn job page: /jobs/view/<id>, or a jobs search / collection with a job open (currentJobId). */
+export const isLinkedInJob = (url) => /^https:\/\/([a-z]+\.)?linkedin\.com\/jobs\/(view\/\d+|search|collections)/i.test(url ?? "") && (/\/jobs\/view\/\d+/.test(url) || /[?&]currentJobId=\d+/.test(url));
+
+/**
+ * Injected on a LinkedIn job page when you click "Track this job": reads the job you have open (title, company,
+ * location, description, and the bank's own apply link when LinkedIn shows one). Read-only, like captureLinkedIn.
+ */
+export function captureLinkedInJob() {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const id = (location.pathname.match(/\/jobs\/view\/(\d+)/) || location.search.match(/[?&]currentJobId=(\d+)/) || [])[1] || "";
+  const top =
+    document.querySelector(".job-details-jobs-unified-top-card__container--two-pane, .jobs-unified-top-card, .job-view-layout, [class*='top-card']") ||
+    document.querySelector("main") ||
+    document.body;
+  const title = clean((top.querySelector("h1, h2, [class*='job-title']") || {}).innerText);
+  const companyEl = top.querySelector("[class*='company-name'] a, [class*='company-name'], a[href*='/company/']");
+  const company = clean(companyEl && companyEl.innerText);
+  const location_ = clean((top.querySelector("[class*='primary-description'] span, [class*='tertiary-description'] span, [class*='bullet']") || {}).innerText);
+  const desc = document.querySelector("#job-details, .jobs-description__content, [class*='jobs-description'], [class*='description__text']");
+  // An external job's Apply button sometimes links through LinkedIn's redirect with the real address in ?url=.
+  let applyUrl = "";
+  for (const a of document.querySelectorAll("a[href*='externalApply'], a[href*='/redir/'], a[data-tracking-control-name*='apply']")) {
+    try {
+      const u = new URL(a.href, location.href);
+      const real = u.searchParams.get("url");
+      const target = real ? new URL(real) : u;
+      if (!/(^|\.)linkedin\.com$/i.test(target.hostname)) {
+        applyUrl = target.href;
+        break;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!id || (!title && !company)) return { error: "Open a job first (its title and company should be showing), then try again." };
+  return {
+    title: title.slice(0, 200),
+    company: company.slice(0, 120),
+    location: location_.slice(0, 120),
+    description: clean(desc && desc.innerText).slice(0, 6000),
+    url: `https://www.linkedin.com/jobs/view/${id}/`,
+    applyUrl: applyUrl.slice(0, 1000),
+    linkedinJobId: id,
+  };
+}
+
+/** Applications on your dashboard, with the job in the address fragment (never sent to a server). */
+export function jobCaptureUrl(dashboard, job) {
+  return `${dashboard}/applications#job=${encodeURIComponent(JSON.stringify(job))}`;
+}

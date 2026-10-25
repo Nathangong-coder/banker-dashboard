@@ -11,8 +11,34 @@ export const metadata: Metadata = {
 
 const PROBLEMS: [string, string[]][] = [
   [
-    "The popup says “Nothing to do on this page yet”",
-    ["It only works on LinkedIn profiles (linkedin.com/in/…) and People searches.", "If you're on one, reload the LinkedIn tab and click the icon again."],
+    "The popup says “Nothing to do on this page”",
+    ["It works on LinkedIn profiles, People searches and job pages, and on job application forms.", "If you're on one, reload the tab and click the icon again."],
+  ],
+  [
+    "Autofill says it can't reach Coverage",
+    [
+      "Autofill asks your open Coverage tab what goes in each field (your info lives there). Open your dashboard in a tab, then click Autofill again.",
+      "Check Options (right-click the icon → Options) points at the same address you use.",
+    ],
+  ],
+  [
+    "Autofill left some fields empty",
+    [
+      "Fields you haven't filled in on Applications → My info are left for you, and so are passwords, SSNs, consent boxes and salary, on purpose.",
+      "Open questions need an AI key (Settings → Data). The box on the page lists everything left and why.",
+    ],
+  ],
+  [
+    "“The form on this page comes from another site”",
+    ["The bank's careers page shows a form from Workday, Greenhouse or similar. Click “Allow Coverage on …” once, then click the icon and Autofill again, or open the form in its own tab."],
+  ],
+  [
+    "Workday: it filled one page and stopped",
+    [
+      "Click “Allow Coverage on myworkdayjobs.com” once; then “Fill the next pages too” presses Next for you.",
+      "It stops on purpose at a page with a required question it can't answer, at AI-drafted answers (read them, then Continue), and at the review page. It never submits.",
+      "Workday asks you to sign in or create an account for each company: that part is yours (Chrome's password manager can create and save the password).",
+    ],
   ],
   [
     "“No profiles on this page yet”",
@@ -38,7 +64,15 @@ const PROBLEMS: [string, string[]][] = [
   ],
 ];
 
-const CHANGES: [string, string, string][] = [["1.0.0", "October 2026", "First Chrome Web Store version: LinkedIn profile → Coffee chat prep, People search → Find people."]];
+const CHANGES: [string, string, string][] = [
+  [
+    "1.2.0",
+    "October 2026",
+    "Workday: picks from its dropdowns and suggestion boxes and, once you allow the site, presses Next page by page (never Submit). Forms embedded from Workday, Greenhouse and other application sites. “Track this job” on LinkedIn job pages.",
+  ],
+  ["1.1.0", "October 2026", "Job application autofill from Applications → My info, with your resume and AI drafts of open questions. One-click “Add to tracker + find email” on LinkedIn."],
+  ["1.0.0", "October 2026", "First Chrome Web Store version: LinkedIn profile → Coffee chat prep, People search → Find people."],
+];
 
 export default function ExtensionSupportPage() {
   return (

@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { FileText, FileUp, Plus, Trash2, Upload } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
-import { docxText } from "@/lib/docxText";
+import { documentText } from "@/lib/fileText";
 import type { WritingSample } from "@/lib/apply";
 import { fmtDate, uid } from "@/lib/util";
 import { Button, Card, CardHeader, Empty, Field, Input, Select, Textarea, toast } from "./ui";
@@ -20,14 +20,6 @@ const KINDS: { id: WritingSample["kind"]; label: string }[] = [
 ];
 const MAX_SAMPLE = 20_000;
 const MAX_SAMPLES = 20;
-
-async function readSample(f: File): Promise<string> {
-  const ext = f.name.toLowerCase().split(".").pop() ?? "";
-  if (ext === "docx") return docxText(await f.arrayBuffer());
-  if (ext === "pdf") throw new Error("PDFs can't be read here yet. Open it, copy the text, and paste it instead.");
-  if (!["txt", "md"].includes(ext)) throw new Error("Use a .docx, .txt or .md file, or paste the text.");
-  return f.text();
-}
 
 export function ApplyWriting() {
   const samples = useStore((s) => s.apply.samples);
@@ -48,7 +40,7 @@ export function ApplyWriting() {
   const onFiles = async (files: FileList | null) => {
     for (const f of [...(files ?? [])]) {
       try {
-        addSample(f.name.replace(/\.[^.]+$/, ""), /cover/i.test(f.name) ? "cover_letter" : /essay/i.test(f.name) ? "essay" : "other", await readSample(f));
+        addSample(f.name.replace(/\.[^.]+$/, ""), /cover/i.test(f.name) ? "cover_letter" : /essay/i.test(f.name) ? "essay" : "other", await documentText(f.name, await f.arrayBuffer()));
       } catch (e) {
         toast.err(`${f.name}: ${(e as Error).message}`);
       }
@@ -64,7 +56,7 @@ export function ApplyWriting() {
           sub="Cover letters, essays, past short answers: the AI copies your voice from these (only the first 8 are sent, ~6k characters each). Facts still come from My info and the answer library."
           right={
             <>
-              <input ref={fileRef} type="file" accept=".docx,.txt,.md" multiple hidden onChange={(e) => void onFiles(e.target.files)} />
+              <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.md" multiple hidden onChange={(e) => void onFiles(e.target.files)} />
               <Button size="sm" variant="secondary" icon={<FileUp className="size-3.5" />} onClick={() => fileRef.current?.click()}>
                 Upload
               </Button>

@@ -170,7 +170,9 @@ export default function PrivacyPage() {
         <b>Application autofill</b> (extension 1.1+): when you click <b>Autofill this page</b> on a job application, the extension reads that form&apos;s
         questions and the page&apos;s visible text, and passes them to your open {SITE.name} tab, which decides what goes in each field from the
         application info you saved and returns those values (and your resume file, for upload fields). The extension then types them into that
-        form. It never submits the form, clicks its buttons, or fills passwords, Social Security numbers, bank or card details. Until you submit,
+        form, picking the matching choice in dropdowns, and on multi-page forms pressing Next only when you ask it to go on. It never submits an
+        application or presses Submit / Apply / Sign, never reads your saved passwords, and never fills passwords, Social Security numbers, bank or card
+        details. Until you submit,
         nothing leaves your browser except the AI request described in section 4; when you submit, the employer receives your application under
         its own privacy policy. To talk to your dashboard tab, the extension runs a small script on {SITE.name}&apos;s own pages only. Details:{" "}
         <a href="/extension/privacy" className="text-navy underline">

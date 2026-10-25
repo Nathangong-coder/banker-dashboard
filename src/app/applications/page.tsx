@@ -1,11 +1,11 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BriefcaseBusiness, ChevronDown, ChevronRight, ExternalLink, Plus, Puzzle, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useExtension } from "@/lib/applyBridge";
-import { JOB_STATUSES, guessFromUrl, type JobApplication, type JobStatus } from "@/lib/apply";
+import { JOB_STATUSES, guessFromUrl, parseJobCapture, type JobApplication, type JobCapture, type JobStatus } from "@/lib/apply";
 import { canonBank } from "@/lib/banks";
 import { cn, fmtDate, relDays, uid } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Empty, Field, Input, Kpi, Menu, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
@@ -24,12 +24,50 @@ const OPEN: JobStatus[] = ["saved", "applying"];
 /** Only http(s) links are opened or linked (a "javascript:" link would run inside the dashboard). */
 const webLink = (url: string) => (/^https?:\/\//i.test(url.trim()) ? url.trim() : "");
 
+/** "Track this job" on a LinkedIn job page (extension): add it, or refresh the copy you already track. */
+function addCapturedJob(cap: JobCapture) {
+  const st = useStore.getState();
+  const same = st.apply.jobs.find(
+    (j) => (cap.linkedinJobId && j.linkedinJobId === cap.linkedinJobId) || (canonBank(j.company) === canonBank(cap.company) && j.role.toLowerCase() === cap.title.toLowerCase()),
+  );
+  if (same) {
+    st.setApply((a) => ({
+      ...a,
+      jobs: a.jobs.map((j) =>
+        j.id === same.id ? { ...j, linkedinJobId: j.linkedinJobId ?? cap.linkedinJobId, applyUrl: j.applyUrl ?? cap.applyUrl, description: cap.description || j.description, location: j.location ?? (cap.location || undefined) } : j,
+      ),
+    }));
+    return toast.info(`Already tracking ${same.company} · ${same.role || cap.title}. Updated its details.`);
+  }
+  const job: JobApplication = {
+    id: uid("job"),
+    company: cap.company || guessFromUrl(cap.applyUrl ?? "").company || "Unknown company",
+    role: cap.title,
+    url: cap.url,
+    applyUrl: cap.applyUrl,
+    linkedinJobId: cap.linkedinJobId,
+    description: cap.description || undefined,
+    location: cap.location || undefined,
+    status: "saved",
+    createdAt: new Date().toISOString(),
+  };
+  st.setApply((a) => ({ ...a, jobs: [job, ...a.jobs] }));
+  toast.ok(`Tracking ${job.company} · ${job.role}${job.applyUrl ? "" : ". Its application link appears once you autofill it on the bank's site."}`);
+}
+
 export default function ApplicationsPage() {
   const [tab, setTab] = useState<Tab>(() => {
     const t = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("tab");
     return TABS.some(([id]) => id === t) ? (t as Tab) : "jobs";
   });
   const version = useExtension((s) => s.version);
+  // A job sent from LinkedIn arrives in the address fragment (never sent to a server).
+  useEffect(() => {
+    if (!window.location.hash.startsWith("#job=")) return;
+    const cap = parseJobCapture(window.location.hash);
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    setTimeout(() => (cap ? addCapturedJob(cap) : toast.err("Couldn't read that job. Open it on LinkedIn and try again.")), 0);
+  }, []);
   const choose = (t: Tab) => {
     setTab(t);
     window.history.replaceState(null, "", t === "jobs" ? "/applications" : `/applications?tab=${t}`);
@@ -110,11 +148,13 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
   };
 
   const autofill = (j: JobApplication) => {
-    const url = webLink(j.url);
+    const url = webLink(j.applyUrl ?? "") || webLink(j.url);
     if (!url) return toast.err("Add the job's application link first (open the row to edit it).");
     setApply((a) => ({ ...a, activeJob: { id: j.id, at: new Date().toISOString() } }));
     window.open(url, "_blank", "noopener");
     if (!version) toast.info("Opened the job. Install the Coverage extension to fill it automatically.");
+    else if (/(^|\.)linkedin\.com\//i.test(url.replace(/^https?:\/\//, "")))
+      toast.info("Opened the LinkedIn listing. Click Apply there (not Easy Apply); on the bank's form, click the Coverage icon → Autofill this page.");
     else toast.info("Opened the job. On the application form, click the Coverage icon → Autofill this page. Keep this tab open.");
   };
 
@@ -242,9 +282,9 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                             {j.role && <span className="font-normal text-ink-2">· {j.role}</span>}
                           </button>
                           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 pl-5 text-[11.5px] text-muted">
-                            {webLink(j.url) ? (
-                              <a href={webLink(j.url)} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 hover:text-navy">
-                                {guessFromUrl(j.url).host} <ExternalLink className="size-3" />
+                            {webLink(j.applyUrl ?? "") || webLink(j.url) ? (
+                              <a href={webLink(j.applyUrl ?? "") || webLink(j.url)} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 hover:text-navy">
+                                {guessFromUrl(j.applyUrl || j.url).host} <ExternalLink className="size-3" />
                               </a>
                             ) : (
                               <span>no link</span>

@@ -41,6 +41,8 @@ const Body = z.object({
     degree: z.string().max(120),
     gradDate: z.string().max(20),
     background: z.string().max(12000),
+    /** The text of the resume being uploaded with this application. */
+    resume: z.string().max(15000).optional(),
     interests: z.string().max(4000),
     styleNotes: z.string().max(2000),
   }),
@@ -75,7 +77,7 @@ export async function POST(req: Request) {
         output: Output.object({ schema: Answers }),
         system:
           "You fill in the open questions of a job application for a college student applying to investment banking internships, in the student's own voice. " +
-          "FACTS: use only what is in THE STUDENT section (background, interests, answer library). Never invent employers, deals, numbers, grades, awards, " +
+          "FACTS: use only what is in THE STUDENT section (resume, background, interests, answer library). Never invent employers, deals, numbers, grades, awards, " +
           "names or experiences. If a question needs a fact you don't have, return an empty answer with needsYou true and say what's missing. " +
           "STYLE: match the writing samples and style notes (sentence length, tone, vocabulary). Plain text only, no markdown, no em dashes. " +
           "Respect each question's maxLength (characters) and any word limit written in the question. For a question with options, answer with exactly " +

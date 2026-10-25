@@ -7,6 +7,7 @@ import { callApi } from "./api";
 import { aiReady } from "./keys";
 import { knownJobSite, planFill, sameJobSite, type FillItem, type FormField, type JobApplication } from "./apply";
 import { toast } from "@/components/ui";
+import { documentText } from "./fileText";
 
 /**
  * The dashboard's half of the extension bridge (extension/content/dashboard.js is the other half).
@@ -24,6 +25,8 @@ const CHANNEL = "coverage-ext";
 const MAX_FIELDS = 250;
 /** "Autofill" on a job counts for the next fill on that site within this long. */
 const ACTIVE_FOR = 6 * 60 * 60 * 1000;
+/** …and for a fill on ANY site within this long (a LinkedIn listing sends you on to the bank's own site). */
+const JUST_CLICKED = 30 * 60 * 1000;
 
 export const useExtension = create<{ version?: string; setVersion: (v: string) => void }>((set) => ({
   setVersion: (version) => set({ version }),
@@ -36,7 +39,7 @@ const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max
 /** The scanned form is untrusted (it comes from a third-party page): rebuild it field by field, with caps. */
 function cleanFields(raw: unknown): FormField[] {
   if (!Array.isArray(raw)) return [];
-  const kinds = new Set(["text", "email", "tel", "url", "number", "date", "month", "textarea", "select", "radio", "checkbox", "checkboxes", "file"]);
+  const kinds = new Set(["text", "email", "tel", "url", "number", "date", "month", "textarea", "select", "radio", "checkbox", "checkboxes", "file", "listbox", "typeahead"]);
   return raw.slice(0, MAX_FIELDS).flatMap((f): FormField[] => {
     if (!f || typeof f !== "object") return [];
     const o = f as Record<string, unknown>;
@@ -69,17 +72,25 @@ function base64(buf: ArrayBuffer) {
   return btoa(s);
 }
 
-/** The job this page belongs to: the one you clicked Autofill on (same site, recent), else any job on that site. */
+/**
+ * The job this page belongs to: the one you clicked Autofill on (same site and recent, or any site within the last
+ * half hour: a LinkedIn listing hands you on to the bank's site), else any job on that site.
+ */
 function jobFor(url: string): JobApplication | undefined {
   const { jobs, activeJob } = useStore.getState().apply;
-  const active = activeJob && Date.now() - Date.parse(activeJob.at) < ACTIVE_FOR ? jobs.find((j) => j.id === activeJob.id) : undefined;
-  if (active && sameJobSite(active.url, url)) return active;
-  return jobs.find((j) => j.url && url.startsWith(j.url)) ?? jobs.find((j) => j.url && sameJobSite(j.url, url) && j.status !== "submitted");
+  const age = activeJob ? Date.now() - Date.parse(activeJob.at) : Infinity;
+  const active = age < ACTIVE_FOR ? jobs.find((j) => j.id === activeJob!.id) : undefined;
+  const onSite = (j: JobApplication) => [j.url, j.applyUrl].some((u) => !!u && sameJobSite(u, url));
+  if (active && (onSite(active) || age < JUST_CLICKED)) return active;
+  return jobs.find((j) => [j.url, j.applyUrl].some((u) => !!u && url.startsWith(u))) ?? jobs.find((j) => onSite(j) && j.status !== "submitted");
 }
 
 async function resumeFile(job?: JobApplication) {
   const r = (job?.resumeId && (await blobs.appResume(job.resumeId))) || (await blobs.resume());
-  return r ? { name: r.name, type: r.type || "application/pdf", base64: base64(r.data) } : undefined;
+  if (!r) return undefined;
+  // Its text is the AI's main source of facts for open questions (read here, in the browser; never stored).
+  const text = await documentText(r.name, r.data).catch(() => "");
+  return { name: r.name, type: r.type || "application/pdf", base64: base64(r.data), text: text.slice(0, 15000) };
 }
 
 export interface PlanResult {
@@ -106,7 +117,8 @@ async function plan(payload: unknown): Promise<PlanResult> {
   }
   const file = await resumeFile(job);
   const base = planFill(fields, st.apply.profile, { hasResume: !!file });
-  const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && file ? { ...it, fileData: file } : it));
+  const fileData = file && { name: file.name, type: file.type, base64: file.base64 };
+  const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && fileData ? { ...it, fileData } : it));
   const skipped = [...base.skipped];
   const result: PlanResult = { job: job && { id: job.id, company: job.company, role: job.role }, items, skipped, ai: { asked: base.ai.length } };
 
@@ -120,7 +132,7 @@ async function plan(payload: unknown): Promise<PlanResult> {
         const r = await callApi<{ answers: { id: string; answer: string; needsYou: boolean; note: string }[] }>(
           "/api/apply/answer",
           {
-            job: { company: job?.company ?? "", role: job?.role ?? str(p.title, 200), pageText: str(p.pageText, 8000) || undefined },
+            job: { company: job?.company ?? "", role: job?.role ?? str(p.title, 200), pageText: (str(p.pageText, 8000) || job?.description?.slice(0, 8000)) || undefined },
             questions: base.ai.map((f) => ({ id: f.id, label: f.label, kind: f.kind, options: f.options, maxLength: f.maxLength })),
             me: {
               name: [pr.firstName, pr.lastName].filter(Boolean).join(" ") || st.settings.profile.name,
@@ -129,6 +141,7 @@ async function plan(payload: unknown): Promise<PlanResult> {
               degree: pr.degree,
               gradDate: pr.gradDate,
               background: pr.background.slice(0, 12000),
+              resume: file?.text || undefined,
               interests: pr.interests.slice(0, 4000),
               styleNotes: pr.styleNotes.slice(0, 2000),
             },
@@ -159,7 +172,16 @@ async function plan(payload: unknown): Promise<PlanResult> {
     st.setApply((a) => ({
       ...a,
       jobs: a.jobs.map((j) =>
-        j.id === job.id ? { ...j, status: j.status === "saved" ? "applying" : j.status, lastFilledAt: at, answers: [...(j.answers ?? []), ...written].slice(-60) } : j,
+        j.id === job.id
+          ? {
+              ...j,
+              status: j.status === "saved" ? "applying" : j.status,
+              lastFilledAt: at,
+              answers: [...(j.answers ?? []), ...written].slice(-60),
+              // Remember where the form really is (the tracked link was a listing on another site).
+              applyUrl: j.applyUrl || (!sameJobSite(j.url, url) ? url : undefined),
+            }
+          : j,
       ),
     }));
   }

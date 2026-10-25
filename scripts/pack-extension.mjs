@@ -27,10 +27,15 @@ for (const size of [16, 32, 48, 128]) {
 
 const withAgent = process.argv.includes("--with-agent");
 const manifest = JSON.parse(fs.readFileSync(path.join(src, "manifest.json"), "utf8"));
+// The application sites autofill may be allowed on, one at a time (extension/sites/apply.js is the source).
+const APPLICATION_SITES = [...fs.readFileSync(path.join(src, "sites/apply.js"), "utf8").match(/export const APPLICATION_SITES = \[([\s\S]*?)\];/)[1].matchAll(/"([^"]+)"/g)].map((m) => `https://*.${m[1]}/*`);
 if (!withAgent) {
   manifest.permissions = manifest.permissions.filter((p) => p !== "sidePanel");
   delete manifest.side_panel;
-  delete manifest.optional_host_permissions;
+  // The agent's all-sites access stays out; the per-site application permissions stay in.
+  manifest.optional_host_permissions = (manifest.optional_host_permissions ?? []).filter((p) => p !== "<all_urls>");
+  // Local development addresses only matter for an unpacked copy.
+  for (const cs of manifest.content_scripts ?? []) cs.matches = cs.matches.filter((m) => !/^http:\/\/(localhost|127\.0\.0\.1)\//.test(m));
 }
 const problems = [];
 if (manifest.manifest_version !== 3) problems.push("manifest_version must be 3");
@@ -38,12 +43,15 @@ if (!/^\d+(\.\d+){0,3}$/.test(manifest.version)) problems.push(`version "${manif
 if ((manifest.description ?? "").length > 132) problems.push("description must be 132 characters or fewer (store limit)");
 if (manifest.host_permissions?.length) problems.push("host_permissions widen the store review; activeTab is enough so far");
 // The only content script is the dashboard bridge (content/dashboard.js): it must never run on any other site.
-const DASHBOARD_MATCHES = new Set(["https://banker-dashboard-three.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"]);
+const DASHBOARD_MATCHES = new Set(withAgent ? ["https://banker-dashboard-three.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"] : ["https://banker-dashboard-three.vercel.app/*"]);
 for (const cs of manifest.content_scripts ?? []) {
   for (const m of cs.matches ?? []) if (!DASHBOARD_MATCHES.has(m)) problems.push(`content script matches ${m}: only the dashboard's own addresses are allowed`);
   if (cs.js?.some((f) => f !== "content/dashboard.js")) problems.push("only content/dashboard.js may run as a content script");
 }
-if (!withAgent && (manifest.optional_host_permissions?.length || manifest.permissions.includes("sidePanel"))) problems.push("the store build must not ask for the agent's permissions");
+if (!withAgent && manifest.permissions.includes("sidePanel")) problems.push("the store build must not ask for the agent's permissions");
+for (const p of manifest.optional_host_permissions ?? [])
+  if (!APPLICATION_SITES.includes(p) && !(withAgent && p === "<all_urls>")) problems.push(`optional host permission ${p} isn't one of APPLICATION_SITES (extension/sites/apply.js)`);
+for (const p of APPLICATION_SITES) if (!manifest.optional_host_permissions?.includes(p)) problems.push(`APPLICATION_SITES has ${p} but the manifest doesn't ask for it`);
 if (problems.length) {
   console.error("Manifest problems:\n- " + problems.join("\n- "));
   process.exit(1);

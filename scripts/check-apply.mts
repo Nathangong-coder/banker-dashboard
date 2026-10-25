@@ -3,7 +3,7 @@
  * which are left for you. No browser, no network.
  *   npm run check:apply
  */
-import { EMPTY_PROFILE, planFill, pickOption, sameJobSite, guessFromUrl, knownJobSite, type ApplyProfile, type FormField } from "../src/lib/apply";
+import { EMPTY_PROFILE, planFill, pickOption, sameJobSite, guessFromUrl, knownJobSite, parseJobCapture, type ApplyProfile, type FormField } from "../src/lib/apply";
 
 let failed = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -111,6 +111,38 @@ eq("guess company from a Greenhouse link", guessFromUrl("https://boards.greenhou
 
 eq("known application systems", ["https://gs.wd1.myworkdayjobs.com/x", "https://boards.greenhouse.io/x", "https://jobs.lever.co/x"].map(knownJobSite), [true, true, true]);
 eq("lookalike hosts aren't known job sites", ["https://greenhouse.io.evil.com/", "https://mygreenhouse.io/", "https://example.com/apply"].map(knownJobSite), [false, false, false]);
+
+// Workday-style custom dropdowns (options read by opening them) and typeahead boxes.
+const wd = planFill(
+  [
+    f("w1", "listbox", "Are you legally authorized to work in the country in which the job is located?", { options: [{ value: "0", label: "Select One" }, { value: "1", label: "Yes" }, { value: "2", label: "No" }] }),
+    f("w2", "listbox", "Please select your veteran status", { options: [{ value: "0", label: "I am not a protected veteran" }, { value: "1", label: "I identify as one or more of the classifications of protected veteran" }, { value: "2", label: "I do not wish to self-identify" }] }),
+    f("w3", "typeahead", "School or University"),
+    f("w4", "typeahead", "Gender"),
+    f("w5", "listbox", "Gender"),
+    f("w6", "typeahead", "Which of our offices interests you most?"),
+  ],
+  me,
+  { hasResume: true },
+);
+const w = (id: string) => wd.items.find((x) => x.id === id);
+eq("custom dropdown: work authorization → Yes (by option text)", [w("w1")?.value, w("w1")?.optionLabel], ["1", "Yes"]);
+eq("custom dropdown: veteran", w("w2")?.optionLabel, "I am not a protected veteran");
+eq("typeahead school types your school", w("w3")?.value, "UCLA");
+eq("typeahead gender decline offers decline phrasings", w("w4")?.alts?.includes("Prefer not to say"), true);
+eq("a dropdown whose options couldn't be read is left for you", wd.skipped.some((x) => x.id === "w5"), true);
+eq("an unplaceable typeahead is left for you, not sent to the AI", [wd.skipped.some((x) => x.id === "w6"), wd.ai.length], [true, 0]);
+
+// "Track this job" from LinkedIn.
+const job = parseJobCapture(
+  "#job=" +
+    encodeURIComponent(
+      JSON.stringify({ title: "2027 IB Summer Analyst", company: "Example Partners", location: "New York, NY", description: "We are hiring.", url: "https://www.linkedin.com/jobs/view/4012345678/", applyUrl: "https://example.wd1.myworkdayjobs.com/x/job/123", linkedinJobId: "4012345678" }),
+    ),
+);
+eq("job capture parsed", [job?.company, job?.title, job?.linkedinJobId, !!job?.applyUrl], ["Example Partners", "2027 IB Summer Analyst", "4012345678", true]);
+eq("job capture: non-LinkedIn page refused", parseJobCapture("#job=" + encodeURIComponent(JSON.stringify({ title: "x", company: "y", url: "https://evil.example.com/" }))), null);
+eq("job capture: javascript: apply link dropped", parseJobCapture("#job=" + encodeURIComponent(JSON.stringify({ title: "x", company: "y", url: "https://www.linkedin.com/jobs/view/1/", applyUrl: "javascript:alert(1)" })))?.applyUrl, undefined);
 
 if (failed) {
   console.error(`\n${failed} check(s) failed`);

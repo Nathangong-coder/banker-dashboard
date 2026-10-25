@@ -195,7 +195,7 @@ export function ApplyInfo() {
             "Your background",
             8,
             "Internships and what you did on them (deals, models, sectors), clubs and roles, coursework, skills, anything you'd put on a resume, in your own words.",
-            "Paste your resume text here too: the AI can't read the PDF itself.",
+            "Your resume (Resumes tab) is read automatically each time; add what it doesn't say.",
           )}
           {area("interests", "Why banking, and what you want", 4, "Why IB, the groups and offices you want, firms you've talked to and what stood out.")}
           {area("styleNotes", "How you write", 3, "e.g. Short sentences, specific examples, no buzzwords, confident but not stiff.", "Your writing samples (Writing tab) show it; this says it.")}

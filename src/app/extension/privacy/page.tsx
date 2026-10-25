@@ -41,15 +41,21 @@ export default function ExtensionPrivacyPage() {
           </li>
           <li>On a LinkedIn People search: the names, headlines and profile addresses of the people listed on the page.</li>
           <li>
+            On a LinkedIn job page (&ldquo;Track this job&rdquo;): the job&apos;s title, company, location, description and, when LinkedIn shows it, the
+            employer&apos;s own application link.
+          </li>
+          <li>
             On a job application (&ldquo;Autofill this page&rdquo;): the form&apos;s questions (labels, field types and answer options, never the contents of
-            password fields) and the page&apos;s visible text, so the dashboard can tell what each field asks and what the job is.
+            password fields) and the page&apos;s visible text, so the dashboard can tell what each field asks and what the job is. To read the choices of a
+            custom dropdown it opens the dropdown and closes it again.
           </li>
         </ul>
         <p>
           That&apos;s website content you can already see. The extension doesn&apos;t read pages you haven&apos;t clicked it on, other tabs, your browsing history, passwords,
-          messages or anything else. On LinkedIn it never clicks, scrolls, types or loads pages for you. On a job application it only types into the form
-          fields it read (and ticks the answer you chose for multiple-choice questions); it never presses Submit or any other button, never fills
-          passwords, Social Security numbers, bank or card details, and you review the form before you submit it yourself.
+          messages, saved passwords or anything else. On LinkedIn it never clicks, scrolls, types or loads pages for you. On a job application it only
+          types into the form fields it read, picks the matching choice in dropdowns and suggestion lists, and, on Workday when you click &ldquo;Fill the
+          next pages too&rdquo;, presses the page&apos;s Next / Continue button. It never presses Submit, Apply, Sign or any similar button, never fills
+          passwords, Social Security numbers, bank or card details, and you review the application before you submit it yourself.
         </p>
 
         <H2>2. Where it goes</H2>
@@ -77,7 +83,7 @@ export default function ExtensionPrivacyPage() {
         <ul className="list-disc space-y-1 pl-6">
           <li>Sell or transfer your data to anyone, or use it for advertising, credit or lending decisions.</li>
           <li>Run on any site before you click it there (the only exception is the bridge script on {SITE.name}&apos;s own pages).</li>
-          <li>Submit an application, or click any button on a page, for you.</li>
+          <li>Submit an application for you, or press any button other than a multi-page form&apos;s Next / Continue (only when you ask it to go on).</li>
           <li>Load code from the internet: everything it runs ships inside the extension.</li>
           <li>Track you, or include analytics.</li>
         </ul>
@@ -101,8 +107,13 @@ export default function ExtensionPrivacyPage() {
             <b>storage</b>: saves your dashboard&apos;s address, and the last autofill summary for a tab until the browser closes.
           </li>
           <li>
-            <b>Access to {SITE.name}&apos;s own site</b> ({SITE.url}, and localhost for development): runs the bridge script that connects the extension to your
-            dashboard tab for autofill. It doesn&apos;t give access to any other site.
+            <b>Access to {SITE.name}&apos;s own site</b> ({SITE.url}): runs the bridge script that connects the extension to your dashboard tab for autofill. It
+            doesn&apos;t give access to any other site.
+          </li>
+          <li>
+            <b>Optional: application sites</b> (Workday, Greenhouse, Lever, iCIMS, Taleo, SuccessFactors and similar application systems): asked one site at a
+            time from the popup, only when you choose page-by-page filling or need to fill a form embedded from that site. Nothing is granted at install, and
+            you can remove a site at any time from the extension&apos;s details page.
           </li>
         </ul>
 

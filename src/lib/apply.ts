@@ -25,6 +25,12 @@ export interface JobApplication {
   company: string;
   role: string;
   url: string;
+  /** Where the application form actually is, when `url` is a listing (a LinkedIn job sends you to the bank's site). */
+  applyUrl?: string;
+  /** LinkedIn's job id, when the job came from "Track this job" (so it isn't added twice). */
+  linkedinJobId?: string;
+  /** The job description as captured (≤ 6,000 characters): what the job is, for AI answers. */
+  description?: string;
   location?: string;
   deadline?: string;
   status: JobStatus;
@@ -128,7 +134,12 @@ export const EMPTY_APPLY: ApplyState = { jobs: [], profile: EMPTY_PROFILE, sampl
 
 /* ---------------- the form, as the extension scanned it ---------------- */
 
-export type FieldKind = "text" | "email" | "tel" | "url" | "number" | "date" | "month" | "textarea" | "select" | "radio" | "checkbox" | "checkboxes" | "file";
+/**
+ * `listbox` = a custom dropdown (a button that opens a list: Workday's "Select One"), its options read by opening it.
+ * `typeahead` = a text box that only takes a value picked from the suggestions it shows (school, location…).
+ */
+export type FieldKind =
+  | "text" | "email" | "tel" | "url" | "number" | "date" | "month" | "textarea" | "select" | "radio" | "checkbox" | "checkboxes" | "file" | "listbox" | "typeahead";
 
 export interface FormField {
   id: string;
@@ -154,6 +165,10 @@ export interface FillItem {
   checked?: boolean;
   /** Which of your files goes into a file input. */
   file?: "resume";
+  /** For a custom dropdown: the option's text (its position can change when the list reopens). */
+  optionLabel?: string;
+  /** For a typeahead: other ways to say the answer, to match against the suggestions. */
+  alts?: string[];
   source: FillSource;
   label: string;
   /** Shown in the review list ("AI: check the facts"). */
@@ -337,6 +352,25 @@ function escape(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** What to type into a typeahead for a stored answer ("decline" → words most forms' decline option starts with). */
+function typeaheadText(want: string) {
+  return want === "yes" ? "Yes" : want === "no" ? "No" : want === "decline" ? "Decline" : want;
+}
+
+/** Other spellings to match a typeahead's suggestions against ("WA" → "Washington", decline phrasings…). */
+function typeaheadAlts(want: string, synonyms: RegExp[]): string[] {
+  const out = new Set<string>([typeaheadText(want)]);
+  if (want === "decline") ["Prefer not to say", "I don't wish to answer", "Do not wish to disclose", "Choose not to disclose"].forEach((x) => out.add(x));
+  const full = US_STATES[want.toUpperCase()];
+  if (full) out.add(full);
+  if (/^(us|usa|united states)$/i.test(want)) ["United States", "United States of America", "USA"].forEach((x) => out.add(x));
+  for (const re of synonyms) {
+    const plain = re.source.replace(/\\b|[\^$()?:]/g, "").split("|")[0];
+    if (/^[\w ,.'&-]{3,}$/.test(plain)) out.add(plain);
+  }
+  return [...out].slice(0, 8);
+}
+
 /** A sentence-style prompt ("Please state why…", "Describe…"), not a short fact field. */
 const ASKS = /^(why|how|what|describe|tell|explain|please|share|in \d+|briefly|list)\b/i;
 
@@ -390,10 +424,14 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
         skip(f, rule.why ?? (rule.sensitive ? "Not set in your info (Applications → My info), so it's left for you." : "Not in your info yet (Applications → My info)."));
         continue;
       }
-      if (f.options?.length && (f.kind === "select" || f.kind === "radio")) {
+      if (f.options?.length && (f.kind === "select" || f.kind === "radio" || f.kind === "listbox")) {
         const value = pickOption(f.options, want, rule.options?.(profile) ?? []);
         if (value === undefined) skip(f, `None of the options matched your answer ("${want}").`);
-        else items.push({ id: f.id, value, source: "profile", label: f.label });
+        else items.push({ id: f.id, value, source: "profile", label: f.label, optionLabel: f.options.find((o) => o.value === value)?.label });
+      } else if (f.kind === "listbox") {
+        skip(f, "A dropdown whose choices couldn't be read: pick it yourself.");
+      } else if (f.kind === "typeahead") {
+        items.push({ id: f.id, value: typeaheadText(want), alts: typeaheadAlts(want, rule.options?.(profile) ?? []), source: "profile", label: f.label });
       } else if (f.kind === "checkbox") {
         if (want === "yes" || want === "no") items.push({ id: f.id, checked: want === "yes", source: "profile", label: f.label });
         else skip(f, "A tick box for this: set it yourself.");
@@ -410,7 +448,8 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
       continue;
     }
 
-    if (isQuestion(f) || ((f.kind === "select" || f.kind === "radio") && f.options?.length)) ai.push(f);
+    if (isQuestion(f) || ((f.kind === "select" || f.kind === "radio" || f.kind === "listbox") && f.options?.length)) ai.push(f);
+    else if (f.kind === "typeahead") skip(f, "A pick-from-suggestions box this couldn't place: choose it yourself.");
     else skip(f, "Not sure what goes here: fill it yourself.");
   }
   return { items, ai, skipped };
@@ -459,4 +498,53 @@ export function knownJobSite(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** A job sent from LinkedIn by the extension's "Track this job" (`#job=` on /applications). Untrusted: rebuilt with caps. */
+export interface JobCapture {
+  title: string;
+  company: string;
+  location: string;
+  description: string;
+  /** The LinkedIn job page. */
+  url: string;
+  /** The bank's own application page, when LinkedIn shows it. */
+  applyUrl?: string;
+  linkedinJobId?: string;
+}
+
+const webUrl = (v: unknown) => {
+  if (typeof v !== "string") return "";
+  try {
+    const u = new URL(v);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href.slice(0, 1000) : "";
+  } catch {
+    return "";
+  }
+};
+
+export function parseJobCapture(hash: string): JobCapture | null {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(decodeURIComponent(hash.replace(/^#?job=/, "")));
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object") return null;
+  const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
+  const url = webUrl(raw.url);
+  const title = str(raw.title, 200);
+  const company = str(raw.company, 120);
+  if (!url || !/(^|\.)linkedin\.com$/i.test(new URL(url).hostname) || (!title && !company)) return null;
+  const applyUrl = webUrl(raw.applyUrl);
+  const id = str(raw.linkedinJobId, 30);
+  return {
+    title,
+    company,
+    location: str(raw.location, 120),
+    description: typeof raw.description === "string" ? raw.description.replace(/[ \t]+/g, " ").trim().slice(0, 6000) : "",
+    url,
+    applyUrl: applyUrl && !/(^|\.)linkedin\.com$/i.test(new URL(applyUrl).hostname) ? applyUrl : undefined,
+    linkedinJobId: /^\d+$/.test(id) ? id : undefined,
+  };
 }

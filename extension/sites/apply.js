@@ -1,14 +1,40 @@
-// Job application autofill: the two functions injected into the job page (with chrome.scripting.executeScript, only
-// after you click "Autofill this page" in the popup). Both must be self-contained: no imports, no outer variables.
+// Job application autofill: the functions injected into the job page (with chrome.scripting.executeScript, only
+// after you click "Autofill this page" in the popup, or while a multi-page fill you started is running on a site you
+// allowed). Each must be self-contained: no imports, no outer variables.
 //
-// scanForm reads the form (labels, types, options) and tags each field with data-coverage-field. It never reads
-// passwords. fillForm types the values the Coverage tab decided into those tagged fields only. Neither function
-// clicks a button, submits, or navigates: you review the form and press Submit yourself.
+// scanForm reads the form (labels, types, options; custom dropdowns are opened to read their choices, then closed)
+// and tags each field. fillForm types the values the Coverage tab decided into those tagged fields only, picking
+// dropdown / suggestion options by text. clickNext presses a page's Next / Continue button by fixed rules (never
+// anything that says submit, apply, sign…). No AI decides any click, and nothing here ever submits an application.
 
 /** Hosts autofill never runs on (LinkedIn automation breaks its User Agreement). */
 export const isBlockedSite = (url) => /^https:\/\/([a-z0-9-]+\.)*linkedin\.com\//i.test(url ?? "");
 
-export function scanForm() {
+/**
+ * Application systems the extension may be allowed on for multi-page fills and embedded forms (the optional host
+ * permissions in manifest.json; you grant one site at a time from the popup). Keep in step with the manifest.
+ */
+export const APPLICATION_SITES = [
+  "myworkdayjobs.com", "myworkdaysite.com", "workday.com", "greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com", "icims.com", "taleo.net",
+  "oraclecloud.com", "successfactors.com", "successfactors.eu", "jobvite.com", "brassring.com", "eightfold.ai", "avature.net", "workable.com",
+];
+
+/** The permission pattern for a page on one of APPLICATION_SITES ("https://*.myworkdayjobs.com/*"), or null. */
+export function sitePattern(url) {
+  try {
+    const host = new URL(url).hostname;
+    const site = APPLICATION_SITES.find((s) => host === s || host.endsWith(`.${s}`));
+    return site ? `https://*.${site}/*` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Workday walks you through several pages (My Information → Experience → Questions → Disclosures → Review). */
+export const isMultiPageSite = (url) => /^https:\/\/([a-z0-9-]+\.)*(myworkdayjobs|myworkdaysite|workday)\.com\//i.test(url ?? "");
+
+export async function scanForm() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clean = (s) => (s || "").replace(/\s+/g, " ").replace(/\s*\*\s*$/, "").trim().slice(0, 600);
   const shown = (el) => {
     if (!el || !el.getBoundingClientRect) return false;
@@ -58,7 +84,7 @@ export function scanForm() {
         if (t) return t;
       }
       for (const lab of node.querySelectorAll("label, legend, [class*='label' i], [data-automation-id*='label' i], [class*='question' i]")) {
-        if (lab.contains(el) || (stopAt && lab.contains(stopAt)) || lab.querySelector("input,select,textarea")) continue;
+        if (lab.contains(el) || (stopAt && lab.contains(stopAt)) || lab.querySelector("input,select,textarea,button")) continue;
         if (lab.htmlFor && document.getElementById(lab.htmlFor) && document.getElementById(lab.htmlFor) !== el) continue;
         const t = clean(lab.innerText);
         if (t) return t;
@@ -66,6 +92,8 @@ export function scanForm() {
     }
     return "";
   };
+  const visibleOptions = () => [...document.querySelectorAll('[role="option"]')].filter(shown);
+  const placeholderish = (t) => !t || /^(select|select one|choose|choose one|please select|--|—|-)\b/i.test(t);
 
   const fields = [];
   let n = 0;
@@ -78,8 +106,6 @@ export function scanForm() {
     if (el.disabled || el.readOnly) continue;
     const type = (el.getAttribute("type") || (el.tagName === "SELECT" ? "select" : el.tagName === "TEXTAREA" ? "textarea" : "text")).toLowerCase();
     if (skipKinds.has(type) || el.autocomplete === "current-password" || el.autocomplete === "new-password") continue;
-    // Typeahead dropdowns (react-select, Workday) don't take typed values reliably: left for you, counted below.
-    if (el.getAttribute("role") === "combobox" && el.tagName === "INPUT") continue;
 
     if (type === "radio" || type === "checkbox") {
       const name = el.name || "";
@@ -89,8 +115,7 @@ export function scanForm() {
       const key = `${type}:${el.form ? [...document.forms].indexOf(el.form) : -1}:${name || `solo${n}`}`;
       let g = groups.get(key);
       if (!g) {
-        const id = `cf${n++}`;
-        g = { id, type, els: [], labels: [] };
+        g = { id: `cf${n++}`, type, els: [], labels: [] };
         groups.set(key, g);
       }
       el.setAttribute("data-coverage-option", String(g.els.length));
@@ -105,6 +130,13 @@ export function scanForm() {
     const label = ownLabel(el) || containerLabel(el) || clean(el.getAttribute("placeholder") || el.getAttribute("name") || "");
     const id = `cf${n++}`;
     tag(el, id);
+    // A text box that only takes a picked suggestion (react-select, Workday search boxes).
+    if (el.tagName === "INPUT" && el.getAttribute("role") === "combobox") {
+      const box = el.closest("[class*='container' i], [data-automation-id], div");
+      const picked = box?.querySelector("[class*='singleValue' i], [data-automation-id='selectedItem'], [class*='selected' i]");
+      fields.push({ id, kind: "typeahead", label, required: el.required || el.getAttribute("aria-required") === "true", filled: !!clean(picked?.innerText) || !!el.value.trim() });
+      continue;
+    }
     const kind = el.tagName === "SELECT" ? "select" : el.tagName === "TEXTAREA" ? "textarea" : ["email", "tel", "url", "number", "date", "month", "file"].includes(type) ? type : "text";
     const field = {
       id,
@@ -137,6 +169,31 @@ export function scanForm() {
     });
   }
 
+  // Custom dropdowns (a button that opens a list). Open each to read its choices, then close it again.
+  const buttons = [...document.querySelectorAll('button[aria-haspopup="listbox"], [role="button"][aria-haspopup="listbox"], [role="combobox"]:not(input):not(select)')].filter(shown).slice(0, 40);
+  for (const b of buttons) {
+    if (b.hasAttribute("data-coverage-field") || b.querySelector("[data-coverage-field]")) continue;
+    const label = ownLabel(b) || containerLabel(b);
+    const current = clean(b.innerText || b.getAttribute("value") || "");
+    const id = `cf${n++}`;
+    tag(b, id);
+    const field = { id, kind: "listbox", label, required: b.getAttribute("aria-required") === "true" || /\*\s*$/.test(label), filled: !placeholderish(current) };
+    if (!field.filled) {
+      b.click();
+      let opts = [];
+      for (let i = 0; i < 12 && !opts.length; i++) {
+        await sleep(100);
+        opts = visibleOptions();
+      }
+      field.options = opts.slice(0, 200).map((o, i) => ({ value: String(i), label: clean(o.innerText) })).filter((o) => o.label);
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await sleep(60);
+      if (b.getAttribute("aria-expanded") === "true") b.click();
+      await sleep(60);
+    }
+    fields.push(field);
+  }
+
   const frames = [...document.querySelectorAll("iframe")]
     .filter((f) => {
       try {
@@ -147,25 +204,59 @@ export function scanForm() {
       }
     })
     .map((f) => new URL(f.src, location.href).href.slice(0, 500));
-  const combos = document.querySelectorAll('[role="combobox"]').length;
   const main = document.querySelector("main") || document.body;
-  return { fields, frames, combos, text: (main.innerText || "").replace(/\s+/g, " ").slice(0, 6000), url: location.href, title: document.title.slice(0, 200) };
+  return { fields, frames, text: (main.innerText || "").replace(/\s+/g, " ").slice(0, 6000), url: location.href, title: document.title.slice(0, 200) };
 }
 
 /**
  * Types the planned values into the tagged fields, highlights them (green = your info, amber = AI draft) and shows a
  * small review box in the corner. `items` come from the Coverage tab; anything that doesn't match a tagged field of
- * the right kind is ignored.
+ * the right kind is ignored. Dropdowns and suggestion boxes are opened and the matching option clicked.
  */
-export function fillForm(items, review) {
+export async function fillForm(items, review) {
   const NEVER = /\b(password|passcode|ssn|social security|social insurance|national insurance|tax id|taxpayer|itin|bank account|routing|account number|iban|swift|credit card|card number|cvv|cvc|security code|driver'?s? licen[cs]e|passport number|mother'?s maiden|date of birth|birth ?date|dob)\b/i;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const norm = (s) => (s || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  const STOP = new Set(["of", "the", "and", "at", "in", "for"]);
+  // How well a suggestion matches an answer: exact > prefix > the answer as initials (UCLA) > shared words.
+  const score = (option, want) => {
+    const o = norm(option);
+    const w = norm(want);
+    if (!o || !w) return 0;
+    if (o === w) return 1;
+    if (o.startsWith(w) || w.startsWith(o)) return 0.9;
+    const initials = o.split(" ").filter((x) => !STOP.has(x)).map((x) => x[0]).join("");
+    if (w.length >= 2 && !w.includes(" ") && initials === w) return 0.85;
+    const ow = new Set(o.split(" ").filter((x) => x.length > 1));
+    const ww = w.split(" ").filter((x) => x.length > 1);
+    if (!ww.length) return 0;
+    return (ww.filter((x) => ow.has(x)).length / ww.length) * 0.8;
+  };
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
+  };
+  const visibleOptions = () => [...document.querySelectorAll('[role="option"]')].filter(shown);
+  const pressOption = (opt) => {
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) opt.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    opt.click();
+  };
+  const best = (opts, wants) => {
+    let top = null;
+    for (const o of opts)
+      for (const w of wants) {
+        const s = score(o.innerText, w);
+        if (!top || s > top.s) top = { o, s };
+      }
+    return top && top.s >= 0.5 ? top.o : null;
+  };
   const setNative = (el, v) => {
     const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, v);
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
-    el.dispatchEvent(new Event("blur", { bubbles: true }));
   };
+  const escape = () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   const mark = (el, source) => {
     const target = el.type === "radio" || el.type === "checkbox" ? el.closest("label") || el : el;
     if (!target.dataset.coverageOutline) target.dataset.coverageOutline = target.style.outline || "none";
@@ -201,6 +292,7 @@ export function fillForm(items, review) {
         const opt = el.options[Number(it.value)];
         if (!opt) throw new Error("Option not found.");
         setNative(el, opt.value);
+        el.dispatchEvent(new Event("blur", { bubbles: true }));
         mark(el, it.source);
       } else if (el.type === "radio" || el.type === "checkbox") {
         const target = it.value !== undefined && it.value !== null ? els.find((x) => x.dataset.coverageOption === String(it.value)) : el;
@@ -209,12 +301,51 @@ export function fillForm(items, review) {
         // A click on a radio / checkbox only ticks it (never submits); frameworks listen for the click.
         if (target.checked !== want) target.click();
         mark(target, it.source);
+      } else if (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA" && (el.getAttribute("aria-haspopup") === "listbox" || el.getAttribute("role") === "combobox")) {
+        // Custom dropdown: open it, click the option with the planned text.
+        el.click();
+        let opts = [];
+        for (let i = 0; i < 15 && !opts.length; i++) {
+          await sleep(100);
+          opts = visibleOptions();
+        }
+        const wants = [it.optionLabel, it.value].filter((x) => typeof x === "string" && x && !/^\d+$/.test(x));
+        const opt = (it.optionLabel && opts.find((o) => norm(o.innerText) === norm(it.optionLabel))) || best(opts, wants);
+        if (!opt) {
+          escape();
+          throw new Error("Couldn't find that choice: pick it yourself.");
+        }
+        pressOption(opt);
+        await sleep(150);
+        mark(el, it.source);
+      } else if (el.tagName === "INPUT" && el.getAttribute("role") === "combobox") {
+        // Suggestion box: type, wait for the list, click the best match (or clear it again).
+        if (typeof it.value !== "string" || !it.value) continue;
+        el.focus();
+        el.click();
+        setNative(el, it.value);
+        let opts = [];
+        for (let i = 0; i < 25; i++) {
+          await sleep(100);
+          opts = visibleOptions();
+          if (opts.length && !opts.every((o) => /loading|searching|no (results|options)/i.test(o.innerText))) break;
+        }
+        const opt = best(opts, [it.value, ...(Array.isArray(it.alts) ? it.alts : [])]);
+        if (!opt) {
+          setNative(el, "");
+          escape();
+          throw new Error("None of its suggestions matched: pick it yourself.");
+        }
+        pressOption(opt);
+        await sleep(150);
+        mark(el, it.source);
       } else if (typeof it.value === "string") {
         if (el.value && el.value.trim()) {
           failed.push({ label: it.label, why: "Already had something in it: left as is." });
           continue;
         }
         setNative(el, el.maxLength > 0 ? it.value.slice(0, el.maxLength) : it.value);
+        el.dispatchEvent(new Event("blur", { bubbles: true }));
         mark(el, it.source);
       } else continue;
       done.push(it.label);
@@ -246,7 +377,6 @@ export function fillForm(items, review) {
     line(`Needs you (${left.length})`, "font-weight:600;margin-top:4px;");
     for (const s of left) line(`• ${s.label || "Unlabelled field"}: ${s.why}`, "color:#5d6b7a;font-size:12px;");
   }
-  if (review?.combos) line(`${review.combos} typeahead dropdown${review.combos === 1 ? "" : "s"} on this page: pick those yourself.`, "color:#5d6b7a;font-size:12px;margin-top:4px;");
   const close = document.createElement("button");
   close.textContent = "Done reviewing";
   close.style.cssText = "margin-top:10px;border:1px solid #dfe4ea;background:#f4f6f8;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;";
@@ -261,4 +391,59 @@ export function fillForm(items, review) {
   root.append(box);
   document.body.append(host);
   return { filled: done.length, failed };
+}
+
+/**
+ * Where a multi-page form stands: a signature that changes when the next page loads, whether it's the final
+ * review / submit page, and any error messages the site shows (a Next that didn't go through).
+ */
+export function pageState() {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
+  };
+  const heading = [...document.querySelectorAll("h1, h2, h3, [data-automation-id*='pageHeader' i], [aria-current='step']")]
+    .filter(shown)
+    .map((h) => clean(h.innerText))
+    .join(" | ")
+    .slice(0, 300);
+  const inputs = [...document.querySelectorAll("input, select, textarea, button[aria-haspopup='listbox']")].filter(shown).length;
+  const buttons = [...document.querySelectorAll("button, [role='button'], input[type='submit']")].filter(shown).map((b) => clean(b.innerText || b.value || ""));
+  const errors = [...document.querySelectorAll("[role='alert'], [aria-invalid='true'], [data-automation-id*='error' i]")]
+    .filter(shown)
+    .map((e) => clean(e.innerText || e.getAttribute("aria-label") || ""))
+    .filter(Boolean)
+    .slice(0, 5);
+  const busy = !!document.querySelector("[aria-busy='true'], [data-automation-id*='loading' i]");
+  // The last step: a "Review" heading, or a Submit button with no way forward left.
+  const hasNext = buttons.some((t) => /^(next|continue|save and continue|save & continue|save and next|next step|proceed)$/i.test(t));
+  const review = /\breview\b/i.test(heading) || (buttons.some((t) => /^submit\b/i.test(t)) && !hasNext);
+  return { sig: `${location.pathname}|${heading}|${inputs}`, review, errors, busy };
+}
+
+/**
+ * Presses the page's Next / Continue button. Fixed rules, no AI: the button's text must be one of a few forward
+ * words, and anything that could submit, apply, sign or remove is refused. Workday's own next button is preferred.
+ */
+export function clickNext() {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const DENY = /submit|apply|sign|withdraw|delete|remove|cancel|decline|back|previous|finish|send|accept|agree|pay|purchase|log ?out/i;
+  const ALLOW = /^(next|continue|save and continue|save & continue|save and next|next step|proceed)$/i;
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden" && !el.disabled && el.getAttribute("aria-disabled") !== "true";
+  };
+  const text = (el) => clean(el.innerText || el.value || el.getAttribute("aria-label") || "");
+  const workday = [...document.querySelectorAll('[data-automation-id="bottom-navigation-next-button"], [data-automation-id="pageFooterNextButton"]')].find(shown);
+  let pick = workday && !DENY.test(text(workday)) ? workday : null;
+  if (!pick) {
+    const ok = [...document.querySelectorAll("button, [role='button'], input[type='button'], input[type='submit']")].filter((b) => shown(b) && ALLOW.test(text(b)) && !DENY.test(text(b)));
+    if (ok.length !== 1) return { clicked: false, why: ok.length ? "More than one Next button: go on yourself." : "No Next button on this page." };
+    pick = ok[0];
+  }
+  const label = text(pick);
+  if (DENY.test(label)) return { clicked: false, why: `Won't press "${label}".` };
+  pick.click();
+  return { clicked: true, label };
 }

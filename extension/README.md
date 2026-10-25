@@ -21,8 +21,16 @@ are what the browser runs. Built one part at a time (owner, 2026-10-21):
      answers must match a scanned question id and, for choices, one of its options (checked on the server and in the
      worker); a site that's neither a tracked job nor a known application system needs a second click; LinkedIn is
      refused; the page itself can't message the extension; a redirect while the AI writes aborts the fill.
-   - Multi-page forms (Workday): click Autofill again on each page. Typeahead dropdowns (react-select / Workday) and
-     forms inside another site's iframe are left for you (the popup links the iframe so you can open it directly).
+   - 1.2: custom dropdowns (opened to read their choices, then closed) and typeahead boxes (type, wait for the
+     suggestions, click the best match: exact > prefix > initials like UCLA > shared words) are filled. On Workday,
+     after "Allow Coverage on myworkdayjobs.com" (optional host permission, one site at a time; Chrome usually closes
+     the popup while asking, so click the icon again), "Fill the next pages too" presses Next by fixed rules
+     (`clickNext`: forward words only, anything like submit / apply / sign / withdraw refused, Workday's own next
+     button preferred) and stops at a required question it can't answer, at AI drafts, at an error the site shows,
+     at the review page, or after 10 pages. Forms embedded from an allowed application site are scanned with
+     `allFrames`; others get an "Open the form in its own tab" button.
+   - LinkedIn job pages: "Track this job" (`captureLinkedInJob`, read-only) → `/applications#job=` → a tracked job with
+     the description (for AI answers) and the employer's apply link when LinkedIn shows it.
    - Tested end to end in headless Edge with the unpacked extension against a mock form with traps (hidden fields,
      SSN, password, certification box, prompt-injection text): see the 2026-10-24 notes in CLAUDE.md.
 
@@ -65,28 +73,47 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
 
 ## Publish: Chrome Web Store
 
+Listing: https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp (item id `hjmfcaldipgcjffmcemcljllmlpjlnlp`,
+in `src/lib/site.ts` → `SITE.extension.chromeUrl`).
+
+### Updating the listing (1.2.0)
+
+1. `npm run pack:extension` → `dist/coverage-extension-1.2.0.zip` (store build: no agent, no localhost, only the
+   dashboard bridge + the optional application sites). Developer Dashboard → the item → **Package** → Upload new
+   package. If an older version is still in review, cancel that review first.
+2. **Store listing**: replace the description with the one below; add a screenshot of autofill if you have one
+   (`npm run assets:extension` makes the 1280×800 one from /extension).
+3. **Privacy practices** (answers to paste):
+   - **Single purpose:** "Coverage is a recruiting assistant for the user's own Coverage dashboard: it saves the
+     LinkedIn profile, search or job the user is viewing to their dashboard, and fills job application forms from
+     the information the user saved there. The user reviews and submits every application."
+   - **activeTab:** "Reads the current tab only after the user clicks the toolbar button: the LinkedIn page they're
+     viewing, or the job application form they want filled."
+   - **scripting:** "Runs the functions that read the page the user clicked on, and type the user's saved answers into
+     that application form (it never submits it)."
+   - **storage:** "Saves the user's dashboard address, and the last autofill summary for a tab until the browser closes."
+   - **Host permission (banker-dashboard-three.vercel.app):** "A content script on the extension's own web app only. It
+     relays autofill requests between the extension and the user's open dashboard tab, where their application
+     information is stored. It runs on no other site."
+   - **Optional host permissions (application sites):** "Requested one site at a time, only when the user clicks
+     'Allow Coverage on …' in the popup: needed to keep filling a multi-page application (Workday) after the page
+     changes, and to fill a form embedded from that application system on an employer's careers page."
+   - **Remote code:** No.
+   - **Data usage** (tick): Personally identifiable information (name, email, address, phone typed into forms),
+     Location (home address), Health information (only a disability-status answer, if the user saves one), Website
+     content (the page / form the user clicks on). Certify: not sold, not used for unrelated purposes, not used for
+     credit. The data goes only between the user's browser tab, their own dashboard, and the employer's form they fill.
+   - **Privacy policy:** `https://banker-dashboard-three.vercel.app/extension/privacy`.
+4. **Submit for review.** Expect a closer look than 1.0 (new host permission and optional site permissions). Existing
+   users get a prompt to accept the new site access before 1.2 turns on.
+
+### First publish (done for 1.0.0; kept for reference)
+
 1. **Developer account**: https://chrome.google.com/webstore/devconsole, sign in with the Google account that will own it,
-   pay the one-time registration fee ($5 when this was written) and turn on 2-step verification.
-2. **New item** → upload `dist/coverage-extension-<version>.zip`.
-3. **Store listing**: description (below), category Productivity → Workflow & Planning, language, at least one
-   screenshot (1280×800 or 640×400), the 128 px icon (already in the zip) and a small promo tile (440×280).
-4. **Privacy practices** tab (the part reviewers read most closely):
-   - Single purpose: "Sends the LinkedIn page you're viewing to your own Coverage dashboard for IB networking."
-   - `activeTab`: "Reads the current LinkedIn page only when the user clicks the toolbar button."
-   - `scripting`: "Injects the read-only function that collects the visible profile text from the current tab."
-   - `storage`: "Saves the user's dashboard address."
-   - Remote code: **No** (all code ships in the package).
-   - Data usage: check **Website content**. It's used only for the extension's single purpose, not sold, not used for
-     ads or credit. Tick the three certifications.
-   - Privacy policy URL: `https://banker-dashboard-three.vercel.app/extension/privacy` (the extension's own policy;
-     the main `/privacy` §7 links to it).
-   - Homepage URL `…/extension`, support URL `…/extension/support` (Store listing tab).
-7. **After approval:** paste the listing URL into `src/lib/site.ts` → `SITE.extension.chromeUrl`; the /extension page's
-   buttons switch from "Install it now" (load unpacked) to "Add to Chrome".
-5. **Distribution**: *Unlisted* (only people with the link can install it, good for you plus a few testers),
-   *Private* (specific emails / a Google Group), or *Public*.
-6. **Submit for review**. Small, narrow-permission extensions are usually reviewed in a few days. Updates: bump the version,
-   upload the new zip, submit again.
+   pay the one-time registration fee and turn on 2-step verification.
+2. **New item** → upload the zip. 3. **Store listing**: description, category Productivity → Workflow & Planning,
+   screenshot (1280×800), the 128 px icon (in the zip) and a promo tile (440×280). 4. **Privacy practices** as above.
+5. **Distribution**: Unlisted, Private or Public. 6. **Submit for review**; updates = bump the version, upload, submit.
 
 ## Publish: Microsoft Edge Add-ons
 
@@ -94,13 +121,20 @@ Edge can install straight from the Chrome Web Store (users click "Allow extensio
 To list it in Edge's own store:
 
 1. Register at **Partner Center** (https://partner.microsoft.com/dashboard/microsoftedge), free.
-2. **Create new extension** → upload the same zip.
+2. **Create new extension** (or, once listed, **Update**) → upload the same zip.
 3. Fill in availability, properties (category, privacy policy URL), store listing (description, screenshots, logo) and
    submit. Review typically takes up to about a week.
 
 ## Store description (paste-ready)
 
-> Coverage helps students running investment banking networking outreach. On a LinkedIn profile or People search
-> you're viewing, click the Coverage button to send it to your Coverage dashboard: add the banker to your tracker or
-> open Coffee chat prep for them. The extension reads the page only when you click, never runs in the background,
-> and sends nothing to any server: the text goes straight to your own dashboard in a new tab.
+> Coverage is the recruiting assistant for your Coverage dashboard (built for investment banking networking).
+>
+> • On LinkedIn: one click adds the banker whose profile you're viewing to your tracker and looks up their email; on a
+>   People search it adds the matches; on a job page it saves the job to your Applications.
+> • On job applications: fills the form from the information you saved in Coverage (contact details, education, work
+>   authorization, optional self-identification answers), uploads your resume, and drafts open questions in your own
+>   voice from your writing samples. On Workday it picks from dropdowns and, if you allow the site, goes page by page.
+>
+> You stay in control: it reads a page only when you click, never submits an application or presses Submit, never
+> touches passwords, SSNs or payment details, and sends nothing to any server of ours. Your information stays in your
+> own dashboard.

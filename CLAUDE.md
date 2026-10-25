@@ -509,6 +509,35 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   127.0.0.1: profile auto-add + re-send merges, search without AI falls back. **Not yet run:** the AI answer path
   with a real key, a real Workday / Greenhouse form, the popup's own buttons (can't be clicked headless).
 
+## Autofill 1.2: Workday, embedded forms, LinkedIn jobs, PDFs (owner, 2026-10-24)
+
+- **Chrome Web Store listing:** `hjmfcaldipgcjffmcemcljllmlpjlnlp` (`SITE.extension.chromeUrl`). 1.2.0 = the update to
+  upload; paste-ready review answers (single purpose, every permission, data categories) in extension/README.md.
+- **Widgets:** FieldKind `listbox` (button + list; options read by opening/closing it during scan; filled by clicking
+  the option with the planned text, `FillItem.optionLabel`) and `typeahead` (`input[role=combobox]`; profile rules
+  only, never the AI; `alts` = other spellings; the page picks the best suggestion or clears it).
+- **Multi-page (Workday only, `isMultiPageSite`):** needs the site's optional host permission (`APPLICATION_SITES` in
+  extension/sites/apply.js is the source; pack-extension checks the manifest matches it). `background.js#continuePages`
+  → `pageState` / `clickNext` (fixed allow/deny words, no AI) → `fillPage` per page; stops at required-but-unanswered,
+  AI drafts, site errors, the review page (Review heading, or Submit with no Next), 10 pages. Never submits.
+- **Embedded forms:** `scanBest` = executeScript `allFrames` (frames of allowed sites), best frame by field count;
+  no access → `FRAME:<url>` → popup offers "Allow Coverage on …" (if an application site) / open it in its own tab.
+- **LinkedIn jobs:** popup on `/jobs/view/<id>` or `?currentJobId=` → `captureLinkedInJob` → `/applications#job=` →
+  `apply.ts#parseJobCapture` (LinkedIn URL required, http(s) apply link only) → job with `linkedinJobId`,
+  `description` (used as the AI's job text) and `applyUrl`. `applyBridge#jobFor` also files a fill under the job you
+  clicked Autofill on within 30 min even on another site (LinkedIn → bank's site) and records `applyUrl`.
+- **Documents:** `lib/fileText.ts#documentText` (pdf.js 6.4.299 + worker via `new URL(…, import.meta.url)`, .docx,
+  .txt, .md). Writing samples accept PDFs; the resume being uploaded is read at fill time and sent to the AI as
+  `me.resume` (facts), never stored.
+- **Accounts / passwords:** the extension never creates accounts or reads / types passwords (Chrome has no API for
+  saved passwords; Chrome's password manager fills and generates them). Owner asked 2026-10-24; this is the answer.
+- **Tested 2026-10-24** (headless Edge harness, 43 checks): everything from 1.1 plus a Workday-like page (two custom
+  dropdowns read + picked, "UCLA" typeahead → University of California, Los Angeles, decoy Submit never clicked,
+  Next pressed by rule, review page detected, nothing pressed there), a generated PDF writing sample read in the
+  production build, and a LinkedIn job capture. **Not run:** `continuePages` / `scanBest` through the worker (the
+  harness calls the page functions directly; the popup's permission prompts can't be clicked headless), real Workday,
+  AI answers with a real key.
+
 ## Reply / thank-you / referral tracking (owner, 2026-10-22)
 
 - **Why:** thank-yous showed as "not sent" because only the browser read Gmail (open tab + token), and runs missed
