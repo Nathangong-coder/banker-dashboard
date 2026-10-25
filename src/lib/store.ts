@@ -666,7 +666,10 @@ export async function switchNamespace(ns: StoreNamespace, seed?: Partial<State>)
 /** The persisted part of the state right now (what goes to IndexedDB, and to the account via lib/sync.ts). */
 export function persistedState(): Record<string, unknown> {
   const p = useStore.persist.getOptions().partialize;
-  return (p ? p(useStore.getState()) : useStore.getState()) as unknown as Record<string, unknown>;
+  const all = (p ? p(useStore.getState()) : useStore.getState()) as unknown as Record<string, unknown>;
+  // Data only: the actions (setLastGmailSync…) are in the state too, and a sync pull resets every key it lists that the
+  // account lacks, which wiped them ("setLastGmailSync is not a function").
+  return Object.fromEntries(Object.entries(all).filter(([, v]) => typeof v !== "function"));
 }
 
 /** Bring data saved by an older version (another browser's copy in the account) up to date, like a reload would. */

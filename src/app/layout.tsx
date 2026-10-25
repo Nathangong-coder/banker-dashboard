@@ -20,6 +20,9 @@ export const metadata: Metadata = {
   openGraph: { type: "website", siteName: SITE.name, title: `${SITE.name}: ${SITE.tagline}`, description: SITE.description, url: "/" },
   twitter: { card: "summary_large_image", title: `${SITE.name}: ${SITE.tagline}`, description: SITE.description },
   manifest: "/manifest.webmanifest",
+  // Google Search Console ownership (the OAuth consent screen's home page must be a site you verified): the tag's
+  // content value, set as GOOGLE_SITE_VERIFICATION in Vercel.
+  ...(process.env.GOOGLE_SITE_VERIFICATION ? { verification: { google: process.env.GOOGLE_SITE_VERIFICATION } } : {}),
 };
 
 export const viewport: Viewport = { themeColor: "#0e1a2b", width: "device-width", initialScale: 1 };
