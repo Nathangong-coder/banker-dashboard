@@ -8,6 +8,8 @@
  * address, phone or visa details. The extension then types the values in, never clicks submit, and you review.
  */
 
+import type { Board, FoundJob } from "./jobFinder";
+
 export type JobStatus = "saved" | "applying" | "submitted" | "interview" | "offer" | "rejected" | "withdrawn";
 
 export const JOB_STATUSES: { id: JobStatus; label: string }[] = [
@@ -42,7 +44,49 @@ export interface JobApplication {
   lastFilledAt?: string;
   /** Answers the AI wrote for this job's questions (kept so you can reuse or check them later). */
   answers?: { question: string; answer: string; at: string }[];
+  /** The last "Fill selected" run on this job (the extension reports it back). */
+  fill?: JobFill;
 }
+
+/**
+ * Where a batch fill stands. ready = filled up to the review page · needs_you = required questions left ·
+ * signin = the site wants you signed in (it carries on by itself once you are) · account = create an account first ·
+ * access = allow Coverage on that site (extension Options) · error / stopped.
+ */
+export type FillStatus = "queued" | "filling" | "ready" | "needs_you" | "signin" | "account" | "access" | "error" | "stopped";
+
+export interface JobFill {
+  status: FillStatus;
+  note?: string;
+  at: string;
+  /** Required questions it couldn't answer. */
+  needs?: string[];
+}
+
+export const FILL_LABELS: Record<FillStatus, string> = {
+  queued: "Waiting",
+  filling: "Filling…",
+  ready: "Ready to review",
+  needs_you: "Needs you",
+  signin: "Sign in needed",
+  account: "Create an account",
+  access: "Allow the site",
+  error: "Didn't work",
+  stopped: "Stopped",
+};
+
+/** Applications → Find jobs: the latest finds, what you dismissed, and the career boards Coverage has learned. */
+export interface JobFinderState {
+  found: FoundJob[];
+  dismissed: string[];
+  boards: Board[];
+  at?: string;
+  terms?: string;
+  years?: number[];
+  location?: string;
+}
+
+export const EMPTY_FINDER: JobFinderState = { found: [], dismissed: [], boards: [] };
 
 /** "" = leave it for me (the field is skipped), "decline" = choose the form's "prefer not to say" option. */
 export type Choice = string;
@@ -128,9 +172,10 @@ export interface ApplyState {
   resumes: ApplyResume[];
   /** The job you last clicked "Autofill" on, so a fill on that site is filed under it. */
   activeJob?: { id: string; at: string };
+  finder: JobFinderState;
 }
 
-export const EMPTY_APPLY: ApplyState = { jobs: [], profile: EMPTY_PROFILE, samples: [], library: [], resumes: [] };
+export const EMPTY_APPLY: ApplyState = { jobs: [], profile: EMPTY_PROFILE, samples: [], library: [], resumes: [], finder: EMPTY_FINDER };
 
 /* ---------------- the form, as the extension scanned it ---------------- */
 

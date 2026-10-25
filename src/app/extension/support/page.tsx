@@ -55,6 +55,17 @@ const PROBLEMS: [string, string[]][] = [
     ],
   ],
   [
+    "Fill selected says “Allow the site”",
+    ["Right-click the Coverage icon → Options → Application sites → “Allow all application sites”. Then press Fill selected again."],
+  ],
+  [
+    "Fill selected stopped at “Sign in needed”",
+    [
+      "Sign in in that tab (Chrome fills your saved password with one click); Coverage carries on by itself once you're in.",
+      "To skip it next time: Options → Saved logins → turn on, set a PIN, add that site's login. It's used only on that exact site.",
+    ],
+  ],
+  [
     "It opens the wrong dashboard",
     ["Right-click the Coverage icon → Options, and set your dashboard's address (https://…, or http://localhost:3000 for development)."],
   ],
@@ -65,6 +76,11 @@ const PROBLEMS: [string, string[]][] = [
 ];
 
 const CHANGES: [string, string, string][] = [
+  [
+    "1.3.0",
+    "October 2026",
+    "Fill selected: fill several tracked jobs from your dashboard in a “Coverage” tab group, up to each review page, with a live “Watch it work” mode and a Stop button. Optional saved logins (encrypted with your PIN) sign you in to application accounts you already have. Find jobs on Applications.",
+  ],
   [
     "1.2.0",
     "October 2026",

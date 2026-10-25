@@ -6,7 +6,7 @@ are what the browser runs. Built one part at a time (owner, 2026-10-21):
 1. **LinkedIn → Coverage** (done): on a profile or People search you're viewing, the toolbar button sends it to the
    dashboard. "Add to tracker + find email" (1.1) adds or updates them and looks up emails with no review step
    (`src/lib/autoCapture.ts`; a search adds only AI-screened matches at a known firm, never MD+ without a tie); "Just
-   open…" goes to Coffee chat prep / Find people as before. The extension never browses LinkedIn by itself.
+   open…" goes to Coffee chat prep / Find people as before. The store version never browses LinkedIn by itself (the opt-in LinkedIn job search in part 4 is test-build only).
 2. Granola → Coverage (next): send the note you have open (transcript + summary) to the Activity log, matched and graded.
 3. **Application autofill** (done, 1.1): on any other page, "Autofill this page" fills the form from Applications → My
    info, uploads your resume and drafts open answers in your voice. It never submits. How it works:
@@ -33,6 +33,27 @@ are what the browser runs. Built one part at a time (owner, 2026-10-21):
      the description (for AI answers) and the employer's apply link when LinkedIn shows it.
    - Tested end to end in headless Edge with the unpacked extension against a mock form with traps (hidden fields,
      SSN, password, certification box, prompt-injection text): see the 2026-10-24 notes in CLAUDE.md.
+4. **Fill selected, saved logins, LinkedIn job search** (1.3, owner 2026-10-24):
+   - **Fill selected** (dashboard → Applications, tick jobs): the dashboard sends `fillJobs` through the bridge
+     (`content/dashboard.js` relays only `fillJobs` / `focusJob` / `linkedinJobs`; `background.js#fromDashboard`
+     checks the sender is the dashboard address in Options). Each job opens in a "Coverage" tab group
+     (`tabGroups`), and `drive()` takes it from the job page (`startApplication`: Workday's Apply → Apply Manually by
+     their `data-automation-id`s, Lever's /apply link) through sign-in to the form, fills it page by page
+     (`continuePages` in batch mode: AI drafts don't stop it) and reports `fillStatus` back. It needs access to the
+     site: Options → "Allow all application sites" (all of `APPLICATION_SITES` in one prompt). A tab waiting for you
+     to sign in or create an account carries on by itself once the page isn't a login page (`tabs.onUpdated`).
+   - **Watch it work** (default on): one tab at a time, in front of you; `fillForm` scrolls to each field, types it
+     letter by letter and shows a banner with Stop (`data-coverage-stop`; Stop only stops Coverage).
+   - **Saved logins** (`vault.js`, off by default, Options): AES-GCM with a PBKDF2-SHA-256 (600k) key from your
+     PIN; the key lives in `chrome.storage.session` (memory only, not readable by content scripts). `loginFor`
+     returns a login only for the exact origin; `signIn` re-checks the origin in the page, needs exactly one visible
+     password box, and presses only Workday's sign-in button or a single "Sign in / Log in / Continue" button. It
+     never goes to the dashboard, the AI or a server; it never creates accounts; Chrome's own passwords can't be read.
+   - **LinkedIn job search** (test build only; Options section between `<!-- agent:start/end -->`, optional
+     `https://www.linkedin.com/*` stripped from the store build): opens a Jobs search in your browser, reads the
+     list (`readLinkedInJobs`), then each job page (`captureLinkedInJob`) 6-14 s apart, max 25 a run and 60 a day,
+     stops at any sign-in / checkpoint page, and sends each to the dashboard's finds (`foundJob`). The owner
+     accepted the account risk (LinkedIn's User Agreement forbids automated access, even from your own browser).
 
 ## How an extension "controls" a website
 
@@ -76,36 +97,42 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
 Listing: https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp (item id `hjmfcaldipgcjffmcemcljllmlpjlnlp`,
 in `src/lib/site.ts` → `SITE.extension.chromeUrl`).
 
-### Updating the listing (1.2.0)
+### Updating the listing (1.3.0)
 
-1. `npm run pack:extension` → `dist/coverage-extension-1.2.0.zip` (store build: no agent, no localhost, only the
-   dashboard bridge + the optional application sites). Developer Dashboard → the item → **Package** → Upload new
-   package. If an older version is still in review, cancel that review first.
-2. **Store listing**: replace the description with the one below; add a screenshot of autofill if you have one
-   (`npm run assets:extension` makes the 1280×800 one from /extension).
+1. Deploy the dashboard first (Fill selected and Find jobs need the new dashboard code), then
+   `npm run pack:extension` → `dist/coverage-extension-1.3.0.zip` (store build: no agent, no LinkedIn job search,
+   no localhost). Developer Dashboard → the item → **Package** → Upload new package. If an older version is still in
+   review, cancel that review first.
+2. **Store listing**: replace the description with the one below.
 3. **Privacy practices** (answers to paste):
    - **Single purpose:** "Coverage is a recruiting assistant for the user's own Coverage dashboard: it saves the
      LinkedIn profile, search or job the user is viewing to their dashboard, and fills job application forms from
-     the information the user saved there. The user reviews and submits every application."
+     the information the user saved there, one at a time or several the user picked. The user reviews and submits
+     every application."
    - **activeTab:** "Reads the current tab only after the user clicks the toolbar button: the LinkedIn page they're
      viewing, or the job application form they want filled."
-   - **scripting:** "Runs the functions that read the page the user clicked on, and type the user's saved answers into
-     that application form (it never submits it)."
-   - **storage:** "Saves the user's dashboard address, and the last autofill summary for a tab until the browser closes."
+   - **scripting:** "Runs the functions that read the page the user clicked on (or the application pages of jobs the
+     user chose to fill), and type the user's saved answers into those forms. It never submits them."
+   - **storage:** "Saves the user's dashboard address, the last autofill summary for a tab until the browser closes,
+     and, only if the user turns it on, their application-site logins encrypted with a PIN they choose."
+   - **tabGroups:** "Puts the application tabs opened by 'Fill selected' into one labelled tab group."
    - **Host permission (banker-dashboard-three.vercel.app):** "A content script on the extension's own web app only. It
-     relays autofill requests between the extension and the user's open dashboard tab, where their application
-     information is stored. It runs on no other site."
-   - **Optional host permissions (application sites):** "Requested one site at a time, only when the user clicks
-     'Allow Coverage on …' in the popup: needed to keep filling a multi-page application (Workday) after the page
-     changes, and to fill a form embedded from that application system on an employer's careers page."
+     relays autofill requests and the user's 'Fill selected' command between the extension and the user's open
+     dashboard tab, where their application information is stored. It runs on no other site."
+   - **Optional host permissions (application sites):** "Requested only when the user clicks 'Allow' in the popup or
+     settings: needed to fill a multi-page application (Workday) as its pages change, to fill several applications
+     the user picked in background tabs, and to fill a form embedded from that application system on an employer's
+     careers page."
    - **Remote code:** No.
    - **Data usage** (tick): Personally identifiable information (name, email, address, phone typed into forms),
-     Location (home address), Health information (only a disability-status answer, if the user saves one), Website
-     content (the page / form the user clicks on). Certify: not sold, not used for unrelated purposes, not used for
-     credit. The data goes only between the user's browser tab, their own dashboard, and the employer's form they fill.
+     **Authentication information** (only the application-site logins the user saves, encrypted, used only on that
+     site), Location (home address), Health information (only a disability-status answer, if the user saves one),
+     Website content (the page / form the user clicks on). Certify: not sold, not used for unrelated purposes, not
+     used for credit. The data goes only between the user's browser tab, their own dashboard, and the employer's form
+     they fill; saved logins never leave the extension.
    - **Privacy policy:** `https://banker-dashboard-three.vercel.app/extension/privacy`.
-4. **Submit for review.** Expect a closer look than 1.0 (new host permission and optional site permissions). Existing
-   users get a prompt to accept the new site access before 1.2 turns on.
+4. **Submit for review.** Expect a closer look than 1.2 (authentication data, background filling). Existing users
+   get a prompt to accept the tab-groups permission before 1.3 turns on.
 
 ### First publish (done for 1.0.0; kept for reference)
 
@@ -133,8 +160,11 @@ To list it in Edge's own store:
 >   People search it adds the matches; on a job page it saves the job to your Applications.
 > • On job applications: fills the form from the information you saved in Coverage (contact details, education, work
 >   authorization, optional self-identification answers), uploads your resume, and drafts open questions in your own
->   voice from your writing samples. On Workday it picks from dropdowns and, if you allow the site, goes page by page.
+>   voice from your writing samples. On Workday it picks from dropdowns and goes page by page.
+> • Fill selected: pick several jobs on your dashboard and Coverage fills each one up to its review page in a tab
+>   group, live in front of you if you like, with a Stop button.
+> • Optional saved logins, encrypted with your PIN, sign you in to application accounts you already have.
 >
-> You stay in control: it reads a page only when you click, never submits an application or presses Submit, never
-> touches passwords, SSNs or payment details, and sends nothing to any server of ours. Your information stays in your
-> own dashboard.
+> You stay in control: it never submits an application or presses Submit, never reads your browser's saved
+> passwords, never fills SSNs or payment details, and sends nothing to any server of ours. Your information stays in
+> your own dashboard, and saved logins never leave the extension.

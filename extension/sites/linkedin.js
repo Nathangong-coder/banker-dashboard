@@ -1,6 +1,7 @@
-// LinkedIn → Coverage. Runs ONLY when you click "Send to Coverage" in the popup, and reads only the page you're on
-// (a profile or a People search). It never clicks, scrolls, sends requests to LinkedIn or runs in the background:
-// automated activity breaks LinkedIn's User Agreement (§8.2) and gets accounts restricted.
+// LinkedIn → Coverage. captureLinkedIn / captureLinkedInJob run ONLY when you click the popup, and read only the page
+// you're on (a profile, a People search, a job). They never click, scroll or send requests to LinkedIn: automated
+// activity breaks LinkedIn's User Agreement (§8.2) and gets accounts restricted. The one exception is the opt-in
+// LinkedIn job search at the bottom (test build only, owner accepted the account risk, 2026-10-24).
 //
 // Same logic as the dashboard's bookmarklet (src/lib/linkedinCapture.ts#captureScript); keep the two in step. The
 // payload format is what the dashboard's parseCapture expects (#li=…).
@@ -104,4 +105,49 @@ export function captureLinkedInJob() {
 /** Applications on your dashboard, with the job in the address fragment (never sent to a server). */
 export function jobCaptureUrl(dashboard, job) {
   return `${dashboard}/applications#job=${encodeURIComponent(JSON.stringify(job))}`;
+}
+
+/**
+ * Opt-in LinkedIn job search (test build only: the store build has no LinkedIn site access to run it with). A Jobs
+ * search address with your words, the past month, internships.
+ */
+export function linkedinJobsUrl(terms, location) {
+  const u = new URL("https://www.linkedin.com/jobs/search/");
+  u.searchParams.set("keywords", String(terms || "").trim() || "summer analyst investment banking");
+  if (String(location || "").trim()) u.searchParams.set("location", String(location).trim());
+  u.searchParams.set("f_TPR", "r2592000");
+  u.searchParams.set("f_E", "1");
+  return u.toString();
+}
+
+/** LinkedIn sent you to sign in or a security check: the job reader stops there (it never solves those). */
+export const isLinkedInWall = (url) => /linkedin\.com\/(checkpoint|authwall|login|uas\/login|signup)/i.test(url ?? "");
+
+/**
+ * Injected into a LinkedIn Jobs search tab: scrolls the results list a little at a time (like reading it) and
+ * returns the jobs listed: [{ id, title, company, location }]. Self-contained.
+ */
+export async function readLinkedInJobs(max) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const list = document.querySelector(".jobs-search-results-list, .scaffold-layout__list, [class*='jobs-search-results']") || document.scrollingElement;
+  const seen = new Map();
+  for (let round = 0; round < 8 && seen.size < max; round++) {
+    for (const a of document.querySelectorAll('a[href*="/jobs/view/"]')) {
+      const id = (a.getAttribute("href").match(/\/jobs\/view\/(\d+)/) || [])[1];
+      if (!id || seen.has(id)) continue;
+      const card = a.closest("li, [data-job-id], [data-occludable-job-id]") || a.parentElement;
+      const lines = clean(card?.innerText ?? "")
+        .split(/\s{2,}|\n/)
+        .map(clean)
+        .filter(Boolean);
+      const title = clean((a.querySelector("strong, span[aria-hidden='true']") || a).innerText) || lines[0] || "";
+      const company = clean(card?.querySelector("[class*='subtitle'], [class*='company']")?.innerText) || "";
+      const location = clean(card?.querySelector("[class*='metadata'], [class*='location']")?.innerText) || "";
+      seen.set(id, { id, title: title.slice(0, 200), company: company.slice(0, 120), location: location.slice(0, 120) });
+    }
+    list.scrollBy({ top: 700, behavior: "smooth" });
+    await sleep(1200 + Math.random() * 1200);
+  }
+  return [...seen.values()].slice(0, max);
 }

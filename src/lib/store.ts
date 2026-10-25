@@ -589,7 +589,7 @@ export const useStore = create<State>()(
           // New settings fields added in later versions get their defaults.
           settings: deepMerge(DEFAULT_SETTINGS, p.settings ?? {}) as Settings,
           // So do application-profile fields added later.
-          apply: { ...EMPTY_APPLY, ...p.apply, profile: { ...EMPTY_APPLY.profile, ...p.apply?.profile } },
+          apply: { ...EMPTY_APPLY, ...p.apply, profile: { ...EMPTY_APPLY.profile, ...p.apply?.profile }, finder: { ...EMPTY_APPLY.finder, ...p.apply?.finder } },
         };
       },
     },

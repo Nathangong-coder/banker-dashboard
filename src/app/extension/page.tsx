@@ -15,15 +15,16 @@ const REPO = "https://github.com/Nathangong-coder/banker-dashboard/tree/main/ext
 const PERMISSIONS = [
   ["Your current tab, after you click (activeTab)", "Lets the button read the LinkedIn page or application form you're on, only when you click it. It can't see other tabs, other sites or anything in the background."],
   ["Run a script on that tab (scripting)", "On LinkedIn: reads the profile text you can already see, never clicking or scrolling. On an application: reads the form's questions, then types your answers in. It never presses Submit."],
-  ["Storage", "Saves your dashboard's address, and the last autofill summary for a tab until the browser closes."],
+  ["Storage", "Saves your dashboard's address, the last autofill summary for a tab until the browser closes, and (only if you turn them on) your saved logins, encrypted with your PIN."],
+  ["Tab groups", "Puts the jobs “Fill selected” opens into one “Coverage” tab group."],
   [
     "Application sites you allow (optional)",
-    "Asked one site at a time from the popup (Workday, Greenhouse, Lever…), only if you want page-by-page filling or a form embedded from that site. Nothing is granted at install.",
+    "Asked from the popup one site at a time, or all at once in the extension's settings (Workday, Greenhouse, Lever…), for page-by-page filling, Fill selected, or a form embedded from that site. Nothing is granted at install.",
   ],
   [`${SITE.name}'s own site`, "A small bridge script on your dashboard's pages only, so autofill can ask your open dashboard what goes in each field. Your application info stays there."],
 ];
 
-const NOT = ["Access to all websites", "Your browsing history", "Your saved passwords", "Submitting anything for you", "Code loaded from the internet", "Analytics or tracking", "Any server of ours (the text goes straight to your dashboard)"];
+const NOT = ["Access to all websites", "Your browsing history", "Chrome's saved passwords (it can't read them)", "Submitting anything for you", "Code loaded from the internet", "Analytics or tracking", "Any server of ours (the text goes straight to your dashboard)"];
 
 const FAQ: [string, string][] = [
   ["Is it free?", `Yes, like ${SITE.name}.`],

@@ -263,11 +263,69 @@ export async function fillForm(items, review) {
     target.style.outline = `2px solid ${source === "ai" ? "#c47f17" : "#1f7a5c"}`;
     target.style.outlineOffset = "2px";
   };
+  // Watch mode ("Watch it work" on the dashboard): scroll to each field, type it out visibly, and show a banner with
+  // a Stop button. Stop only ever stops Coverage; it never presses anything on the page.
+  const watch = !!review?.watch;
+  let banner = null;
+  const say = (text) => {
+    if (!watch) return;
+    if (!banner) {
+      document.getElementById("coverage-autofill-live")?.remove();
+      const host = document.createElement("div");
+      host.id = "coverage-autofill-live";
+      host.style.cssText = "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483647;";
+      const root = host.attachShadow({ mode: "closed" });
+      const box = document.createElement("div");
+      box.style.cssText = "display:flex;align-items:center;gap:10px;background:#0e1a2b;color:#fff;border-radius:999px;padding:7px 8px 7px 14px;font:13px/1.3 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.25);";
+      const dot = document.createElement("span");
+      dot.style.cssText = "width:8px;height:8px;border-radius:50%;background:#3ccf91;box-shadow:0 0 0 4px rgba(60,207,145,.25);";
+      const label = document.createElement("span");
+      const stop = document.createElement("button");
+      stop.textContent = "Stop";
+      stop.style.cssText = "border:0;border-radius:999px;background:#fff;color:#0e1a2b;padding:4px 12px;font:600 12px system-ui,sans-serif;cursor:pointer;";
+      stop.addEventListener("click", () => {
+        document.documentElement.dataset.coverageStop = "1";
+        label.textContent = "Stopping…";
+      });
+      box.append(dot, label, stop);
+      root.append(box);
+      document.documentElement.append(host);
+      banner = { host, label };
+    }
+    banner.label.textContent = text;
+  };
+  const stopped = () => document.documentElement.dataset.coverageStop === "1";
+  const typeOut = async (el, v) => {
+    if (!watch || v.length > 600) return setNative(el, v);
+    for (let i = 1; i <= v.length; i++) {
+      if (stopped()) break;
+      setNative(el, v.slice(0, i));
+      await sleep(v.length > 200 ? 4 : 18);
+    }
+  };
+  const focusOn = async (el) => {
+    if (!watch) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const target = el.type === "radio" || el.type === "checkbox" ? el.closest("label") || el : el;
+    const prev = target.style.boxShadow;
+    target.style.boxShadow = "0 0 0 4px rgba(31,122,92,.35)";
+    await sleep(350);
+    setTimeout(() => (target.style.boxShadow = prev), 900);
+  };
+
   const done = [];
   const failed = [];
+  let step = 0;
   for (const it of items) {
+    step++;
+    if (stopped()) {
+      failed.push({ label: it.label, why: "You stopped Coverage before this one." });
+      continue;
+    }
+    say(`Coverage is filling · ${step} of ${items.length}: ${(it.label || "field").slice(0, 60)}`);
     const els = [...document.querySelectorAll(`[data-coverage-field="${CSS.escape(String(it.id))}"]`)];
     const el = els[0];
+    if (el) await focusOn(el);
     if (!el) {
       failed.push({ label: it.label, why: "The field changed or disappeared." });
       continue;
@@ -344,7 +402,8 @@ export async function fillForm(items, review) {
           failed.push({ label: it.label, why: "Already had something in it: left as is." });
           continue;
         }
-        setNative(el, el.maxLength > 0 ? it.value.slice(0, el.maxLength) : it.value);
+        el.focus();
+        await typeOut(el, el.maxLength > 0 ? it.value.slice(0, el.maxLength) : it.value);
         el.dispatchEvent(new Event("blur", { bubbles: true }));
         mark(el, it.source);
       } else continue;
@@ -354,6 +413,7 @@ export async function fillForm(items, review) {
     }
   }
 
+  banner?.host.remove();
   // The review box: text only (textContent), in a shadow root so the page's styles don't change it.
   document.getElementById("coverage-autofill-review")?.remove();
   const host = document.createElement("div");
@@ -390,7 +450,7 @@ export async function fillForm(items, review) {
   box.append(close);
   root.append(box);
   document.body.append(host);
-  return { filled: done.length, failed };
+  return { filled: done.length, failed, stopped: stopped() };
 }
 
 /**
@@ -446,4 +506,118 @@ export function clickNext() {
   if (DENY.test(label)) return { clicked: false, why: `Won't press "${label}".` };
   pick.click();
   return { clicked: true, label };
+}
+
+/** True once you pressed Stop on the page's Coverage banner (batch fills check it between steps). */
+export function stopRequested() {
+  return document.documentElement.dataset.coverageStop === "1";
+}
+
+/**
+ * Is this a sign-in, create-account or verify-your-email page? Fixed rules over what's visible: one password box =
+ * sign in; two (password + confirm) or a create-account form = sign up; a "check your email" page = verify.
+ */
+export function loginState() {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden" && getComputedStyle(el).display !== "none";
+  };
+  const pw = [...document.querySelectorAll("input[type=password]")].filter(shown);
+  const text = clean((document.querySelector("[role=dialog]") || document.querySelector("main") || document.body).innerText).slice(0, 4000);
+  const buttons = [...document.querySelectorAll("button, [role=button], input[type=submit], a")].filter(shown).map((b) => clean(b.innerText || b.value || b.getAttribute("aria-label") || ""));
+  const signInSwitch = buttons.some((t) => /^(sign in|log in|already have an account\??\s*sign in)$/i.test(t)) || !!document.querySelector('[data-automation-id="signInLink"]');
+  if (/check your (email|inbox)|verify your (email|account)|verification (code|link) (has been )?sent/i.test(text) && !pw.length) return { kind: "verify", signInSwitch };
+  if (pw.length >= 2 || (pw.length && /\b(verify new password|confirm password|re-?enter password)\b/i.test(text))) return { kind: "signup", signInSwitch };
+  if (pw.length === 1) return { kind: "signin", signInSwitch };
+  return { kind: "none", signInSwitch };
+}
+
+/** On a create-account page, press the "Sign in" link (for an account you already have). Fixed rule, nothing else. */
+export function switchToSignIn() {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const wd = document.querySelector('[data-automation-id="signInLink"]');
+  const hit =
+    wd ||
+    [...document.querySelectorAll("button, [role=button], a")].find((b) => /^(sign in|log in|already have an account\??\s*sign in)$/i.test(clean(b.innerText || b.getAttribute("aria-label") || "")));
+  if (!hit) return { clicked: false };
+  hit.click();
+  return { clicked: true };
+}
+
+/**
+ * Types a saved login into this page's sign-in form and presses its Sign in button. Runs only in the top frame,
+ * only when the page's origin is exactly the login's (checked again here), only with one visible password box.
+ */
+export function signIn(username, password, origin) {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  if (window.top !== window || location.origin !== origin) return { ok: false, why: "Not the saved site." };
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
+  };
+  const pw = [...document.querySelectorAll("input[type=password]")].filter(shown);
+  if (pw.length !== 1) return { ok: false, why: "Not a single sign-in form." };
+  const scope = pw[0].form || pw[0].closest("[role=dialog], section, main") || document;
+  const user = [...scope.querySelectorAll("input")].filter(
+    (i) => shown(i) && i !== pw[0] && (i.type === "email" || i.type === "text" || /user|email|login/i.test(`${i.name} ${i.id} ${i.autocomplete}`)),
+  )[0];
+  const set = (el, v) => {
+    el.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.dispatchEvent(new Event("blur", { bubbles: true }));
+  };
+  if (user && !user.value) set(user, username);
+  set(pw[0], password);
+  const DENY = /create|register|sign up|forgot|reset|google|linkedin|apple|microsoft|facebook|application|apply/i;
+  const label = (b) => clean(b.innerText || b.value || b.getAttribute("aria-label") || "");
+  const wd = [...document.querySelectorAll('[data-automation-id="signInSubmitButton"]')].find(shown);
+  const candidates = [...scope.querySelectorAll("button, [role=button], input[type=submit]")].filter((b) => shown(b) && /^(sign in|log in|login|continue|next)$/i.test(label(b)) && !DENY.test(label(b)));
+  const btn = wd || (candidates.length === 1 ? candidates[0] : null);
+  if (!btn) return { ok: true, clicked: false, why: "Typed it in; press Sign in yourself." };
+  btn.click();
+  return { ok: true, clicked: true };
+}
+
+/**
+ * Opens the application form from a job page: Workday's own Apply → "Apply Manually" buttons (by their fixed ids),
+ * or Lever's "Apply for this job" link. These only open the form; nothing here submits anything.
+ */
+export async function startApplication() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
+  };
+  const manual = () => [...document.querySelectorAll('[data-automation-id="applyManually"]')].find(shown);
+  if (manual()) {
+    manual().click();
+    return { clicked: true, label: "Apply Manually" };
+  }
+  const adventure = [...document.querySelectorAll('[data-automation-id="adventureButton"]')].find(shown);
+  if (adventure) {
+    adventure.click();
+    for (let i = 0; i < 30 && !manual(); i++) await sleep(200);
+    if (manual()) {
+      manual().click();
+      return { clicked: true, label: "Apply → Apply Manually" };
+    }
+    return { clicked: true, label: "Apply" };
+  }
+  const here = location.pathname.replace(/\/$/, "");
+  const lever = [...document.querySelectorAll("a[href]")].find((a) => {
+    try {
+      const u = new URL(a.href);
+      return shown(a) && u.origin === location.origin && u.pathname.replace(/\/$/, "") === `${here}/apply`;
+    } catch {
+      return false;
+    }
+  });
+  if (lever) {
+    lever.click();
+    return { clicked: true, label: "Apply for this job" };
+  }
+  return { clicked: false };
 }

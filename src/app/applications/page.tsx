@@ -2,13 +2,15 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BriefcaseBusiness, ChevronDown, ChevronRight, ExternalLink, Plus, Puzzle, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { BriefcaseBusiness, ChevronDown, ChevronRight, ExternalLink, Eye, Plus, Puzzle, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { useExtension } from "@/lib/applyBridge";
-import { JOB_STATUSES, guessFromUrl, parseJobCapture, type JobApplication, type JobCapture, type JobStatus } from "@/lib/apply";
+import { sendCommand, useExtension } from "@/lib/applyBridge";
+import { FILL_LABELS, JOB_STATUSES, guessFromUrl, parseJobCapture, type FillStatus, type JobApplication, type JobCapture, type JobStatus } from "@/lib/apply";
+import { isRecruiter } from "@/lib/recruiters";
 import { canonBank } from "@/lib/banks";
 import { cn, fmtDate, relDays, uid } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Empty, Field, Input, Kpi, Menu, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Kpi, Menu, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
+import { JobFinder } from "@/components/JobFinder";
 import { ApplyInfo } from "@/components/ApplyInfo";
 import { ApplyResumes, ApplyWriting } from "@/components/ApplyWriting";
 
@@ -115,7 +117,10 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
   const targets = useStore((s) => s.targets);
   const setApply = useStore((s) => s.setApply);
   const version = useExtension((s) => s.version);
+  const features = useExtension((s) => s.features);
   const [view, setView] = useState<"open" | "done" | "all">("open");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [watch, setWatch] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
   const [draft, setDraft] = useState({ url: "", company: "", role: "", location: "", deadline: "" });
   const [now] = useState(() => Date.now());
@@ -160,11 +165,12 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
 
   // Networking at each firm, so you can see who to mention or reach out to before applying.
   const network = useMemo(() => {
-    const m = new Map<string, { people: number; emailed: number; replied: number; referral: number }>();
+    const m = new Map<string, { people: number; emailed: number; replied: number; referral: number; recruiters: string[] }>();
     for (const c of contacts) {
       if (c.status === "ignored") continue;
       const k = canonBank(c.bank);
-      const n = m.get(k) ?? { people: 0, emailed: 0, replied: 0, referral: 0 };
+      const n = m.get(k) ?? { people: 0, emailed: 0, replied: 0, referral: 0, recruiters: [] };
+      if (isRecruiter(c)) n.recruiters.push(c.name);
       n.people++;
       if (c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status)) n.emailed++;
       if (c.repliedAt || ["replied", "call_scheduled", "done"].includes(c.status)) n.replied++;
@@ -188,6 +194,35 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
     interview: jobs.filter((j) => j.status === "interview" || j.status === "offer").length,
     soon: jobs.filter((j) => OPEN.includes(j.status) && j.deadline && Date.parse(j.deadline) - now < 7 * 86_400_000 && Date.parse(j.deadline) >= now - 86_400_000).length,
   };
+  // Fill selected (extension 1.3): the extension opens each in a "Coverage" tab group and fills it up to review.
+  const fillable = (j: JobApplication) => {
+    const u = webLink(j.applyUrl ?? "") || webLink(j.url);
+    // https only (plain http just for a local dev server).
+    return /^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)[:/])/.test(u) && !/(^|\.)linkedin\.com$/i.test(guessFromUrl(u).host) ? u : "";
+  };
+  const picked = shown.filter((j) => selected.has(j.id));
+  const fillSelected = async () => {
+    const list = picked.filter(fillable);
+    if (!list.length) return toast.err("None of those has the bank's own https application link yet (a LinkedIn listing isn't enough).");
+    const at = new Date().toISOString();
+    setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (list.some((x) => x.id === j.id) ? { ...j, fill: { status: "queued", note: "Sent to the extension…", at } } : j)) }));
+    try {
+      await sendCommand("fillJobs", { jobs: list.map((j) => ({ id: j.id, url: fillable(j), company: j.company })), watch });
+      toast.ok(`Filling ${list.length} application${list.length === 1 ? "" : "s"} in a “Coverage” tab group${watch ? ", one at a time so you can watch" : ""}. Nothing gets submitted.`);
+      setSelected(new Set());
+    } catch (e) {
+      toast.err((e as Error).message);
+      setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (list.some((x) => x.id === j.id) ? { ...j, fill: { status: "error", note: (e as Error).message, at } } : j)) }));
+    }
+  };
+  const showTab = (j: JobApplication) =>
+    sendCommand<{ found: boolean }>("focusJob", { jobId: j.id }).then(
+      (r) => {
+        if (!r.found) toast.info("That tab is closed. Press Fill again to reopen it.");
+      },
+      (e) => toast.err((e as Error).message),
+    );
+
   const infoGaps = [!profile.firstName && "name", !profile.email && "email", !profile.school && "school", !profile.authorized && "work authorization"].filter(Boolean);
 
   return (
@@ -211,6 +246,8 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
           tone={infoGaps.length ? "bad" : "good"}
         />
       </div>
+
+      <JobFinder />
 
       <Card>
         <CardHeader title="Add a job" sub="Paste the application link; the company is guessed from it (Workday, Greenhouse, Lever…). Then hit Autofill when you're ready to apply." />
@@ -249,6 +286,19 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
               ["all", `All ${jobs.length}`],
             ]}
           />
+          <div className="flex-1" />
+          {features.fillJobs ? (
+            <>
+              <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2" title="One tab at a time in front of you: it types visibly, with a Stop button on the page">
+                <Checkbox checked={watch} onChange={setWatch} label="Watch it work" /> <Eye className="size-3.5 text-muted" /> Watch it work
+              </label>
+              <Button size="sm" variant="primary" icon={<Wand2 className="size-3.5" />} disabled={!picked.length} onClick={fillSelected}>
+                Fill selected{picked.length ? ` (${picked.length})` : ""}
+              </Button>
+            </>
+          ) : (
+            version && <span className="text-[12px] text-muted">Update the extension to 1.3 to fill several at once.</span>
+          )}
         </div>
         {shown.length === 0 ? (
           <Empty icon={<BriefcaseBusiness className="size-6" />} title={jobs.length ? "Nothing here" : "No jobs tracked yet"}>
@@ -259,7 +309,10 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
             <table className="w-full min-w-[860px] text-[13px]">
               <thead className="bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
                 <tr className="border-b border-line">
-                  <th className="px-4 py-2 font-medium">Job</th>
+                  <th className="w-8 py-2 pl-4">
+                    <Checkbox checked={picked.length > 0 && picked.length === shown.length} onChange={(on) => setSelected(new Set(on ? shown.map((j) => j.id) : []))} label="Select all" />
+                  </th>
+                  <th className="px-2 py-2 font-medium">Job</th>
                   <th className="px-2 py-2 font-medium">Status</th>
                   <th className="px-2 py-2 font-medium">Deadline</th>
                   <th className="px-2 py-2 font-medium">Networking there</th>
@@ -275,7 +328,21 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                   return (
                     <Fragment key={j.id}>
                       <tr className={cn("group border-b border-line hover:bg-subtle", isOpen && "bg-subtle")}>
-                        <td className="px-4 py-2.5">
+                        <td className="py-2.5 pl-4 align-top">
+                          <Checkbox
+                            checked={selected.has(j.id)}
+                            onChange={(on) =>
+                              setSelected((p) => {
+                                const n = new Set(p);
+                                if (on) n.add(j.id);
+                                else n.delete(j.id);
+                                return n;
+                              })
+                            }
+                            label={`Select ${j.company}`}
+                          />
+                        </td>
+                        <td className="px-2 py-2.5">
                           <button type="button" className="flex items-center gap-1.5 text-left font-medium text-ink" onClick={() => setOpen(isOpen ? null : j.id)} aria-expanded={isOpen}>
                             {isOpen ? <ChevronDown className="size-3.5 text-muted" /> : <ChevronRight className="size-3.5 text-muted" />}
                             {j.company}
@@ -292,6 +359,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                             {j.lastFilledAt && <span>filled {relDays(j.lastFilledAt)}</span>}
                             {j.submittedAt && <span>submitted {fmtDate(j.submittedAt)}</span>}
                           </div>
+                          {j.fill && <FillLine fill={j.fill} onShow={() => showTab(j)} />}
                         </td>
                         <td className="px-2 py-2.5">
                           <Select
@@ -326,6 +394,12 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                               {n.people} people · {n.emailed} emailed
                               {n.replied ? ` · ${n.replied} replied` : ""}
                               {n.referral ? <Badge tone="green" className="ml-1 px-1 py-0 text-[10.5px]">referral</Badge> : null}
+                              {n.recruiters.length ? (
+                                <span className="block text-[11.5px] text-muted" title="Recruiters you know at this firm">
+                                  Recruiter: {n.recruiters.slice(0, 2).join(", ")}
+                                  {n.recruiters.length > 2 ? ` +${n.recruiters.length - 2}` : ""}
+                                </span>
+                              ) : null}
                             </Link>
                           ) : (
                             <Link href={`/find?banks=${encodeURIComponent(j.company)}`} className="text-muted hover:text-navy hover:underline">
@@ -353,6 +427,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                             <Menu
                               items={[
                                 !!webLink(j.url) && { label: "Open the job page", icon: <ExternalLink />, onClick: () => window.open(webLink(j.url), "_blank", "noopener") },
+                                !!j.fill && { label: "Show its tab", icon: <Eye />, onClick: () => showTab(j) },
                                 { label: "Mark submitted", onClick: () => update(j.id, { status: "submitted", submittedAt: j.submittedAt ?? new Date().toISOString() }) },
                                 "divider",
                                 { label: "Delete", icon: <Trash2 />, danger: true, onClick: () => remove(j) },
@@ -363,7 +438,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                       </tr>
                       {isOpen && (
                         <tr className="border-b border-line bg-subtle">
-                          <td colSpan={6} className="px-4 py-4">
+                          <td colSpan={7} className="px-4 py-4">
                             <JobDetail j={j} onChange={(patch) => update(j.id, patch)} />
                           </td>
                         </tr>
@@ -407,6 +482,36 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
         </details>
       )}
     </>
+  );
+}
+
+const FILL_TONE: Record<FillStatus, "green" | "amber" | "red" | "blue" | "neutral"> = {
+  queued: "neutral",
+  filling: "blue",
+  ready: "green",
+  needs_you: "amber",
+  signin: "amber",
+  account: "amber",
+  access: "amber",
+  error: "red",
+  stopped: "neutral",
+};
+
+/** How the last "Fill selected" run on a job went, with a link to its tab. */
+function FillLine({ fill, onShow }: { fill: NonNullable<JobApplication["fill"]>; onShow: () => void }) {
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5 text-[11.5px]">
+      <Badge tone={FILL_TONE[fill.status]} className="px-1.5 py-0 text-[10.5px]">
+        {FILL_LABELS[fill.status]}
+      </Badge>
+      {fill.note && <span className="text-ink-2">{fill.note}</span>}
+      {fill.needs?.length ? <span className="text-muted">({fill.needs.slice(0, 3).join(", ")})</span> : null}
+      {!["queued", "access", "error"].includes(fill.status) && (
+        <button className="font-medium text-navy hover:underline" onClick={onShow}>
+          Show tab
+        </button>
+      )}
+    </div>
   );
 }
 

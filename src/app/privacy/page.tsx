@@ -171,14 +171,25 @@ export default function PrivacyPage() {
         questions and the page&apos;s visible text, and passes them to your open {SITE.name} tab, which decides what goes in each field from the
         application info you saved and returns those values (and your resume file, for upload fields). The extension then types them into that
         form, picking the matching choice in dropdowns, and on multi-page forms pressing Next only when you ask it to go on. It never submits an
-        application or presses Submit / Apply / Sign, never reads your saved passwords, and never fills passwords, Social Security numbers, bank or card
-        details. Until you submit,
+        application or presses Submit, never reads your browser&apos;s saved passwords, fills a password only from saved logins you added to the
+        extension yourself (below), and never fills Social Security numbers, bank or card details. Until you submit,
         nothing leaves your browser except the AI request described in section 4; when you submit, the employer receives your application under
         its own privacy policy. To talk to your dashboard tab, the extension runs a small script on {SITE.name}&apos;s own pages only. Details:{" "}
         <a href="/extension/privacy" className="text-navy underline">
           extension privacy policy
         </a>
         .
+      </p>
+      <p className="mt-3">
+        <b>Fill selected</b> (extension 1.3+): when you press <b>Fill selected</b> on Applications, the extension opens those jobs in a tab group and
+        fills each the same way, on application sites you allowed in the extension. If you turn on <b>saved logins</b> in the extension, it can sign
+        in to application accounts you already have: those logins are encrypted with your PIN inside the extension, used only on the site they were
+        saved for, and never sent to your dashboard, to us, to any AI or anywhere else.
+      </p>
+      <p className="mt-3">
+        <b>Find jobs</b>: the search you start on Applications runs through {SITE.name}&apos;s server, which reads public job lists from the career
+        boards involved (Workday, Greenhouse, Lever) and, with your Serper or Brave key, a web search. It sends those services only your search words,
+        the years you picked and the names of banks on your list; nothing is stored or logged.
       </p>
 
       <H2>8. Your choices and rights</H2>

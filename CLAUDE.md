@@ -22,6 +22,7 @@ npm run check:scheduling                      # availability → their time zone
 npm run check:selectors                       # no zustand selector returns a fresh object/array (React #185 "This page couldn't load")
 npm run check:conversations                   # Conversation table: rows link to people (no duplicates), "• " lines only, idempotent writes
 npm run check:apply                           # application autofill planning: profile rules, AI-only questions, never-filled fields
+npm run check:jobs                            # job finder: career boards from links, internship / banking / US filters, dedupe; recruiters
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -529,14 +530,44 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **Documents:** `lib/fileText.ts#documentText` (pdf.js 6.4.299 + worker via `new URL(…, import.meta.url)`, .docx,
   .txt, .md). Writing samples accept PDFs; the resume being uploaded is read at fill time and sent to the AI as
   `me.resume` (facts), never stored.
-- **Accounts / passwords:** the extension never creates accounts or reads / types passwords (Chrome has no API for
-  saved passwords; Chrome's password manager fills and generates them). Owner asked 2026-10-24; this is the answer.
+- **Accounts / passwords:** the extension never creates accounts and can't read Chrome's saved passwords (no API).
+  Superseded the same day by 1.3's opt-in saved logins (below): the owner pushed back on a flat "no" and asked for
+  a user toggle, like Claude's 1Password handoff where the AI never sees the password.
 - **Tested 2026-10-24** (headless Edge harness, 43 checks): everything from 1.1 plus a Workday-like page (two custom
   dropdowns read + picked, "UCLA" typeahead → University of California, Los Angeles, decoy Submit never clicked,
   Next pressed by rule, review page detected, nothing pressed there), a generated PDF writing sample read in the
   production build, and a LinkedIn job capture. **Not run:** `continuePages` / `scanBest` through the worker (the
   harness calls the page functions directly; the popup's permission prompts can't be clicked headless), real Workday,
   AI answers with a real key.
+
+## Extension 1.3: Find jobs, Fill selected, saved logins, LinkedIn job search (owner, 2026-10-24)
+
+- **Find jobs** (Applications → top card, `components/JobFinder.tsx`, pure logic `lib/jobFinder.ts`, `npm run check:jobs`):
+  `api/jobs/search` (stateless) lists career boards (Workday's public `POST /wday/cxs/<tenant>/<site>/jobs`,
+  Greenhouse `boards-api.greenhouse.io/v1/boards/<b>/jobs`, Lever `api.lever.co/v0/postings/<b>`; hosts fixed by zod
+  regex = SSRF guard) plus Serper/Brave queries over those systems (`searchQueries`, ≤30 words, banks in 4s). Boards
+  are learned from results and tracked jobs (`boardOf` → `apply.finder.boards`). Filters: `isInternship` (+years),
+  `isBankingRole` (Citi titles are "Services - Summer Analyst", "Functions - Risk, …": a named non-banking division
+  loses), `inUS`. Finds live in `apply.finder.found`, dismissals in `.dismissed`; `freshJobs` hides tracked ones
+  (link, LinkedIn id, firm+title). Live-checked: Citi's board returns its 2027 summer analyst postings.
+- **Fill selected** (jobs table checkboxes + "Watch it work"): `applyBridge.ts#sendCommand("fillJobs")` → the
+  extension (README part 4) → per-job `fillStatus` back into `job.fill` (`FillStatus`: queued / filling / ready /
+  needs_you / signin / account / access / error / stopped; `FILL_LABELS`), "Show tab" = `focusJob`. https job links
+  only (http just for localhost/127.0.0.1). `plan` takes `jobId` from a batch (no per-page toast).
+- **Saved logins** = `extension/vault.js` (opt-in, PIN, AES-GCM, exact origin, never to dashboard/AI/server).
+  **LinkedIn job search** = test build only (`--with-agent`), Options toggle requests `https://www.linkedin.com/*`;
+  finds come back as `foundJob` (`source: "linkedin"`). Owner accepted the ban risk; the store build can't run it.
+- **Recruiters** (`lib/recruiters.ts#isRecruiter`, campus / talent acquisition / university relations titles):
+  Applications → "Networking there" shows "Recruiter: …" per firm.
+- **Tested 2026-10-24** (headless Edge, scratch harness, 21 checks + the 1.2 suite's 43 again): job page → Apply →
+  Apply Manually (Workday ids) → sign-in → "Sign in needed" → you sign in → picks up by itself → page 1 filled →
+  Next → review → "Ready to review", Submit never pressed; saved login: encrypted (no plaintext in storage), wrong
+  PIN refused, not offered on another origin, signs in once, fills to review; tab group; watch banner + letter-by-
+  letter typing + Stop; LinkedIn list reader on a mock page; Find jobs against Citi's real board. **Not run:** a
+  real Workday tenant's sign-in, the real LinkedIn Jobs pages, Serper queries with a real key, the Options page's
+  permission prompts (headless can't click them).
+- **Queued next (owner):** the recruiting orchestrator (Trackr / Superday / Extern / Slack → sheet + Applications →
+  calendar + notifications). Plan + brainstorm before building.
 
 ## Reply / thank-you / referral tracking (owner, 2026-10-22)
 

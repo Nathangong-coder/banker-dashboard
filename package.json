@@ -26,7 +26,8 @@
     "build:plugin": "node scripts/build-plugin.mjs",
     "check:tracking": "tsx scripts/check-tracking.mts",
     "check:offsheet": "tsx scripts/check-offsheet.mts",
-    "check:mentions": "tsx scripts/check-mentions.mts"
+    "check:mentions": "tsx scripts/check-mentions.mts",
+    "check:jobs": "tsx scripts/check-jobs.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.62",

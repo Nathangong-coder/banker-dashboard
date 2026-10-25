@@ -26,6 +26,7 @@ for (const size of [16, 32, 48, 128]) {
 }
 
 const withAgent = process.argv.includes("--with-agent");
+const LINKEDIN = "https://www.linkedin.com/*";
 const manifest = JSON.parse(fs.readFileSync(path.join(src, "manifest.json"), "utf8"));
 // The application sites autofill may be allowed on, one at a time (extension/sites/apply.js is the source).
 const APPLICATION_SITES = [...fs.readFileSync(path.join(src, "sites/apply.js"), "utf8").match(/export const APPLICATION_SITES = \[([\s\S]*?)\];/)[1].matchAll(/"([^"]+)"/g)].map((m) => `https://*.${m[1]}/*`);
@@ -33,7 +34,8 @@ if (!withAgent) {
   manifest.permissions = manifest.permissions.filter((p) => p !== "sidePanel");
   delete manifest.side_panel;
   // The agent's all-sites access stays out; the per-site application permissions stay in.
-  manifest.optional_host_permissions = (manifest.optional_host_permissions ?? []).filter((p) => p !== "<all_urls>");
+  // So does LinkedIn: the opt-in LinkedIn job search is for the test build only (owner, 2026-10-24).
+  manifest.optional_host_permissions = (manifest.optional_host_permissions ?? []).filter((p) => p !== "<all_urls>" && p !== LINKEDIN);
   // Local development addresses only matter for an unpacked copy.
   for (const cs of manifest.content_scripts ?? []) cs.matches = cs.matches.filter((m) => !/^http:\/\/(localhost|127\.0\.0\.1)\//.test(m));
 }
@@ -50,7 +52,7 @@ for (const cs of manifest.content_scripts ?? []) {
 }
 if (!withAgent && manifest.permissions.includes("sidePanel")) problems.push("the store build must not ask for the agent's permissions");
 for (const p of manifest.optional_host_permissions ?? [])
-  if (!APPLICATION_SITES.includes(p) && !(withAgent && p === "<all_urls>")) problems.push(`optional host permission ${p} isn't one of APPLICATION_SITES (extension/sites/apply.js)`);
+  if (!APPLICATION_SITES.includes(p) && !(withAgent && (p === "<all_urls>" || p === LINKEDIN))) problems.push(`optional host permission ${p} isn't one of APPLICATION_SITES (extension/sites/apply.js)`);
 for (const p of APPLICATION_SITES) if (!manifest.optional_host_permissions?.includes(p)) problems.push(`APPLICATION_SITES has ${p} but the manifest doesn't ask for it`);
 if (problems.length) {
   console.error("Manifest problems:\n- " + problems.join("\n- "));
@@ -65,7 +67,7 @@ const add = (dir) => {
     if (name.startsWith(".") || name === "README.md" || (!withAgent && rel === "agent")) continue;
     if (fs.statSync(full).isDirectory()) add(full);
     else if (rel === "manifest.json") zip.file(rel, JSON.stringify(manifest, null, 2) + "\n");
-    else if (rel === "popup.html" && !withAgent) zip.file(rel, fs.readFileSync(full, "utf8").replace(/[ \t]*<!-- agent:start[\s\S]*?<!-- agent:end -->\r?\n?/, ""));
+    else if ((rel === "popup.html" || rel === "options.html") && !withAgent) zip.file(rel, fs.readFileSync(full, "utf8").replace(/[ \t]*<!-- agent:start[\s\S]*?<!-- agent:end -->\r?\n?/, ""));
     else zip.file(rel, fs.readFileSync(full));
   }
 };
@@ -74,7 +76,8 @@ fs.mkdirSync(path.join(root, "dist"), { recursive: true });
 const out = path.join(root, "dist", `coverage-extension-${manifest.version}${withAgent ? "-agent" : ""}.zip`);
 fs.writeFileSync(out, await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
 const popup = await zip.file("popup.html").async("string");
-if (!withAgent && (popup.includes('id="agent"') || Object.keys(zip.files).some((f) => f.startsWith("agent/")))) {
+const options = await zip.file("options.html").async("string");
+if (!withAgent && (popup.includes('id="agent"') || options.includes('id="liOn"') || manifest.optional_host_permissions.includes(LINKEDIN) || Object.keys(zip.files).some((f) => f.startsWith("agent/")))) {
   console.error("The store build still contains the agent.");
   process.exit(1);
 }

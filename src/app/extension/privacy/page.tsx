@@ -54,8 +54,18 @@ export default function ExtensionPrivacyPage() {
           That&apos;s website content you can already see. The extension doesn&apos;t read pages you haven&apos;t clicked it on, other tabs, your browsing history, passwords,
           messages, saved passwords or anything else. On LinkedIn it never clicks, scrolls, types or loads pages for you. On a job application it only
           types into the form fields it read, picks the matching choice in dropdowns and suggestion lists, and, on Workday when you click &ldquo;Fill the
-          next pages too&rdquo;, presses the page&apos;s Next / Continue button. It never presses Submit, Apply, Sign or any similar button, never fills
-          passwords, Social Security numbers, bank or card details, and you review the application before you submit it yourself.
+          next pages too&rdquo; or Fill selected, presses the page&apos;s Next / Continue button. For Fill selected it also presses the buttons that open
+          the form (Workday&apos;s Apply / Apply Manually, Lever&apos;s &ldquo;Apply for this job&rdquo; link) and, if you turned on saved logins, the
+          sign-in form&apos;s Sign in button. It never presses Submit or any button that sends an application, signs a document or creates an account,
+          never fills Social Security numbers, bank or card details, fills a password only from your own saved logins, and you review the application
+          before you submit it yourself.
+        </p>
+
+        <p>
+          <b>Fill selected</b> (1.3): when you press it on your dashboard&apos;s Applications page, the extension opens those jobs in a
+          &ldquo;Coverage&rdquo; tab group and does the same reading and filling there, on application sites you allowed, without another click per
+          job. On Workday it presses the job&apos;s own Apply / Apply Manually buttons to open the form. With <b>Watch it work</b> it fills one tab at a
+          time in front of you and shows a banner with a Stop button.
         </p>
 
         <H2>2. Where it goes</H2>
@@ -79,11 +89,23 @@ export default function ExtensionPrivacyPage() {
           the browser clears when it closes. Your application info stays in your dashboard, not in the extension.
         </p>
 
+        <p>
+          <b>Saved logins</b> (optional, off by default): if you turn them on in the extension&apos;s settings, the sign-ins you add (site, email or
+          username, password) are encrypted on your device with a key made from your PIN (AES-GCM, PBKDF2 with 600,000 rounds) and kept in the
+          extension&apos;s storage. You unlock them with your PIN once per browser session. The extension types a login only into the sign-in form of the
+          exact site you saved it for. Logins are never sent to your dashboard, to us, to any AI provider or to any other site, and you can delete them
+          all from the extension&apos;s settings at any time. The extension never reads your browser&apos;s own saved passwords and never creates
+          accounts.
+        </p>
+
         <H2>4. What it never does</H2>
         <ul className="list-disc space-y-1 pl-6">
           <li>Sell or transfer your data to anyone, or use it for advertising, credit or lending decisions.</li>
           <li>Run on any site before you click it there (the only exception is the bridge script on {SITE.name}&apos;s own pages).</li>
-          <li>Submit an application for you, or press any button other than a multi-page form&apos;s Next / Continue (only when you ask it to go on).</li>
+          <li>
+            Submit an application for you. The only buttons it presses are a multi-page form&apos;s Next / Continue, the ones that open an application form,
+            and a sign-in form&apos;s Sign in with your saved login, and only when you started a fill.
+          </li>
           <li>Load code from the internet: everything it runs ships inside the extension.</li>
           <li>Track you, or include analytics.</li>
         </ul>
@@ -104,7 +126,11 @@ export default function ExtensionPrivacyPage() {
             <b>scripting</b>: runs the read-only function that collects the visible text from that tab.
           </li>
           <li>
-            <b>storage</b>: saves your dashboard&apos;s address, and the last autofill summary for a tab until the browser closes.
+            <b>storage</b>: saves your dashboard&apos;s address, the last autofill summary for a tab until the browser closes, and, only if you turn
+            them on, your encrypted saved logins.
+          </li>
+          <li>
+            <b>tabGroups</b>: puts the jobs Fill selected opens into one &ldquo;Coverage&rdquo; tab group, so they&apos;re easy to find and close.
           </li>
           <li>
             <b>Access to {SITE.name}&apos;s own site</b> ({SITE.url}): runs the bridge script that connects the extension to your dashboard tab for autofill. It
@@ -112,7 +138,8 @@ export default function ExtensionPrivacyPage() {
           </li>
           <li>
             <b>Optional: application sites</b> (Workday, Greenhouse, Lever, iCIMS, Taleo, SuccessFactors and similar application systems): asked one site at a
-            time from the popup, only when you choose page-by-page filling or need to fill a form embedded from that site. Nothing is granted at install, and
+            time from the popup (or all at once from the extension&apos;s settings, for Fill selected), only when you choose page-by-page filling, batch filling or
+            need to fill a form embedded from that site. Nothing is granted at install, and
             you can remove a site at any time from the extension&apos;s details page.
           </li>
         </ul>

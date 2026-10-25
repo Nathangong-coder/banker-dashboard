@@ -7,33 +7,148 @@
     <style>
       body {
         width: auto;
-        min-width: 360px;
-        padding: 16px;
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 20px 16px 40px;
       }
-      label {
+      section {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 14px;
+        margin-top: 14px;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      label.field {
         display: block;
         font-weight: 600;
-        margin-bottom: 4px;
+        margin: 10px 0 4px;
       }
       .row {
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
         margin-top: 10px;
+        align-items: center;
       }
       .row button {
         width: auto;
       }
+      .switch {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        font-weight: 600;
+        margin-top: 8px;
+      }
+      .switch input {
+        width: auto;
+        margin-top: 2px;
+      }
+      ul.logins {
+        list-style: none;
+        padding: 0;
+        margin: 8px 0 0;
+      }
+      ul.logins li {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 6px 0;
+        border-top: 1px solid var(--line);
+      }
+      ul.logins button {
+        width: auto;
+        padding: 2px 8px;
+      }
+      .warn {
+        background: var(--accent-soft);
+        border-radius: 8px;
+        padding: 8px 10px;
+        margin-top: 8px;
+      }
     </style>
   </head>
   <body>
-    <label for="dashboard">Dashboard address</label>
-    <input id="dashboard" type="url" spellcheck="false" />
-    <p class="muted" style="margin-top: 6px">Where "Send to Coverage" opens. Use http://localhost:3000 while developing.</p>
-    <div class="row">
-      <button id="save">Save</button>
-      <button id="reset" style="background: var(--subtle); color: var(--ink)">Use the default</button>
-    </div>
-    <p id="status" class="muted" role="status"></p>
+    <h1>Coverage extension settings</h1>
+
+    <section>
+      <h2>Dashboard address</h2>
+      <input id="dashboard" type="url" spellcheck="false" aria-label="Dashboard address" />
+      <p class="muted" style="margin-top: 6px">Where your Coverage dashboard is. Use http://localhost:3000 while developing.</p>
+      <div class="row">
+        <button id="save">Save</button>
+        <button id="reset" class="secondary">Use the default</button>
+      </div>
+      <p id="status" class="muted" role="status"></p>
+    </section>
+
+    <section>
+      <h2>Application sites</h2>
+      <p class="muted">
+        "Fill selected" on your dashboard opens each job in a background tab and fills it, which needs access to that application site (Workday, Greenhouse,
+        Lever…). Coverage only reads and fills application forms there, and never submits.
+      </p>
+      <p id="sitesStatus"></p>
+      <div class="row">
+        <button id="allowSites">Allow all application sites</button>
+        <button id="removeSites" class="secondary">Remove access</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Saved logins <span class="tag">optional</span></h2>
+      <p class="muted">
+        Lets Coverage sign in to application accounts you already have (each bank's Workday is its own account), so a batch fill doesn't stop at every
+        login. Off by default.
+      </p>
+      <ul class="muted" style="margin: 6px 0 0; padding-left: 18px">
+        <li>Encrypted with your PIN; unlocked once per browser session, locked again when the browser closes.</li>
+        <li>Used only on the exact site you saved it for, only in a sign-in form, by fixed rules.</li>
+        <li>No AI ever sees it, and it never leaves this browser (not to your dashboard, not to any server).</li>
+        <li>Never creates accounts, and never reads Chrome's own saved passwords (Chrome doesn't allow that).</li>
+      </ul>
+      <label class="switch"><input id="vaultOn" type="checkbox" /> Let Coverage sign in for me</label>
+      <div id="vaultBody" hidden>
+        <div id="pinBox">
+          <label class="field" for="pin" id="pinLabel">PIN</label>
+          <input id="pin" type="password" autocomplete="off" />
+          <div class="row"><button id="pinGo">Unlock</button></div>
+        </div>
+        <div id="logins" hidden>
+          <ul class="logins" id="loginList"></ul>
+          <label class="field" for="lSite">Add a login</label>
+          <input id="lSite" type="url" placeholder="Sign-in page address, e.g. https://bank.wd5.myworkdayjobs.com/…" autocomplete="off" />
+          <input id="lUser" type="text" placeholder="Email / username" autocomplete="off" style="margin-top: 6px" />
+          <input id="lPass" type="password" placeholder="Password" autocomplete="new-password" style="margin-top: 6px" />
+          <div class="row">
+            <button id="lAdd">Save login</button>
+            <button id="lock" class="secondary">Lock now</button>
+            <button id="wipe" class="secondary">Delete all saved logins</button>
+          </div>
+        </div>
+      </div>
+      <p id="vaultStatus" class="muted" role="status"></p>
+    </section>
+
+    <!-- agent:start (left out of the store build) -->
+    <section>
+      <h2>LinkedIn job search <span class="tag">test build</span></h2>
+      <p class="muted">
+        Lets "Search LinkedIn Jobs" on your dashboard open a LinkedIn Jobs search in your browser, read each posting at a person's pace (up to 60 a day) and
+        add them to your finds. It only reads job postings, never people, and stops at any LinkedIn sign-in or security check.
+      </p>
+      <p class="warn">
+        LinkedIn's User Agreement forbids automated access, even from your own browser. LinkedIn can restrict or ban the account it runs on. Your account,
+        your call.
+      </p>
+      <label class="switch"><input id="liOn" type="checkbox" /> Turn on LinkedIn job search (I accept the risk to my account)</label>
+      <p id="liStatus" class="muted" role="status"></p>
+    </section>
+    <!-- agent:end -->
+
     <script type="module" src="options.js"></script>
   </body>
 </html>

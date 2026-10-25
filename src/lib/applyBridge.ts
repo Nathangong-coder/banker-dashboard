@@ -5,7 +5,8 @@ import { create } from "zustand";
 import { blobs, useStore } from "./store";
 import { callApi } from "./api";
 import { aiReady } from "./keys";
-import { knownJobSite, planFill, sameJobSite, type FillItem, type FormField, type JobApplication } from "./apply";
+import { knownJobSite, planFill, sameJobSite, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
+import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
 import { documentText } from "./fileText";
 
@@ -17,6 +18,10 @@ import { documentText } from "./fileText";
  *   plan      { url, title, pageText, fields } → what to type in each field (decided here from your saved info,
  *             plus AI answers for open questions) and your resume file for upload fields.
  *   submitted { url } → marks the job as submitted.
+ *   fillStatus { jobId, status, note, needs } → how a "Fill selected" job is going (1.3).
+ *   foundJob / finderStatus → the opt-in LinkedIn job search's finds and progress (1.3, test build).
+ * And it sends the extension commands (`sendCommand`): fillJobs, focusJob, linkedinJobs. The extension's worker
+ * checks they come from the dashboard address set in its Options.
  * Your application info never leaves this page except as the values for the fields the extension scanned. The job
  * page itself has no way to reach this: only the extension's content script on THIS origin posts here.
  */
@@ -28,9 +33,44 @@ const ACTIVE_FOR = 6 * 60 * 60 * 1000;
 /** …and for a fill on ANY site within this long (a LinkedIn listing sends you on to the bank's own site). */
 const JUST_CLICKED = 30 * 60 * 1000;
 
-export const useExtension = create<{ version?: string; setVersion: (v: string) => void }>((set) => ({
-  setVersion: (version) => set({ version }),
+export interface ExtensionFeatures {
+  fillJobs?: boolean;
+  linkedinJobs?: boolean;
+}
+
+export const useExtension = create<{ version?: string; features: ExtensionFeatures; setVersion: (v: string, f: ExtensionFeatures) => void }>((set) => ({
+  features: {},
+  setVersion: (version, features) => set({ version, features }),
 }));
+
+/** Progress of the LinkedIn job search (session only). */
+export const useFinderStatus = create<{ text?: string; running: boolean; set: (text: string, running: boolean) => void }>((set) => ({
+  running: false,
+  set: (text, running) => set({ text, running }),
+}));
+
+let cmdSeq = 0;
+/** Ask the extension to do something (only these commands exist; see extension/content/dashboard.js). */
+export function sendCommand<T = unknown>(type: "fillJobs" | "focusJob" | "linkedinJobs", payload: unknown): Promise<T> {
+  const id = `cmd${Date.now()}_${cmdSeq++}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener("message", onMsg);
+      reject(new Error("The Coverage extension didn't answer. Is version 1.3 installed and on?"));
+    }, 15_000);
+    const onMsg = (e: MessageEvent) => {
+      if (e.source !== window || e.origin !== window.location.origin) return;
+      const m = e.data as { channel?: string; kind?: string; id?: string; ok?: boolean; result?: T; error?: string };
+      if (m?.channel !== CHANNEL || m.kind !== "commandResult" || m.id !== id) return;
+      clearTimeout(timer);
+      window.removeEventListener("message", onMsg);
+      if (m.ok) resolve(m.result as T);
+      else reject(new Error(m.error || "The extension couldn't do that."));
+    };
+    window.addEventListener("message", onMsg);
+    window.postMessage({ channel: CHANNEL, kind: "command", id, type, payload }, window.location.origin);
+  });
+}
 
 type Req = { channel: typeof CHANNEL; kind: "request"; id: string; type: string; payload: unknown };
 
@@ -106,7 +146,9 @@ async function plan(payload: unknown): Promise<PlanResult> {
   const fields = cleanFields(p.fields);
   if (!fields.length) throw new Error("No form fields found on this page.");
   const st = useStore.getState();
-  const job = jobFor(url);
+  // A batch fill names its job; otherwise it's the one you clicked Autofill on / on this site.
+  const named = typeof p.jobId === "string" ? st.apply.jobs.find((j) => j.id === p.jobId) : undefined;
+  const job = named ?? jobFor(url);
   // A site that's neither a tracked job nor a known application system gets nothing until you confirm it in the popup.
   if (!job && !knownJobSite(url) && p.confirmed !== true) {
     let host = "this site";
@@ -185,7 +227,7 @@ async function plan(payload: unknown): Promise<PlanResult> {
       ),
     }));
   }
-  toast.info(`Autofill: ${items.length} field${items.length === 1 ? "" : "s"} filled${job ? ` for ${job.company}` : ""}, ${skipped.length} left for you. Review before you submit.`);
+  if (p.batch !== true) toast.info(`Autofill: ${items.length} field${items.length === 1 ? "" : "s"} filled${job ? ` for ${job.company}` : ""}, ${skipped.length} left for you. Review before you submit.`);
   return result;
 }
 
@@ -199,7 +241,61 @@ function submitted(payload: unknown) {
   return { ok: true, company: job.company };
 }
 
-const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted };
+const FILL_STATUSES = new Set<FillStatus>(["queued", "filling", "ready", "needs_you", "signin", "account", "access", "error", "stopped"]);
+
+function fillStatus(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const jobId = str(p.jobId, 60);
+  const status = str(p.status, 20) as FillStatus;
+  if (!FILL_STATUSES.has(status)) return { ok: false };
+  const needs = Array.isArray(p.needs) ? p.needs.slice(0, 10).map((x) => str(x, 200)).filter(Boolean) : undefined;
+  const st = useStore.getState();
+  const job = st.apply.jobs.find((j) => j.id === jobId);
+  if (!job) return { ok: false };
+  st.setApply((a) => ({
+    ...a,
+    jobs: a.jobs.map((j) =>
+      j.id === jobId
+        ? { ...j, fill: { status, note: str(p.note, 300) || undefined, needs, at: new Date().toISOString() }, ...(status === "ready" || status === "needs_you" ? { status: j.status === "saved" ? "applying" : j.status, lastFilledAt: new Date().toISOString() } : {}) }
+        : j,
+    ),
+  }));
+  if (status === "ready") toast.ok(`${job.company}: filled up to review. Check it and submit it yourself.`);
+  if (status === "signin" || status === "account") toast.info(`${job.company}: ${str(p.note, 200)}`);
+  return { ok: true };
+}
+
+/** A job the LinkedIn job search read (untrusted: it comes from a web page). Added to finds, not tracked. */
+function foundJob(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const id = str(p.linkedinJobId, 20);
+  if (!/^\d{5,15}$/.test(id)) return { ok: false };
+  const url = `https://www.linkedin.com/jobs/view/${id}/`;
+  const apply = str(p.applyUrl, 1000);
+  const job: FoundJob = {
+    key: jobKey(url),
+    company: str(p.company, 120) || "Unknown company",
+    title: str(p.title, 200),
+    url,
+    location: str(p.location, 120) || undefined,
+    source: "linkedin",
+    description: str(p.description, 6000) || undefined,
+    applyUrl: /^https:\/\//.test(apply) ? apply : undefined,
+    linkedinJobId: id,
+    foundAt: new Date().toISOString(),
+  };
+  useStore.getState().setApply((a) => ({ ...a, finder: { ...a.finder, found: [job, ...a.finder.found.filter((f) => f.key !== job.key)].slice(0, 300) } }));
+  return { ok: true };
+}
+
+function finderStatus(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  useFinderStatus.getState().set(str(p.text, 300), p.done !== true);
+  if (p.done === true && p.text) toast.info(str(p.text, 300));
+  return { ok: true };
+}
+
+const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus };
 
 /** Mounted once in Shell: answers the extension, and learns whether it's installed (for the Applications page). */
 export function useExtensionBridge(ready: boolean) {
@@ -210,9 +306,10 @@ export function useExtensionBridge(ready: boolean) {
     const onMessage = async (e: MessageEvent) => {
       // Only messages from this same page (the content script shares the page's window), never from frames or popups.
       if (e.source !== window || e.origin !== window.location.origin) return;
-      const m = e.data as Partial<Omit<Req, "kind">> & { kind?: string; version?: string };
+      const m = e.data as Partial<Omit<Req, "kind">> & { kind?: string; version?: string; features?: ExtensionFeatures };
       if (!m || m.channel !== CHANNEL) return;
-      if (m.kind === "hello" && typeof m.version === "string") useExtension.getState().setVersion(m.version.slice(0, 20));
+      if (m.kind === "hello" && typeof m.version === "string")
+        useExtension.getState().setVersion(m.version.slice(0, 20), { fillJobs: m.features?.fillJobs === true, linkedinJobs: m.features?.linkedinJobs === true });
       if (m.kind !== "request" || typeof m.id !== "string" || typeof m.type !== "string") return;
       const handler = HANDLERS[m.type];
       if (!handler) return reply(m.id, { ok: false, error: "Unknown request." });
