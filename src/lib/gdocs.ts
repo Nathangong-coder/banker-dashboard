@@ -1,5 +1,7 @@
 "use client";
 
+import { dropServerGoogleToken, serverGoogleToken } from "./googleToken";
+import { requireAccount } from "./session";
 import { docJsonText, driveQueries, type DocsJson, type DriveDoc } from "./docMatch";
 
 /**
@@ -28,7 +30,13 @@ function loadGis(): Promise<void> {
 export const docsConnected = (clientId?: string) => !!token && token.exp > Date.now() && (!clientId || token.clientId === clientId);
 
 export async function connectDocs(clientId: string): Promise<string> {
+  requireAccount("connect Google");
   if (docsConnected(clientId)) return token!.value;
+  const fromServer = await serverGoogleToken(SCOPES);
+  if (fromServer) {
+    token = { value: fromServer, exp: Date.now() + 45 * 60_000, clientId };
+    return fromServer;
+  }
   if (!clientId) throw new Error("Connect Gmail in Settings first (Google Docs uses the same Google sign-in).");
   await loadGis();
   return new Promise((resolve, reject) => {
@@ -53,6 +61,7 @@ async function get<T>(clientId: string, url: string, what: string): Promise<T> {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${t}` } });
   if (res.status === 401) {
     token = null;
+    dropServerGoogleToken();
     throw new Error("Google session expired. Try again.");
   }
   if (!res.ok) {

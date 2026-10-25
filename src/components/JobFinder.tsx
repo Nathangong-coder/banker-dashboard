@@ -11,6 +11,7 @@ import type { JobApplication } from "@/lib/apply";
 import { sendCommand, useExtension, useFinderStatus } from "@/lib/applyBridge";
 import { cn, relDays, uid } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, toast } from "@/components/ui";
+import { askSignIn } from "@/lib/session";
 
 const SOURCE: Record<FoundJob["source"], string> = { workday: "Workday", greenhouse: "Greenhouse", lever: "Lever", search: "Google", linkedin: "LinkedIn" };
 const THIS_YEAR = new Date().getFullYear();
@@ -52,6 +53,7 @@ export function JobFinder() {
   const shown = showAll ? fresh : fresh.slice(0, 40);
 
   const search = async () => {
+    if (askSignIn("search for jobs")) return;
     if (!hasSearch && !boards.length) return toast.err("Add a Serper or Brave Search key (Settings → Data), or track a job on a bank's Workday / Greenhouse / Lever site first.");
     setBusy(true);
     try {

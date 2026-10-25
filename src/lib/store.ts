@@ -4,7 +4,7 @@ import type { SentRecipient } from "./offSheet";
 import { EMPTY_APPLY, type ApplyState } from "./apply";
 import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
-import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
+import { get as idbGet, set as idbSet, del as idbDel, keys as idbKeys } from "idb-keyval";
 import type {
   InfoSession,
   AiProvider,
@@ -43,24 +43,67 @@ const idbStorage: StateStorage = {
   removeItem: (k) => idbDel(k),
 };
 
+/** Writes nowhere: the store starts on this until Shell picks whose data to load (and stays on it in the demo). */
+const memoryStorage: StateStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+
+/**
+ * Accounts (owner, 2026-10-25): whose data this tab shows. "legacy" = the browser's data from before accounts (the
+ * old un-prefixed keys, kept until the user moves it and removes it); "u:<user id>" = a signed-in user's cache of
+ * their account; "demo" = sample data in memory, never saved. Every IndexedDB key is prefixed with it.
+ */
+export type StoreNamespace = "legacy" | "demo" | `u:${string}`;
+let namespace: StoreNamespace = "demo";
+export const LEGACY_STORE_KEY = "banker-dashboard";
+export const storeKeyFor = (ns: StoreNamespace) => (ns === "legacy" ? LEGACY_STORE_KEY : `${LEGACY_STORE_KEY}:${ns}`);
+/** The IndexedDB key for `k` in a namespace (the legacy namespace keeps the old names). */
+export const localKey = (k: string, ns: StoreNamespace = namespace) => (ns === "legacy" ? k : `${ns}:${k}`);
+export const currentNamespace = () => namespace;
+
+export type BlobName = "workbook" | "snapshots" | "resume" | "logo" | `appresume:${string}`;
+type BlobListener = (name: BlobName) => void;
+const blobListeners = new Set<BlobListener>();
+/** Fires after a big file changes here (lib/sync.ts uploads it to the account). */
+export function onBlobChange(fn: BlobListener) {
+  blobListeners.add(fn);
+  return () => {
+    blobListeners.delete(fn);
+  };
+}
+const memBlobs = new Map<string, unknown>();
+async function blobGet<T>(name: string): Promise<T | undefined> {
+  if (namespace === "demo") return memBlobs.get(name) as T | undefined;
+  return idbGet<T>(localKey(`blob:${name}`));
+}
+async function blobSet(name: string, v: unknown, notify = true) {
+  if (namespace === "demo") {
+    if (v === undefined) memBlobs.delete(name);
+    else memBlobs.set(name, v);
+  } else if (v === undefined) await idbDel(localKey(`blob:${name}`));
+  else await idbSet(localKey(`blob:${name}`), v);
+  if (notify) blobListeners.forEach((l) => l(name as BlobName));
+}
+type FileBlob = { name: string; type: string; data: ArrayBuffer };
+
 // Large blobs live outside the JSON-persisted store.
 export const blobs = {
-  workbook: () => idbGet<ArrayBuffer>("blob:workbook"),
-  setWorkbook: (b: ArrayBuffer) => idbSet("blob:workbook", b),
-  fileHandle: () => idbGet<FileSystemFileHandle>("blob:handle"),
-  setFileHandle: (h: FileSystemFileHandle | undefined) => (h ? idbSet("blob:handle", h) : idbDel("blob:handle")),
-  snapshots: () => idbGet<SheetSnapshot[]>("blob:snapshots"),
-  setSnapshots: (s: SheetSnapshot[]) => idbSet("blob:snapshots", s),
-  resume: () => idbGet<{ name: string; type: string; data: ArrayBuffer }>("blob:resume"),
-  setResume: (r: { name: string; type: string; data: ArrayBuffer } | undefined) =>
-    r ? idbSet("blob:resume", r) : idbDel("blob:resume"),
+  workbook: () => blobGet<ArrayBuffer>("workbook"),
+  setWorkbook: (b: ArrayBuffer) => blobSet("workbook", b),
+  /** The local file to save into: per browser (Chrome can't share it), never synced. */
+  fileHandle: () => blobGet<FileSystemFileHandle>("handle"),
+  setFileHandle: (h: FileSystemFileHandle | undefined) => blobSet("handle", h, false),
+  snapshots: () => blobGet<SheetSnapshot[]>("snapshots"),
+  setSnapshots: (s: SheetSnapshot[]) => blobSet("snapshots", s),
+  resume: () => blobGet<FileBlob>("resume"),
+  setResume: (r: FileBlob | undefined) => blobSet("resume", r),
   /** Signature logo image (settings.emailStyle.logo holds its name and size). */
-  logo: () => idbGet<{ name: string; type: string; data: ArrayBuffer }>("blob:logo"),
-  setLogo: (r: { name: string; type: string; data: ArrayBuffer } | undefined) => (r ? idbSet("blob:logo", r) : idbDel("blob:logo")),
+  logo: () => blobGet<FileBlob>("logo"),
+  setLogo: (r: FileBlob | undefined) => blobSet("logo", r),
   /** Extra resumes for job applications (state.apply.resumes holds their names); the main one is `resume`. */
-  appResume: (id: string) => idbGet<{ name: string; type: string; data: ArrayBuffer }>(`blob:appresume:${id}`),
-  setAppResume: (id: string, r: { name: string; type: string; data: ArrayBuffer } | undefined) =>
-    r ? idbSet(`blob:appresume:${id}`, r) : idbDel(`blob:appresume:${id}`),
+  appResume: (id: string) => blobGet<FileBlob>(`appresume:${id}`),
+  setAppResume: (id: string, r: FileBlob | undefined) => blobSet(`appresume:${id}`, r),
+  /** For lib/sync.ts: read / write a file without announcing it (a download from the account isn't a local change). */
+  raw: (name: BlobName) => blobGet<unknown>(name),
+  putRaw: (name: BlobName, v: unknown) => blobSet(name, v, false),
 };
 
 export function bankKey(name: string, region: Region) {
@@ -552,8 +595,8 @@ export const useStore = create<State>()(
         blobs.setResume(undefined);
         blobs.setLogo(undefined);
         blobs.setFileHandle(undefined);
-        idbDel("blob:workbook");
-        idbDel("blob:snapshots");
+        blobSet("workbook", undefined);
+        blobSet("snapshots", undefined);
         set({
           contacts: [],
           banks: {},
@@ -575,9 +618,12 @@ export const useStore = create<State>()(
       };
     },
     {
-      name: "banker-dashboard",
+      name: LEGACY_STORE_KEY,
       version: 10,
-      storage: createJSONStorage(() => idbStorage),
+      // Nothing is read or written until Shell picks a namespace (useNamespace): writing before that could overwrite a
+      // browser's only copy of its data with an empty store.
+      storage: createJSONStorage(() => memoryStorage),
+      skipHydration: true,
       migrate: (persisted, version) => migrateState(persisted as Record<string, unknown>, version) as unknown as State,
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       partialize: ({ snapshots, gridUndo, ...rest }) => rest,
@@ -595,6 +641,71 @@ export const useStore = create<State>()(
     },
   ),
 );
+
+/** The store's starting state (empty, with its actions), for switching between users / the demo. */
+const INITIAL = useStore.getState();
+export const STORE_VERSION = 10;
+
+/**
+ * Show `ns`'s data: the store is emptied (without writing anywhere), pointed at that namespace's IndexedDB key, and
+ * loaded from it. "demo" stays in memory; `seed` fills it.
+ */
+export async function switchNamespace(ns: StoreNamespace, seed?: Partial<State>) {
+  useStore.persist.setOptions({ storage: createJSONStorage(() => memoryStorage) });
+  namespace = ns;
+  memBlobs.clear();
+  useStore.setState(INITIAL, true);
+  if (ns === "demo") {
+    if (seed) useStore.setState(seed);
+    return;
+  }
+  useStore.persist.setOptions({ name: storeKeyFor(ns), storage: createJSONStorage(() => idbStorage) });
+  await useStore.persist.rehydrate();
+}
+
+/** The persisted part of the state right now (what goes to IndexedDB, and to the account via lib/sync.ts). */
+export function persistedState(): Record<string, unknown> {
+  const p = useStore.persist.getOptions().partialize;
+  return (p ? p(useStore.getState()) : useStore.getState()) as unknown as Record<string, unknown>;
+}
+
+/** Bring data saved by an older version (another browser's copy in the account) up to date, like a reload would. */
+export function migratePersisted(p: Record<string, unknown>, version: number) {
+  return version < STORE_VERSION ? (migrateState(p, version) as unknown as Record<string, unknown>) : p;
+}
+
+/** Raw saved JSON of a namespace (moving a browser's old data into an account). */
+export async function readNamespace(ns: StoreNamespace) {
+  const raw = await idbGet<string>(storeKeyFor(ns));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as { state: Record<string, unknown>; version: number };
+  } catch {
+    return null;
+  }
+}
+
+/** Copy a namespace's saved data + files to another (the old copy stays). The local-file handle isn't copied. */
+export async function copyNamespace(from: StoreNamespace, to: StoreNamespace) {
+  const raw = await idbGet<string>(storeKeyFor(from));
+  if (raw) await idbSet(storeKeyFor(to), raw);
+  const prefix = localKey("blob:", from);
+  for (const k of (await idbKeys()) as unknown[]) {
+    if (typeof k !== "string" || !k.startsWith(prefix) || k === localKey("blob:handle", from)) continue;
+    await idbSet(localKey(`blob:${k.slice(prefix.length)}`, to), await idbGet(k));
+  }
+}
+
+/** Remove a namespace's saved data + files from this browser (sign-out, "Remove this browser's old copy"). */
+export async function dropNamespace(ns: StoreNamespace) {
+  if (ns === "demo") return;
+  await idbDel(storeKeyFor(ns));
+  for (const k of (await idbKeys()) as unknown[]) {
+    if (typeof k !== "string") continue;
+    const mine = ns === "legacy" ? k.startsWith("blob:") || k === "infosessions:unsorted" : k.startsWith(`${ns}:`);
+    if (mine) await idbDel(k);
+  }
+}
 
 // The COVERAGE tab's office map follows the sheets: team guesses and "not offered" desks read it (lib/offices.ts).
 // Pending edits count too (rows added to COVERAGE for a new application are in `patches` until save).

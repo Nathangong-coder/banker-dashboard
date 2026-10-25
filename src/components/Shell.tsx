@@ -2,12 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy, Presentation, NotebookPen, CalendarDays, FileText, BriefcaseBusiness } from "lucide-react";
-import { blobs, useStore } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import { useExtensionBridge } from "@/lib/applyBridge";
-import { FORMAT_VERSION, readFormats, withInternalLinks } from "@/lib/workbook";
-import { readInternalLinks } from "@/lib/sheetLinks";
 import { useSaveShortcut } from "./useSaveShortcut";
 import { nextAction } from "@/lib/followups";
 import { cn } from "@/lib/util";
@@ -21,6 +19,9 @@ import { syncServer } from "@/lib/serverSync";
 import { setSignatureLogoSource } from "@/lib/gmail";
 import { savedSignatureLogo } from "@/lib/signatureLogo";
 import { Logo } from "./Logo";
+import { useBoot } from "./useBoot";
+import { useSession } from "@/lib/session";
+import { AccountMenu, DemoBar, LegacyBar, MoveData, SignInNeededModal, SignInScreen, SyncBadge, linkServerAccount } from "./Account";
 
 // Every Gmail draft gets the signature logo saved in Settings (gmail.ts stays store-free for the check scripts).
 setSignatureLogoSource(savedSignatureLogo);
@@ -72,38 +73,6 @@ const GROUPS = [
 
 const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path.startsWith(href));
 const groupOf = (path: string) => GROUPS.find((g) => g.pages.some((p) => isActive(p.href, path))) ?? GROUPS[0];
-
-function useHydrated() {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    const done = async () => {
-      const snaps = await blobs.snapshots();
-      if (snaps) useStore.getState().setSnapshots(snaps);
-      setReady(true);
-      // Every bank on the lists gets a tab and an OVERVIEW row (pending until saved), without needing a re-import.
-      if (snaps?.length) {
-        // Loaded after first paint: the spreadsheet code isn't needed to show the page.
-        const { describeTabChanges, refreshBankTabs } = await import("@/lib/actions");
-        const text = describeTabChanges(refreshBankTabs() ?? { added: [], renamed: [], repaired: [], listed: [], coverageRows: [], skipped: [] });
-        if (text) toast.info(`Spreadsheet tabs: ${text}`);
-      }
-      if (snaps?.length && snaps.some((s) => s.format?.version !== FORMAT_VERSION)) {
-        const buf = await blobs.workbook();
-        if (!buf) return;
-        const [formats, links] = await Promise.all([readFormats(buf), readInternalLinks(buf)]);
-        // Imports from before FORMAT_VERSION 2 also lost the links between tabs.
-        const next = useStore.getState().snapshots.map((s) =>
-          formats[s.name] ? { ...s, format: formats[s.name], cells: withInternalLinks(s.cells, links[s.name]) } : s,
-        );
-        useStore.getState().setSnapshots(next);
-        blobs.setSnapshots(next);
-      }
-    };
-    if (useStore.persist.hasHydrated()) done();
-    return useStore.persist.onFinishHydration(() => done());
-  }, []);
-  return ready;
-}
 
 /**
  * Edits made in Excel while the dashboard is open (Referral? ticked, a status changed) are read back when you come
@@ -231,7 +200,9 @@ function useServerSync(ready: boolean) {
 
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
-  const ready = useHydrated();
+  const { ready: booted, move, finishMove } = useBoot();
+  const mode = useSession((s) => s.mode);
+  const ready = booted && mode !== "blocked";
   const isPublic = PUBLIC_PATHS.includes(path);
   useSaveShortcut();
   const contacts = useStore((s) => s.contacts);
@@ -250,7 +221,9 @@ export function Shell({ children }: { children: ReactNode }) {
   useDailyWhatsApp(ready);
   useExcelEdits(ready);
   useServerSync(ready);
-  useExtensionBridge(ready);
+  // The demo's made-up data never goes to the extension (it would fill real forms with it).
+  useExtensionBridge(ready && mode !== "demo");
+  useAccountLink(mode === "account");
   // The server switched to a backup model (primary hit a rate/quota limit): say so once per model.
   useEffect(() => {
     const seen = new Set<string>();
@@ -332,6 +305,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <KeyRound className="size-3.5" />
             {keyCount}/4
           </Link>
+          <SyncBadge />
           <Link
             href="/settings"
             aria-label="Settings"
@@ -340,8 +314,11 @@ export function Shell({ children }: { children: ReactNode }) {
           >
             <Settings2 className="size-[18px]" />
           </Link>
+          <AccountMenu />
         </div>
       </header>
+      {booted && !isPublic && mode === "demo" && <DemoBar />}
+      {booted && !isPublic && mode === "legacy" && <LegacyBar />}
 
       <div className="flex min-h-0 flex-1">
         <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-[232px] shrink-0 flex-col overflow-y-auto border-r border-top-line bg-side px-2.5 py-4 text-side-ink md:flex">
@@ -397,7 +374,13 @@ export function Shell({ children }: { children: ReactNode }) {
           </nav>
       <main className="min-w-0 flex-1 px-4 pt-6 pb-16 md:px-9 md:pt-7 md:pb-10">
         {/* Legal pages and the 404 don't need the store: render them straight away (crawlers and Google's reviewers read them). */}
-        {ready || isPublic ? (
+        {isPublic ? (
+          <div className="mx-auto max-w-[1320px]">{children}</div>
+        ) : move ? (
+          <MoveData legacy={move.legacy} onDone={finishMove} />
+        ) : booted && mode === "blocked" ? (
+          <SignInScreen />
+        ) : ready ? (
           <div className="mx-auto max-w-[1320px]">{children}</div>
         ) : (
           <div className="flex h-[60vh] items-center justify-center text-muted">
@@ -408,7 +391,17 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </div>
       <Toaster />
+      <SignInNeededModal />
       <ConsentBanner />
     </div>
   );
+}
+
+/** Signed in: tie this browser's automatic-sending account to the user whenever it isn't yet (or was just made). */
+function useAccountLink(on: boolean) {
+  const serverId = useStore((s) => s.settings.server?.id);
+  const linked = useSession((s) => s.user?.accountId);
+  useEffect(() => {
+    if (on && serverId && serverId !== linked) void linkServerAccount().catch(() => undefined);
+  }, [on, serverId, linked]);
 }

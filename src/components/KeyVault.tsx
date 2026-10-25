@@ -8,6 +8,7 @@ import { AI_PROVIDERS, type AiProvider, type ApiKeyEntry, type VaultService } fr
 import type { KeyTestResult } from "@/app/api/keys/test/route";
 import { cn, fmtDate, uid } from "@/lib/util";
 import { Badge, Button, Input, Select, toast } from "./ui";
+import { askSignIn } from "@/lib/session";
 
 export async function testKey(body: Record<string, unknown>): Promise<KeyTestResult> {
   const res = await fetch("/api/keys/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -97,6 +98,7 @@ export function KeyVault({ service, placeholder }: { service: "apollo" | "hunter
   const [error, setError] = useState<string | null>(null);
 
   const add = async () => {
+    if (askSignIn("add your own keys")) return;
     const v = value.trim();
     if (!v) return;
     if (list.some((k) => k.value === v)) return setError("That key is already saved.");
@@ -158,6 +160,7 @@ export function AiVault() {
   const needsBase = provider === "custom" || provider === "glm";
 
   const add = async () => {
+    if (askSignIn("add your own keys")) return;
     const v = value.trim();
     if (!v) return;
     if (list.some((k) => k.value === v)) return setError("That key is already saved.");
@@ -323,6 +326,7 @@ function BackupModels() {
   const setFallbacks = (f: ModelRef[] | undefined) => setSettings((s) => ({ ...s, ai: { ...s.ai, fallbacks: f } }));
 
   const add = async () => {
+    if (askSignIn("add your own keys")) return;
     const m = model.trim();
     const key = settings.vault.ai.find((k) => k.provider === prov && k.ok !== false);
     if (!m || !key) return;

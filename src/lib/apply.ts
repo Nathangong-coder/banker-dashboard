@@ -173,6 +173,8 @@ export interface ApplyState {
   /** The job you last clicked "Autofill" on, so a fill on that site is filed under it. */
   activeJob?: { id: string; at: string };
   finder: JobFinderState;
+  /** The extension's saved logins, still encrypted with your PIN (synced through your account; nobody else can read them). */
+  vault?: { blob: { v: 1; salt: string; iv: string; data: string } | null; at: string };
 }
 
 export const EMPTY_APPLY: ApplyState = { jobs: [], profile: EMPTY_PROFILE, samples: [], library: [], resumes: [], finder: EMPTY_FINDER };

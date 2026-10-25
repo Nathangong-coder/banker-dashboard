@@ -440,6 +440,52 @@ async function linkedinJobs({ terms, location, max, watch }) {
   return { started: true, max: n };
 }
 
+/* ---------------- saved logins sync (1.3.1) ---------------- */
+
+// The vault (vault.js) is encrypted with your PIN; only that ciphertext goes to your Coverage account, through the
+// dashboard tab, so another browser where you sign in to Coverage gets the same logins (unlock with the same PIN).
+// The newer copy wins (`vaultAt`); a copy taken from the account locks this browser's vault until the PIN is entered.
+const okVault = (b) => b === null || (b && b.v === 1 && ["salt", "iv", "data"].every((k) => typeof b[k] === "string" && b[k].length < 400_000));
+let lastAdopted = null;
+let vaultBusy = false;
+async function syncVault() {
+  if (vaultBusy) return { busy: true };
+  vaultBusy = true;
+  try {
+    const { vault, vaultAt } = await chrome.storage.local.get(["vault", "vaultAt"]);
+    const remote = await askDashboard("vault", { op: "get" }).catch(() => undefined);
+    if (remote === undefined) return { synced: false };
+    const localAt = typeof vaultAt === "string" ? vaultAt : "";
+    const remoteAt = typeof remote?.at === "string" ? remote.at : "";
+    if (remote && remoteAt > localAt && okVault(remote.blob)) {
+      lastAdopted = JSON.stringify(remote.blob ?? null);
+      if (remote.blob) await chrome.storage.local.set({ vault: remote.blob, vaultAt: remoteAt, vaultOn: true });
+      else {
+        await chrome.storage.local.remove(["vault", "vaultOn"]);
+        await chrome.storage.local.set({ vaultAt: remoteAt });
+      }
+      await chrome.storage.session.remove("vaultKey");
+      return { synced: true, from: "account" };
+    }
+    if (localAt && localAt > remoteAt) {
+      await askDashboard("vault", { op: "put", blob: vault ?? null, at: localAt });
+      return { synced: true, from: "here" };
+    }
+    return { synced: true };
+  } finally {
+    vaultBusy = false;
+  }
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !("vault" in changes)) return;
+  // The change that syncVault just made itself: nothing to send back.
+  if (lastAdopted !== null && JSON.stringify(changes.vault.newValue ?? null) === lastAdopted) {
+    lastAdopted = null;
+    return;
+  }
+  chrome.storage.local.set({ vaultAt: new Date().toISOString() }).then(() => syncVault().catch(() => {}));
+});
+
 /* ---------------- messages ---------------- */
 
 const ID = /^[A-Za-z0-9_-]{1,60}$/;
@@ -456,6 +502,7 @@ async function fromDashboard(msg, sender) {
   const dashboard = await getDashboard();
   if (sender.frameId !== 0 || !sender.url || new URL(sender.url).origin !== dashboard) throw new Error("Not your Coverage dashboard.");
   const p = msg.payload ?? {};
+  if (msg.type === "vaultSync") return syncVault();
   if (msg.type === "fillJobs") return fillJobs({ jobs: cleanJobs(p.jobs), watch: p.watch === true });
   if (msg.type === "focusJob" && ID.test(String(p.jobId))) return focusJob(String(p.jobId));
   if (msg.type === "linkedinJobs")

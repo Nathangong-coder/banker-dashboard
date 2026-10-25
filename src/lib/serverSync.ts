@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { useStore } from "./store";
+import { requireAccount, useSession } from "./session";
 import { latestIso } from "./util";
 import { nightPlan } from "./reminders";
 import { earliestSend, pendingFollowUpDraft } from "./followups";
@@ -44,6 +45,7 @@ function account() {
 }
 
 async function call<T>(path: string, body: unknown): Promise<T> {
+  requireAccount("connect your Google account");
   const a = account();
   const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${a.id}.${a.token}` }, body: JSON.stringify(body) });
   const j = (await res.json().catch(() => ({}))) as T & { error?: string };
@@ -58,7 +60,7 @@ export function serverCall<T>(path: string, body: unknown): Promise<T> {
 
 /** Send the user to Google to give the server Gmail access; comes back to `returnTo` with ?server=connected. */
 export async function connectServer(returnTo = "/followups?tab=reminders") {
-  const { url } = await call<{ url: string }>("/api/server/google/start", { returnTo, loginHint: useStore.getState().settings.profile.email || undefined });
+  const { url } = await call<{ url: string }>("/api/server/google/start", { returnTo, loginHint: useSession.getState().user?.email || useStore.getState().settings.profile.email || undefined });
   window.location.href = url;
 }
 

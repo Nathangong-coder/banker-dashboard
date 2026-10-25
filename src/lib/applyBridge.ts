@@ -5,7 +5,7 @@ import { create } from "zustand";
 import { blobs, useStore } from "./store";
 import { callApi } from "./api";
 import { aiReady } from "./keys";
-import { knownJobSite, planFill, sameJobSite, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
+import { knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
 import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
 import { documentText } from "./fileText";
@@ -20,6 +20,7 @@ import { documentText } from "./fileText";
  *   submitted { url } → marks the job as submitted.
  *   fillStatus { jobId, status, note, needs } → how a "Fill selected" job is going (1.3).
  *   foundJob / finderStatus → the opt-in LinkedIn job search's finds and progress (1.3, test build).
+ *   vault { op: get | put } → the extension's PIN-encrypted saved logins, synced through the account.
  * And it sends the extension commands (`sendCommand`): fillJobs, focusJob, linkedinJobs. The extension's worker
  * checks they come from the dashboard address set in its Options.
  * Your application info never leaves this page except as the values for the fields the extension scanned. The job
@@ -295,7 +296,23 @@ function finderStatus(payload: unknown) {
   return { ok: true };
 }
 
-const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus };
+/**
+ * The extension's saved logins, synced through the account (owner, 2026-10-25): only the PIN-encrypted vault
+ * ({v, salt, iv, data}) is kept, in `apply.vault`; the PIN never leaves the extension, so neither this page nor the
+ * server can read a login. The newer copy (`at`) wins on both sides.
+ */
+function vault(payload: unknown) {
+  const p = (payload ?? {}) as { op?: string; blob?: unknown; at?: unknown };
+  if (p.op === "get") return useStore.getState().apply.vault ?? null;
+  if (p.op !== "put" || typeof p.at !== "string" || !/^\d{4}-\d\d-\d\dT/.test(p.at)) return { ok: false };
+  const b = p.blob as Record<string, unknown> | null;
+  const ok = b === null || (b && b.v === 1 && ["salt", "iv", "data"].every((k) => typeof b[k] === "string" && (b[k] as string).length < 400_000));
+  if (!ok) return { ok: false };
+  useStore.getState().setApply((a) => ({ ...a, vault: { blob: b as NonNullable<ApplyState["vault"]>["blob"], at: p.at as string } }));
+  return { ok: true };
+}
+
+const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault };
 
 /** Mounted once in Shell: answers the extension, and learns whether it's installed (for the Applications page). */
 export function useExtensionBridge(ready: boolean) {

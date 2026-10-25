@@ -27,6 +27,12 @@ export const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
  * smart mentions read what's in them (api/server/docs), private docs included. Unticked = everything else still works.
  */
 export const DOCS_SCOPES = ["https://www.googleapis.com/auth/documents.readonly", "https://www.googleapis.com/auth/drive.metadata.readonly"];
+/**
+ * Accounts (owner, 2026-10-25): "Connect Google" also covers what the dashboard did with its own browser popups, so
+ * signed-in users never see them: creating call invites and reading free/busy times (lib/gcal.ts). The browser gets
+ * short-lived access tokens from api/server/google/token.
+ */
+export const BROWSER_SCOPES = ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.freebusy"];
 export const CALLBACK_PATH = "/api/server/google/callback";
 
 function client() {
@@ -41,7 +47,7 @@ export function authUrl(redirectUri: string, state: string, loginHint?: string) 
     client_id: client().id,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: [...SERVER_SCOPES, CALENDAR_SCOPE, GMAIL_READ_SCOPE, ...DOCS_SCOPES].join(" "),
+    scope: [...SERVER_SCOPES, CALENDAR_SCOPE, GMAIL_READ_SCOPE, ...DOCS_SCOPES, ...BROWSER_SCOPES].join(" "),
     access_type: "offline",
     // Always ask, so Google returns a refresh token even if this account connected before.
     prompt: "consent",
@@ -72,12 +78,28 @@ export async function exchangeCode(code: string, redirectUri: string) {
   const j = await tokenCall({ code, redirect_uri: redirectUri, grant_type: "authorization_code" });
   if (!j.refresh_token) throw new HttpError(502, "Google didn't return offline access. Remove the app's access at myaccount.google.com/permissions and connect again.");
   if (!SERVER_SCOPES.every((s) => (j.scope ?? "").includes(s))) throw new HttpError(400, "Gmail permission wasn't granted. Connect again and tick the Gmail box.");
-  return { access: j.access_token!, refresh: j.refresh_token, calendar: (j.scope ?? "").includes(CALENDAR_SCOPE), read: (j.scope ?? "").includes(GMAIL_READ_SCOPE), docs: DOCS_SCOPES.every((x) => (j.scope ?? "").includes(x)) };
+  const granted = (j.scope ?? "").split(" ");
+  return {
+    access: j.access_token!,
+    refresh: j.refresh_token,
+    // calendar.events (read + write) covers what the read-only scope gives the 9 PM text.
+    calendar: granted.includes(CALENDAR_SCOPE) || granted.includes(BROWSER_SCOPES[0]),
+    read: granted.includes(GMAIL_READ_SCOPE),
+    docs: DOCS_SCOPES.every((x) => granted.includes(x)),
+    scopes: granted.filter((x) => x.startsWith("https://www.googleapis.com/auth/")),
+  };
 }
 
 export async function accessToken(a: Account) {
   if (!a.google) throw new HttpError(400, "Gmail isn't connected for automatic sending.");
   return (await tokenCall({ refresh_token: unseal(a.google.refresh), grant_type: "refresh_token" })).access_token!;
+}
+
+/** An access token plus how long it lasts and what it may do (for the browser: api/server/google/token). */
+export async function accessTokenWithScopes(a: Account) {
+  if (!a.google) throw new HttpError(400, "Google isn't connected. Connect Google in Settings first.");
+  const j = await tokenCall({ refresh_token: unseal(a.google.refresh), grant_type: "refresh_token" });
+  return { access: j.access_token!, scopes: (j.scope ?? "").split(" ").filter(Boolean), expiresIn: Number((j as { expires_in?: number }).expires_in ?? 3600) };
 }
 
 export async function gmail<T>(access: string, path: string, init?: RequestInit) {

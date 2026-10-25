@@ -4,7 +4,7 @@ import { SITE } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
-  description: `How ${SITE.name} handles your data: what stays in your browser, the little that's stored on our server, and how Gmail access is used.`,
+  description: `How ${SITE.name} handles your data: what your account stores (encrypted), what stays in your browser, and how Gmail access is used.`,
   alternates: { canonical: "/privacy" },
 };
 
@@ -12,30 +12,47 @@ export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy">
       <p>
-        {SITE.name} is a personal tool for networking in investment-banking recruiting. It&apos;s built so that almost everything stays on your own device.
-        This page explains exactly what is stored where, who it&apos;s shared with, and the choices you have. Questions or deletion requests:{" "}
+        {SITE.name} is a personal tool for networking in investment-banking recruiting. You sign in with Google, and what you save is kept in your
+        {SITE.name} account so it&apos;s on every browser and computer you use. This page explains exactly what is stored where, who it&apos;s shared with, and the choices you have. Questions or deletion requests:{" "}
         <a className="text-navy underline" href={`mailto:${SITE.contact}`}>
           {SITE.contact}
         </a>
         .
       </p>
 
-      <H2>1. What stays in your browser</H2>
+      <H2>1. Your account and what it stores</H2>
       <p>
-        Your contacts, spreadsheet, drafts, templates, settings, resume, signature logo, coffee-chat transcripts and grades, the recipients of your last 120 days of sent mail (to spot bankers you emailed who aren&apos;t in your tracker), your job applications and the
-        application info you enter for autofill (contact details, home address, education, work authorization, and any voluntary self-identification
-        answers such as gender, race, veteran or disability status), your writing samples and extra resumes, and the API keys you add are stored in your browser (IndexedDB and local storage) on the
-        device you use. We can&apos;t see them. Clearing your browser data, or <b>Settings → Backup → Clear all data</b>, deletes them. Backups you export are
-        files you control.
+        <b>Signing in.</b> &ldquo;Sign in with Google&rdquo; gives us your Google account&apos;s ID, name, email address and profile picture (the{" "}
+        <code>openid email profile</code> permissions, nothing else). We keep them as your account, plus one-way hashes of the random session tokens that
+        keep each of your browsers signed in (a cookie, 30 days after you last used it).
+      </p>
+      <p className="mt-3">
+        <b>Your data.</b> Your contacts, spreadsheet (the file and its parsed tabs), drafts, templates, settings, resume, signature logo, coffee-chat
+        transcripts and grades, the recipients of your last 120 days of sent mail (to spot bankers you emailed who aren&apos;t in your tracker), your job
+        applications and the application info you enter for autofill (contact details, home address, education, work authorization, and any voluntary
+        self-identification answers such as gender, race, veteran or disability status), your writing samples and extra resumes, and the API keys you
+        add are saved to your account on our servers, encrypted (AES-256-GCM), so they follow you to every browser you sign in to. They&apos;re only
+        decrypted to send them to you. Each browser also keeps a copy (IndexedDB) so pages load quickly; signing out removes that copy.
+      </p>
+      <p className="mt-3">
+        <b>What stays in one browser:</b> the link to a spreadsheet file on your computer that Coverage saves into, your color theme and similar display
+        preferences, and the capture key on your phone&apos;s capture page. Data saved in a browser before accounts existed stays there until you move
+        it into your account (we offer a full backup download first) and click <b>Remove this browser&apos;s old copy</b>. Signed out, you see a demo
+        with made-up data; nothing you do there is saved.
       </p>
 
-      <H2>2. What our server stores, and only if you turn it on</H2>
+      <H2>2. What our server uses while your dashboard is closed</H2>
       <p>
-        If you turn on <b>automatic sending</b> (Follow-ups → Reminders), our server keeps the minimum it needs to work while your dashboard is closed:
+        If you <b>connect Google</b> (Settings → Account, or Follow-ups → Reminders), our server also keeps what it needs to work while your dashboard
+        is closed:
       </p>
       <ul className="list-disc space-y-1 pl-6">
         <li>A random account ID, and a one-way hash of a random secret your browser created (no name or password).</li>
-        <li>Your Google refresh token for sending, encrypted (AES-256-GCM), and the Gmail address it belongs to.</li>
+        <li>
+          Your Google refresh token, encrypted (AES-256-GCM), the Gmail address it belongs to, and which permissions you granted. Short-lived access
+          tokens made from it (about an hour) are cached encrypted and handed to your signed-in dashboard, so its own Gmail, Calendar and Docs features
+          work without Google pop-ups.
+        </li>
         <li>The queue of emails you scheduled: Gmail draft IDs, the contact&apos;s name, and the send time. Not the email text.</li>
         <li>
           If you use WhatsApp reminders: your WhatsApp number and CallMeBot key (encrypted), and the next two weeks of reminder lists (names, email addresses
@@ -69,7 +86,7 @@ export default function PrivacyPage() {
         days); turning automatic sending off revokes them.
       </p>
       <p>
-        Turning automatic sending off deletes all of this and revokes our Google access. To limit abuse, the server also keeps your IP address for up to an
+        Turning automatic sending off deletes all of this and revokes our Google access; deleting your account (section 8) deletes everything. To limit abuse, the server also keeps your IP address for up to an
         hour in a rate-limit counter. It is not linked to your account.
       </p>
 
@@ -100,9 +117,9 @@ export default function PrivacyPage() {
       </p>
       <p>
         If you use <b>Schedule calls</b>, your browser also reads the latest email from that banker (to see which days and time zone they asked
-        for, and their phone number), and, with a separate permission, your Google Calendar: your free/busy times, so offered times skip your
-        events, and creating the call event with the banker as a guest. Calendar data is used only in your browser and isn&apos;t stored on our
-        server. If an AI model is set up, the text of that one reply is sent to it to read the request.
+        for, and their phone number), and your Google Calendar (<code>calendar.events</code> and <code>calendar.freebusy</code>, granted with Connect
+        Google or as a separate permission in your browser): your free/busy times, so offered times skip your events, and creating the call event
+        with the banker as a guest. Calendar data is used only in your browser and isn&apos;t stored on our server. If an AI model is set up, the text of that one reply is sent to it to read the request.
       </p>
       <p>
         To protect you from emailing senior bankers by mistake, your browser lists your Gmail drafts and scheduled emails (recipients and subject
@@ -143,15 +160,18 @@ export default function PrivacyPage() {
 
       <H2>5. Hosting, storage and analytics</H2>
       <p>
-        The app runs on Vercel. Server data (section 2) is stored with Upstash (Redis), and timed jobs run on Upstash QStash. We use Vercel Web Analytics
+        The app runs on Vercel. Account data (sections 1 and 2) is stored with Upstash (Redis), large files (spreadsheets, resumes, your logo) in
+        Vercel Blob (private, encrypted at rest by Vercel), and timed jobs run on Upstash QStash. We use Vercel Web Analytics
         and Speed Insights to count page views and measure page speed. They use no cookies and don&apos;t identify you across sites. You can turn them off
         in the notice at the bottom of the page, or under <b>Settings → Backup</b>.
       </p>
 
       <H2>6. Cookies and local storage</H2>
       <p>
-        {SITE.name} doesn&apos;t use advertising or tracking cookies. Google&apos;s sign-in window may set its own cookies on google.com. The app stores your
-        data in your browser (section 1) because it can&apos;t work without it. On your phone, the capture page stores your capture key in local storage
+        {SITE.name} doesn&apos;t use advertising or tracking cookies. Signing in sets one cookie (<code>coverage_session</code>, HttpOnly, for this
+        site only) that keeps you signed in, and a short-lived one during sign-in (<code>coverage_signin</code>, 10 minutes) that protects it from
+        forgery. Google&apos;s sign-in window may set its own cookies on google.com. Each browser keeps a copy of your data (section 1) because the app
+        can&apos;t work without it. On your phone, the capture page stores your capture key in local storage
         and in one cookie (<code>coverage_capture</code>, sent only to the share address) so sharing photos from your phone&apos;s share sheet works.
       </p>
 
@@ -183,8 +203,9 @@ export default function PrivacyPage() {
       <p className="mt-3">
         <b>Fill selected</b> (extension 1.3+): when you press <b>Fill selected</b> on Applications, the extension opens those jobs in a tab group and
         fills each the same way, on application sites you allowed in the extension. If you turn on <b>saved logins</b> in the extension, it can sign
-        in to application accounts you already have: those logins are encrypted with your PIN inside the extension, used only on the site they were
-        saved for, and never sent to your dashboard, to us, to any AI or anywhere else.
+        in to application accounts you already have: those logins are encrypted with your PIN inside the extension and used only on the site they were
+        saved for. So they follow you to your other browsers, the extension keeps that encrypted copy in your {SITE.name} account (extension 1.3.1+);
+        your PIN never leaves the extension, so neither we nor your dashboard can read a login, and logins are never sent to any AI.
       </p>
       <p className="mt-3">
         <b>Find jobs</b>: the search you start on Applications runs through {SITE.name}&apos;s server, which reads public job lists from the career
@@ -194,14 +215,19 @@ export default function PrivacyPage() {
 
       <H2>8. Your choices and rights</H2>
       <ul className="list-disc space-y-1 pl-6">
-        <li>Delete local data: Settings → Backup → Clear all data, or clear your browser storage.</li>
-        <li>Delete server data and revoke Google access: Follow-ups → Reminders → Turn off. You can also remove access at myaccount.google.com/permissions.</li>
+        <li>Download everything: Settings → Account → Download everything (one file with all your data and files).</li>
+        <li>
+          Delete your account: Settings → Account → Delete my account deletes everything we store for you (your data and files, Google access, which is
+          revoked, the send queue, texts, captures and connector tokens) and signs you out everywhere.
+        </li>
+        <li>Turn off Google access only: Follow-ups → Reminders → Turn off. You can also remove access at myaccount.google.com/permissions.</li>
+        <li>Remove this browser&apos;s copy: sign out (or clear your browser storage).</li>
         <li>
           Ask what we hold, or ask us to delete it: email{" "}
           <a className="text-navy underline" href={`mailto:${SITE.contact}`}>
             {SITE.contact}
           </a>
-          . Include your Gmail address if you used automatic sending.
+          . Include the Google address you sign in with.
         </li>
       </ul>
 

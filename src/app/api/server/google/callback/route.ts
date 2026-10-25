@@ -1,5 +1,6 @@
 import { appUrl, db, loadAccount, saveAccount, seal } from "@/lib/server/accounts";
 import { CALLBACK_PATH, exchangeCode, gmailProfile } from "@/lib/server/google";
+import { currentUser } from "@/lib/server/users";
 
 /** Google sends the user back here after consent. Stores the encrypted refresh token, then returns to the app. */
 export async function GET(req: Request) {
@@ -16,7 +17,12 @@ export async function GET(req: Request) {
     if (!a) return back(returnTo, { server: "error", reason: "Account not found. Try Connect again." });
     const t = await exchangeCode(u.searchParams.get("code") ?? "", `${base}${CALLBACK_PATH}`);
     const { emailAddress } = await gmailProfile(t.access);
-    await saveAccount({ ...a, google: { refresh: seal(t.refresh), email: emailAddress, connectedAt: new Date().toISOString(), calendar: t.calendar, read: t.read, docs: t.docs } });
+    // Signed in to Coverage as one Google account, connecting another: refuse (one identity per user for now).
+    const user = await currentUser(req).catch(() => null);
+    if (user && !user.id.startsWith("dev:") && emailAddress.toLowerCase() !== user.email.toLowerCase())
+      return back(returnTo, { server: "error", reason: `You're signed in to Coverage as ${user.email}, but picked ${emailAddress} on Google's screen. Connect again and pick ${user.email}.` });
+    await db().del(`gtok:${a.id}`);
+    await saveAccount({ ...a, google: { refresh: seal(t.refresh), email: emailAddress, connectedAt: new Date().toISOString(), calendar: t.calendar, read: t.read, docs: t.docs, scopes: t.scopes } });
     return back(returnTo, { server: "connected", email: emailAddress });
   } catch (e) {
     return back(returnTo, { server: "error", reason: (e as Error).message.slice(0, 200) });

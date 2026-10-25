@@ -93,8 +93,10 @@ export default function ExtensionPrivacyPage() {
           <b>Saved logins</b> (optional, off by default): if you turn them on in the extension&apos;s settings, the sign-ins you add (site, email or
           username, password) are encrypted on your device with a key made from your PIN (AES-GCM, PBKDF2 with 600,000 rounds) and kept in the
           extension&apos;s storage. You unlock them with your PIN once per browser session. The extension types a login only into the sign-in form of the
-          exact site you saved it for. Logins are never sent to your dashboard, to us, to any AI provider or to any other site, and you can delete them
-          all from the extension&apos;s settings at any time. The extension never reads your browser&apos;s own saved passwords and never creates
+          exact site you saved it for. From 1.3.1, so your logins follow you to your other browsers, the extension keeps that encrypted copy in your
+          Coverage account through your dashboard tab; your PIN never leaves the extension, so neither the dashboard nor our server can read a login
+          (unlock it with the same PIN in the other browser). Logins are never sent to any AI provider or to any other site, and you can delete them
+          all from the extension&apos;s settings at any time (that removes the account&apos;s copy too). The extension never reads your browser&apos;s own saved passwords and never creates
           accounts.
         </p>
 

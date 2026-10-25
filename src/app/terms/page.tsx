@@ -68,7 +68,8 @@ export default function TermsPage() {
 
       <H2>8. Ending use</H2>
       <p>
-        You can stop using {SITE.name} at any time. Turn off automatic sending to delete server data, and clear your browser data to delete the rest. These
+        You can stop using {SITE.name} at any time. Settings → Account → Delete my account deletes everything we store for you (download it first if
+        you want a copy); signing out removes the copy in that browser. These
         terms may be updated, and continuing to use the app means you accept the updated version.
       </p>
 

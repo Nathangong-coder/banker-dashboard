@@ -33,7 +33,7 @@ export interface Account {
   tz: string;
   /** `calendar`: read-only Calendar access was granted too (today's calls for the 9 PM text). */
   /** `read`: read-only Gmail was granted too (hourly reply / thank-you / intro tracking, lib/server/gmailTrack.ts). */
-  google?: { refresh: string; email: string; connectedAt: string; calendar?: boolean; read?: boolean; docs?: boolean };
+  google?: { refresh: string; email: string; connectedAt: string; calendar?: boolean; read?: boolean; docs?: boolean; scopes?: string[] };
   whatsapp?: { phone: string; apiKey: string };
   /** Local day (YYYY-MM-DD in `tz`) → what the 9 PM text says. */
   digests: Record<string, { items: DigestItem[]; queued: number }>;
@@ -122,12 +122,52 @@ export async function deleteAccount(id: string) {
   const itemIds = ((await db().hkeys(INBOX(id))) ?? []) as string[];
   if (itemIds.length) await db().del(...itemIds.map((i) => CAPIMG(id, i)));
   if (a?.twilio && (await db().get<string>(TWNUM(a.twilio.number))) === id) await db().del(TWNUM(a.twilio.number));
-  await db().del(KEY(id), SENDS(id), DIGEST_DAY(id), DIGEST_ERR(id), INBOX(id), TRACK(id));
+  await db().del(KEY(id), SENDS(id), DIGEST_DAY(id), DIGEST_ERR(id), INBOX(id), TRACK(id), `gtok:${id}`);
   // Claude connector tokens (lib/server/oauth.ts keeps their keys in this set).
   const tokens = ((await db().smembers(`oauthtok:${id}`)) ?? []) as string[];
   if (tokens.length) await db().del(...tokens);
   await db().del(`oauthtok:${id}`);
   await db().srem(ACCOUNTS, id);
+}
+
+/**
+ * One server account per Coverage user (owner, 2026-10-25): when a browser's old account and the user's account both
+ * exist, everything the kept one lacks is moved over from `dropId` (Google connection, WhatsApp, capture link, Twilio
+ * number, queued sends, inbox, Gmail tracking), then the dropped one is deleted. Claude connector tokens of the dropped
+ * account are revoked with it (connect Claude again).
+ */
+export async function mergeAccounts(keepId: string, dropId: string) {
+  if (keepId === dropId) return;
+  const [keep, drop] = await Promise.all([loadAccount(keepId), loadAccount(dropId)]);
+  if (!keep) throw new HttpError(404, "Account not found.");
+  if (!drop) return;
+  const merged: Account = {
+    ...keep,
+    google: keep.google ?? drop.google,
+    whatsapp: keep.whatsapp ?? drop.whatsapp,
+    capture: keep.capture ?? drop.capture,
+    twilio: keep.twilio ?? drop.twilio,
+    people: keep.people ?? drop.people,
+    track: keep.track ?? drop.track,
+    tz: keep.google ? keep.tz : drop.google ? drop.tz : keep.tz,
+  };
+  await saveAccount(merged);
+  if (!keep.twilio && drop.twilio) await db().set(TWNUM(drop.twilio.number), keepId);
+  const r = db();
+  const sends = (await r.hgetall<Record<string, QueuedSend>>(SENDS(dropId))) ?? {};
+  if (Object.keys(sends).length) await r.hset(SENDS(keepId), sends);
+  const track = (await r.hgetall<Record<string, unknown>>(TRACK(dropId))) ?? {};
+  if (Object.keys(track).length && !(await r.hlen(TRACK(keepId)))) await r.hset(TRACK(keepId), track);
+  const inbox = (await r.hgetall<Record<string, unknown>>(INBOX(dropId))) ?? {};
+  for (const [itemId, item] of Object.entries(inbox)) {
+    const img = await r.get<string>(CAPIMG(dropId, itemId));
+    if (img) await r.set(CAPIMG(keepId, itemId), img, { ex: INBOX_TTL });
+    await r.hset(INBOX(keepId), { [itemId]: item });
+  }
+  if (Object.keys(inbox).length) await r.expire(INBOX(keepId), INBOX_TTL);
+  // The kept account now owns the Twilio number; don't let deleteAccount remove its index.
+  if (drop.twilio && (await r.get<string>(TWNUM(drop.twilio.number))) === dropId) await r.set(TWNUM(drop.twilio.number), keepId);
+  await deleteAccount(dropId);
 }
 
 // Sends and the digest marker live in their own keys: the browser's sync and QStash's jobs write at the same time,

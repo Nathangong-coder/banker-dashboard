@@ -3,12 +3,14 @@
 import type { Settings } from "./types";
 import { aiHeader, usableKeys } from "./keys";
 import { useStore } from "./store";
+import { requireAccount } from "./session";
 
 /**
  * POST to one of our API routes. Every usable key for each service rides along as a JSON array
  * header; the server tries them in order and falls through on invalid / out-of-credit keys.
  */
 export async function callApi<T>(path: string, body: unknown, s: Settings): Promise<T> {
+  requireAccount("use your own keys and data");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   for (const svc of ["apollo", "hunter", "serper", "brave"] as const) {
     const keys = usableKeys(s, svc).map((k) => k.value);

@@ -8,6 +8,8 @@ import { EMAIL_FONTS, type EmailFont } from "./types";
  */
 
 import { bodyToHtml, bodyToPlain, logoLineIndex, normalizeBody, normalizeSubject } from "./emailFormat";
+import { dropServerGoogleToken, serverGoogleToken } from "./googleToken";
+import { requireAccount } from "./session";
 
 const SCOPES = "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -58,7 +60,16 @@ export function gmailConnected(clientId?: string) {
 }
 
 export async function connectGmail(clientId: string, opts: { force?: boolean } = {}): Promise<string> {
+  requireAccount("connect Google");
   if (!opts.force && gmailConnected(clientId)) return token!.value;
+  // Signed in with Google connected: the server's connection gives the token, no popup.
+  const fromServer = await serverGoogleToken(SCOPES.split(" "));
+  if (fromServer) {
+    const fresh = !token;
+    token = { value: fromServer, exp: Date.now() + 45 * 60_000, clientId };
+    if (fresh) setTimeout(() => listeners.forEach((l) => l()), 0);
+    return fromServer;
+  }
   if (!clientId) throw new Error("Connect Gmail in Settings first (it needs a Google OAuth Client ID).");
   await loadGis();
   return new Promise((resolve, reject) => {
@@ -96,6 +107,7 @@ async function gapi<T>(clientId: string, path: string, init?: RequestInit): Prom
   });
   if (res.status === 401) {
     token = null;
+    dropServerGoogleToken();
     throw new Error("Gmail session expired — click Connect Gmail again.");
   }
   if (!res.ok) throw new Error(`Gmail: ${(await res.text()).slice(0, 200)}`);
@@ -220,6 +232,7 @@ export async function draftExists(clientId: string, id: string): Promise<boolean
   if (res.status === 404) return false;
   if (res.status === 401) {
     token = null;
+    dropServerGoogleToken();
     throw new Error("Gmail session expired — click Connect Gmail again.");
   }
   if (!res.ok) throw new Error(`Gmail: ${(await res.text()).slice(0, 200)}`);

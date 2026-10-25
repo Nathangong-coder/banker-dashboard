@@ -11,6 +11,7 @@ import { ResetTrackerModal, WorkbookEmpty, useImportWorkbook, useSaveWorkbook } 
 import { SheetGrid } from "@/components/SheetGrid";
 import { ContactsTable } from "@/components/ContactsTable";
 import { hasKey } from "@/lib/keys";
+import { askSignIn } from "@/lib/session";
 
 export default function SheetPage() {
   return (
@@ -90,6 +91,7 @@ function SheetInner() {
   const missing = scope.filter((c) => !c.email && (c.linkedin || c.lastName));
 
   const runEnrich = async () => {
+    if (askSignIn("find emails")) return;
     if (!hasKey(settings, "apollo") && !hasKey(settings, "hunter")) {
       toast.err("Add an Apollo or Hunter API key in Settings first.");
       return;

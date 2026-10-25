@@ -16,6 +16,7 @@ import { bookmarkletHref, captureIsProfile, linkedinSearchUrl, parseCapture } fr
 import { canonBank } from "@/lib/banks";
 import { rulesOf, seniorSkipReason, type OutreachRules } from "@/lib/outreach";
 import { autoAdd, autoSummary, captureAuto, withVerdict, type Verdict } from "@/lib/autoCapture";
+import { askSignIn } from "@/lib/session";
 
 
 /** Outreach rule: VPs and below. MD / Head / Partner only with one of your senior-exception ties (Settings → Outreach rules). */
@@ -165,6 +166,7 @@ function FindInner() {
   }, []);
 
   const run = async () => {
+    if (askSignIn("search for people")) return;
     if (!banks.length) return toast.err("Pick at least one bank.");
     if (!hasKey(settings, "serper") && !hasKey(settings, "brave") && !(useApollo && hasKey(settings, "apollo")))
       return toast.err("Add a Serper or Brave Search key in Settings, or use the LinkedIn button below.");

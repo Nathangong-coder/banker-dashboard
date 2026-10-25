@@ -5,10 +5,12 @@
 // - dashboard → extension (1.3): "Fill selected" and the opt-in LinkedIn job search are started from the
 //   dashboard's buttons. Only a fixed list of commands is relayed, and the worker checks they come from the
 //   dashboard address set in Options.
+// - saved logins (1.3.1): the PIN-encrypted vault is kept in your account through the dashboard ("vault"), so it
+//   follows you to other browsers. The PIN never leaves the extension.
 // The dashboard side is src/lib/applyBridge.ts. Messages are only exchanged with this same window.
 (() => {
   const CHANNEL = "coverage-ext";
-  const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus"]);
+  const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault"]);
   const COMMANDS = new Set(["fillJobs", "focusJob", "linkedinJobs"]);
   const pending = new Map();
   const hello = async () => {
@@ -58,4 +60,6 @@
   });
 
   hello();
+  // Saved logins sync through your Coverage account (still encrypted with your PIN): compare copies once per page load.
+  chrome.runtime.sendMessage({ from: "dashboard", type: "vaultSync" }).catch(() => {});
 })();

@@ -19,6 +19,7 @@ import { Button, Card, Checkbox, Empty, Input, PageHeader, StatusBadge, Textarea
 import { AddContactModal } from "@/components/AddContact";
 import { ChatGrades } from "@/components/ChatGrades";
 import { BankBrief } from "@/components/BankBrief";
+import { askSignIn } from "@/lib/session";
 
 export default function PrepPage() {
   return (
@@ -233,6 +234,7 @@ function PrepView({ c }: { c: Contact }) {
   };
 
   const generate = async () => {
+    if (askSignIn("prep for a chat")) return;
     if (!aiReady(settings)) return toast.err("Add an AI key in Settings first.");
     setBusy(true);
     try {

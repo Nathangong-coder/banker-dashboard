@@ -1,5 +1,8 @@
 "use client";
 
+import { dropServerGoogleToken, serverGoogleToken } from "./googleToken";
+import { requireAccount } from "./session";
+
 /**
  * Google Calendar, in the browser like Gmail (lib/gmail.ts): a separate Google Identity Services token with calendar
  * scopes, asked for the first time a calendar feature is used, so declining it never breaks Gmail. Two calls only:
@@ -28,7 +31,13 @@ function loadGis(): Promise<void> {
 export const calendarConnected = (clientId?: string) => !!token && token.exp > Date.now() && (!clientId || token.clientId === clientId);
 
 export async function connectCalendar(clientId: string): Promise<string> {
+  requireAccount("connect Google");
   if (calendarConnected(clientId)) return token!.value;
+  const fromServer = await serverGoogleToken(SCOPES);
+  if (fromServer) {
+    token = { value: fromServer, exp: Date.now() + 45 * 60_000, clientId };
+    return fromServer;
+  }
   if (!clientId) throw new Error("Connect Gmail in Settings first (Calendar uses the same Google sign-in).");
   await loadGis();
   return new Promise((resolve, reject) => {
@@ -53,6 +62,7 @@ async function call<T>(clientId: string, path: string, init?: RequestInit): Prom
   const res = await fetch(`${API}${path}`, { ...init, headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json", ...(init?.headers ?? {}) } });
   if (res.status === 401) {
     token = null;
+    dropServerGoogleToken();
     throw new Error("Google Calendar session expired. Try again.");
   }
   if (!res.ok) {

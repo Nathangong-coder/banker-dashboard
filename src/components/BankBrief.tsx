@@ -13,6 +13,7 @@ import type { BankMeta, Contact, Settings } from "@/lib/types";
 import { cn, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Input, toast } from "@/components/ui";
 import { InterestsEditor, interestsLabel, useInterests } from "@/components/PrepInterests";
+import { askSignIn } from "@/lib/session";
 
 type Note = { who: string; text: string };
 
@@ -85,6 +86,7 @@ export function BankBrief({ bank: initial, contact }: { bank?: string; contact?:
 
   const generate = async () => {
     if (!key) return toast.err("Pick a bank first.");
+    if (askSignIn("make a bank brief")) return;
     if (!aiReady(settings)) return toast.err("Add an AI key in Settings → Data first.");
     if (!canSearch) return toast.err("The bank brief searches the web for recent deals. Add a Serper key (or Brave Search) in Settings → Data.");
     setBusy(true);

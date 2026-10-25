@@ -97,6 +97,14 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
 Listing: https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp (item id `hjmfcaldipgcjffmcemcljllmlpjlnlp`,
 in `src/lib/site.ts` → `SITE.extension.chromeUrl`).
 
+### 1.3.1 (after 1.3.0 is approved)
+
+Only change: saved logins sync through the user's Coverage account (the PIN-encrypted vault goes through the dashboard
+tab, `syncVault` / `vault` bridge request). No new permissions. Review answers: same as 1.3.0, plus in **Data usage**
+the authentication information line now reads "…encrypted with a PIN only the user knows; the encrypted copy is kept in
+the user's own Coverage account so it follows them to their other browsers; neither the developer nor the server can
+decrypt it". `npm run pack:extension` → `dist/coverage-extension-1.3.1.zip`.
+
 ### Updating the listing (1.3.0)
 
 1. Deploy the dashboard first (Fill selected and Find jobs need the new dashboard code), then

@@ -1,6 +1,7 @@
 "use client";
 
 import { blobs, useStore } from "./store";
+import { requireAccount } from "./session";
 import { allocateRow, applyPatches, blankTablesPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, referralColumns, splitLocationTeamPatches, type Patches } from "./workbook";
 import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
 import { reconcileTitle } from "./titles";
@@ -17,6 +18,7 @@ import type { EnrichResult } from "@/app/api/enrich/route";
 import type { CellRef, Contact, Prospect, Region, SheetSnapshot } from "./types";
 
 export async function importFile(file: File, handle?: FileSystemFileHandle, opts: { keepManualEdits?: boolean; buffer?: ArrayBuffer } = {}) {
+  requireAccount("import your spreadsheet");
   const buf = opts.buffer ?? (await readFile(file));
   const parsed = await parseWorkbook(buf);
   await blobs.setWorkbook(buf);
@@ -158,6 +160,7 @@ export function undoBankTabs() {
 
 /** Returns true if a file was chosen via the native picker; false means fall back to <input type=file>. */
 export async function pickAndImport(): Promise<{ added: number; updated: number } | "fallback" | null> {
+  requireAccount("import your spreadsheet");
   if (!canWriteInPlace()) return "fallback";
   const picked = await pickWorkbook();
   if (!picked) return null;
@@ -214,6 +217,7 @@ export async function pickUpExcelEdits() {
 }
 
 export async function saveWorkbook(mode: "in-place" | "download") {
+  requireAccount("save a spreadsheet");
   if (fileBusy) throw new Error("Reading your latest Excel edits, try again in a second.");
   fileBusy = true;
   try {

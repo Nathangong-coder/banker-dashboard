@@ -77,6 +77,11 @@ const PROBLEMS: [string, string[]][] = [
 
 const CHANGES: [string, string, string][] = [
   [
+    "1.3.1",
+    "October 2026",
+    "Works with Coverage accounts: sign in to Coverage once and your saved logins (still encrypted with your PIN) follow you to every browser.",
+  ],
+  [
     "1.3.0",
     "October 2026",
     "Fill selected: fill several tracked jobs from your dashboard in a “Coverage” tab group, up to each review page, with a live “Watch it work” mode and a Stop button. Optional saved logins (encrypted with your PIN) sign you in to application accounts you already have. Find jobs on Applications.",

@@ -23,6 +23,7 @@ npm run check:selectors                       # no zustand selector returns a fr
 npm run check:conversations                   # Conversation table: rows link to people (no duplicates), "• " lines only, idempotent writes
 npm run check:apply                           # application autofill planning: profile rules, AI-only questions, never-filled fields
 npm run check:jobs                            # job finder: career boards from links, internship / banking / US filters, dedupe; recruiters
+npm run check:sync                            # account sync docs: round trip, one edit = one doc, tombstones, two tabs adding, push batches
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -35,9 +36,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 
 ## Architecture: where things live
 
-- **All user data is client-side** (except the automatic-sending slice below). A Zustand store (`src/lib/store.ts`) is persisted to IndexedDB via `idb-keyval`. Large blobs (the
-  original workbook ArrayBuffer, parsed sheet snapshots, the resume, the File System Access handle) are stored under separate
-  `blob:*` keys through the `blobs` helper, not inside the JSON-persisted state. There is no database and no auth.
+- **Accounts (2026-10-25, see "Accounts + login" below): the user's Coverage account is the source of truth**; each browser keeps a
+  per-user cache. A Zustand store (`src/lib/store.ts`) is persisted to IndexedDB via `idb-keyval` under a namespace (`switchNamespace`:
+  `u:<user id>`, `legacy` = pre-account data, `demo` = memory only). Large blobs (the original workbook ArrayBuffer, parsed sheet
+  snapshots, the resume, the logo, extra resumes, the File System Access handle) are stored under separate `blob:*` keys (prefixed by
+  the namespace) through the `blobs` helper, not inside the JSON-persisted state; all but the file handle sync to the account.
 - **Bring your own keys, several per service.** `settings.vault.{apollo,hunter,serper,ai}` are ordered `ApiKeyEntry[]` lists.
   Every key is live-tested by `api/keys/test` **before** it's stored (`components/KeyVault.tsx`); single-value connections
   (Gmail, WhatsApp, ntfy, Twilio) are also saved only after a successful test. `lib/api.ts#callApi` sends all usable keys as
@@ -158,6 +161,56 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   browser restart that takes one Save click. `fileBusy` keeps it and `saveWorkbook` from running at the same time.
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
   from the dashboard that were already saved into the file) so workflow state (status, dates, drafts) survives a re-import.
+
+## Accounts + login (owner, 2026-10-25; spec `docs/superpowers/specs/2026-10-25-accounts-login-design.md`)
+
+- **Why:** the owner moved Edge → Chrome and couldn't bring their data (browser-only IndexedDB; the old Backup export missed most of
+  it). Roadmap after this (owner): LinkedIn AI job review → mobile app design → App Store / Google Play → orchestrator.
+- **Sign in with Google** (`openid email profile` only; no warning screen): `api/auth/google/start` (GET, state in Redis + a
+  `coverage_signin` cookie on /api/auth) → `api/auth/google/callback` (code → ID token claims checked: iss, aud, exp, email_verified)
+  → user `user:g:<sub>` (`lib/server/users.ts`) + session cookie `coverage_session` (HttpOnly, SameSite=Lax, 30 days sliding; Redis keeps
+  sha256 only, `sess:<hash>`, `usersess:<uid>`). `currentUser` also rejects a non-GET whose Origin host isn't this host (compares the
+  Host / x-forwarded-host header; `req.url` named another host under `next start`). `api/auth/me`, `signout`, `delete` (everything:
+  data, blobs, linked server account with Google revoked, sessions), `link`. **Dev login** `api/auth/dev` answers only with
+  `COVERAGE_DEV_LOGIN=1` on 127.0.0.1/localhost and never on Vercel (e2e). Google Cloud needs the redirect URI
+  `<site>/api/auth/google/callback` (+ `http://127.0.0.1:<port>/…` for local tests).
+- **Sync** (`lib/syncDocs.ts` pure + `check:sync`; `lib/sync.ts` browser; `lib/server/userData.ts`): the persisted state is cut into docs
+  (`c:` per contact, `aj:` job, `af:` found job, `is:` info session, `b:` bank, `p:<tab>\0<cell>` per manual cell edit, `cm:<field>\0<key>`
+  per coverage-map key, `o:<list>` list orders, `s:<field>` the rest, `apply`, `cov`, `bm:<file>` file metas). Each is sealed with
+  `SERVER_ENC_KEY` in hash `ud:<uid>`; `udrev:<uid>` counts pushes and `udlog:<uid>` (zset) holds each doc's last revision, so
+  `api/sync/pull?since=N` returns changed docs + removed keys (≤3 MB per answer, `more`). Push = diff against what the server last had
+  (`meta.synced` in IDB `sync:<uid>`), ≤500 KB per request, 3 s after a change. Pull on start / focus / every 30 s visible / BroadcastChannel
+  from another tab. Last write wins per doc; a doc dirty here wins until pushed. **A browser opening an account for the first time pulls
+  with the server winning** (its empty defaults must never be pushed over the account). Files: `api/sync/blob` in 3 MB parts → Vercel Blob
+  private (`BLOB_READ_WRITE_TOKEN`) or Redis (`ublob:*`) without it.
+- **Boot** (`components/useBoot.ts`, used by Shell): signed in → that user's namespace + `startSync`; signed in with pre-account data not
+  yet moved (`localStorage coverage:moved`) → `components/Account.tsx#MoveData` (full backup download required before "Move it in" /
+  "Use this browser's data" = `startSync({localWins})`, which also removes docs only the account had; "Use my account's data" keeps the
+  old copy and adopts its automatic-sending account if the account has none); signed out with unmoved old data → legacy mode + bar
+  (`NEXT_PUBLIC_SIGNIN_REQUIRED=1` = a sign-in screen instead: stage 3 of the rollout); otherwise the **demo** (`lib/demo.ts`, made-up
+  names, memory only). `requireAccount` (throws) in `callApi`, `serverSync.call`, import/save, Google connects; `askSignIn` (returns) on
+  key-gated buttons → "Sign in to …" modal. The extension bridge is off in the demo.
+- **One server account per user:** `settings.server` ({id, token}) syncs like any setting, so every browser shares the Bearer
+  credentials and all existing server routes are unchanged. `api/auth/link` ties it to `user.accountId`; another account (the moved
+  browser's, or the user's previous one) is merged by `accounts.ts#mergeAccounts` (Google / WhatsApp / capture / Twilio / sends / inbox /
+  track move over; its connector tokens are revoked) and deleted.
+- **Connect Google** (Settings → Account card, or Follow-ups): same flow as automatic sending, plus `calendar.events` +
+  `calendar.freebusy`, `login_hint` = the signed-in email, a different Google account than the signed-in one is refused, granted scopes
+  stored. `api/server/google/token` hands the dashboard short-lived access tokens (cached sealed `gtok:<id>`); `lib/googleToken.ts` makes
+  gmail.ts / gcal.ts / gdocs.ts use them before their GIS popups.
+- **Backups:** `lib/backup.ts` = every saved field + every file as one JSON (Settings → Account → Download everything, the move screen);
+  Settings → Backup → Import reads it (in an account it replaces the account on the next start: `coverage:replace-account`).
+- **Extension 1.3.1:** saved logins sync — the worker (`background.js#syncVault`) and the dashboard (`applyBridge.ts#vault`, kept in
+  `apply.vault`) exchange only the PIN-encrypted vault, newest `vaultAt` wins, an adopted copy is locked until the PIN is entered.
+- **Tested 2026-10-25** on 127.0.0.1 (`next start`, dev login, real Upstash, Redis blob fallback; scratch harnesses, throwaway accounts
+  deleted): API smoke (sessions, push/pull/tombstones, 5 MB file in 2 parts byte-identical, bad keys / names, cross-site refused,
+  delete); headless Edge 23 + 9 checks: demo + nothing written, demo guard, old data bar, move screen + full backup + move (contacts,
+  resume file, server account linked), second browser gets data + file + settings, UI edit pushed and picked up elsewhere, delete
+  reaches other browsers, sign-out → demo with the cache removed, "use my account's data" leaves the old copy, "use this browser's"
+  disabled before the backup and then replaces the account exactly. **Not run:** real Google sign-in (needs the redirect URI),
+  Connect Google's new scopes, Vercel Blob itself, the extension's vault sync (not exercised headless), Chrome on a phone.
+- Not done yet: the Settings "own Google Client ID" option is still there (fallback for the GIS popups); the guided demo tutorial
+  belongs to the mobile design step.
 
 ## Automatic sending (server; `app/api/server/*`, `lib/server/{accounts,google,jobs}.ts`, `lib/serverSync.ts`)
 

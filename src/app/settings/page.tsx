@@ -1,5 +1,7 @@
 "use client";
 
+import { AccountSettings, restoreBackupHere } from "@/components/Account";
+import { isFullBackup } from "@/lib/backup";
 import { useRef, useState, type ReactNode } from "react";
 import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { OutreachRulesEditor } from "@/components/OutreachRules";
@@ -146,9 +148,10 @@ function TestedFields<K extends string>({
   );
 }
 
-type Tab = "profile" | "email" | "outreach" | "data" | "reminders" | "appearance" | "backup";
+type Tab = "account" | "profile" | "email" | "outreach" | "data" | "reminders" | "appearance" | "backup";
 type Sub = "writing" | "sending" | "scheduling" | "experiments";
 const TABS: [Tab, string][] = [
+  ["account", "Account"],
   ["profile", "Profile"],
   ["email", "Email"],
   ["outreach", "Outreach rules"],
@@ -241,7 +244,7 @@ export default function SettingsPage() {
     <>
       <PageHeader
         title="Settings"
-        sub="Your data and API keys live in this browser. Each request sends a key only to the service that needs it. Turning on automatic sending (Reminders) is the one thing stored on the server: your Gmail permission and the send queue, encrypted."
+        sub="Your data and API keys are saved to your Coverage account (encrypted), so they're on every browser you sign in to. Each request sends a key only to the service that needs it."
         right={<Badge tone="green"><ShieldCheck className="size-3" /> Bring your own keys</Badge>}
       />
 
@@ -504,6 +507,7 @@ export default function SettingsPage() {
 
           </>
         )}
+        {tab === "account" && <AccountSettings />}
         {tab === "appearance" && (
           <Card>
             <CardHeader title="Color theme" sub="Applies right away, in this browser." />
@@ -513,7 +517,7 @@ export default function SettingsPage() {
         {tab === "backup" && (
           <>
             <Card>
-              <CardHeader title="Privacy" sub="Your data stays in this browser. See the Privacy Policy for the details." />
+              <CardHeader title="Privacy" sub="Your data is saved to your Coverage account, encrypted. See the Privacy Policy for the details." />
               <div className="flex flex-wrap items-center gap-4 p-4">
                 <AnalyticsSetting />
                 <Link href="/privacy" className="text-[12.5px] text-navy underline">
@@ -526,7 +530,7 @@ export default function SettingsPage() {
             </Card>
             <AdminSetting />
         <Card>
-          <CardHeader title="Backup & data" sub="Everything is stored in this browser. Export a backup to move to another computer." />
+          <CardHeader title="Backup & data" sub="Settings → Account → Download everything makes a complete backup. These older exports have contacts, templates and settings only; Import backup reads both kinds." />
           <div className="flex flex-wrap gap-2 p-4">
             <Button onClick={() => exportBackup(false)}>Export backup (without keys)</Button>
             <Button onClick={() => exportBackup(true)}>Export with keys</Button>
@@ -542,6 +546,13 @@ export default function SettingsPage() {
                 if (!f) return;
                 try {
                   const d = JSON.parse(await f.text());
+                  if (isFullBackup(d)) {
+                    const n = await restoreBackupHere(d);
+                    if (n === null) return;
+                    toast.ok(`Restored ${n} contacts. Reloading…`);
+                    setTimeout(() => window.location.reload(), 800);
+                    return;
+                  }
                   if (!Array.isArray(d.contacts)) throw new Error("Not a Coverage backup file");
                   replaceAll({
                     contacts: d.contacts,

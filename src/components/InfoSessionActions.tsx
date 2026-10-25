@@ -8,7 +8,7 @@
 
 import { create } from "zustand";
 import { get as idbGet, set as idbSet } from "idb-keyval";
-import { blobs, useStore } from "@/lib/store";
+import { blobs, localKey, useStore } from "@/lib/store";
 import { serverCall, syncServer } from "@/lib/serverSync";
 import { isInfoSessionTitle, meetingLink, parseSessionTitle, followUpTiming, type CalendarSession, type CaptureItem } from "@/lib/infoSessions";
 import { callApi } from "@/lib/api";
@@ -281,13 +281,13 @@ export interface UnsortedCapture {
   error?: string;
 }
 
-const UNSORTED_KEY = "infosessions:unsorted";
+const UNSORTED_KEY = () => localKey("infosessions:unsorted");
 export const useUnsorted = create<{ list: UnsortedCapture[]; loaded: boolean }>(() => ({ list: [], loaded: false }));
 
 export async function loadUnsorted() {
   if (useUnsorted.getState().loaded) return;
   try {
-    const list = (await idbGet<UnsortedCapture[]>(UNSORTED_KEY)) ?? [];
+    const list = (await idbGet<UnsortedCapture[]>(UNSORTED_KEY())) ?? [];
     useUnsorted.setState({ list: [...list, ...useUnsorted.getState().list.filter((x) => !list.some((y) => y.id === x.id))], loaded: true });
   } catch {
     useUnsorted.setState({ loaded: true });
@@ -297,7 +297,7 @@ export async function loadUnsorted() {
 async function saveUnsorted(list: UnsortedCapture[]) {
   useUnsorted.setState({ list });
   try {
-    await idbSet(UNSORTED_KEY, list);
+    await idbSet(UNSORTED_KEY(), list);
   } catch {
     /* private window: kept for this session only */
   }
