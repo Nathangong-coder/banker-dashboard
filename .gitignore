@@ -55,3 +55,11 @@ Follow up Templates.docx
 
 # Coverage plugin backups (next to a workbook)
 .coverage-backups/
+
+# demo video: raw recordings, renders, browser profile
+demo-video/node_modules/
+demo-video/raw/
+demo-video/out/
+demo-video/media/
+demo-video/profile/
+demo-video/*.mp4

@@ -1,0 +1,11 @@
+[
+  { "key": "login", "title": "Sign in with Google", "body": "Your tracker follows you to any browser", "seconds": 4.5 },
+  { "key": "contacts", "title": "Every banker in one list", "body": "Read straight from your recruiting spreadsheet", "seconds": 4.5 },
+  { "key": "add", "title": "Add a contact in seconds", "body": "It's written back to the right bank tab", "seconds": 4.5 },
+  { "key": "status", "title": "Update a status", "body": "The sheet and the dashboard stay in step", "seconds": 4 },
+  { "key": "send", "title": "Send from your own Gmail", "body": "With your signature and resume attached", "seconds": 4.5 },
+  { "key": "sync", "title": "Gmail sync", "body": "Sent dates and replies fill in automatically", "seconds": 4.5 },
+  { "key": "followups", "title": "Who needs a follow-up", "body": "Ranked by what's due next", "seconds": 4.5 },
+  { "key": "calendar", "title": "Book a coffee chat in Google Calendar", "body": "", "seconds": 4 },
+  { "key": "calsync", "title": "It shows up in Coverage", "body": "Matched to the banker, with prep and a log link", "seconds": 5 }
+]

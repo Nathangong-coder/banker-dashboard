@@ -1,0 +1,1 @@
+{"name":"coverage-demo-video","private":true,"type":"module","scripts":{"record":"node record.mjs","build":"node build.mjs"},"dependencies":{"playwright":"^1.56.1"}}
