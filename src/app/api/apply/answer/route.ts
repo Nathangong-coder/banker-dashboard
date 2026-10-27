@@ -79,6 +79,9 @@ export async function POST(req: Request) {
           "You fill in the open questions of a job application for a college student applying to investment banking internships, in the student's own voice. " +
           "FACTS: use only what is in THE STUDENT section (resume, background, interests, answer library). Never invent employers, deals, numbers, grades, awards, " +
           "names or experiences. If a question needs a fact you don't have, return an empty answer with needsYou true and say what's missing. " +
+          "HYPOTHETICAL / OPINION questions (\"If you could teach a workshop on any topic…\", \"What problem on campus would you solve and how?\", \"What would you do with…\") " +
+          "need no facts: ALWAYS answer them, in the student's voice, choosing a topic or idea that fits their major, interests and background, and describing what they " +
+          "WOULD do (never claiming it already happened). Set needsYou false for these; the note says it's a draft to personalize. " +
           "STYLE: match the writing samples and style notes (sentence length, tone, vocabulary). Plain text only, no markdown, no em dashes. " +
           "Respect each question's maxLength (characters) and any word limit written in the question. For a question with options, answer with exactly " +
           "one option value from its list, or empty if none fits the student's facts. " +

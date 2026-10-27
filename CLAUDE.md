@@ -692,6 +692,14 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   sticky), then `planFill` gets that graduation date (window questions "graduating in winter 2027 or summer 2028?" →
   yes, end dates), `chooseResume(…, preferYear)` the resume marked for that class year, the agent brief the same
   date. A switch after a resume already went up adds a "replace the resume" note.
+- **1.11.0 real input (owner, 2026-10-26):** live Greenhouse react-selects ignore ALL script-made events (dispatched
+  mouse/key/input events and even calling the React props' handlers did nothing; a CDP click opened it). The test build
+  has the `debugger` permission (stripped from the store build): page scripts ask the worker for `cov-click` /
+  `cov-type` / `cov-key` (`background.js#trustedInput` → `Input.dispatchMouseEvent` / `insertText` / key events, top
+  frame, detached when the fill ends), falling back to dispatched events. react-select options are read only from
+  `#react-select-<input id>-listbox` (the phone field's intl-tel-input keeps 244 hidden `[role=option]` countries that
+  were being read as every dropdown's choices). Workday: a sign-in page with no saved login → `switchToCreateAccount`
+  (createAccountLink) when "Create accounts for me" is on. The answer AI drafts hypothetical / opinion questions.
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

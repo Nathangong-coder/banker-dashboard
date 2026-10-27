@@ -117,6 +117,48 @@ export async function scanForm() {
     return clean((el.id || "").replace(/[_-]+/g, " "));
   };
   const visibleOptions = () => [...document.querySelectorAll('[role="option"], [id*="-option-"], [class*="__option"]')].filter(shown);
+  // Real input through the extension (test build: Chrome's debugging protocol). Greenhouse's react-select dropdowns
+  // ignore dispatched events entirely; a real click opens them. Returns false when not available (store build).
+  const real = async (type, payload) => {
+    try {
+      return (await chrome.runtime.sendMessage({ type, ...payload })) === true;
+    } catch {
+      return false;
+    }
+  };
+  const realClick = async (node) => {
+    if (!node || window.top !== window) return false;
+    node.scrollIntoView({ block: "center", behavior: "instant" });
+    await sleep(120);
+    const r = node.getBoundingClientRect();
+    return real("cov-click", { x: r.left + Math.min(r.width / 2, 60), y: r.top + r.height / 2 });
+  };
+  // A react-select's own list (react-select-<input id>-listbox), so other open lists (the phone number's country
+  // picker keeps 244 hidden options on the page) are never read as its choices.
+  const rsList = (input) => (input.id ? document.getElementById(`react-select-${input.id}-listbox`) : null);
+  const rsOptions = (input) => {
+    const lb = rsList(input);
+    return lb ? [...lb.querySelectorAll('[role="option"]')] : visibleOptions().filter((o) => !o.closest('[id^="iti-"], .iti'));
+  };
+  /** Open a react-select: a real click on its control, else dispatched events. */
+  const rsOpen = async (input) => {
+    const control = input.closest("[class*='control' i]") || input;
+    if (!(await realClick(control))) {
+      input.focus();
+      control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
+    }
+    for (let i = 0; i < 12; i++) {
+      await sleep(120);
+      if (rsOptions(input).length) return true;
+    }
+    return false;
+  };
+  const rsClose = async (input) => {
+    if (!(await real("cov-key", { key: "Escape" }))) input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+    await sleep(80);
+  };
+
   const placeholderish = (t) => !t || /^(select|select one|choose|choose one|please select|--|—|-)\b/i.test(t);
 
   const tag = (el, id) => el.setAttribute("data-coverage-field", id);
@@ -168,20 +210,10 @@ export async function scanForm() {
       // until you type: that stays a typeahead.
       let options;
       if (!filled) {
-        const control = el.closest("[class*='control' i]") || el;
-        el.focus();
-        control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-        el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
-        let opts = [];
-        for (let i = 0; i < 8 && !opts.length; i++) {
-          await sleep(100);
-          opts = visibleOptions();
-        }
-        const labels = opts.map((o) => clean(o.innerText)).filter(Boolean);
+        await rsOpen(el);
+        const labels = rsOptions(el).map((o) => clean(o.innerText)).filter(Boolean);
         if (labels.length && !labels.every((l) => /loading|type to search|start typing|no (results|options)/i.test(l))) options = labels.slice(0, 300).map((l, i) => ({ value: String(i), label: l }));
-        el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
-        el.blur();
-        await sleep(60);
+        await rsClose(el);
       }
       fields.push({ id, kind: options ? "listbox" : "typeahead", label, required: el.required || el.getAttribute("aria-required") === "true", filled, options });
       continue;
@@ -312,6 +344,48 @@ export async function fillForm(items, review) {
     return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
   };
   const visibleOptions = () => [...document.querySelectorAll('[role="option"], [id*="-option-"], [class*="__option"]')].filter(shown);
+  // Real input through the extension (test build: Chrome's debugging protocol). Greenhouse's react-select dropdowns
+  // ignore dispatched events entirely; a real click opens them. Returns false when not available (store build).
+  const real = async (type, payload) => {
+    try {
+      return (await chrome.runtime.sendMessage({ type, ...payload })) === true;
+    } catch {
+      return false;
+    }
+  };
+  const realClick = async (node) => {
+    if (!node || window.top !== window) return false;
+    node.scrollIntoView({ block: "center", behavior: "instant" });
+    await sleep(120);
+    const r = node.getBoundingClientRect();
+    return real("cov-click", { x: r.left + Math.min(r.width / 2, 60), y: r.top + r.height / 2 });
+  };
+  // A react-select's own list (react-select-<input id>-listbox), so other open lists (the phone number's country
+  // picker keeps 244 hidden options on the page) are never read as its choices.
+  const rsList = (input) => (input.id ? document.getElementById(`react-select-${input.id}-listbox`) : null);
+  const rsOptions = (input) => {
+    const lb = rsList(input);
+    return lb ? [...lb.querySelectorAll('[role="option"]')] : visibleOptions().filter((o) => !o.closest('[id^="iti-"], .iti'));
+  };
+  /** Open a react-select: a real click on its control, else dispatched events. */
+  const rsOpen = async (input) => {
+    const control = input.closest("[class*='control' i]") || input;
+    if (!(await realClick(control))) {
+      input.focus();
+      control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
+    }
+    for (let i = 0; i < 12; i++) {
+      await sleep(120);
+      if (rsOptions(input).length) return true;
+    }
+    return false;
+  };
+  const rsClose = async (input) => {
+    if (!(await real("cov-key", { key: "Escape" }))) input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+    await sleep(80);
+  };
+
   const pressOption = (opt) => {
     for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) opt.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
     opt.click();
@@ -471,54 +545,52 @@ export async function fillForm(items, review) {
       } else if (el.tagName === "INPUT" && el.getAttribute("role") === "combobox" && it.optionLabel) {
         // A react-select with a fixed list: open it, click the planned option; a long list (Country) is filtered by
         // typing the option's text first.
-        const control = el.closest("[class*='control' i]") || el;
-        const open = () => {
-          el.focus();
-          control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-          el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
-        };
         const find = async () => {
           for (let i = 0; i < 12; i++) {
-            await sleep(100);
-            const opts = visibleOptions();
+            await sleep(120);
+            const opts = rsOptions(el);
             const hit = opts.find((o) => norm(o.innerText) === norm(it.optionLabel)) || best(opts, [it.optionLabel]);
             if (hit) return hit;
           }
           return null;
         };
-        open();
+        await rsOpen(el);
         let opt = await find();
         if (!opt) {
-          setNative(el, it.optionLabel.slice(0, 40));
+          // A long list (Country): type to filter it.
+          if (!(await real("cov-type", { text: it.optionLabel.slice(0, 40) }))) setNative(el, it.optionLabel.slice(0, 40));
           opt = await find();
         }
         if (!opt) {
-          setNative(el, "");
-          escape();
+          await rsClose(el);
           throw new Error("Couldn't find that choice: pick it yourself.");
         }
-        pressOption(opt);
-        await sleep(150);
+        if (!(await realClick(opt))) pressOption(opt);
+        await sleep(200);
         mark(el, it.source);
       } else if (el.tagName === "INPUT" && el.getAttribute("role") === "combobox") {
         // Suggestion box: type, wait for the list, click the best match (or clear it again).
         if (typeof it.value !== "string" || !it.value) continue;
-        el.focus();
-        el.click();
-        setNative(el, it.value);
+        // A search box (School, Location): real typing when available, so the site's search runs.
+        const typedReal = (await realClick(el)) && (await real("cov-type", { text: it.value }));
+        if (!typedReal) {
+          el.focus();
+          el.click();
+          setNative(el, it.value);
+        }
         let opts = [];
-        for (let i = 0; i < 25; i++) {
-          await sleep(100);
-          opts = visibleOptions();
+        for (let i = 0; i < 30; i++) {
+          await sleep(120);
+          opts = rsOptions(el);
           if (opts.length && !opts.every((o) => /loading|searching|no (results|options)/i.test(o.innerText))) break;
         }
         const opt = best(opts, [it.value, ...(Array.isArray(it.alts) ? it.alts : [])]);
         if (!opt) {
-          setNative(el, "");
-          escape();
+          if (!typedReal) setNative(el, "");
+          await rsClose(el);
           throw new Error("None of its suggestions matched: pick it yourself.");
         }
-        pressOption(opt);
+        if (!(await realClick(opt))) pressOption(opt);
         await sleep(150);
         mark(el, it.source);
       } else if (typeof it.value === "string") {
@@ -704,6 +776,23 @@ export function createAccount(email, password, first, last, origin) {
   if (!btn) return { ok: true, clicked: false, filled, why: "Filled it in; press Create Account yourself." };
   btn.click();
   return { ok: true, clicked: true, filled };
+}
+
+/**
+ * On a sign-in page with no saved login, open the site's own "Create Account" (Workday's createAccountLink, or a
+ * link / button saying so). Fixed rule; only used with "Create accounts for me" on.
+ */
+export function switchToCreateAccount() {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
+  };
+  const wd = [...document.querySelectorAll('[data-automation-id="createAccountLink"], [data-automation-id="createAccountButton"]')].find(shown);
+  const hit = wd || [...document.querySelectorAll("button, [role=button], a")].find((b) => shown(b) && /^(create (an )?account|sign up|register|new user\??( create (an )?account)?)$/i.test(clean(b.innerText || b.getAttribute("aria-label") || "")));
+  if (!hit) return { clicked: false };
+  hit.click();
+  return { clicked: true };
 }
 
 /** On a create-account page, press the "Sign in" link (for an account you already have). Fixed rule, nothing else. */

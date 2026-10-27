@@ -149,6 +149,35 @@ export async function actPage(action) {
       };
       // Close an open list (after a miss) so the next try starts clean.
       const escape = () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      // Real clicks / typing through the extension when it has them (react-select ignores dispatched events).
+      const real = async (type, payload) => {
+        try {
+          return (await chrome.runtime.sendMessage({ type, ...payload })) === true;
+        } catch {
+          return false;
+        }
+      };
+      const realClick = async (node) => {
+        if (window.top !== window) return false;
+        node.scrollIntoView({ block: "center", behavior: "instant" });
+        await sleep(120);
+        const r = node.getBoundingClientRect();
+        return real("cov-click", { x: r.left + Math.min(r.width / 2, 60), y: r.top + r.height / 2 });
+      };
+      const listOf = () => (el.id ? document.getElementById(`react-select-${el.id}-listbox`) : null);
+      const scoped = () => (listOf() ? [...listOf().querySelectorAll('[role="option"]')] : options().filter((o) => !o.closest('[id^="iti-"], .iti')));
+      if (await realClick(el.closest("[class*='control' i]") || el)) {
+        if (el instanceof HTMLInputElement && el.getAttribute("role") === "combobox") {
+          for (let i = 0; i < 8 && !scoped().length; i++) await sleep(120);
+          if (!pick(scoped())) await real("cov-type", { text: String(action.value).slice(0, 40) });
+        }
+        let hit;
+        for (let i = 0; i < 20 && !hit; i++) {
+          await sleep(150);
+          hit = pick(scoped());
+        }
+        if (hit && (await realClick(hit))) return { ok: true, note: `chose "${clean(hit.innerText).slice(0, 60)}"` };
+      }
       el.focus?.();
       if (el instanceof HTMLInputElement) {
         // A typeahead: type a few words to filter, then pick from the suggestions.

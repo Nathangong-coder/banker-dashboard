@@ -32,7 +32,8 @@ const manifest = JSON.parse(fs.readFileSync(path.join(src, "manifest.json"), "ut
 // The application sites autofill may be allowed on, one at a time (extension/sites/apply.js is the source).
 const APPLICATION_SITES = [...fs.readFileSync(path.join(src, "sites/apply.js"), "utf8").match(/export const APPLICATION_SITES = \[([\s\S]*?)\];/)[1].matchAll(/"([^"]+)"/g)].map((m) => `https://*.${m[1]}/*`);
 if (!withAgent) {
-  manifest.permissions = manifest.permissions.filter((p) => p !== "sidePanel");
+  // The test build's real clicks (chrome.debugger) stay out of the store build too.
+  manifest.permissions = manifest.permissions.filter((p) => p !== "sidePanel" && p !== "debugger");
   delete manifest.side_panel;
   // The agent's all-sites access stays out; the per-site application permissions stay in.
   // So does LinkedIn: the opt-in LinkedIn job search is for the test build only (owner, 2026-10-24).
@@ -52,7 +53,7 @@ for (const cs of manifest.content_scripts ?? []) {
   for (const m of cs.matches ?? []) if (!DASHBOARD_MATCHES.has(m)) problems.push(`content script matches ${m}: only the dashboard's own addresses are allowed`);
   if (cs.js?.some((f) => f !== "content/dashboard.js")) problems.push("only content/dashboard.js may run as a content script");
 }
-if (!withAgent && manifest.permissions.includes("sidePanel")) problems.push("the store build must not ask for the agent's permissions");
+if (!withAgent && (manifest.permissions.includes("sidePanel") || manifest.permissions.includes("debugger"))) problems.push("the store build must not ask for the agent's permissions");
 for (const p of manifest.optional_host_permissions ?? [])
   if (!APPLICATION_SITES.includes(p) && !(withAgent && (p === "<all_urls>" || p === LINKEDIN || p === HANDSHAKE))) problems.push(`optional host permission ${p} isn't one of APPLICATION_SITES (extension/sites/apply.js)`);
 for (const p of APPLICATION_SITES) if (!manifest.optional_host_permissions?.includes(p)) problems.push(`APPLICATION_SITES has ${p} but the manifest doesn't ask for it`);

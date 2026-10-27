@@ -23,6 +23,7 @@ import { loginFor, saveLogin, vaultStatus } from "./vault.js";
 import {
   clickNext,
   createAccount,
+  switchToCreateAccount,
   fillForm,
   isBlockedSite,
   isMultiPageSite,
@@ -247,6 +248,54 @@ async function loaded(tabId) {
   return chrome.tabs.get(tabId);
 }
 
+/* ---------------- real clicks and typing (test build, 1.11; owner 2026-10-26) ----------------
+ * Greenhouse's dropdowns (react-select) and similar widgets ignore script-made events: a dispatched mousedown /
+ * keydown / input never opens them (checked on a live Greenhouse form). Chrome's debugging protocol delivers input
+ * exactly like a person's mouse and keyboard, and works in background tabs. The page scripts Coverage injects ask for
+ * it ("cov-click" / "cov-type" / "cov-key"); Chrome shows "Coverage started debugging this browser" while a tab is
+ * attached. The store build has no "debugger" permission, so there the page scripts fall back to dispatched events. */
+
+const attached = new Set();
+const canDebug = () => typeof chrome.debugger?.attach === "function";
+
+async function cdp(tabId, method, params) {
+  if (!attached.has(tabId)) {
+    await chrome.debugger.attach({ tabId }, "1.3");
+    attached.add(tabId);
+  }
+  return chrome.debugger.sendCommand({ tabId }, method, params);
+}
+async function detachDebugger(tabId) {
+  if (!attached.has(tabId)) return;
+  attached.delete(tabId);
+  await chrome.debugger.detach({ tabId }).catch(() => {});
+}
+if (canDebug()) chrome.debugger.onDetach.addListener((src) => attached.delete(src.tabId));
+chrome.tabs.onRemoved.addListener((tabId) => attached.delete(tabId));
+
+async function trustedClick(tabId, x, y) {
+  const at = { x: Math.round(x), y: Math.round(y) };
+  await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+  await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", buttons: 1, clickCount: 1 });
+  await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", buttons: 0, clickCount: 1 });
+}
+const KEYS = { Enter: 13, ArrowDown: 40, ArrowUp: 38, Escape: 27, Tab: 9, Backspace: 8 };
+async function trustedKey(tabId, key) {
+  const code = KEYS[key];
+  if (!code) return;
+  for (const type of ["rawKeyDown", "keyUp"]) await cdp(tabId, "Input.dispatchKeyEvent", { type, key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code });
+}
+/** Real input for a page script (top frame only: its coordinates are the tab's). */
+async function trustedInput(msg, sender) {
+  if (!canDebug() || !sender.tab?.id || sender.frameId !== 0) return false;
+  const tabId = sender.tab.id;
+  if (msg.type === "cov-click" && Number.isFinite(msg.x) && Number.isFinite(msg.y)) await trustedClick(tabId, msg.x, msg.y);
+  else if (msg.type === "cov-type" && typeof msg.text === "string") await cdp(tabId, "Input.insertText", { text: msg.text.slice(0, 500) });
+  else if (msg.type === "cov-key" && typeof msg.key === "string") await trustedKey(tabId, msg.key);
+  else return false;
+  return true;
+}
+
 /* ---------------- accounts (opt-in, test build; owner 2026-10-26) ---------------- */
 
 /** "Create accounts for me" (extension Options): off unless you turned it on. */
@@ -343,6 +392,16 @@ async function drive(tabId, job) {
         signInTries++;
         await sleep(2000);
         continue;
+      }
+      // A sign-in page and no saved login for this site: open its "Create Account" (Workday shows sign-in first).
+      if (ls.kind === "signin" && !cred.username && !created && signInTries === 0 && (await autoAccountsOn())) {
+        const sw = await inTab(tabId, switchToCreateAccount);
+        if (sw?.clicked) {
+          signInTries++;
+          progress(tabId, "No account here yet: opening Create Account…");
+          await sleep(2500);
+          continue;
+        }
       }
       // No account here yet: create one (opt-in), with a password saved to your vault BEFORE it's used.
       if (ls.kind === "signup" && !cred.username && !created && (await autoAccountsOn())) {
@@ -460,7 +519,9 @@ async function fillOne(job, active) {
   await loaded(tab.id);
   await sleep(2500); // single-page apps render after "complete"
   await inTab(tab.id, () => delete document.documentElement.dataset.coverageStop).catch(() => {});
-  return drive(tab.id, job).catch((e) => report(job.id, "error", e instanceof Error ? e.message : String(e)));
+  return drive(tab.id, job)
+    .catch((e) => report(job.id, "error", e instanceof Error ? e.message : String(e)))
+    .finally(() => detachDebugger(tab.id));
 }
 
 let running = Promise.resolve();
@@ -830,6 +891,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // A wait for the page scripts Coverage injects (sites/*.js): the worker's timers aren't throttled in hidden tabs.
   if (msg?.type === "cov-sleep") {
     setTimeout(() => sendResponse(true), Math.min(Math.max(Number(msg.ms) || 0, 0), 10_000));
+    return true;
+  }
+  // Real clicks / typing for the page scripts Coverage injects (test build; false = use dispatched events).
+  if (msg?.type === "cov-click" || msg?.type === "cov-type" || msg?.type === "cov-key") {
+    trustedInput(msg, sender).then(sendResponse, () => sendResponse(false));
     return true;
   }
   const reply = (p) => {
