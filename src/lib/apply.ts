@@ -64,6 +64,8 @@ export interface JobApplication {
   emails?: { id: string; kind: string; at: string; subject: string }[];
   /** Summer the internship is for (from the confirmation email or the posting), for the Gmail label. */
   summer?: number;
+  /** The graduation date this application uses (your early date when the posting asks for that class), once decided. */
+  gradAs?: string;
 }
 
 /**
@@ -131,8 +133,13 @@ export interface ApplyProfile {
   degree: string;
   major: string;
   gpa: string;
-  /** "2029-06" (month the degree ends). */
+  /** "2029-06-15" (or "2029-06"): when the degree ends. */
   gradDate: string;
+  /**
+   * A date you could also graduate (finishing early), e.g. "2028-06-15": used instead for a job whose posting or form
+   * asks for that class / graduation window, with the resume marked for that class year (owner, 2026-10-26).
+   */
+  earlyGradDate: string;
   /** "yes" | "no" | "" */
   authorized: Choice;
   sponsorNow: Choice;
@@ -166,7 +173,7 @@ export interface ApplyProfile {
 
 export const EMPTY_PROFILE: ApplyProfile = {
   firstName: "", lastName: "", preferredName: "", email: "", phone: "", address1: "", address2: "", city: "", state: "", zip: "", country: "United States",
-  linkedin: "", website: "", school: "", degree: "", major: "", gpa: "", gradDate: "", authorized: "", sponsorNow: "", sponsorFuture: "", citizenship: "",
+  linkedin: "", website: "", school: "", degree: "", major: "", gpa: "", gradDate: "", earlyGradDate: "", authorized: "", sponsorNow: "", sponsorFuture: "", citizenship: "",
   over18: "", gender: "", race: "", hispanic: "", veteran: "", disability: "", orientation: "", transgender: "", pronouns: "", howHeard: "", relocate: "",
   startDate: "", driversLicense: "", background: "", interests: "", styleNotes: "",
 };
@@ -389,6 +396,18 @@ const RULES: Rule[] = [
   { re: /(school|university|college|institution)( name)?\b/, not: /high school|graduat|year|degree|major|gpa|city|state|attend.*before/, value: (p) => p.school },
   { re: /\bmajor\b|field of study|concentration|discipline/, not: /minor/, value: (p) => p.major },
   { re: /\bdegree\b|level of education/, not: /year|date/, value: (p) => p.degree },
+  // "Will you be graduating in either winter of 2027 or summer of 2028?": yes when the graduation date this application
+  // uses (gradAs: your early date for such a posting) falls in a year it names.
+  { long: true,
+    re: /(will|are|do) you (be |expect to )?graduat|expect(ed)? to graduate (in|between|by)|graduating (in|between|by|either)/,
+    not: /date|month|year\b(?! (of|in) )/,
+    value: (p, f) => {
+      const years = (f.label.match(/20\d{2}/g) ?? []).map(Number);
+      const g = grad(p);
+      if (!years.length || !g) return undefined;
+      return years.includes(Number(g.year)) ? "yes" : "no";
+    },
+  },
   { long: true,
     // Greenhouse's education block asks "End date month" / "End date year": your graduation.
     re: /graduat|expected (completion|end)|class year|year of graduation|degree end|^end date( (month|year|\(mm\/dd\/yyyy\)))?$|^end (month|year)$|^(education )?end date/,
@@ -693,9 +712,17 @@ export function chooseResume(
   job: Pick<JobApplication, "resumeId" | "role" | "description" | "review"> | undefined,
   pageText: string,
   resumes: Pick<ApplyResume, "id" | "classYear" | "tags">[],
+  /** The class year this application presents (its graduation date's year): that resume wins. */
+  preferYear?: number,
+  /** Your usual class year: no switch needed for it (the main resume). */
+  mainYear?: number,
 ): string | undefined {
   if (job?.resumeId) return job.resumeId;
   if (!resumes.length) return undefined;
+  if (preferYear && preferYear !== mainYear) {
+    const hit = resumes.find((r) => r.classYear === preferYear);
+    if (hit) return hit.id;
+  }
   const text = `${job?.role ?? ""}\n${job?.description ?? ""}\n${pageText}`.toLowerCase();
   const asked = new Set<number>(job?.review?.classYears ?? []);
   for (const m of text.matchAll(/\b(?:class of|graduat(?:e|es|ing|ion)(?: date)?(?: in| between| by)?|expected graduation:?)\s+(?:[a-z]+\s+)?(20\d{2})((?:\s*(?:,|\/|or|and|-|–|to)\s*(?:[a-z]+\s+)?20\d{2})*)/g)) {
@@ -714,4 +741,31 @@ export function chooseResume(
     if (n && (!best || n > best.n)) best = { id: r.id, n };
   }
   return best?.id;
+}
+
+/**
+ * Graduation years a posting / form asks for: class-of years from the AI review, and every year in a sentence about
+ * graduating ("Will you be graduating in either winter of 2027 or summer of 2028?", "Class of 2028", "graduating
+ * between December 2027 and June 2028").
+ */
+export function gradYearsAsked(text: string, reviewYears: number[] = []): number[] {
+  const out = new Set<number>(reviewYears);
+  for (const sentence of text.split(/[.?!\n]+/)) {
+    if (!/graduat|class of|degree (completion|conferral)|expected completion/i.test(sentence)) continue;
+    for (const y of sentence.match(/\b20\d{2}\b/g) ?? []) out.add(Number(y));
+  }
+  return [...out].filter((y) => y >= 2020 && y <= 2040);
+}
+
+/**
+ * The graduation date an application should use: your usual one, unless the posting / form asks for years that leave
+ * it out but include your early date (then the early one). Once an application has switched (`current`), it stays.
+ */
+export function gradFor(profile: Pick<ApplyProfile, "gradDate" | "earlyGradDate">, text: string, reviewYears: number[] = [], current?: string): string {
+  if (current) return current;
+  const main = Number((profile.gradDate ?? "").slice(0, 4));
+  const early = Number((profile.earlyGradDate ?? "").slice(0, 4));
+  if (!early || !main || early === main) return profile.gradDate;
+  const asked = gradYearsAsked(text, reviewYears);
+  return asked.length && !asked.includes(main) && asked.includes(early) ? profile.earlyGradDate : profile.gradDate;
 }

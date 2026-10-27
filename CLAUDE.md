@@ -686,6 +686,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (`gmail.ts#gmailReadableQuietly`), `appEmails.ts#pickVerificationLink` takes only an https link on the same site
   (Workday family) → the tab opens it → back to the job → saved-login sign-in. My info → "Accounts Coverage created":
   Show password = PIN → `lib/vaultCrypto.ts#openVault` in the tab for 30 s.
+- **Early graduation (owner, 2026-10-26):** My info `earlyGradDate` (a date you can really finish by). `apply.ts#gradFor`
+  picks it for an application when the posting / form asks for years that leave out your usual year but include the
+  early one (`gradYearsAsked`: review class years + sentences about graduating); decided once per job (`job.gradAs`,
+  sticky), then `planFill` gets that graduation date (window questions "graduating in winter 2027 or summer 2028?" →
+  yes, end dates), `chooseResume(…, preferYear)` the resume marked for that class year, the agent brief the same
+  date. A switch after a resume already went up adds a "replace the resume" note.
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

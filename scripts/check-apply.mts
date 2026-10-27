@@ -3,7 +3,7 @@
  * which are left for you. No browser, no network.
  *   npm run check:apply
  */
-import { chooseResume } from "../src/lib/apply";
+import { chooseResume, gradFor, gradYearsAsked } from "../src/lib/apply";
 import { coverLetterFrom, letterPdf } from "../src/lib/coverLetter";
 import { openVault } from "../src/lib/vaultCrypto";
 import { EMPTY_PROFILE, planFill, pickOption, sameJobSite, guessFromUrl, knownJobSite, parseJobCapture, type ApplyProfile, type FormField } from "../src/lib/apply";
@@ -197,6 +197,31 @@ eq("two unlabelled file inputs → left for you", planFill([f("u", "file", ""), 
   const blob = { v: 1 as const, salt: b64(salt), iv: b64(iv), data: b64(data) };
   eq("vault: right PIN opens it in the dashboard", (await openVault(blob, "123456"))[0]?.password, "Xy7!generated");
   eq("vault: wrong PIN refused", await openVault(blob, "654321").then(() => "opened", (e: Error) => e.message), "Wrong PIN.");
+}
+
+// Early graduation (owner, 2026-10-26): a posting for the earlier class uses your early date + that year's resume.
+{
+  const prof = { ...me, gradDate: "2029-06-15", earlyGradDate: "2028-06-15" };
+  const q = "Will you be graduating in either winter of 2027 or summer of 2028?";
+  eq("years asked: the graduation sentence, not other years", gradYearsAsked(`Summer 2027 internship in New York. ${q} Founded in 2004.`), [2027, 2028]);
+  eq("posting for 2027/2028 → early date; for 2029 or unclear → usual; once switched it stays", [
+    gradFor(prof, q),
+    gradFor(prof, "Open to the class of 2029."),
+    gradFor(prof, "Summer Analyst program."),
+    gradFor(prof, "Class of 2028 or 2029 students."),
+    gradFor(prof, "", [2028]),
+    gradFor(prof, "anything", [], "2028-06-15"),
+    gradFor({ ...prof, earlyGradDate: "" }, q),
+  ], ["2028-06-15", "2029-06-15", "2029-06-15", "2029-06-15", "2028-06-15", "2028-06-15", "2029-06-15"]);
+  const yn = [{ value: "0", label: "Yes" }, { value: "1", label: "No" }];
+  const win = f("w", "listbox", q, { options: yn });
+  eq("the window question: yes with the early date, no with the usual one", [
+    planFill([win], { ...prof, gradDate: "2028-06-15" }, { hasResume: true }).items[0]?.optionLabel,
+    planFill([win], prof, { hasResume: true }).items[0]?.optionLabel,
+  ], ["Yes", "No"]);
+  eq("and every date field follows it", planFill([f("e", "text", "End date year"), f("d", "text", "Expected graduation date (MM/DD/YYYY)")], { ...prof, gradDate: "2028-06-15" }, { hasResume: true }).items.map((x) => x.value), ["2028", "06/15/2028"]);
+  const rs = [{ id: "jr", classYear: 2028 }, { id: "x", classYear: 2029 }];
+  eq("resume: the one marked for the year this application uses", [chooseResume({ role: "", description: "" }, "", rs, 2028, 2029), chooseResume({ role: "", description: "" }, "", rs, 2029, 2029)], ["jr", undefined]);
 }
 
 // The AI agent's fill mode (extension 1.5): stops at the final submit, never creates accounts or deletes.

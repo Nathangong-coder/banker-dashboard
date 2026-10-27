@@ -6,7 +6,7 @@ import { blobs, useStore } from "./store";
 import { callApi } from "./api";
 import { aiReady, googleClientId, hasKey } from "./keys";
 import { gmailReadableQuietly, verificationLink } from "./gmail";
-import { FILL_LABELS, chooseResume, knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
+import { FILL_LABELS, chooseResume, gradFor, knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
 import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
 import { documentText } from "./fileText";
@@ -141,7 +141,9 @@ function jobFor(url: string): JobApplication | undefined {
 }
 
 async function resumeFile(job?: JobApplication, pageText = "") {
-  const pick = chooseResume(job, pageText, useStore.getState().apply.resumes);
+  const me = useStore.getState().apply.profile;
+  const gradAs = job?.gradAs ?? me.gradDate;
+  const pick = chooseResume(job, pageText, useStore.getState().apply.resumes, Number(gradAs.slice(0, 4)) || undefined, Number(me.gradDate.slice(0, 4)) || undefined);
   const r = (pick && (await blobs.appResume(pick))) || (await blobs.resume());
   if (!r) return undefined;
   // Its text is the AI's main source of facts for open questions (read here, in the browser; never stored).
@@ -288,13 +290,23 @@ async function plan(payload: unknown): Promise<PlanResult> {
     throw new Error(`UNKNOWN_SITE:${host}`);
   }
   const pageText = str(p.pageText, 8000);
-  const file = await resumeFile(job, pageText);
+  // Which graduation date this application uses: your early one when the posting / form asks for that class
+  // ("graduating in winter 2027 or summer 2028?"). Decided once per job, then everything follows it.
+  const me = st.apply.profile;
+  const formText = fields.map((f) => [f.label, ...(f.options ?? []).map((o) => o.label)].join(" ")).join("\n");
+  const gradAs = gradFor(me, `${job?.description ?? ""}\n${pageText}\n${formText}`, job?.review?.classYears ?? [], job?.gradAs);
+  const switched = !!job && gradAs !== me.gradDate && job.gradAs !== gradAs;
+  if (switched) useStore.getState().setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (j.id === job!.id ? { ...j, gradAs } : j)) }));
+  const fileJob = job && { ...job, gradAs };
+  const file = await resumeFile(fileJob, pageText);
   const cover = coverText(job);
-  const base = planFill(fields, st.apply.profile, { hasResume: !!file, coverText: cover });
+  const base = planFill(fields, gradAs === me.gradDate ? me : { ...me, gradDate: gradAs }, { hasResume: !!file, coverText: cover });
   const fileData = file && { name: file.name, type: file.type, base64: file.base64 };
   const coverFile = cover ? coverPdf(cover, st.apply.profile) : undefined;
   const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && fileData ? { ...it, fileData } : it.file === "cover" && coverFile ? { ...it, fileData: coverFile } : it));
   const skipped = [...base.skipped];
+  if (switched && job?.lastFilledAt)
+    skipped.push({ id: "grad-switch", label: "Resume", why: `This posting asks for the class of ${gradAs.slice(0, 4)}: if an earlier page already has your other resume, replace it with the ${gradAs.slice(0, 4)} one.` });
   const result: PlanResult = { job: job && { id: job.id, company: job.company, role: job.role }, items, skipped, ai: { asked: base.ai.length } };
 
   // Jev picks the option questions first (dropdowns, radios, "Select One" lists): cheap, and it can only pick an option
@@ -542,7 +554,8 @@ async function agentBrief(payload: unknown) {
   const resume = await resumeFile(job);
   const yesNo = (v: string) => (v === "yes" ? "Yes" : v === "no" ? "No" : "(leave for the student)");
   // "2029-06-15" (or a month-only "2029-06", read as the 15th) → "June 15, 2029".
-  const grad = me.gradDate ? new Date(`${/^\d{4}-\d{2}$/.test(me.gradDate) ? `${me.gradDate}-15` : me.gradDate.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }) : "";
+  const gd = job?.gradAs ?? me.gradDate;
+  const grad = gd ? new Date(`${/^\d{4}-\d{2}$/.test(gd) ? `${gd}-15` : gd.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }) : "";
   const facts = [
     `Name: ${me.firstName} ${me.lastName}${me.preferredName ? ` (goes by ${me.preferredName})` : ""}`,
     `Email: {{email}}`,

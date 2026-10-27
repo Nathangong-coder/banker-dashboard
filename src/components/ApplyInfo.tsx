@@ -148,6 +148,14 @@ export function ApplyInfo() {
           {text("degree", "Degree", { placeholder: "Bachelor of Arts" })}
           {text("major", "Major")}
           {text("gpa", "GPA", { placeholder: "3.8" })}
+          <Field label="Could graduate early (optional)" hint="A date you can really finish by. Used instead for postings that ask for that class (with the resume you marked for that year).">
+            <Input
+              key={`earlyGradDate:${profile.earlyGradDate ?? ""}`}
+              type="date"
+              defaultValue={profile.earlyGradDate ?? ""}
+              onBlur={(e) => e.target.value !== (profile.earlyGradDate ?? "") && save({ earlyGradDate: e.target.value })}
+            />
+          </Field>
           <Field label="Expected graduation" hint="The date forms get for graduation / education end date.">
             <Input
               key={`gradDate:${profile.gradDate}`}
