@@ -10,10 +10,21 @@
 // The dashboard side is src/lib/applyBridge.ts. Messages are only exchanged with this same window.
 (() => {
   const CHANNEL = "coverage-ext";
-  const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault", "agentBrief"]);
+  const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault", "agentBrief", "pickOption"]);
   const COMMANDS = new Set(["fillJobs", "focusJob", "linkedinJobs", "handshakeJobs"]);
   const pending = new Map();
+  // After the extension is reloaded or updated, this copy (already in the open tab) can't reach it any more: every
+  // chrome.* call throws "Extension context invalidated". Say so to the page (it shows "reload this tab") instead.
+  const alive = () => {
+    try {
+      return !!chrome.runtime?.id;
+    } catch {
+      return false;
+    }
+  };
+  const stale = () => window.postMessage({ channel: CHANNEL, kind: "stale" }, location.origin);
   const hello = async () => {
+    if (!alive()) return stale();
     // What this copy can do: the store build has no LinkedIn access, so LinkedIn job search is off there.
     const { linkedinAgent, handshakeAgent } = await chrome.storage.local.get(["linkedinAgent", "handshakeAgent"]).catch(() => ({}));
     window.postMessage(
@@ -26,13 +37,17 @@
     if (e.source !== window || e.origin !== location.origin) return;
     const m = e.data;
     if (!m || m.channel !== CHANNEL) return;
-    if (m.kind === "ping") hello();
+    if (m.kind === "ping") hello().catch(stale);
     if (m.kind === "response" && typeof m.id === "string" && pending.has(m.id)) {
       const done = pending.get(m.id);
       pending.delete(m.id);
       done(m);
     }
     if (m.kind === "command" && typeof m.id === "string" && COMMANDS.has(m.type)) {
+      if (!alive()) {
+        stale();
+        return window.postMessage({ channel: CHANNEL, kind: "commandResult", id: m.id, ok: false, error: "STALE" }, location.origin);
+      }
       chrome.runtime.sendMessage({ from: "dashboard", type: m.type, payload: m.payload }).then(
         (r) => window.postMessage({ channel: CHANNEL, kind: "commandResult", id: m.id, ok: !!r?.ok, result: r?.result, error: r?.error }, location.origin),
         (err) => window.postMessage({ channel: CHANNEL, kind: "commandResult", id: m.id, ok: false, error: String(err?.message ?? err) }, location.origin),
@@ -62,7 +77,11 @@
     return true; // answered asynchronously
   });
 
-  hello();
+  hello().catch(stale);
   // Saved logins sync through your Coverage account (still encrypted with your PIN): compare copies once per page load.
-  chrome.runtime.sendMessage({ from: "dashboard", type: "vaultSync" }).catch(() => {});
+  try {
+    chrome.runtime.sendMessage({ from: "dashboard", type: "vaultSync" }).catch(() => {});
+  } catch {
+    stale();
+  }
 })();

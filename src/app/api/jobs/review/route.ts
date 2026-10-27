@@ -2,6 +2,7 @@ import "server-only";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import { aiErrorResponse, aiJson, HttpError, withAi } from "@/lib/server/ai";
+import { choiceOf, jevAsk, jevKeys, noulOf } from "@/lib/server/jev";
 
 export const maxDuration = 120;
 
@@ -57,11 +58,81 @@ const Reviews = z.object({
 
 const clean = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim();
 
+type Input = z.infer<typeof Body>;
+type Reviewed = { key: string; roleType: string; classYears: number[]; internship: boolean; us: boolean; firmKnown: boolean; reason: string };
+
+/**
+ * Jev first (owner, 2026-10-26): one request per posting, five questions (role type from your list, class year,
+ * internship, US, well-known firm). Postings it isn't sure about (role type confidence < 45%) are returned in `unsure`
+ * for the AI model. Jev writes no text, so the reason line is the role type and how sure it was.
+ */
+async function jevReview(keys: string[], input: Input): Promise<{ done: Reviewed[]; unsure: Input["jobs"] }> {
+  const year = new Date().getFullYear();
+  const years = [year, year + 1, year + 2, year + 3, year + 4];
+  const done: Reviewed[] = [];
+  const unsure: Input["jobs"] = [];
+  const roleCriteria = Object.fromEntries(input.roleTypes.map((t) => [t.id, `${t.label}: ${t.covers}`.slice(0, 300)]));
+  const classCriteria: Record<string, string> = Object.fromEntries(years.map((y) => [`c${y}`, `class of ${y} (students graduating in ${y}; a Summer ${y - 1} internship)`]));
+  classCriteria.unclear = "the posting doesn't say which graduation year or summer";
+  await Promise.all(
+    input.jobs.map(async (j) => {
+      const state = [
+        input.rules.length ? `The student's rules: ${input.rules.join(" | ")}` : "",
+        `Company: ${j.company}\nTitle: ${j.title}\nLocation: ${j.location || "not given"}\n${j.text || "(no description)"}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      try {
+        const a = await jevAsk(keys, state, {
+          role: { type: "choice", instructions: "Which role type is this job posting, by what the job actually does? Finance-adjacent roles go in the closest finance / economics type.", criteria: roleCriteria },
+          classOf: { type: "choice", instructions: "Which graduating class is this internship for?", criteria: classCriteria },
+          internship: { type: "noul", instructions: "This posting is an internship, summer analyst, insight or sophomore program (not a full-time or experienced role)." },
+          us: { type: "noul", instructions: "This job is located in the United States (or remote in the US, or no location given)." },
+          known: { type: "noul", instructions: "The company is a name most finance students would recognize." },
+        });
+        const role = choiceOf(a.role);
+        if (!role || role.confidence < 0.45) return void unsure.push(j);
+        const cls = choiceOf(a.classOf)?.choice ?? "unclear";
+        const label = input.roleTypes.find((t) => t.id === role.choice)?.label ?? role.choice;
+        done.push({
+          key: j.key,
+          roleType: role.choice,
+          classYears: cls === "unclear" ? [] : [Number(cls.slice(1))].filter((y) => y >= 2020 && y <= 2040),
+          internship: (noulOf(a.internship) ?? 1) >= 0.5,
+          us: (noulOf(a.us) ?? 1) >= 0.5,
+          firmKnown: (noulOf(a.known) ?? 0) >= 0.5,
+          reason: `${label} (Jev, ${Math.round(role.confidence * 100)}% sure)`,
+        });
+      } catch (e) {
+        // A bad key / rate limit stops Jev for the whole batch (the AI model takes it); anything else, this posting only.
+        if (e instanceof HttpError && [401, 402, 403, 429].includes(e.status)) throw e;
+        unsure.push(j);
+      }
+    }),
+  );
+  return { done, unsure };
+}
+
 export async function POST(req: Request) {
   try {
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid request.");
-    const input = parsed.data;
+    const all = parsed.data;
+    const jev = jevKeys(req);
+    let byJev: Reviewed[] = [];
+    let rest = all.jobs;
+    if (jev.length) {
+      try {
+        const r = await jevReview(jev, all);
+        byJev = r.done;
+        rest = r.unsure;
+      } catch (e) {
+        if (!req.headers.get("x-ai")) throw e;
+      }
+      // No AI model: Jev's best guesses stand (marked by their low confidence in the reason).
+      if (!rest.length || !req.headers.get("x-ai")) return Response.json({ jobs: byJev, by: "jev", unsure: rest.map((j) => j.key) });
+    }
+    const input = { ...all, jobs: rest };
     const ids = new Set(input.roleTypes.map((t) => t.id));
     const asked = new Set(input.jobs.map((j) => j.key));
     const { output } = await withAi(req, (model, opts) =>
@@ -111,7 +182,7 @@ export async function POST(req: Request) {
         },
       ];
     });
-    return aiJson(req, { jobs });
+    return aiJson(req, { jobs: [...byJev, ...jobs], by: byJev.length ? "jev+ai" : "ai" });
   } catch (e) {
     return aiErrorResponse(req, e);
   }

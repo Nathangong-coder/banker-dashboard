@@ -220,7 +220,9 @@ export default function PrivacyPage() {
         the years you picked and the names of banks on your list; nothing is stored or logged. The postings found (public job text: title, firm,
         location, description) are kept in your {SITE.name} account so a job is never read twice, and each is sent once to <b>your own AI provider</b>{" "}
         with the role types, class years and rules you set under &ldquo;What jobs I want&rdquo; (never your profile, contacts or resume) to sort it;
-        that review is stored with it. Jobs you keep are written to your spreadsheet&apos;s applications tab when you save. In the extension&apos;s test
+        that review is stored with it. If you add a <b>Jev (TypeSafe)</b> key, the posting goes to TypeSafe instead (your AI provider only gets the ones
+        Jev isn&apos;t sure about), and on applications TypeSafe also gets your education, work-authorization answers, background and a short part of your
+        resume to pick dropdown answers (never demographic questions, your contact details or passwords). Jobs you keep are written to your spreadsheet&apos;s applications tab when you save. In the extension&apos;s test
         build you can turn on LinkedIn or Handshake job search: it reads job postings in your own browser, only when you press Search, and the postings
         go to your account the same way.
       </p>

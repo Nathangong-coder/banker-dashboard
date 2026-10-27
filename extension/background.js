@@ -468,6 +468,8 @@ async function agentFinish(tabId, job) {
     model,
     maxSteps: 30,
     screenshots: model.provider !== "compatible" || !/deepseek/i.test(model.baseURL ?? ""),
+    // Dropdown wording not found: Jev (your TypeSafe key, through your Coverage tab) picks from the shown options.
+    pick: (q) => askDashboard("pickOption", { ...q, jobId: job.id }),
     signal: ctrl.signal,
     onStep: (s) => {
       progress(tabId, `AI step ${s.n}: ${s.thought || s.result}`);

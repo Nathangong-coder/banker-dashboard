@@ -10,6 +10,9 @@ import { cn, fmtDate, uid } from "@/lib/util";
 import { Badge, Button, Input, Select, toast } from "./ui";
 import { askSignIn } from "@/lib/session";
 
+/** A stable empty list for services a saved vault has no entry for yet (a fresh [] in a selector re-renders forever). */
+const EMPTY_KEYS: ApiKeyEntry[] = [];
+
 export async function testKey(body: Record<string, unknown>): Promise<KeyTestResult> {
   const res = await fetch("/api/keys/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const j = await res.json().catch(() => null);
@@ -18,7 +21,7 @@ export async function testKey(body: Record<string, unknown>): Promise<KeyTestRes
 }
 
 function useVault(service: VaultService) {
-  const list = useStore((s) => s.settings.vault[service]);
+  const list = useStore((s) => s.settings.vault[service] ?? EMPTY_KEYS);
   const setSettings = useStore((s) => s.setSettings);
   const save = (next: ApiKeyEntry[]) => setSettings((s) => ({ ...s, vault: { ...s.vault, [service]: next } }));
   return { list, save };
@@ -90,7 +93,7 @@ function EntryRow({
 const moveTop = <T,>(arr: T[], i: number) => [arr[i], ...arr.filter((_, j) => j !== i)];
 
 /** Multiple keys for one data service. A key is only stored after it passes a live test. */
-export function KeyVault({ service, placeholder }: { service: "apollo" | "hunter" | "serper" | "brave"; placeholder: string }) {
+export function KeyVault({ service, placeholder }: { service: "apollo" | "hunter" | "serper" | "brave" | "jev"; placeholder: string }) {
   const { list, save } = useVault(service);
   const [value, setValue] = useState("");
   const [label, setLabel] = useState("");
@@ -116,7 +119,7 @@ export function KeyVault({ service, placeholder }: { service: "apollo" | "hunter
 
   const retest = async (i: number) => {
     const r = await testKey({ service, key: list[i].value });
-    const cur = useStore.getState().settings.vault[service];
+    const cur = useStore.getState().settings.vault[service] ?? [];
     save(cur.map((k, j) => (j === i ? { ...k, ok: r.ok, note: r.note, checkedAt: new Date().toISOString() } : k)));
   };
 

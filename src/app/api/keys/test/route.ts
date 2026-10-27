@@ -14,6 +14,7 @@ const Body = z.discriminatedUnion("service", [
   z.object({ service: z.literal("hunter"), key: z.string().min(8) }),
   z.object({ service: z.literal("serper"), key: z.string().min(8) }),
   z.object({ service: z.literal("brave"), key: z.string().min(8) }),
+  z.object({ service: z.literal("jev"), key: z.string().min(8) }),
   z.object({
     service: z.literal("ai"),
     key: z.string().min(8),
@@ -163,6 +164,12 @@ export async function POST(req: Request) {
           headers: { "X-Subscription-Token": b.key, Accept: "application/json" },
         });
         result = res.ok ? ok("Key works (used 1 query to check)") : bad(`Brave rejected this key: ${errText(json, text)}`);
+        break;
+      }
+      case "jev": {
+        // Listing models is free; it proves the key.
+        const { res, json, text } = await getJson("https://api.typesafe.ai/v1/models", { headers: { Authorization: `Bearer ${b.key.trim()}` } });
+        result = res.ok ? ok("Key works (free check)") : bad(`TypeSafe rejected this key: ${errText(json, text)}`);
         break;
       }
       case "ai": {

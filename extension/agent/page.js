@@ -124,7 +124,7 @@ export async function actPage(action) {
         opts.find((o) => want.split(" ").filter((w) => w.length > 2).every((w) => norm(o.innerText || o.text).includes(w)));
       if (el instanceof HTMLSelectElement) {
         const opt = pick([...el.options]);
-        if (!opt) return { ok: false, note: `no option like "${action.value}"; options: ${[...el.options].slice(0, 12).map((o) => clean(o.text)).join(" | ")}` };
+        if (!opt) return { ok: false, options: [...el.options].slice(0, 60).map((o) => clean(o.text)).filter(Boolean), note: `no option like "${action.value}"; options: ${[...el.options].slice(0, 12).map((o) => clean(o.text)).join(" | ")}` };
         setValue(el, opt.value);
         return { ok: true, note: `selected "${clean(opt.text)}"` };
       }
@@ -137,6 +137,8 @@ export async function actPage(action) {
         for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup"]) o.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
         o.click();
       };
+      // Close an open list (after a miss) so the next try starts clean.
+      const escape = () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       el.focus?.();
       if (el instanceof HTMLInputElement) {
         // A typeahead: type a few words to filter, then pick from the suggestions.
@@ -157,8 +159,9 @@ export async function actPage(action) {
         }
       }
       if (!opt) {
-        const seen = options().slice(0, 15).map((o) => clean(o.innerText)).filter(Boolean);
-        return { ok: false, note: seen.length ? `no option like "${action.value}"; options shown: ${seen.join(" | ")}` : `no list opened for "${action.value}" (try click, then look)` };
+        const seen = options().slice(0, 60).map((o) => clean(o.innerText)).filter(Boolean);
+        escape();
+        return { ok: false, options: seen, note: seen.length ? `no option like "${action.value}"; options shown: ${seen.slice(0, 15).join(" | ")}` : `no list opened for "${action.value}" (try click, then look)` };
       }
       press(opt);
       return { ok: true, note: `chose "${clean(opt.innerText).slice(0, 60)}"` };

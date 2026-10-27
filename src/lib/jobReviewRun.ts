@@ -5,7 +5,7 @@
  */
 import { useStore } from "./store";
 import { callApi } from "./api";
-import { aiReady } from "./keys";
+import { aiReady, hasKey } from "./keys";
 import { canonBank } from "./banks";
 import { freshJobs, type FoundJob } from "./jobFinder";
 import { judge, quickReview, resumeFor, reviewText, rulesOf, runSummary, type JobReview, type ReviewRules } from "./jobReview";
@@ -55,8 +55,9 @@ async function run({ recheck, quiet }: { recheck?: boolean | "skipped"; quiet?: 
   }
   if (quick.size) store(quick);
   const toAi = pending.filter((f) => !quick.has(f.key));
-  if (toAi.length && !aiReady(st.settings)) {
-    if (!quiet) toast.info(`${toAi.length} job${toAi.length === 1 ? "" : "s"} waiting for the AI review: add an AI key in Settings → Data. Nothing is added until they're reviewed.`);
+  // Jev alone (no AI model) is enough to sort jobs.
+  if (toAi.length && !aiReady(st.settings) && !hasKey(st.settings, "jev")) {
+    if (!quiet) toast.info(`${toAi.length} job${toAi.length === 1 ? "" : "s"} waiting for the AI review: add an AI key or a Jev key in Settings → Data. Nothing is added until they're reviewed.`);
     return { reviewed: quick.size, added: autoAdd(quiet) };
   }
   let reviewed = quick.size;

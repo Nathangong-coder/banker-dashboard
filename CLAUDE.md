@@ -655,6 +655,18 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   calls with backoff (`paced`), one application at a time; `choose` action for dropdowns / typeaheads; `npm run
   check:agent` simulates it. Resume once per form + `apply.ts#chooseResume` (class year / tags), cover letters from
   the Writing sample of kind cover_letter (`lib/coverLetter.ts`, PDF). Handshake popup: Save / Save + fill.
+- **Jev (TypeSafe, owner 2026-10-26; `lib/server/jev.ts`):** a judgment model (no text out; choice / noul / score),
+  `POST https://api.typesafe.ai/v1/systemone`, model `jev-latest` (not `jev/…`), Bearer key; vault service `jev`
+  (Settings → Data, free key test = GET /v1/models); a local `.env` `JEV_API` is used only off Vercel. Uses:
+  `api/jobs/review` (Jev first per posting: role type / class / internship / US / known firm; role confidence < 45%
+  → the AI model), `api/apply/choose` (option questions in `applyBridge.ts#plan` before the AI model, ≥ 60% kept;
+  `pickOption` for the agent when its wording isn't in a dropdown). Live-checked: K1 BD → investment firm roles, Econ
+  One → economic consulting, UCLA / 2029 / sponsorship No picked right; "academic level" came back 41% (dropped).
+- **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
+  built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
+  version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans
+  the bridge already in an open tab (Chrome doesn't re-inject): `content/dashboard.js` posts `stale` → "Reload this tab"
+  banner; `sendCommand` maps it (and its timeout) to that advice.
 
 - **Gmail → applications (owner, 2026-10-26):** statuses "submitted" = **Pend. applied**, new `confirmed` = **Off. applied**
   (the firm's "thanks for applying" email arrived). Applications → **Check Gmail** (`lib/appEmailsRun.ts`; also quietly on open

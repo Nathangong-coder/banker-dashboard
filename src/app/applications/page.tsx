@@ -12,6 +12,7 @@ import { canonBank } from "@/lib/banks";
 import { cn, fmtDate, relDays, uid } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Kpi, Menu, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
 import { JobFinder } from "@/components/JobFinder";
+import { SITE } from "@/lib/site";
 import { WhyModal } from "@/components/JobRules";
 import { addReviewRule, assignSheetRows, currentRules } from "@/lib/jobReviewRun";
 import { judge } from "@/lib/jobReview";
@@ -118,7 +119,51 @@ export default function ApplicationsPage() {
   );
 }
 
+/** "1.10.0" > "1.9.2" (numeric parts). */
+const newer = (a: string, b: string) => {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let k = 0; k < Math.max(pa.length, pb.length); k++) if ((pa[k] ?? 0) !== (pb[k] ?? 0)) return (pa[k] ?? 0) > (pb[k] ?? 0);
+  return false;
+};
+
+/**
+ * Is the extension here, current and connected? The dashboard and the extension ship together (SITE.extension.version
+ * = the extension built from the same commit), so an older copy is asked to update, a newer one means this page is
+ * older (reload it, or the deploy is still going out), and a copy reloaded after this tab opened needs a tab reload.
+ */
 function ExtensionNotice({ version }: { version?: string }) {
+  const stale = useExtension((s) => s.stale);
+  const latest = SITE.extension.version;
+  const box = "-mt-2 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-[12.5px]";
+  if (stale)
+    return (
+      <div className={cn(box, "border-amber/40 bg-amber-soft text-ink")}>
+        <Puzzle className="size-3.5 text-amber" />
+        The Coverage extension was updated or reloaded after this tab opened, so this tab can&apos;t reach it.
+        <Button size="sm" variant="primary" onClick={() => window.location.reload()}>
+          Reload this tab
+        </Button>
+      </div>
+    );
+  if (version && newer(latest, version))
+    return (
+      <div className={cn(box, "border-amber/40 bg-amber-soft text-ink")}>
+        <Puzzle className="size-3.5 text-amber" />
+        Your Coverage extension is v{version}; this dashboard works with v{latest}. Load the new copy (chrome://extensions → Load unpacked, or the
+        updated zip), then reload this tab.
+      </div>
+    );
+  if (version && newer(version, latest))
+    return (
+      <div className={cn(box, "border-line bg-subtle text-ink-2")}>
+        <Puzzle className="size-3.5 text-brass" />
+        Your extension (v{version}) is newer than this page (built for v{latest}). Reload this tab; if it stays, the dashboard update is still deploying.
+        <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
+          Reload
+        </Button>
+      </div>
+    );
   if (version)
     return (
       <div className="-mt-2 flex items-center gap-2 text-[12.5px] text-green">
@@ -126,9 +171,9 @@ function ExtensionNotice({ version }: { version?: string }) {
       </div>
     );
   return (
-    <div className="-mt-2 flex flex-wrap items-center gap-2 rounded-md border border-line bg-subtle px-3 py-2 text-[12.5px] text-ink-2">
+    <div className={cn(box, "border-line bg-subtle text-ink-2")}>
       <Puzzle className="size-3.5 text-brass" />
-      Autofill needs the Coverage browser extension (version 1.1 or later), with this tab open while it fills.
+      Autofill needs the Coverage browser extension (v{latest}), with this tab open while it fills. Just installed or reloaded it? Reload this tab.
       <Link href="/extension" className="font-medium text-navy hover:underline">
         Get the extension
       </Link>
@@ -268,7 +313,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
     interview: jobs.filter((j) => j.status === "interview" || j.status === "offer").length,
     soon: jobs.filter((j) => OPEN.includes(j.status) && j.deadline && Date.parse(j.deadline) - now < 7 * 86_400_000 && Date.parse(j.deadline) >= now - 86_400_000).length,
   };
-  // Fill selected (extension 1.3): the extension opens each in a "Coverage" tab group and fills it up to review.
+  // Fill selected: the extension opens each in a "Coverage" tab group and fills it up to review.
   const fillable = (j: JobApplication) => {
     const u = webLink(j.applyUrl ?? "") || webLink(j.url);
     // https only (plain http just for a local dev server).
@@ -400,7 +445,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
               </Button>
             </>
           ) : (
-            version && <span className="text-[12px] text-muted">Update the extension to 1.3 to fill several at once.</span>
+            version && <span className="text-[12px] text-muted">Update the extension (v{SITE.extension.version}) to fill several at once.</span>
           )}
         </div>
         {shown.length === 0 ? (

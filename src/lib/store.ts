@@ -742,6 +742,7 @@ function migrateState(p: Record<string, unknown>, version: number) {
       hunter: entry(k.hunter),
       serper: entry(k.serper),
       brave: [],
+      jev: [],
       ai: entry(k.ai, { provider: aiProvider }),
     };
     settings.ai = { provider: aiProvider, model: aiProvider === "anthropic" || aiProvider === "gateway" ? k.aiModel || "claude-sonnet-5" : "" };

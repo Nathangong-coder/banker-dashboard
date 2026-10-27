@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { blobs, useStore } from "./store";
 import { callApi } from "./api";
-import { aiReady } from "./keys";
+import { aiReady, hasKey } from "./keys";
 import { FILL_LABELS, chooseResume, knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
 import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
@@ -45,9 +45,15 @@ export interface ExtensionFeatures {
   handshakeJobs?: boolean;
 }
 
-export const useExtension = create<{ version?: string; features: ExtensionFeatures; setVersion: (v: string, f: ExtensionFeatures) => void }>((set) => ({
+export const useExtension = create<{
+  version?: string;
+  features: ExtensionFeatures;
+  /** The extension was reloaded / updated after this tab opened: its bridge here is dead until the tab reloads. */
+  stale?: boolean;
+  setVersion: (v: string, f: ExtensionFeatures) => void;
+}>((set) => ({
   features: {},
-  setVersion: (version, features) => set({ version, features }),
+  setVersion: (version, features) => set({ version, features, stale: false }),
 }));
 
 /** Progress of the LinkedIn job search (session only). */
@@ -63,7 +69,7 @@ export function sendCommand<T = unknown>(type: "fillJobs" | "focusJob" | "linked
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener("message", onMsg);
-      reject(new Error("The Coverage extension didn't answer. Is version 1.3 installed and on?"));
+      reject(new Error("The Coverage extension didn't answer. If you just installed, updated or reloaded it, reload this tab (Ctrl+R); otherwise check it's turned on in chrome://extensions."));
     }, 15_000);
     const onMsg = (e: MessageEvent) => {
       if (e.source !== window || e.origin !== window.location.origin) return;
@@ -72,6 +78,7 @@ export function sendCommand<T = unknown>(type: "fillJobs" | "focusJob" | "linked
       clearTimeout(timer);
       window.removeEventListener("message", onMsg);
       if (m.ok) resolve(m.result as T);
+      else if (m.error === "STALE") reject(new Error("The extension was updated or reloaded after this tab opened. Reload this tab (Ctrl+R) and try again."));
       else reject(new Error(m.error || "The extension couldn't do that."));
     };
     window.addEventListener("message", onMsg);
@@ -158,6 +165,49 @@ function coverPdf(text: string, me: { firstName: string; lastName: string }) {
   return { name: `${[me.firstName, me.lastName].filter(Boolean).join(" ") || "Cover"} Cover Letter.pdf`, type: "application/pdf", base64: btoa(bin) };
 }
 
+/**
+ * The facts Jev picks option answers from: education, work authorization, how you heard, background, resume (short).
+ * Never demographics / EEO (rules handle those or leave them for you).
+ */
+function jevFacts(job: JobApplication | undefined, resume?: string): string {
+  const me = useStore.getState().apply.profile;
+  const yn = (v: string) => (v === "yes" ? "yes" : v === "no" ? "no" : "not said");
+  return [
+    job && `Applying to: ${job.company}${job.role ? `, ${job.role}` : ""}${job.location ? ` (${job.location})` : ""}`,
+    `Name: ${me.firstName} ${me.lastName}`,
+    `School: ${me.school}; degree: ${me.degree}; major: ${me.major}; graduation (YYYY-MM): ${me.gradDate}${me.gpa ? `; GPA ${me.gpa}` : ""}`,
+    `Lives in: ${[me.city, me.state, me.country].filter(Boolean).join(", ")}`,
+    `Authorized to work in the US: ${yn(me.authorized)}; needs sponsorship now: ${yn(me.sponsorNow)}; later: ${yn(me.sponsorFuture)}; 18 or older: ${yn(me.over18)}; willing to relocate: ${yn(me.relocate)}`,
+    me.howHeard && `Heard about the job via: ${me.howHeard}`,
+    me.background && `Background: ${me.background.slice(0, 2000)}`,
+    resume && `Resume: ${resume.replace(/\s+/g, " ").slice(0, 3000)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * The extension agent couldn't find its wording in a dropdown: Jev picks from the options the dropdown actually shows
+ * (the multi-step chain the owner asked for, 2026-10-26: the page says it's a dropdown, the agent says what it wants,
+ * Jev picks the option). Returns the option text, or null when Jev isn't set up or isn't sure.
+ */
+async function pickOption(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const st = useStore.getState();
+  if (!hasKey(st.settings, "jev")) return null;
+  const options = (Array.isArray(p.options) ? p.options : []).slice(0, 100).map((o) => str(o, 200)).filter(Boolean);
+  if (options.length < 2) return null;
+  const job = st.apply.jobs.find((j) => j.id === str(p.jobId, 60));
+  const want = str(p.want, 200);
+  const r = await callApi<{ picks: { label: string; confidence: number }[] }>(
+    "/api/apply/choose",
+    { facts: `${jevFacts(job)}${want ? `\nThe assistant filling the form wants to answer: "${want}"` : ""}`, questions: [{ id: "q", label: str(p.label, 600) || "Choose the right option", options: options.map((o) => ({ value: o, label: o })) }] },
+    st.settings,
+  ).catch(() => null);
+  const pick = r?.picks[0];
+  return pick && pick.confidence >= 0.5 ? pick.label : null;
+}
+
 export interface PlanResult {
   job?: { id: string; company: string; role: string };
   items: (FillItem & { fileData?: { name: string; type: string; base64: string } })[];
@@ -191,6 +241,31 @@ async function plan(payload: unknown): Promise<PlanResult> {
   const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && fileData ? { ...it, fileData } : it.file === "cover" && coverFile ? { ...it, fileData: coverFile } : it));
   const skipped = [...base.skipped];
   const result: PlanResult = { job: job && { id: job.id, company: job.company, role: job.role }, items, skipped, ai: { asked: base.ai.length } };
+
+  // Jev picks the option questions first (dropdowns, radios, "Select One" lists): cheap, and it can only pick an option
+  // that's offered. What it isn't sure of (< 60%) goes on to the AI model below with the open questions.
+  if (base.ai.length && hasKey(st.settings, "jev")) {
+    const optionQs = base.ai.filter((f) => (f.kind === "select" || f.kind === "radio" || f.kind === "listbox") && (f.options?.length ?? 0) >= 2);
+    if (optionQs.length) {
+      try {
+        const r = await callApi<{ picks: { id: string; value: string; label: string; confidence: number }[] }>(
+          "/api/apply/choose",
+          { facts: jevFacts(job, file?.text), questions: optionQs.map((f) => ({ id: f.id, label: f.label.slice(0, 600), options: f.options!.slice(0, 200) })) },
+          st.settings,
+        );
+        const done = new Set<string>();
+        for (const pk of r.picks) {
+          const f = optionQs.find((x) => x.id === pk.id);
+          if (!f || pk.confidence < 0.6) continue;
+          done.add(f.id);
+          items.push({ id: f.id, value: pk.value, optionLabel: f.kind === "listbox" ? pk.label : undefined, source: "ai", label: f.label, note: `Jev picked "${pk.label}" (${Math.round(pk.confidence * 100)}% sure)` });
+        }
+        base.ai = base.ai.filter((f) => !done.has(f.id));
+      } catch (e) {
+        result.ai.error = `Jev: ${(e as Error).message}`;
+      }
+    }
+  }
 
   if (base.ai.length) {
     if (!aiReady(st.settings)) {
@@ -438,7 +513,7 @@ async function agentBrief(payload: unknown) {
   return { task, secrets: { email: me.email, phone: me.phone, address1: me.address1, address2: me.address2, zip: me.zip }, jobId: job?.id };
 }
 
-const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief };
+const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption };
 
 /** Mounted once in Shell: answers the extension, and learns whether it's installed (for the Applications page). */
 export function useExtensionBridge(ready: boolean) {
@@ -451,6 +526,7 @@ export function useExtensionBridge(ready: boolean) {
       if (e.source !== window || e.origin !== window.location.origin) return;
       const m = e.data as Partial<Omit<Req, "kind">> & { kind?: string; version?: string; features?: ExtensionFeatures };
       if (!m || m.channel !== CHANNEL) return;
+      if (m.kind === "stale") useExtension.setState({ stale: true });
       if (m.kind === "hello" && typeof m.version === "string")
         useExtension.getState().setVersion(m.version.slice(0, 20), { fillJobs: m.features?.fillJobs === true, linkedinJobs: m.features?.linkedinJobs === true, handshakeJobs: m.features?.handshakeJobs === true });
       if (m.kind !== "request" || typeof m.id !== "string" || typeof m.type !== "string") return;

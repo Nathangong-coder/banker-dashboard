@@ -3,7 +3,8 @@ import { AI_PROVIDERS } from "./types";
 
 /** Keys to try, in priority order. Keys that failed their last test are skipped. */
 export function usableKeys(s: Settings, service: VaultService): ApiKeyEntry[] {
-  return s.vault[service].filter((k) => k.ok !== false);
+  // Settings saved before a service existed (Jev, 2026-10-26) have no list for it.
+  return (s.vault[service] ?? []).filter((k) => k.ok !== false);
 }
 
 export function hasKey(s: Settings, service: VaultService) {

@@ -231,7 +231,7 @@ export default function SettingsPage() {
       exportedAt: new Date().toISOString(),
       settings: withKeys
         ? st.settings
-        : { ...st.settings, vault: { apollo: [], hunter: [], serper: [], brave: [], ai: [] }, keys: { ...st.settings.keys, twilioToken: "", whatsappApiKey: "" }, server: undefined },
+        : { ...st.settings, vault: { apollo: [], hunter: [], serper: [], brave: [], jev: [], ai: [] }, keys: { ...st.settings.keys, twilioToken: "", whatsappApiKey: "" }, server: undefined },
       contacts: st.contacts,
       templates: st.templates,
       banks: st.banks,
@@ -402,6 +402,14 @@ export default function SettingsPage() {
             how={<><A href="https://api-dashboard.search.brave.com/app/keys">api-dashboard.search.brave.com</A>: pick the free plan, then create an API key. Testing uses 1 query.</>}
           >
             <KeyVault service="brave" placeholder="Brave Search API key" />
+          </KeyRow>
+          <KeyRow
+            title="Jev (TypeSafe)"
+            ok={hasKey(settings, "jev")}
+            used="A cheap judgment model: sorts the jobs Find jobs turns up and picks dropdown answers on applications (your AI model writes the text answers). Optional."
+            how={<><A href="https://typesafe.ai">typesafe.ai</A>: create an API key. About $0.04 per million input tokens; testing is free.</>}
+          >
+            <KeyVault service="jev" placeholder="TypeSafe API key" />
           </KeyRow>
           <KeyRow
             title="AI model"

@@ -12,7 +12,7 @@ import { requireAccount } from "./session";
 export async function callApi<T>(path: string, body: unknown, s: Settings): Promise<T> {
   requireAccount("use your own keys and data");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  for (const svc of ["apollo", "hunter", "serper", "brave"] as const) {
+  for (const svc of ["apollo", "hunter", "serper", "brave", "jev"] as const) {
     const keys = usableKeys(s, svc).map((k) => k.value);
     if (keys.length) headers[`x-${svc}-keys`] = JSON.stringify(keys);
   }

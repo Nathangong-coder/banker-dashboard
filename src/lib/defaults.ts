@@ -152,7 +152,7 @@ export const DEFAULT_SETTINGS: Settings = {
     whatsappPhone: "",
     whatsappApiKey: "",
   },
-  vault: { apollo: [], hunter: [], serper: [], brave: [], ai: [] },
+  vault: { apollo: [], hunter: [], serper: [], brave: [], jev: [], ai: [] },
   ai: { provider: "anthropic", model: "claude-sonnet-5" },
   followUp: {
     firstAfterDays: 7,

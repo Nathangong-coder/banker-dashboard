@@ -258,7 +258,7 @@ function fillPrompt(task, history, page, withImage) {
  * Fill one application (Fill selected): `task` = the dashboard's brief, `secrets` = {{token}} values. Returns the run
  * summary like runAgent (outcome done / gave_up / stopped / error / max_steps).
  */
-export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signal, secrets = {}, screenshots = true }) {
+export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signal, secrets = {}, screenshots = true, pick }) {
   const swap = (s) => String(s ?? "").replace(/\{\{(\w+)\}\}/g, (m, k) => (k in secrets ? secrets[k] : m));
   const run = { task, provider: model.provider, model: model.model, mode: "fill", steps: 0, inTokens: 0, outTokens: 0, ms: 0, outcome: "max_steps", answer: "", startedAt: new Date().toISOString() };
   const history = [];
@@ -332,6 +332,14 @@ export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signa
         await sleep(1500);
         res = { ok: true, note: "waited" };
       } else res = (await inTab(tabId, actPage, [{ ...a, text: swap(a.text), value: swap(a.value), noSubmit: true }]).catch((e) => ({ ok: false, note: String(e?.message ?? e) }))) ?? { ok: false, note: "the page changed" };
+      // The wording wasn't in the dropdown: Jev picks from the options it actually shows (no extra model call).
+      if (a.type === "choose" && !res.ok && res.options?.length >= 2 && pick) {
+        const label = await pick({ label: target, want: a.value, options: res.options }).catch(() => null);
+        if (label) {
+          const again = (await inTab(tabId, actPage, [{ type: "choose", index: a.index, value: label, noSubmit: true }]).catch(() => null)) ?? { ok: false, note: "the page changed" };
+          if (again.ok) res = { ok: true, note: `${again.note} (Jev picked it)` };
+        }
+      }
       results.push(res.note);
       history.push(`${n}. ${a.type}${a.index !== undefined ? ` [${a.index}] "${target.slice(0, 40)}"` : ""}${a.value ? ` "${String(a.value).slice(0, 40)}"` : a.text ? ` "${String(a.text).slice(0, 40)}"` : ""} → ${res.note}`);
       if (!res.ok) {

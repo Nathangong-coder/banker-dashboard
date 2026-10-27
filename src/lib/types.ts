@@ -579,7 +579,8 @@ export interface SheetFormat {
   hiddenRows: number[];
 }
 
-export type VaultService = "apollo" | "hunter" | "serper" | "brave" | "ai";
+/** "jev" = TypeSafe's Jev judgment model (picks from options; job review + dropdowns, 2026-10-26). */
+export type VaultService = "apollo" | "hunter" | "serper" | "brave" | "jev" | "ai";
 
 export type AiProvider = "anthropic" | "openai" | "google" | "deepseek" | "glm" | "gateway" | "custom";
 
