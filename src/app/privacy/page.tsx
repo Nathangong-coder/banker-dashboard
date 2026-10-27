@@ -127,6 +127,13 @@ export default function PrivacyPage() {
         and adds a &ldquo;⚠ VP+ check&rdquo; label to those messages. Nothing else in your mailbox is changed.
       </p>
       <p>
+        <b>Check Gmail</b> on Applications reads, in your browser, the emails firms send about your job applications (found by a search for
+        application-system senders such as Workday or Greenhouse and subjects like &ldquo;Thank you for applying&rdquo;). If an AI model is set up,
+        each email&apos;s sender, subject, date and text is sent once to it to say what it is (confirmation, interview, rejection…), the firm, the role
+        and the summer. Your job tracker is updated from that, and the ids of emails already read are kept so none is read twice. With the same
+        label permission it adds &ldquo;Applications/Summer 20XX&rdquo; labels to those emails. Nothing else is changed or stored.
+      </p>
+      <p>
         {SITE.name}&apos;s use and transfer of information received from Google APIs adheres to the{" "}
         <a className="text-navy underline" href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noreferrer">
           Google API Services User Data Policy

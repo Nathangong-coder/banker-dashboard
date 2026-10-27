@@ -76,6 +76,7 @@ const STATUS_TEXT: Record<JobStatus, string> = {
   saved: "",
   applying: "",
   submitted: "IN PROCESS",
+  confirmed: "IN PROCESS",
   interview: "INTERVIEWING",
   offer: "OFFER",
   rejected: "REJECTED",

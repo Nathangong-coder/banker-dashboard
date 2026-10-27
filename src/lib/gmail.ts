@@ -1,5 +1,6 @@
 "use client";
 
+import type { AppEmail } from "./appEmails";
 import { EMAIL_FONTS, type EmailFont } from "./types";
 
 /**
@@ -644,4 +645,57 @@ async function savedSignatureLogo() {
   } catch {
     return null;
   }
+}
+
+/* ---------------- application emails (Applications → Check Gmail) ---------------- */
+
+/** Application emails (lib/appEmails.ts#applicationQuery) you haven't read yet: sender, subject, date, text. */
+export async function applicationEmails(clientId: string, q: string, skip: Set<string>, max = 120): Promise<AppEmail[]> {
+  const list = await listMessages(clientId, q, Math.min(max * 2, 500));
+  const fresh = list.filter((m) => !skip.has(m.id)).slice(0, max);
+  const out: AppEmail[] = [];
+  for (let i = 0; i < fresh.length; i += 8)
+    await Promise.all(
+      fresh.slice(i, i + 8).map(async (s) => {
+        const m = await gapi<MsgMeta & { payload?: Part & { headers?: { name: string; value: string }[] } }>(clientId, `/messages/${s.id}?format=full`).catch(() => null);
+        if (!m) return;
+        const plain = partText(m.payload, "text/plain");
+        const text = (plain || htmlToText(partText(m.payload, "text/html"))).replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+        out.push({ id: m.id, threadId: m.threadId, from: header(m, "From") ?? "", subject: header(m, "Subject") ?? "", date: new Date(when(m)).toISOString(), text: stripQuoted(text).slice(0, 3000) });
+      }),
+    );
+  return out;
+}
+
+/**
+ * Put labels on messages: { "Applications/Summer 2027": [ids…] }. Labels (and the "Applications" parent, so Gmail nests
+ * them) are created when missing. Needs the modify permission (asked on click).
+ */
+export async function labelMessages(clientId: string, byLabel: Record<string, string[]>) {
+  const t = await connectModify(clientId);
+  const call = async <T,>(path: string, init?: RequestInit) => {
+    const res = await fetch(`${API}${path}`, { ...init, headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } });
+    if (!res.ok) throw new Error(`Gmail: ${(await res.text()).slice(0, 200)}`);
+    // batchModify answers 204 with no body.
+    const body = await res.text();
+    return (body ? JSON.parse(body) : {}) as T;
+  };
+  const labels = (await call<{ labels: { id: string; name: string }[] }>("/labels")).labels;
+  const idOf = async (name: string) =>
+    labels.find((l) => l.name === name)?.id ??
+    (await call<{ id: string; name: string }>("/labels", { method: "POST", body: JSON.stringify({ name, labelListVisibility: "labelShow", messageListVisibility: "show" }) }).then((l) => {
+      labels.push(l);
+      return l.id;
+    }));
+  let n = 0;
+  for (const [name, ids] of Object.entries(byLabel)) {
+    if (!ids.length) continue;
+    if (name.includes("/")) await idOf(name.split("/")[0]);
+    const id = await idOf(name);
+    for (let i = 0; i < ids.length; i += 1000) {
+      await call("/messages/batchModify", { method: "POST", body: JSON.stringify({ ids: ids.slice(i, i + 1000), addLabelIds: [id] }) });
+      n += ids.slice(i, i + 1000).length;
+    }
+  }
+  return n;
 }

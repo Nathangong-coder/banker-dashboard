@@ -8,6 +8,7 @@ import { knownIds } from "../src/lib/jobFinder";
 import { DEFAULT_ROLE_TYPES, judge, quickReview, resumeFor, roleTypeId, rulesOf, sortReviewed, type JobReview } from "../src/lib/jobReview";
 import { assignJobRows, findAppsTable, jobPatches } from "../src/lib/jobSheet";
 import { jobRunLine } from "../src/lib/digestFormat";
+import { applicationQuery, companyOf, kindOf, labelFor, matchJob, statusAfter, summerOf } from "../src/lib/appEmails";
 import type { JobApplication } from "../src/lib/apply";
 import type { SheetSnapshot } from "../src/lib/types";
 
@@ -145,6 +146,55 @@ eq("a status is never moved backwards (REJECTED stays)", down["4:9"], undefined)
 const below = jobPatches([job({ sheetRef: { sheet: "APP ('27)", row: 8 } })], snaps)["APP ('27)"];
 eq("a new row below the list gets the next number; saved = no status", [below["8:2"]?.v, below["8:9"]], ["5", undefined]);
 eq("a row now holding another firm is left alone", jobPatches([job({ company: "Citi", sheetRef: { sheet: "APP ('27)", row: 3 } })], snaps)["APP ('27)"], undefined);
+
+
+// Application emails in Gmail → Off. applied + labels by summer (owner, 2026-10-26)
+const now = new Date("2026-10-26T12:00:00Z");
+eq(
+  "summer from the email",
+  [
+    summerOf("Thank you for applying to the 2027 Summer Analyst Program", now),
+    summerOf("Summer 2028 Investment Banking Internship", now),
+    summerOf("Summer Analyst 2027 - IB", now),
+    summerOf("This program is for the class of 2028", now),
+    summerOf("Thanks for applying to Analyst Program", now),
+    summerOf("Summer 2027 and Summer 2028 programs", now),
+  ],
+  [2027, 2028, 2027, 2027, undefined, undefined],
+);
+eq(
+  "kind of email",
+  [
+    kindOf("Thank you for applying!", "We have received your application for 2027 Summer Analyst."),
+    kindOf("Your application", "Unfortunately, we will not be moving forward with your candidacy."),
+    kindOf("Next steps: HireVue", "Please complete the HireVue video interview by Friday."),
+    kindOf("Superday invitation", "We'd like to invite you to an interview for our superday."),
+    kindOf("New jobs for you", "Check out these openings"),
+  ],
+  ["confirmation", "rejection", "assessment", "interview", "other"],
+);
+eq(
+  "firm from the sender",
+  [companyOf('"Goldman Sachs Recruiting" <noreply@gs.com>', ""), companyOf("Evercore via Workday <evercore@myworkday.com>", ""), companyOf("Workday <noreply@myworkday.com>", "Thank you for applying to Jefferies")],
+  ["Goldman Sachs", "Evercore", "Jefferies"],
+);
+eq("label by summer", [labelFor(2027), labelFor(undefined)], ["Applications/Summer 2027", "Applications/Year unclear"]);
+const tracked = (o: Partial<JobApplication>): JobApplication => ({ id: "a", company: "Evercore", role: "2027 Investment Banking Summer Analyst", url: "", status: "submitted", createdAt: "x", ...o });
+eq(
+  "matches the tracked job at that firm (closest role, same summer)",
+  matchJob({ id: "m", kind: "confirmation", company: "Evercore", role: "Investment Banking Summer Analyst", summer: 2027 }, [
+    tracked({ id: "rx", role: "Restructuring Summer Analyst", summer: 2028 }),
+    tracked({ id: "ib", summer: 2027 }),
+  ])?.id,
+  "ib",
+);
+eq("no firm → no match", matchJob({ id: "m", kind: "confirmation", company: "", role: "" }, [tracked({})]), undefined);
+eq(
+  "status: confirmation → Off. applied; never backwards; rejection ends it",
+  [statusAfter("submitted", "confirmation"), statusAfter("saved", "confirmation"), statusAfter("interview", "confirmation"), statusAfter("interview", "rejection"), statusAfter("confirmed", "other")],
+  ["confirmed", "confirmed", "interview", "rejected", "confirmed"],
+);
+eq("the search covers ATS senders and confirmation subjects, never sent mail", [applicationQuery().includes("from:myworkday.com"), applicationQuery().includes('subject:"thank you for applying"'), applicationQuery().includes("-in:sent")], [true, true, true]);
 
 console.log(failed ? `\n${failed} failed` : "\njob finder OK");
 process.exit(failed ? 1 : 0);

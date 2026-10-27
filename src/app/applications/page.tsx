@@ -2,7 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BriefcaseBusiness, ChevronDown, ChevronRight, ExternalLink, Eye, Plus, Puzzle, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { BriefcaseBusiness, ChevronDown, ChevronRight, ExternalLink, Eye, Mail, Plus, Puzzle, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { scanApplicationEmails, scanSummary } from "@/lib/appEmailsRun";
 import { useStore } from "@/lib/store";
 import { sendCommand, useExtension } from "@/lib/applyBridge";
 import { FILL_LABELS, JOB_STATUSES, guessFromUrl, parseJobCapture, type FillStatus, type JobApplication, type JobCapture, type JobStatus } from "@/lib/apply";
@@ -133,6 +134,25 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
   // My list jobs get a row on your spreadsheet's applications tab (written on the next Save).
   useEffect(() => assignSheetRows(), [jobs, snapshots]);
 
+  // Gmail: application emails → Off. applied / interviews / rejections + labels by summer.
+  const mailAt = useStore((s) => s.apply.mail?.at);
+  const [mailBusy, setMailBusy] = useState(false);
+  const checkGmail = async (interactive: boolean) => {
+    if (interactive) setMailBusy(true);
+    try {
+      const r = await scanApplicationEmails({ interactive });
+      if (interactive || r.confirmed || r.updated || r.added) toast.ok(scanSummary(r));
+    } catch (e) {
+      if (interactive) toast.err((e as Error).message);
+    } finally {
+      setMailBusy(false);
+    }
+  };
+  // Quietly on open when Gmail is already connected in this tab (never opens Google's window by itself).
+  useEffect(() => {
+    void checkGmail(false);
+  }, []);
+
   const update = (id: string, patch: Partial<JobApplication>) => setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)) }));
   const remove = (j: JobApplication) => {
     setApply((a) => ({ ...a, jobs: a.jobs.filter((x) => x.id !== j.id) }));
@@ -220,7 +240,8 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
     .sort((a, b) => (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999") || b.createdAt.localeCompare(a.createdAt));
   const counts = {
     open: mine.filter((j) => OPEN.includes(j.status)).length,
-    submitted: jobs.filter((j) => j.status === "submitted").length,
+    submitted: jobs.filter((j) => j.status === "submitted" || j.status === "confirmed").length,
+    confirmed: jobs.filter((j) => j.status === "confirmed").length,
     interview: jobs.filter((j) => j.status === "interview" || j.status === "offer").length,
     soon: jobs.filter((j) => OPEN.includes(j.status) && j.deadline && Date.parse(j.deadline) - now < 7 * 86_400_000 && Date.parse(j.deadline) >= now - 86_400_000).length,
   };
@@ -267,7 +288,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
     <>
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi label="To apply" value={counts.open} sub={counts.soon ? `${counts.soon} due within a week` : "no deadlines this week"} tone={counts.soon ? "bad" : undefined} />
-        <Kpi label="Submitted" value={counts.submitted} />
+        <Kpi label="Applied" value={counts.submitted} sub={`${counts.confirmed} Off. applied · ${counts.submitted - counts.confirmed} pending`} />
         <Kpi label="Interviewing / offers" value={counts.interview} tone={counts.interview ? "good" : undefined} />
         <Kpi
           label="Autofill ready"
@@ -326,6 +347,16 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
             ]}
           />
           <div className="flex-1" />
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Mail className="size-3.5" />}
+            loading={mailBusy}
+            onClick={() => checkGmail(true)}
+            title={`Reads application emails: confirmations make a job Off. applied; each email is labelled "Applications/Summer 20XX" in Gmail${mailAt ? `. Last checked ${relDays(mailAt)}` : ""}`}
+          >
+            Check Gmail
+          </Button>
           {view === "ai" && picked.length > 0 && (
             <>
               <Button size="sm" variant="secondary" onClick={() => keep(picked)}>
@@ -406,7 +437,13 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                               <span>no link</span>
                             )}
                             {j.lastFilledAt && <span>filled {relDays(j.lastFilledAt)}</span>}
-                            {j.submittedAt && <span>submitted {fmtDate(j.submittedAt)}</span>}
+                            {j.submittedAt && <span>applied {fmtDate(j.submittedAt)}</span>}
+                            {j.summer && <span>Summer {j.summer}</span>}
+                            {j.emails?.length ? (
+                              <span title={j.emails.map((e) => `${fmtDate(e.at)} ${e.kind}: ${e.subject}`).join("\n")}>
+                                {j.emails.length} email{j.emails.length === 1 ? "" : "s"} ({j.emails[j.emails.length - 1].kind})
+                              </span>
+                            ) : null}
                           </div>
                           {j.review && j.addedBy === "ai" && (
                             <p className="mt-0.5 pl-5 text-[12px] text-ink-2">
@@ -424,7 +461,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                             aria-label={`Status of ${j.company}`}
                             onChange={(e) => {
                               const status = e.target.value as JobStatus;
-                              update(j.id, { status, ...(status === "submitted" && !j.submittedAt ? { submittedAt: new Date().toISOString() } : {}) });
+                              update(j.id, { status, ...((status === "submitted" || status === "confirmed") && !j.submittedAt ? { submittedAt: new Date().toISOString() } : {}) });
                             }}
                           >
                             {JOB_STATUSES.map((s) => (
@@ -495,7 +532,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                               items={[
                                 !!webLink(j.url) && { label: "Open the job page", icon: <ExternalLink />, onClick: () => window.open(webLink(j.url), "_blank", "noopener") },
                                 !!j.fill && { label: "Show its tab", icon: <Eye />, onClick: () => showTab(j) },
-                                { label: "Mark submitted", onClick: () => update(j.id, { status: "submitted", submittedAt: j.submittedAt ?? new Date().toISOString() }) },
+                                { label: "Mark applied (pending confirmation)", onClick: () => update(j.id, { status: "submitted", submittedAt: j.submittedAt ?? new Date().toISOString() }) },
                                 "divider",
                                 { label: "Delete", icon: <Trash2 />, danger: true, onClick: () => remove(j) },
                               ]}

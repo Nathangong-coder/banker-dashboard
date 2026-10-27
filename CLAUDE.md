@@ -648,6 +648,15 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   opened tab takes over), Handshake's own Apply → needs_you. Readers tested only on mock pages (headless Edge): the real
   Handshake / LinkedIn DOM is unverified.
 
+- **Gmail → applications (owner, 2026-10-26):** statuses "submitted" = **Pend. applied**, new `confirmed` = **Off. applied**
+  (the firm's "thanks for applying" email arrived). Applications → **Check Gmail** (`lib/appEmailsRun.ts`; also quietly on open
+  when Gmail is connected in the tab): `appEmails.ts#applicationQuery` (ATS senders + confirmation / interview subjects, 180 days,
+  never sent mail) → new message ids only (`apply.mail.seen`) → `api/apply/emails` (AI: kind / firm / role / summer; rules
+  `ruleRead` without a key) → `matchJob` (firm, closest role, same summer) → `statusAfter` (forward only; rejection / offer end it),
+  unmatched confirmations add a My list job; each email gets a Gmail label "Applications/Summer 20XX" (or "Year unclear") via
+  `gmail.ts#labelMessages` (modify permission, asked on click; automatic runs keep `mail.pendingLabels`). Excel writes IN PROCESS for
+  both applied statuses. Not yet run against the owner's real inbox.
+
 ## Reply / thank-you / referral tracking (owner, 2026-10-22)
 
 - **Why:** thank-yous showed as "not sent" because only the browser read Gmail (open tab + token), and runs missed

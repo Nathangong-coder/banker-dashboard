@@ -11,12 +11,17 @@
 import type { Board, FoundJob } from "./jobFinder";
 import type { JobReview, ReviewRules } from "./jobReview";
 
-export type JobStatus = "saved" | "applying" | "submitted" | "interview" | "offer" | "rejected" | "withdrawn";
+/**
+ * "submitted" = Pend. applied (you submitted; no confirmation email yet). "confirmed" = Off. applied: the firm's
+ * "thanks for applying" email arrived (read from Gmail, lib/appEmails.ts; owner, 2026-10-26).
+ */
+export type JobStatus = "saved" | "applying" | "submitted" | "confirmed" | "interview" | "offer" | "rejected" | "withdrawn";
 
 export const JOB_STATUSES: { id: JobStatus; label: string }[] = [
   { id: "saved", label: "To apply" },
   { id: "applying", label: "In progress" },
-  { id: "submitted", label: "Submitted" },
+  { id: "submitted", label: "Pend. applied" },
+  { id: "confirmed", label: "Off. applied" },
   { id: "interview", label: "Interviewing" },
   { id: "offer", label: "Offer" },
   { id: "rejected", label: "Rejected" },
@@ -55,6 +60,10 @@ export interface JobApplication {
   answers?: { question: string; answer: string; at: string }[];
   /** The last "Fill selected" run on this job (the extension reports it back). */
   fill?: JobFill;
+  /** Emails about this application found in Gmail (confirmation, interview, rejection…). */
+  emails?: { id: string; kind: string; at: string; subject: string }[];
+  /** Summer the internship is for (from the confirmation email or the posting), for the Gmail label. */
+  summer?: number;
 }
 
 /**
@@ -188,6 +197,8 @@ export interface ApplyState {
   /** The job you last clicked "Autofill" on, so a fill on that site is filed under it. */
   activeJob?: { id: string; at: string };
   finder: JobFinderState;
+  /** Gmail application-email scan: message ids already read (never read twice), labels still to put on in Gmail. */
+  mail?: { seen: string[]; at?: string; pendingLabels?: { id: string; label: string }[] };
   /** The last "Fill selected" run: when every job in it has finished, one WhatsApp text says what's ready (mass apply). */
   batch?: { ids: string[]; at: string; texted?: boolean };
   /** The extension's saved logins, still encrypted with your PIN (synced through your account; nobody else can read them). */

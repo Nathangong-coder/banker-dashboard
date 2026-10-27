@@ -126,7 +126,7 @@ function jobFor(url: string): JobApplication | undefined {
   const active = age < ACTIVE_FOR ? jobs.find((j) => j.id === activeJob!.id) : undefined;
   const onSite = (j: JobApplication) => [j.url, j.applyUrl].some((u) => !!u && sameJobSite(u, url));
   if (active && (onSite(active) || age < JUST_CLICKED)) return active;
-  return jobs.find((j) => [j.url, j.applyUrl].some((u) => !!u && url.startsWith(u))) ?? jobs.find((j) => onSite(j) && j.status !== "submitted");
+  return jobs.find((j) => [j.url, j.applyUrl].some((u) => !!u && url.startsWith(u))) ?? jobs.find((j) => onSite(j) && j.status !== "submitted" && j.status !== "confirmed");
 }
 
 async function resumeFile(job?: JobApplication) {
@@ -240,7 +240,7 @@ function submitted(payload: unknown) {
   const job = jobFor(url);
   if (!job) return { ok: false };
   const at = new Date().toISOString();
-  useStore.getState().setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (j.id === job.id ? { ...j, status: "submitted", submittedAt: at } : j)) }));
+  useStore.getState().setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (j.id === job.id ? { ...j, status: j.status === "confirmed" ? j.status : "submitted", submittedAt: j.submittedAt ?? at } : j)) }));
   toast.ok(`Marked ${job.company}${job.role ? ` · ${job.role}` : ""} as submitted.`);
   return { ok: true, company: job.company };
 }
