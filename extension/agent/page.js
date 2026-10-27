@@ -113,7 +113,16 @@ export async function actPage(action) {
       return { ok: true, note: `typed ${text.length} characters${action.enter ? " + Enter" : ""}` };
     }
     if (action.type === "choose") {
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      // Waits are timed by the extension's worker: a hidden tab's own timers are throttled to ~1/min after 5 min, which
+      // stalled background fills until the tab was opened (owner, 2026-10-26). Falls back to a page timer.
+      const sleep = (ms) =>
+        new Promise((r) => {
+          try {
+            chrome.runtime.sendMessage({ type: "cov-sleep", ms }).then(() => r(), () => setTimeout(r, ms));
+          } catch {
+            setTimeout(r, ms);
+          }
+        });
       const want = clean(String(action.value ?? "")).toLowerCase();
       if (!want) return { ok: false, note: "say which option (value)" };
       const norm = (s) => clean(s).toLowerCase();
@@ -132,7 +141,8 @@ export async function actPage(action) {
         const r = o.getBoundingClientRect();
         return r.width > 1 && r.height > 1 && getComputedStyle(o).visibility !== "hidden";
       };
-      const options = () => [...document.querySelectorAll('[role="option"], [role="menuitem"], li[id*="option" i], [data-automation-id="promptOption"]')].filter(shown);
+      // react-select (Greenhouse) options have no role: ids like react-select-3-option-0.
+      const options = () => [...document.querySelectorAll('[role="option"], [role="menuitem"], [id*="-option-"], [class*="__option"], li[id*="option" i], [data-automation-id="promptOption"]')].filter(shown);
       const press = (o) => {
         for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup"]) o.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
         o.click();
@@ -145,6 +155,8 @@ export async function actPage(action) {
         setValue(el, String(action.value).slice(0, 40));
         el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
       } else press(el);
+      // react-select opens on mousedown of its control / ArrowDown.
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
       let opt;
       for (let i = 0; i < 15 && !opt; i++) {
         await sleep(200);

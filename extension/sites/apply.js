@@ -34,7 +34,16 @@ export function sitePattern(url) {
 export const isMultiPageSite = (url) => /^https:\/\/([a-z0-9-]+\.)*(myworkdayjobs|myworkdaysite|workday)\.com\//i.test(url ?? "");
 
 export async function scanForm() {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Waits are timed by the extension's worker: a hidden tab's own timers are throttled to ~1/min after 5 min, which
+  // stalled background fills until the tab was opened (owner, 2026-10-26). Falls back to a page timer.
+  const sleep = (ms) =>
+    new Promise((r) => {
+      try {
+        chrome.runtime.sendMessage({ type: "cov-sleep", ms }).then(() => r(), () => setTimeout(r, ms));
+      } catch {
+        setTimeout(r, ms);
+      }
+    });
   const clean = (s) => (s || "").replace(/\s+/g, " ").replace(/\s*\*\s*$/, "").trim().slice(0, 600);
   // Workday (and other apps) set aria-hidden / inert on the whole page while a dropdown or dialog is open. If that hides
   // every field, scan again without it: size, position, visibility and clipping checks still keep hidden traps out.
@@ -107,7 +116,7 @@ export async function scanForm() {
     }
     return clean((el.id || "").replace(/[_-]+/g, " "));
   };
-  const visibleOptions = () => [...document.querySelectorAll('[role="option"]')].filter(shown);
+  const visibleOptions = () => [...document.querySelectorAll('[role="option"], [id*="-option-"], [class*="__option"]')].filter(shown);
   const placeholderish = (t) => !t || /^(select|select one|choose|choose one|please select|--|—|-)\b/i.test(t);
 
   const tag = (el, id) => el.setAttribute("data-coverage-field", id);
@@ -153,7 +162,28 @@ export async function scanForm() {
     if (el.tagName === "INPUT" && el.getAttribute("role") === "combobox") {
       const box = el.closest("[class*='container' i], [data-automation-id], div");
       const picked = box?.querySelector("[class*='singleValue' i], [data-automation-id='selectedItem'], [class*='selected' i]");
-      fields.push({ id, kind: "typeahead", label, required: el.required || el.getAttribute("aria-required") === "true", filled: !!clean(picked?.innerText) || !!el.value.trim() });
+      const filled = !!clean(picked?.innerText) || !!el.value.trim();
+      // A react-select with a fixed list (Greenhouse's Yes / No questions, Country, Gender…) opens on ArrowDown and
+      // shows every option: read them, so the answer is picked from the list. A search box (School) shows nothing
+      // until you type: that stays a typeahead.
+      let options;
+      if (!filled) {
+        const control = el.closest("[class*='control' i]") || el;
+        el.focus();
+        control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
+        let opts = [];
+        for (let i = 0; i < 8 && !opts.length; i++) {
+          await sleep(100);
+          opts = visibleOptions();
+        }
+        const labels = opts.map((o) => clean(o.innerText)).filter(Boolean);
+        if (labels.length && !labels.every((l) => /loading|type to search|start typing|no (results|options)/i.test(l))) options = labels.slice(0, 300).map((l, i) => ({ value: String(i), label: l }));
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+        el.blur();
+        await sleep(60);
+      }
+      fields.push({ id, kind: options ? "listbox" : "typeahead", label, required: el.required || el.getAttribute("aria-required") === "true", filled, options });
       continue;
     }
     const kind = el.tagName === "SELECT" ? "select" : el.tagName === "TEXTAREA" ? "textarea" : ["email", "tel", "url", "number", "date", "month", "file"].includes(type) ? type : "text";
@@ -250,8 +280,17 @@ export async function scanForm() {
  * the right kind is ignored. Dropdowns and suggestion boxes are opened and the matching option clicked.
  */
 export async function fillForm(items, review) {
-  const NEVER = /\b(password|passcode|ssn|social security|social insurance|national insurance|tax id|taxpayer|itin|bank account|routing|account number|iban|swift|credit card|card number|cvv|cvc|security code|driver'?s? licen[cs]e|passport number|mother'?s maiden|date of birth|birth ?date|dob)\b/i;
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const NEVER = /\b(password|passcode|ssn|social security|social insurance|national insurance|tax id|taxpayer|itin|bank account|routing|account number|iban|swift|credit card|card number|cvv|cvc|security code|driver'?s? licen[cs]e (number|no\b|#|id)|passport number|mother'?s maiden|date of birth|birth ?date|dob)\b/i;
+  // Waits are timed by the extension's worker: a hidden tab's own timers are throttled to ~1/min after 5 min, which
+  // stalled background fills until the tab was opened (owner, 2026-10-26). Falls back to a page timer.
+  const sleep = (ms) =>
+    new Promise((r) => {
+      try {
+        chrome.runtime.sendMessage({ type: "cov-sleep", ms }).then(() => r(), () => setTimeout(r, ms));
+      } catch {
+        setTimeout(r, ms);
+      }
+    });
   const norm = (s) => (s || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
   const STOP = new Set(["of", "the", "and", "at", "in", "for"]);
   // How well a suggestion matches an answer: exact > prefix > the answer as initials (UCLA) > shared words.
@@ -272,7 +311,7 @@ export async function fillForm(items, review) {
     const r = el.getBoundingClientRect();
     return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
   };
-  const visibleOptions = () => [...document.querySelectorAll('[role="option"]')].filter(shown);
+  const visibleOptions = () => [...document.querySelectorAll('[role="option"], [id*="-option-"], [class*="__option"]')].filter(shown);
   const pressOption = (opt) => {
     for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) opt.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
     opt.click();
@@ -359,7 +398,24 @@ export async function fillForm(items, review) {
       continue;
     }
     say(`Coverage is filling · ${step} of ${items.length}: ${(it.label || "field").slice(0, 60)}`);
-    const els = [...document.querySelectorAll(`[data-coverage-field="${CSS.escape(String(it.id))}"]`)];
+    let els = [...document.querySelectorAll(`[data-coverage-field="${CSS.escape(String(it.id))}"]`)];
+    if (!els.length && it.label) {
+      // React forms rebuild a field after another answer (Greenhouse's School box): find it again by its label.
+      const want = norm(it.label);
+      const labelText = (x) => {
+        const by = (x.getAttribute("aria-labelledby") || "").split(/\s+/).map((i) => document.getElementById(i)?.innerText || "").join(" ");
+        const forL = x.id ? document.querySelector(`label[for="${CSS.escape(x.id)}"]`)?.innerText : "";
+        return norm(by || forL || x.getAttribute("aria-label") || "");
+      };
+      const again = [...document.querySelectorAll("input:not([type=hidden]), select, textarea, [role=combobox]")].find((x) => {
+        const t = labelText(x);
+        return t && (t === want || (t.length > 6 && want.startsWith(t)));
+      });
+      if (again) {
+        again.setAttribute("data-coverage-field", String(it.id));
+        els = [again];
+      }
+    }
     const el = els[0];
     if (el) await focusOn(el);
     if (!el) {
@@ -406,6 +462,38 @@ export async function fillForm(items, review) {
         const wants = [it.optionLabel, it.value].filter((x) => typeof x === "string" && x && !/^\d+$/.test(x));
         const opt = (it.optionLabel && opts.find((o) => norm(o.innerText) === norm(it.optionLabel))) || best(opts, wants);
         if (!opt) {
+          escape();
+          throw new Error("Couldn't find that choice: pick it yourself.");
+        }
+        pressOption(opt);
+        await sleep(150);
+        mark(el, it.source);
+      } else if (el.tagName === "INPUT" && el.getAttribute("role") === "combobox" && it.optionLabel) {
+        // A react-select with a fixed list: open it, click the planned option; a long list (Country) is filtered by
+        // typing the option's text first.
+        const control = el.closest("[class*='control' i]") || el;
+        const open = () => {
+          el.focus();
+          control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+          el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", keyCode: 40, bubbles: true }));
+        };
+        const find = async () => {
+          for (let i = 0; i < 12; i++) {
+            await sleep(100);
+            const opts = visibleOptions();
+            const hit = opts.find((o) => norm(o.innerText) === norm(it.optionLabel)) || best(opts, [it.optionLabel]);
+            if (hit) return hit;
+          }
+          return null;
+        };
+        open();
+        let opt = await find();
+        if (!opt) {
+          setNative(el, it.optionLabel.slice(0, 40));
+          opt = await find();
+        }
+        if (!opt) {
+          setNative(el, "");
           escape();
           throw new Error("Couldn't find that choice: pick it yourself.");
         }
@@ -622,7 +710,16 @@ export function signIn(username, password, origin) {
  * or Lever's "Apply for this job" link. These only open the form; nothing here submits anything.
  */
 export async function startApplication() {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Waits are timed by the extension's worker: a hidden tab's own timers are throttled to ~1/min after 5 min, which
+  // stalled background fills until the tab was opened (owner, 2026-10-26). Falls back to a page timer.
+  const sleep = (ms) =>
+    new Promise((r) => {
+      try {
+        chrome.runtime.sendMessage({ type: "cov-sleep", ms }).then(() => r(), () => setTimeout(r, ms));
+      } catch {
+        setTimeout(r, ms);
+      }
+    });
   const shown = (el) => {
     const r = el.getBoundingClientRect();
     return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";

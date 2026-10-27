@@ -145,7 +145,16 @@ export const isLinkedInWall = (url) => /linkedin\.com\/(checkpoint|authwall|logi
  * ?currentJobId=, not /jobs/view/ links: all three are read.
  */
 export async function readLinkedInJobs(max, known) {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Waits are timed by the extension's worker: a hidden tab's own timers are throttled to ~1/min after 5 min, which
+  // stalled background fills until the tab was opened (owner, 2026-10-26). Falls back to a page timer.
+  const sleep = (ms) =>
+    new Promise((r) => {
+      try {
+        chrome.runtime.sendMessage({ type: "cov-sleep", ms }).then(() => r(), () => setTimeout(r, ms));
+      } catch {
+        setTimeout(r, ms);
+      }
+    });
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const skip = new Set(known || []);
   const CARD = '[componentkey^="job-card-component-ref-"]';

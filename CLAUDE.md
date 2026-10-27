@@ -670,6 +670,15 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   → the AI model), `api/apply/choose` (option questions in `applyBridge.ts#plan` before the AI model, ≥ 60% kept;
   `pickOption` for the agent when its wording isn't in a dropdown). Live-checked: K1 BD → investment firm roles, Econ
   One → economic consulting, UCLA / 2029 / sponsorship No picked right; "academic level" came back 41% (dropped).
+- **1.8.1–1.9.0 (owner, 2026-10-26):** eligibility (18+ / work authorization / sponsorship) answered from My info in
+  any wording incl. "I certify…" boxes (`ELIGIBILITY` beats `ATTEST`; negative statements tick on "no"); the agent may
+  press a bare "Submit" only on a screener page (`fillGate(target, pageText)`). Greenhouse react-selects: options are
+  `[id*="-option-"]` / `__option` (no role) in scan, fill and the agent; a fixed list is read in scanForm (kind
+  listbox) and filled by clicking the option; a field a form rebuilt is found again by its label. New rules:
+  essential functions → yes, driver's license yes/no (`profile.driversLicense`; the NUMBER stays never-filled),
+  education "End date" = graduation (`gradDate` may be a full date; month-only = the 15th), optional "additional
+  information" questions left blank. Background fills: up to 4 at once in their own window, `autoDiscardable:false`,
+  and page scripts wait through the worker (`cov-sleep`: hidden tabs' own timers drop to ~1/min after 5 min).
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

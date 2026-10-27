@@ -250,7 +250,10 @@ async function loaded(tabId) {
 async function addToGroup(tabId) {
   try {
     const { batchGroup } = await chrome.storage.session.get("batchGroup");
-    const ok = batchGroup && (await chrome.tabGroups.get(batchGroup).catch(() => null));
+    const tab = await chrome.tabs.get(tabId);
+    const group = batchGroup && (await chrome.tabGroups.get(batchGroup).catch(() => null));
+    // Only the group in this tab's window (grouping into another window's group would move the tab there).
+    const ok = group && group.windowId === tab.windowId;
     const groupId = await chrome.tabs.group(ok ? { groupId: batchGroup, tabIds: [tabId] } : { tabIds: [tabId] });
     if (!ok) {
       await chrome.tabGroups.update(groupId, { title: "Coverage", color: "green" });
@@ -357,9 +360,25 @@ async function drive(tabId, job) {
   return report(job.id, "error", "Gave up after too many steps. Carry on in that tab.");
 }
 
+/**
+ * Where a background batch runs (owner, 2026-10-26: "running in the background of my work"): its own window, opened
+ * behind yours, so the applications aren't hidden tabs Chrome slows to a crawl in the window you're using. Keep it
+ * open (not minimized: Chrome pauses minimized windows). Watching fills in your window instead.
+ */
+async function batchWindow() {
+  const { batchWin } = await chrome.storage.session.get("batchWin");
+  if (batchWin && (await chrome.windows.get(batchWin).catch(() => null))) return batchWin;
+  const w = await chrome.windows.create({ focused: false, state: "normal", width: 1280, height: 900 });
+  await chrome.storage.session.set({ batchWin: w.id, batchGroup: null });
+  return w.id;
+}
+
 async function fillOne(job, active) {
-  const dash = await dashboardTab();
-  const tab = await chrome.tabs.create({ url: job.url, active, windowId: dash.windowId });
+  const windowId = active ? (await dashboardTab()).windowId : await batchWindow();
+  // A window of their own keeps background fills out of your tab strip; their waits are timed by this worker (see
+  // "cov-sleep"), so being a hidden tab doesn't stall them, and they're never discarded mid-fill.
+  const tab = await chrome.tabs.create({ url: job.url, active, windowId });
+  await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
   await addToGroup(tab.id);
   await chrome.storage.session.set({ [batchKey(tab.id)]: { ...job, stage: "filling" } });
   await report(job.id, "filling", "Opening the application…");
@@ -388,18 +407,18 @@ function fillJobs({ jobs, watch }) {
               ? `Coverage can't open ${new URL(job.url).hostname} yet: extension Options → "Fill applications on any site" (or allow just this site), then press Fill again.`
               : `Allow Coverage on ${new URL(job.url).hostname} (extension Options → Application sites), then press Fill again.`,
         );
-      else {
-        await report(job.id, "queued", "Waiting for a free tab…");
-        queue.push({ ...job, watch });
-      }
+      else queue.push({ ...job, watch });
     }
-    // With the AI agent on, one application at a time and a pause between them (every step is a model call, and
-    // providers rate-limit bursts); rules only: two at a time.
-    const agentOn = !!(await agentModel());
-    const workers = Array.from({ length: watch || agentOn ? 1 : 2 }, async () => {
+    // Up to 4 at once (owner, 2026-10-26: "do more, text me when ~30 are done"). The AI's model calls are paced
+    // across all tabs (agent.js#paced), so more tabs don't mean more rate-limit errors; watching = one at a time.
+    const width = watch ? 1 : 4;
+    for (const [i, job] of queue.entries()) if (i >= width) await report(job.id, "queued", `Waiting: #${i - width + 1} in line (${width} fill at a time).`);
+    const workers = Array.from({ length: width }, async (_, w) => {
+      await sleep(w * 4000); // staggered starts
       while (queue.length) {
-        await fillOne(queue.shift(), watch);
-        if (agentOn && queue.length) await sleep(8000 + Math.random() * 4000);
+        const job = queue.shift();
+        await fillOne(job, watch);
+        queue.forEach((q, i) => void report(q.id, "queued", `Waiting: #${i + 1} in line (${width} fill at a time).`));
       }
     });
     await Promise.all(workers);
@@ -733,6 +752,11 @@ async function fromDashboard(msg, sender) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
+  // A wait for the page scripts Coverage injects (sites/*.js): the worker's timers aren't throttled in hidden tabs.
+  if (msg?.type === "cov-sleep") {
+    setTimeout(() => sendResponse(true), Math.min(Math.max(Number(msg.ms) || 0, 0), 10_000));
+    return true;
+  }
   const reply = (p) => {
     p.then(
       (result) => sendResponse({ ok: true, result }),

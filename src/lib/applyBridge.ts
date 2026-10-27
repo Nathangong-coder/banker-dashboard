@@ -486,7 +486,8 @@ async function agentBrief(payload: unknown) {
   const me = st.apply.profile;
   const resume = await resumeFile(job);
   const yesNo = (v: string) => (v === "yes" ? "Yes" : v === "no" ? "No" : "(leave for the student)");
-  const grad = me.gradDate ? new Date(`${me.gradDate}-15T12:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }) : "";
+  // "2029-06-15" (or a month-only "2029-06", read as the 15th) → "June 15, 2029".
+  const grad = me.gradDate ? new Date(`${/^\d{4}-\d{2}$/.test(me.gradDate) ? `${me.gradDate}-15` : me.gradDate.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }) : "";
   const facts = [
     `Name: ${me.firstName} ${me.lastName}${me.preferredName ? ` (goes by ${me.preferredName})` : ""}`,
     `Email: {{email}}`,

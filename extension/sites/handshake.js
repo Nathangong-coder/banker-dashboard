@@ -27,7 +27,16 @@ export function handshakePage(url, page) {
  * location (checked on the live site 2026-10-26); job links (/job-search/<id>, /jobs/<id>) are the fallback.
  */
 export async function readHandshakeJobs(max, known) {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Waits are timed by the extension's worker: a hidden tab's own timers are throttled to ~1/min after 5 min, which
+  // stalled background fills until the tab was opened (owner, 2026-10-26). Falls back to a page timer.
+  const sleep = (ms) =>
+    new Promise((r) => {
+      try {
+        chrome.runtime.sendMessage({ type: "cov-sleep", ms }).then(() => r(), () => setTimeout(r, ms));
+      } catch {
+        setTimeout(r, ms);
+      }
+    });
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const skip = new Set(known || []);
   const seen = new Map();
@@ -63,7 +72,13 @@ export async function captureHandshakeJob() {
   const id = (location.pathname.match(/\/(?:stu\/)?(?:jobs|job-search)\/(\d{3,15})/) || [])[1] || "";
   const main = document.querySelector("main") || document.body;
   for (const b of main.querySelectorAll("button")) if (/^(more|show more|see more)$/i.test(clean(b.innerText))) b.click();
-  await new Promise((r) => setTimeout(r, 600));
+  await new Promise((r) => {
+    try {
+      chrome.runtime.sendMessage({ type: "cov-sleep", ms: 600 }).then(() => r(), () => setTimeout(r, 600));
+    } catch {
+      setTimeout(r, 600);
+    }
+  });
   const title = clean((main.querySelector("h1") || {}).innerText);
   const lines = (main.innerText || "").split("\n").map(clean).filter(Boolean);
   const company = lines[0] && lines[0] !== title ? lines[0] : clean((main.querySelector('a[href*="/e/"], a[href*="/employers/"]') || {}).innerText);

@@ -67,6 +67,7 @@ How to fill:
 - Work experience / education sections: add one entry per item in the RESUME / EXPERIENCE facts (click "Add", fill title, company, dates, description).
 - Dropdowns: elements marked [dropdown] or [typeahead] in the list are pick-from-a-list fields. Use "choose" with the option text you want (e.g. "University of California, Los Angeles", "Yes", "Bachelor's"). If choose says the option wasn't found, try a shorter or different wording that is likely in the list (e.g. "UCLA" → "California, Los Angeles"), or open it with click and read the options listed next turn.
 - Cover letter / resume upload fields are handled by Coverage: skip them.
+- OPTIONAL open questions ("Is there any additional information…", "anything else you'd like us to know", anything marked optional): leave them blank. Never paste a cover letter or essay into them.
 - When a page is done, click Next / Continue / Save and continue.
 - The resume file is already attached when the site allows it; never remove it. You can't upload files.
 - Eligibility / pre-screen questions (18 or older, authorized to work in the US, sponsorship now / in the future) are FACTS: answer every one of them from the facts (tick the box when its statement is true for the student), then press that step's button (even if it says Submit) to go on to the application.

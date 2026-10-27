@@ -66,7 +66,7 @@ export function ApplyInfo() {
   );
   const choice = (k: Key, label: string, options: Opt, hint?: string) => (
     <Field label={label} hint={hint}>
-      <Select value={profile[k]} onChange={(e) => save({ [k]: e.target.value } as Partial<ApplyProfile>)} aria-label={label}>
+      <Select value={profile[k] ?? ""} onChange={(e) => save({ [k]: e.target.value } as Partial<ApplyProfile>)} aria-label={label}>
         {options.map(([v, l]) => (
           <option key={v} value={v}>
             {l}
@@ -146,7 +146,15 @@ export function ApplyInfo() {
           {text("degree", "Degree", { placeholder: "Bachelor of Arts" })}
           {text("major", "Major")}
           {text("gpa", "GPA", { placeholder: "3.8" })}
-          {text("gradDate", "Graduation", { type: "month", hint: "Month you finish your degree." })}
+          <Field label="Expected graduation" hint="The date forms get for graduation / education end date.">
+            <Input
+              key={`gradDate:${profile.gradDate}`}
+              type="date"
+              // Saved before full dates (month only) shows as the 15th.
+              defaultValue={/^\d{4}-\d{2}$/.test(profile.gradDate) ? `${profile.gradDate}-15` : profile.gradDate}
+              onBlur={(e) => e.target.value && e.target.value !== profile.gradDate && save({ gradDate: e.target.value })}
+            />
+          </Field>
         </div>
       </Card>
 
@@ -184,6 +192,7 @@ export function ApplyInfo() {
           {text("howHeard", "How did you hear about us?", { placeholder: "Company website" })}
           {choice("relocate", "Willing to relocate?", YES_NO)}
           {text("startDate", "Available to start", { placeholder: "June 2027" })}
+          {choice("driversLicense", "Valid driver's license?", YES_NO)}
         </div>
       </Card>
 

@@ -154,6 +154,8 @@ export interface ApplyProfile {
   howHeard: string;
   relocate: Choice;
   startDate: string;
+  /** "Do you have a valid driver's license?" (the license NUMBER is never filled). */
+  driversLicense: Choice;
   /** Free text the AI may draw on: experiences, deals, clubs, skills (your resume in your words). */
   background: string;
   /** Why banking, which groups / offices you want: the AI's facts for "why" questions. */
@@ -166,7 +168,7 @@ export const EMPTY_PROFILE: ApplyProfile = {
   firstName: "", lastName: "", preferredName: "", email: "", phone: "", address1: "", address2: "", city: "", state: "", zip: "", country: "United States",
   linkedin: "", website: "", school: "", degree: "", major: "", gpa: "", gradDate: "", authorized: "", sponsorNow: "", sponsorFuture: "", citizenship: "",
   over18: "", gender: "", race: "", hispanic: "", veteran: "", disability: "", orientation: "", transgender: "", pronouns: "", howHeard: "", relocate: "",
-  startDate: "", background: "", interests: "", styleNotes: "",
+  startDate: "", driversLicense: "", background: "", interests: "", styleNotes: "",
 };
 
 export interface WritingSample {
@@ -269,7 +271,7 @@ const norm = (s: string) =>
 
 /** Fields the extension must never fill, whatever the label says. Checked here and again in the extension. */
 export const NEVER_FILL =
-  /\b(password|passcode|ssn|social security|social insurance|national insurance|tax id|taxpayer|itin|bank account|routing|account number|iban|swift|credit card|card number|cvv|cvc|security code|driver'?s? licen[cs]e|passport number|mother'?s maiden|date of birth|birth ?date|\bdob\b)/i;
+  /\b(password|passcode|ssn|social security|social insurance|national insurance|tax id|taxpayer|itin|bank account|routing|account number|iban|swift|credit card|card number|cvv|cvc|security code|driver'?s? licen[cs]e (number|no\b|#|id)|passport number|mother'?s maiden|date of birth|birth ?date|\bdob\b)/i;
 
 /** A legal attestation or consent box: you tick these yourself. */
 /** Eligibility facts (age, work authorization, sponsorship): answered from My info even in "I certify…" wording. */
@@ -349,9 +351,10 @@ interface Rule {
   why?: string;
 }
 
+/** Your graduation: "2029-06-15" (or "2029-06", read as the 15th: owner, 2026-10-26, "expected June 15 2029"). */
 const grad = (p: ApplyProfile) => {
-  const m = p.gradDate.match(/^(\d{4})-(\d{2})/);
-  return m ? { year: m[1], month: MONTHS[Number(m[2]) - 1] ?? "", mm: m[2] } : undefined;
+  const m = (p.gradDate ?? "").match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+  return m ? { year: m[1], month: MONTHS[Number(m[2]) - 1] ?? "", mm: m[2], dd: m[3] ?? "15" } : undefined;
 };
 
 const RULES: Rule[] = [
@@ -385,14 +388,17 @@ const RULES: Rule[] = [
   { re: /\bmajor\b|field of study|concentration|discipline/, not: /minor/, value: (p) => p.major },
   { re: /\bdegree\b|level of education/, not: /year|date/, value: (p) => p.degree },
   { long: true,
-    re: /graduat|expected (completion|end)|class year|year of graduation|degree end/,
+    // Greenhouse's education block asks "End date month" / "End date year": your graduation.
+    re: /graduat|expected (completion|end)|class year|year of graduation|degree end|^end date( (month|year|\(mm\/dd\/yyyy\)))?$|^end (month|year)$|^(education )?end date/,
     value: (p, f) => {
       const g = grad(p);
       if (!g) return undefined;
       const l = norm(f.label);
       if (/month/.test(l)) return g.month;
       if (/year/.test(l) && !/month/.test(l)) return g.year;
-      if (f.kind === "month" || f.kind === "date") return f.kind === "month" ? `${g.year}-${g.mm}` : `${g.year}-${g.mm}-01`;
+      if (f.kind === "month" || f.kind === "date") return f.kind === "month" ? `${g.year}-${g.mm}` : `${g.year}-${g.mm}-${g.dd}`;
+      // A typed date ("End date", "Expected graduation date (MM/DD/YYYY)"): the full date.
+      if (/date|mm\/dd|dd\/mm/.test(l) && !f.options?.length) return /dd\/mm/.test(l) ? `${g.dd}/${g.mm}/${g.year}` : `${g.mm}/${g.dd}/${g.year}`;
       return f.options?.length ? g.year : `${g.month} ${g.year}`;
     },
     options: (p) => {
@@ -424,7 +430,10 @@ const RULES: Rule[] = [
   { long: true, re: /disabilit/, value: (p) => p.disability, options: (p) => DISABILITY[p.disability] ?? [], sensitive: true },
   { long: true, re: /hear about|how did you (learn|find)|referral source|source of (application|referral)/, value: (p) => p.howHeard },
   { long: true, re: /relocat/, value: (p) => p.relocate },
-  { long: true, re: /start date|available to start|availability|earliest (date|start)/, not: /interview/, value: (p) => p.startDate },
+  { long: true, re: /start date|available to start|availability|earliest (date|start)/, not: /interview|^start date (month|year)$/, value: (p) => p.startDate },
+  // "Are you able to perform the essential functions of the position, with or without reasonable accommodation?"
+  { long: true, re: /essential functions/, value: () => "yes" },
+  { long: true, re: /driver'?s? licen[cs]e/, not: /number|no\b|#|\bid\b|state/, value: (p) => p.driversLicense, why: "Set “Valid driver's license?” in Applications → My info." },
 ];
 
 function escape(s: string) {
@@ -557,6 +566,12 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
       continue;
     }
 
+    // Optional open questions ("Is there any additional information you'd like to provide? This is optional") stay
+    // blank (owner, 2026-10-26: one was answered with a cover letter). Required ones still go to the AI.
+    if (!f.required && (f.kind === "textarea" || f.kind === "text") && (/\boptional\b/.test(label) || /additional information|anything else|supplement(al)? (information|to your application)|other information|is there anything/.test(label))) {
+      skip(f, "Optional question: left blank (answer it yourself if you want to).");
+      continue;
+    }
     if (isQuestion(f) || ((f.kind === "select" || f.kind === "radio" || f.kind === "listbox") && f.options?.length)) ai.push(f);
     else if (f.kind === "typeahead") skip(f, "A pick-from-suggestions box this couldn't place: choose it yourself.");
     else skip(f, "Not sure what goes here: fill it yourself.");

@@ -163,6 +163,27 @@ eq("two unlabelled file inputs → left for you", planFill([f("u", "file", ""), 
   eq("not set in My info → left for you (never guessed)", planFill([elig[0]], { ...me, over18: "" }, { hasResume: true }).skipped.length, 1);
 }
 
+// Greenhouse leftovers (owner, 2026-10-26): end date, essential functions, driver's license, optional extras.
+{
+  const yn = [{ value: "0", label: "Yes" }, { value: "1", label: "No" }];
+  const months = ["January", "February", "March", "April", "May", "June", "July"].map((m, i) => ({ value: String(i), label: m }));
+  const me2 = { ...me, gradDate: "2029-06-15", driversLicense: "yes" };
+  const fs2 = [
+    f("m", "listbox", "End date month", { options: months }),
+    f("y", "text", "End date year"),
+    f("d", "text", "Expected graduation date (MM/DD/YYYY)"),
+    f("ef", "listbox", "Are you able to perform the essential functions of the position for which you are applying, either with or without reasonable accommodations?", { options: yn }),
+    f("dl", "listbox", "Do you have a valid driver's license?", { options: yn }),
+    f("dln", "text", "Driver's license number"),
+    f("x", "textarea", "Is there any additional information you would like to provide as a supplement to your application? This is optional"),
+  ];
+  const pl = planFill(fs2, me2, { hasResume: true });
+  const got = Object.fromEntries(pl.items.map((x) => [x.id, x.optionLabel ?? x.value]));
+  eq("end date month / year / full date, essential functions, driver's license", got, { m: "June", y: "2029", d: "06/15/2029", ef: "Yes", dl: "Yes" });
+  eq("license number never filled; optional extra left blank (not sent to the AI)", [pl.skipped.map((x) => x.id).sort(), pl.ai.length], [["dln", "x"], 0]);
+  eq("a month-only graduation reads as the 15th", planFill([fs2[2]], { ...me, gradDate: "2029-06" }, { hasResume: true }).items[0]?.value, "06/15/2029");
+}
+
 // The AI agent's fill mode (extension 1.5): stops at the final submit, never creates accounts or deletes.
 const { fillGate } = await import("../extension/agent/agent.js");
 eq(
