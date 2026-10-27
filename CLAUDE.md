@@ -650,6 +650,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   checked in the owner's Chrome 2026-10-26) and the **AI agent finishes applications** after the rules (`agent/agent.js`
   fill mode + `fillGate`, `background.js#agentFinish`, dashboard `applyBridge.ts#agentBrief`; model + key from the agent
   test bench; store build gets a stub). Not yet run end to end with a real key.
+  **1.6–1.7 (owner, 2026-10-26):** applications use `agent.js#runFill` (not the test bench's runAgent): several
+  actions per model call, form-only page view (`observePage(…, formOnly)`), screenshot only when stuck, ≥3.5 s between
+  calls with backoff (`paced`), one application at a time; `choose` action for dropdowns / typeaheads; `npm run
+  check:agent` simulates it. Resume once per form + `apply.ts#chooseResume` (class year / tags), cover letters from
+  the Writing sample of kind cover_letter (`lib/coverLetter.ts`, PDF). Handshake popup: Save / Save + fill.
 
 - **Gmail → applications (owner, 2026-10-26):** statuses "submitted" = **Pend. applied**, new `confirmed` = **Off. applied**
   (the firm's "thanks for applying" email arrived). Applications → **Check Gmail** (`lib/appEmailsRun.ts`; also quietly on open

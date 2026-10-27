@@ -429,9 +429,9 @@ async function agentBrief(payload: unknown) {
   const task = [
     `Fill out this application${job ? ` for ${job.company}${job.role ? ` · ${job.role}` : ""}` : ""}.`,
     `FACTS\n${facts.join("\n")}`,
-    me.background && `BACKGROUND (the student's own words)\n${me.background.slice(0, 3000)}`,
-    resume?.text && `RESUME (work experience, education, activities: add these as entries)\n${resume.text.slice(0, 8000)}`,
-    answers.length && `ANSWERS THE STUDENT ALREADY WROTE (reuse for the same questions)\n${answers.map((x) => `Q: ${x.q}\nA: ${x.a.slice(0, 1200)}`).join("\n\n")}`,
+    me.background && `BACKGROUND (the student's own words)\n${me.background.slice(0, 1500)}`,
+    resume?.text && `RESUME (work experience, education, activities: add these as entries)\n${resume.text.replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").slice(0, 5000)}`,
+    answers.length && `ANSWERS THE STUDENT ALREADY WROTE (reuse for the same questions)\n${answers.slice(0, 8).map((x) => `Q: ${x.q.slice(0, 200)}\nA: ${x.a.slice(0, 600)}`).join("\n\n")}`,
   ]
     .filter(Boolean)
     .join("\n\n");

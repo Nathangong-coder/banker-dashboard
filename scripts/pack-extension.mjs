@@ -76,7 +76,7 @@ const add = (dir) => {
 add(src);
 // The worker imports agent/agent.js (the AI agent that finishes applications); the store build gets a stand-in that
 // turns it off, so the store build still has no agent code.
-const AGENT_STUB = "// Store build: no AI agent (the test build has extension/agent/).\nexport const runAgent = null;\n";
+const AGENT_STUB = "// Store build: no AI agent (the test build has extension/agent/).\nexport const runAgent = null;\nexport const runFill = null;\n";
 if (!withAgent) zip.file("agent/agent.js", AGENT_STUB);
 fs.mkdirSync(path.join(root, "dist"), { recursive: true });
 const out = path.join(root, "dist", `coverage-extension-${manifest.version}${withAgent ? "-agent" : ""}.zip`);

@@ -5,7 +5,7 @@
 // find it again, and returns that list plus the page's visible text. Models act by number, which works the same for
 // text-only and screenshot modes and for every provider (no pixel coordinates).
 
-export function observePage(maxElements, maxText) {
+export function observePage(maxElements, maxText, formOnly = false) {
   for (const el of document.querySelectorAll("[data-cov-i]")) el.removeAttribute("data-cov-i");
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -30,6 +30,11 @@ export function observePage(maxElements, maxText) {
   for (const el of document.querySelectorAll(sel)) {
     if (i >= maxElements) break;
     if (!visible(el) || el.closest("[aria-hidden=true]") || el.disabled) continue;
+    // Filling: form fields and the buttons that move it on; not the site's menus, links and footer.
+    if (formOnly) {
+      if (el.closest("nav, header, footer, [role=navigation], [role=banner], [role=contentinfo]")) continue;
+      if (el.tagName === "A" && !/apply|next|continue|start|add|upload|save|submit|review|back|sign in|log in/i.test(clean(el.innerText || el.getAttribute("aria-label") || ""))) continue;
+    }
     el.setAttribute("data-cov-i", String(i));
     const tag = el.tagName.toLowerCase();
     const type = el.getAttribute("type");

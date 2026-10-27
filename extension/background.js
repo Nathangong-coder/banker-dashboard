@@ -35,7 +35,7 @@ import {
   switchToSignIn,
 } from "./sites/apply.js";
 import { captureLinkedInJob, isLinkedInWall, linkedinJobsUrl, readLinkedInJobs } from "./sites/linkedin.js";
-import { runAgent } from "./agent/agent.js";
+import { runFill } from "./agent/agent.js";
 import { captureHandshakeJob, clickApplyExternally, handshakeJobUrl, handshakePage, isHandshake, isHandshakeWall, readHandshakeJobs } from "./sites/handshake.js";
 
 const progress = (tabId, text) => chrome.runtime.sendMessage({ type: "autofill-progress", tabId, text }).catch(() => {});
@@ -288,7 +288,7 @@ async function drive(tabId, job) {
       tab = await chrome.tabs.get(tabId);
     }
     if (!(await hasAccess(tab.url)))
-      return wait("access", `The application moved to ${new URL(tab.url).hostname}. Allow that site in the extension's Options${typeof runAgent === "function" ? ' (or "Fill applications on any site")' : ""}, then press Fill again.`);
+      return wait("access", `The application moved to ${new URL(tab.url).hostname}. Allow that site in the extension's Options${typeof runFill === "function" ? ' (or "Fill applications on any site")' : ""}, then press Fill again.`);
     const ls = await inTab(tabId, loginState);
     if (ls?.kind === "signin" || ls?.kind === "signup") {
       const cred = await loginFor(tab.url);
@@ -384,7 +384,7 @@ function fillJobs({ jobs, watch }) {
           "access",
           isHandshake(job.url)
             ? "Turn on Handshake job search in the extension's Options (test build), then press Fill again."
-            : typeof runAgent === "function"
+            : typeof runFill === "function"
               ? `Coverage can't open ${new URL(job.url).hostname} yet: extension Options → "Fill applications on any site" (or allow just this site), then press Fill again.`
               : `Allow Coverage on ${new URL(job.url).hostname} (extension Options → Application sites), then press Fill again.`,
         );
@@ -440,7 +440,7 @@ async function focusJob(jobId) {
  * isn't turned off there. The store build ships a stub runAgent (null): no agent.
  */
 async function agentModel() {
-  if (typeof runAgent !== "function") return null;
+  if (typeof runFill !== "function") return null;
   const S = await chrome.storage.local.get({ keys: {}, bases: {}, picked: {}, prefs: {} });
   const { provider, model } = S.picked ?? {};
   if (!provider || !model || !S.keys[provider] || S.prefs.fillAgent === false) return null;
@@ -460,17 +460,15 @@ async function agentFinish(tabId, job) {
   if (!brief?.task) return null;
   await report(job.id, "filling", `AI agent (${model.model}) is filling the rest…`);
   const ctrl = new AbortController();
-  return runAgent({
+  // runFill: several actions per model call, text first, a screenshot only when stuck (agent/agent.js).
+  return runFill({
     tabId,
     task: brief.task,
     secrets: brief.secrets ?? {},
-    fill: true,
     model,
-    mode: "screenshot",
-    maxSteps: 60,
-    allowLinkedIn: false,
+    maxSteps: 30,
+    screenshots: model.provider !== "compatible" || !/deepseek/i.test(model.baseURL ?? ""),
     signal: ctrl.signal,
-    confirm: async () => "approve",
     onStep: (s) => {
       progress(tabId, `AI step ${s.n}: ${s.thought || s.result}`);
       inTab(tabId, stopRequested).then((stop) => stop && ctrl.abort(), () => {});
