@@ -265,6 +265,39 @@ async function verifyLink(payload: unknown) {
   return null;
 }
 
+/**
+ * Your saved details Jev may map an unplaced text field to: name → { what it is (sent), value (never sent) }.
+ * Not demographics, work authorization or anything sensitive (those stay with the fixed rules).
+ */
+function factMenu(me: ApplyState["profile"]): Record<string, { what: string; value: string }> {
+  const grad = /^\d{4}-\d{2}/.test(me.gradDate) ? `${me.gradDate.slice(5, 7)}/${me.gradDate.length >= 10 ? me.gradDate.slice(8, 10) : "15"}/${me.gradDate.slice(0, 4)}` : "";
+  const all: Record<string, { what: string; value: string }> = {
+    first: { what: "First name", value: me.firstName },
+    last: { what: "Last name", value: me.lastName },
+    full: { what: "Full name", value: [me.firstName, me.lastName].filter(Boolean).join(" ") },
+    preferred: { what: "Preferred name / nickname", value: me.preferredName || me.firstName },
+    email: { what: "Email address", value: me.email },
+    phone: { what: "Phone number", value: me.phone },
+    street: { what: "Street address", value: me.address1 },
+    city: { what: "City where the student lives / current location (city)", value: me.city },
+    state: { what: "State / province", value: me.state },
+    zip: { what: "ZIP / postal code", value: me.zip },
+    country: { what: "Country of residence", value: me.country },
+    location: { what: "Current location as City, State", value: [me.city, me.state].filter(Boolean).join(", ") },
+    linkedin: { what: "LinkedIn profile URL", value: me.linkedin },
+    website: { what: "Personal website / portfolio URL", value: me.website },
+    school: { what: "School / university name", value: me.school },
+    degree: { what: "Degree (e.g. Bachelor's)", value: me.degree },
+    major: { what: "Major / field of study", value: me.major },
+    gpa: { what: "GPA", value: me.gpa },
+    grad: { what: "Graduation / education end date", value: grad },
+    gradYear: { what: "Graduation year", value: me.gradDate.slice(0, 4) },
+    start: { what: "Date available to start", value: me.startDate },
+    heard: { what: "How the student heard about the job", value: me.howHeard },
+  };
+  return Object.fromEntries(Object.entries(all).filter(([, v]) => v.value?.trim()));
+}
+
 export interface PlanResult {
   job?: { id: string; company: string; role: string };
   items: (FillItem & { fileData?: { name: string; type: string; base64: string } })[];
@@ -328,6 +361,39 @@ async function plan(payload: unknown): Promise<PlanResult> {
           items.push({ id: f.id, value: pk.value, optionLabel: f.kind === "listbox" ? pk.label : undefined, source: "ai", label: f.label, note: `Jev picked "${pk.label}" (${Math.round(pk.confidence * 100)}% sure)` });
         }
         base.ai = base.ai.filter((f) => !done.has(f.id));
+      } catch (e) {
+        result.ai.error = `Jev: ${(e as Error).message}`;
+      }
+    }
+  }
+
+  // Text fields no rule placed ("Location (City)", "Uni", "Current residence"): Jev picks which of your facts they
+  // ask for, from the field's label and the facts' NAMES only (no values go to TypeSafe); the value is typed here.
+  if (hasKey(st.settings, "jev")) {
+    const facts = factMenu(gradAs === me.gradDate ? me : { ...me, gradDate: gradAs });
+    const loose = base.skipped.filter((s) => /^Not sure what goes here/.test(s.why)).map((s) => fields.find((f) => f.id === s.id)).filter((f): f is FormField => !!f && ["text", "email", "tel", "url"].includes(f.kind));
+    if (loose.length && Object.keys(facts).length) {
+      try {
+        const r = await callApi<{ picks: { id: string; value: string; label: string; confidence: number }[] }>(
+          "/api/apply/choose",
+          {
+            facts: "Pick which of the student's saved details this application field asks for (or none).",
+            questions: loose.slice(0, 20).map((f) => ({
+              id: f.id,
+              label: f.label.slice(0, 600),
+              options: [...Object.entries(facts).map(([k, v]) => ({ value: k, label: v.what })), { value: "none", label: "None of these / something else" }],
+            })),
+          },
+          st.settings,
+        );
+        for (const pk of r.picks) {
+          const fact = facts[pk.value];
+          if (!fact || pk.confidence < 0.7) continue;
+          const f = loose.find((x) => x.id === pk.id)!;
+          items.push({ id: f.id, value: f.maxLength ? fact.value.slice(0, f.maxLength) : fact.value, source: "profile", label: f.label, note: `Jev: this asks for your ${pk.label.toLowerCase()} (${Math.round(pk.confidence * 100)}% sure)` });
+          const at = skipped.findIndex((s) => s.id === f.id);
+          if (at >= 0) skipped.splice(at, 1);
+        }
       } catch (e) {
         result.ai.error = `Jev: ${(e as Error).message}`;
       }

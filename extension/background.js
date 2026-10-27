@@ -482,8 +482,9 @@ async function drive(tabId, job) {
       await chrome.storage.session.remove(key);
       return report(job.id, "stopped", "You pressed Stop on the page.");
     }
-    // The AI agent finishes what the rules couldn't (experience entries, custom questions, more pages).
-    const run = await agentFinish(tabId, job);
+    // The AI agent is the backup (owner, 2026-10-26: "use the other frameworks for most of the stuff"): it only runs
+    // when the rules, Jev and the answer model left something it could do.
+    const run = needsAgent(r) ? await agentFinish(tabId, job) : null;
     await chrome.storage.session.remove(key);
     if (run) return agentReport(job, run, `Rules filled ${r.filled ?? 0} field${r.filled === 1 ? "" : "s"}.`);
     if (r.needsYou?.length) return report(job.id, "needs_you", `${r.needsYou.length} required question${r.needsYou.length === 1 ? "" : "s"} left for you.`, r.needsYou.slice(0, 10));
@@ -633,6 +634,19 @@ async function agentFinish(tabId, job) {
       inTab(tabId, stopRequested).then((stop) => stop && ctrl.abort(), () => {});
     },
   });
+}
+
+/** Skips the agent shouldn't act on either (yours to decide), so they don't call it in. */
+const YOURS = /consent|certification|salary|optional|never filled|sensitive|leave for|left for you|not set in your info|cover letter|attach this file|replace it/i;
+
+/**
+ * Did the rule-based fill leave work the agent could do? A required question still empty, a field that failed, a
+ * field nobody could place, or (multi-page sites) not at the review page yet.
+ */
+function needsAgent(r) {
+  if (r.needsYou?.length || r.failed?.length) return true;
+  if (r.multi && !r.review) return true;
+  return (r.skipped ?? []).some((s) => !YOURS.test(s.why ?? ""));
 }
 
 /** The agent's result as a Fill selected status. */

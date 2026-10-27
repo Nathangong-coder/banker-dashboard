@@ -705,6 +705,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   screenshots come from CDP `Page.captureScreenshot` (`runFill({ shot })`, background tabs too, still only when stuck),
   and with a screenshot the model may `click_xy` (image px ÷ dpr → page px; `describePoint` + `fillGate` decide it
   like any click). Cost ≈ 5–6K input tokens per step text-only (+~1–1.5K per screenshot), ~5–15 steps per application.
+- **1.13.0 order of work (owner, 2026-10-26: Jev is far cheaper, the agent is the backup):** rules → Jev for option
+  questions (`api/apply/choose`, ≥ 60%) and for text fields no rule placed (`applyBridge.ts#factMenu`: Jev gets the
+  label + the NAMES of your details, never values; ≥ 70%; live-checked: "Location (City)" → city, "Uni" → school,
+  "favorite color" → none, "Referrer's name" → 50% dropped) → the answer model for open questions → the agent only when
+  `background.js#needsAgent` (required left, a failed field, an unplaced field that isn't yours to decide, or a
+  multi-page site not at review).
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans
