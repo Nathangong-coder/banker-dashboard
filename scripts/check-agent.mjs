@@ -61,7 +61,9 @@ const replies = [
 ];
 let call = 0;
 const prompts = [];
+const hosts = [];
 globalThis.fetch = async (_url, init) => {
+  hosts.push(new URL(String(_url)).host);
   const body = JSON.parse(init.body);
   prompts.push(body.messages[1].content);
   const text = JSON.stringify(replies[call++] ?? { actions: [{ type: "done", success: false, answer: "out of replies" }] });
@@ -89,4 +91,23 @@ const checks = [
 ];
 for (const [name, ok] of checks) console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
 console.log({ calls: call, acted, shots, secs: Math.round((Date.now() - t0) / 1000) });
+// Mix models: two providers take turns step by step within one application.
+pageIdx = 0;
+call = 0;
+hosts.length = 0;
+const mixed = await runFill({
+  tabId: 1,
+  task: "Fill out this application.",
+  model: { provider: "compatible", model: "deepseek-chat", key: "k", baseURL: "https://api.deepseek.com/v1" },
+  models: [
+    { provider: "compatible", model: "deepseek-chat", key: "k", baseURL: "https://api.deepseek.com/v1" },
+    { provider: "compatible", model: "qwen-plus", key: "k", baseURL: "https://dashscope.example.com/v1" },
+  ],
+  secrets: { phone: "425-000-0000" },
+  signal: new AbortController().signal,
+  onStep: () => {},
+});
+const mixOk = hosts.join(",") === "api.deepseek.com,dashscope.example.com,api.deepseek.com,dashscope.example.com" && mixed.model === "deepseek-chat + qwen-plus";
+console.log(`${mixOk ? "ok  " : "FAIL"} mix models: providers take turns step by step`);
+checks.push(["mix", mixOk]);
 process.exit(checks.every(([, ok]) => ok) ? 0 : 1);

@@ -637,6 +637,17 @@ async function agentModel() {
   return { provider, model, key: S.keys[provider], baseURL: S.bases[provider] };
 }
 
+/**
+ * "Mix models" (Options): the models ticked in the agent test bench's comparison list take turns step by step (not in
+ * benchmark mode, which keeps one model per job so they can be compared). Returns null when off / fewer than two.
+ */
+async function mixedModels() {
+  const S = await chrome.storage.local.get({ keys: {}, bases: {}, prefs: {}, compare: [] });
+  if (!S.prefs.mix || S.prefs.benchmark) return null;
+  const pool = (S.compare ?? []).filter((c) => c.on && c.model && S.keys[c.provider]).map((c) => ({ provider: c.provider, model: c.model, key: S.keys[c.provider], baseURL: S.bases[c.provider] }));
+  return pool.length > 1 ? pool : null;
+}
+
 /** The optional vision helper (Options): reads the screenshots when the agent's own model can't (DeepSeek). */
 async function visionModel() {
   const S = await chrome.storage.local.get({ keys: {}, bases: {}, prefs: {} });
@@ -658,6 +669,7 @@ async function agentFinish(tabId, job) {
   await report(job.id, "filling", `AI agent (${model.model}) is filling the rest…`);
   const ctrl = new AbortController();
   const vision = await visionModel();
+  const models = await mixedModels();
   // runFill: several actions per model call, text first, a screenshot only when stuck (agent/agent.js).
   const started = Date.now();
   const run = await runFill({
@@ -665,6 +677,7 @@ async function agentFinish(tabId, job) {
     task: brief.task,
     secrets: brief.secrets ?? {},
     model,
+    models: models ?? undefined,
     maxSteps: 30,
     screenshots: model.provider !== "compatible" || !/deepseek/i.test(model.baseURL ?? ""),
     vision,

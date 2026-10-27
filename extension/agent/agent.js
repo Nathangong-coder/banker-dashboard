@@ -13,11 +13,13 @@ const HISTORY = 12;
  * errors wait and retry (10 s, 20 s, 40 s) instead of ending the run.
  */
 const MIN_GAP = 3500;
-let lastCall = 0;
-async function paced(fn, onWait) {
+/** Last call per provider (a provider's rate limit is its own: DeepSeek's calls don't wait on Qwen's). */
+const lastCall = new Map();
+async function paced(fn, onWait, lane = "default") {
   for (let tries = 0; ; tries++) {
-    const wait = lastCall + MIN_GAP + Math.random() * 1500 - Date.now();
-    lastCall = Math.max(Date.now(), lastCall + MIN_GAP);
+    const last = lastCall.get(lane) ?? 0;
+    const wait = last + MIN_GAP + Math.random() * 1500 - Date.now();
+    lastCall.set(lane, Math.max(Date.now(), last + MIN_GAP));
     // The pauses you see: its turn in the shared pacing (several tabs fill at once), or the provider being busy.
     if (wait > 2500) onWait?.(`Waiting for its turn (AI calls are spaced out across your open applications): ${Math.round(wait / 1000)} s`);
     if (wait > 0) await sleep(wait);
@@ -275,9 +277,11 @@ function fillPrompt(task, history, page, withImage) {
  * Fill one application (Fill selected): `task` = the dashboard's brief, `secrets` = {{token}} values. Returns the run
  * summary like runAgent (outcome done / gave_up / stopped / error / max_steps).
  */
-export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signal, secrets = {}, screenshots = true, pick, shot, vision, onWait, learn }) {
+export async function runFill({ tabId, task, model, models, maxSteps = 30, onStep, signal, secrets = {}, screenshots = true, pick, shot, vision, onWait, learn }) {
+  // "Mix models" (Options): text steps take turns through these (each has its own pacing lane), screenshots go to `vision`.
+  const pool = models?.length ? models : [model];
   const swap = (s) => String(s ?? "").replace(/\{\{(\w+)\}\}/g, (m, k) => (k in secrets ? secrets[k] : m));
-  const run = { task, provider: model.provider, model: model.model, mode: "fill", steps: 0, inTokens: 0, cachedTokens: 0, outTokens: 0, ms: 0, failedActions: 0, visionSteps: 0, outcome: "max_steps", answer: "", startedAt: new Date().toISOString() };
+  const run = { task, provider: pool.length > 1 ? "mixed" : model.provider, model: pool.map((m) => m.model).join(" + "), mode: "fill", steps: 0, inTokens: 0, cachedTokens: 0, outTokens: 0, ms: 0, failedActions: 0, visionSteps: 0, outcome: "max_steps", answer: "", startedAt: new Date().toISOString() };
   const history = [];
   let badReplies = 0;
   let lastSig = "";
@@ -302,9 +306,10 @@ export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signa
     let reply;
     try {
       // A step with a screenshot goes to the vision helper when your main model can't read images (DeepSeek).
-      const who = image && vision ? vision : model;
+      const who = image && vision ? vision : pool[(n - 1) % pool.length];
       if (who === vision) run.visionSteps++;
-      const r = await paced(() => complete({ ...who, system: FILL_SYSTEM, text: fillPrompt(task, history, page, !!image), image }), onWait);
+      const lane = `${who.provider}|${who.baseURL ?? ""}`;
+      const r = await paced(() => complete({ ...who, system: FILL_SYSTEM, text: fillPrompt(task, history, page, !!image), image }), onWait, lane);
       Object.assign(step, { inTokens: r.inTokens, outTokens: r.outTokens, ms: r.ms });
       run.cachedTokens += r.cachedTokens ?? 0;
       run.inTokens += r.inTokens;

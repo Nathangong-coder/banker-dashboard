@@ -153,6 +153,9 @@ if (benchBox) {
     const { prefs } = await chrome.storage.local.get({ prefs: {} });
     await chrome.storage.local.set({ prefs: { ...prefs, ...patch } });
   };
+  const mixBox = $("mixOn");
+  chrome.storage.local.get({ prefs: {} }).then(({ prefs }) => (mixBox.checked = prefs.mix === true));
+  mixBox.addEventListener("change", () => savePrefs({ mix: mixBox.checked }).then(() => ($("agentStatus").textContent = mixBox.checked ? "Mix models on: tick 2+ models in the agent test bench's comparison list." : "Mix models off.")));
   benchBox.addEventListener("change", () => savePrefs({ benchmark: benchBox.checked }).then(() => ($("agentStatus").textContent = benchBox.checked ? "Benchmark mode on: tick 2+ models in the agent test bench's comparison list." : "Benchmark mode off.")));
   const saveVision = () => {
     const provider = $("visionProvider").value;

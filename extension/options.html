@@ -168,6 +168,7 @@
       </p>
       <label class="switch"><input id="fillAgentOn" type="checkbox" /> Let the AI agent finish applications in Fill selected</label>
       <label class="switch"><input id="anySiteOn" type="checkbox" /> Fill applications on any site (careers pages like TikTok's that aren't in the list above)</label>
+      <label class="switch"><input id="mixOn" type="checkbox" /> Mix models: the models ticked in the agent test bench take turns step by step within an application (each provider is paced on its own, so they don't wait on each other; not used in Benchmark mode)</label>
       <label class="switch"><input id="benchOn" type="checkbox" /> Benchmark mode: take turns through the models ticked in the agent test bench (each job gets the next one), so Applications → Agent benchmark can compare them</label>
       <p class="muted" style="margin:8px 0 4px">Vision helper (optional): a model that can read screenshots, used only for the steps where the agent needs to look at the page (DeepSeek can't read images). Its key comes from the agent test bench.</p>
       <div style="display:flex;gap:6px;flex-wrap:wrap">

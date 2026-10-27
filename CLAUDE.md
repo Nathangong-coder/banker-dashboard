@@ -732,6 +732,10 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   incl. cached / failed actions from `agentRun`, `fixes` typed by the owner) → `components/AgentBenchmark.tsx`
   (per-model table, recent fills, prices, JSON export). Options: Benchmark mode (rotates the test bench's ticked
   models), vision helper (screenshot steps only). Pauses show on the page (`paced(onWait)`).
+- **1.16.0:** pacing is per provider lane (`paced(fn, onWait, lane)`), and Options → "Mix models" makes the test
+  bench's ticked models take turns step by step within an application (`runFill({ models })`; off in Benchmark
+  mode). The vision helper is only used on screenshot steps (stuck / failed); keep Gemini out of the dashboard's AI
+  fallbacks (Settings → Data → Customize) to save its free quota for that.
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans
