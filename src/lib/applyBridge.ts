@@ -11,7 +11,7 @@ import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
 import { documentText } from "./fileText";
 import { reviewPending, summarize } from "./jobReviewRun";
-import { coverLetterFrom, letterPdf } from "./coverLetter";
+import { coverLetterFrom, letterPdf, templateFirm } from "./coverLetter";
 import { STARTER_TARGETS } from "./banks";
 
 /**
@@ -151,21 +151,54 @@ async function resumeFile(job?: JobApplication, pageText = "") {
   return { name: r.name, type: r.type || "application/pdf", base64: base64(r.data), text: text.slice(0, 15000) };
 }
 
-/** Your cover letter template (latest Writing sample marked "Cover letter"), dated today, for this job's firm. */
-function coverText(job?: JobApplication): string | undefined {
+/**
+ * The cover letter for this job: made once, saved on the job (Applications → the job's row → Cover letter), reused on
+ * every page. Your template (latest Writing sample marked "Cover letter") dated today with this firm's name; with an
+ * AI model, also tailored to the posting (api/apply/cover: firm / role specifics rewritten from the job description,
+ * every fact about you kept; checked server-side, else the plain swap).
+ */
+async function coverFor(job: JobApplication | undefined, pageText: string): Promise<string | undefined> {
   const st = useStore.getState();
+  if (job?.coverLetter?.text) return job.coverLetter.text;
   const tpl = [...st.apply.samples].reverse().find((x) => x.kind === "cover_letter");
   if (!tpl?.text.trim() || !job?.company) return undefined;
   const known = [...STARTER_TARGETS.map((t) => t.name), ...st.targets.map((t) => t.name), ...st.coverage.added.map((t) => t.name), ...st.contacts.map((c) => c.bank), ...st.apply.jobs.map((j) => j.company)].filter(Boolean);
-  return coverLetterFrom(tpl.text, job.company, new Date(), known);
+  const today = new Date();
+  let text = coverLetterFrom(tpl.text, job.company, today, known);
+  let tailored = false;
+  if (aiReady(st.settings)) {
+    try {
+      const r = await callApi<{ letter: string | null }>(
+        "/api/apply/cover",
+        {
+          template: tpl.text.slice(0, 8000),
+          oldFirm: templateFirm(tpl.text, known),
+          company: job.company,
+          role: job.role,
+          description: (job.description || pageText).slice(0, 8000),
+          today: today.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+        },
+        st.settings,
+      );
+      if (r.letter) {
+        text = r.letter;
+        tailored = true;
+      }
+    } catch {
+      // The plain name + date swap stands.
+    }
+  }
+  st.setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (j.id === job.id ? { ...j, coverLetter: { text, at: new Date().toISOString(), tailored } } : j)) }));
+  return text;
 }
 
-/** The letter as a PDF named like a file you'd upload ("Nathan Gong Cover Letter - Evercore.pdf"). */
-function coverPdf(text: string, me: { firstName: string; lastName: string }) {
+/** The letter as a PDF named like a file you'd upload ("Nathan Gong Cover Letter - RCLCO.pdf"). */
+export function coverPdf(text: string, me: { firstName: string; lastName: string }, company?: string) {
   const bytes = letterPdf(text);
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return { name: `${[me.firstName, me.lastName].filter(Boolean).join(" ") || "Cover"} Cover Letter.pdf`, type: "application/pdf", base64: btoa(bin) };
+  const firm = (company ?? "").replace(/[^\w &.-]+/g, "").trim().slice(0, 60);
+  return { name: `${[me.firstName, me.lastName].filter(Boolean).join(" ") || "Cover"} Cover Letter${firm ? ` - ${firm}` : ""}.pdf`, type: "application/pdf", base64: btoa(bin) };
 }
 
 /**
@@ -332,10 +365,10 @@ async function plan(payload: unknown): Promise<PlanResult> {
   if (switched) useStore.getState().setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (j.id === job!.id ? { ...j, gradAs } : j)) }));
   const fileJob = job && { ...job, gradAs };
   const file = await resumeFile(fileJob, pageText);
-  const cover = coverText(job);
+  const cover = await coverFor(job, pageText);
   const base = planFill(fields, gradAs === me.gradDate ? me : { ...me, gradDate: gradAs }, { hasResume: !!file, coverText: cover });
   const fileData = file && { name: file.name, type: file.type, base64: file.base64 };
-  const coverFile = cover ? coverPdf(cover, st.apply.profile) : undefined;
+  const coverFile = cover ? coverPdf(cover, st.apply.profile, job?.company) : undefined;
   const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && fileData ? { ...it, fileData } : it.file === "cover" && coverFile ? { ...it, fileData: coverFile } : it));
   const skipped = [...base.skipped];
   if (switched && job?.lastFilledAt)

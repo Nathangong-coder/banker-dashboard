@@ -711,6 +711,16 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   "favorite color" → none, "Referrer's name" → 50% dropped) → the answer model for open questions → the agent only when
   `background.js#needsAgent` (required left, a failed field, an unplaced field that isn't yours to decide, or a
   multi-page site not at review).
+- **1.14.0 (owner, 2026-10-26):** Workday (checked live on Wells Fargo's site, not signed in): its buttons are a bare
+  `div[data-automation-id="click_filter"][role=button][aria-label=…]` over the visible one, and the header has its own
+  "Sign In" (`utilityButtonSignIn`); `signIn` / `createAccount` pick the matching button nearest the password field,
+  never in the header, and press with a real click (fallback: `.click()` on whatever is topmost at that point).
+  `clickNext` uses real clicks too. scanForm: with < 4 fields, also scans without the aria-hidden filter and keeps the
+  clearly bigger result. Popup "Autofill this page" also runs the backup agent. `cov-type` sends long text in 400-char
+  pieces (was cut at 500). Schools: `apply.ts#schoolNames` (accept = full name / acronym, search = full, acronym, city,
+  first words; strict acceptance in the extension). Cover letters: `applyBridge.ts#coverFor` → `api/apply/cover`
+  tailors the template to the posting (checked: names the new firm, drops the old, length 75–135%), saved on
+  `job.coverLetter`, shown / downloadable / remakeable in the job's detail (`CoverLetterBox`).
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

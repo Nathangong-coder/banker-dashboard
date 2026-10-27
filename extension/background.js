@@ -87,7 +87,9 @@ function checkPlan(plan, fields) {
       return [{ ...out, value: it.value, optionLabel: opt.label }];
     }
     const alts = Array.isArray(it.alts) ? it.alts.filter((a) => typeof a === "string").map((a) => a.slice(0, 100)).slice(0, 8) : undefined;
-    return [{ ...out, value: it.value.slice(0, 20000), ...(f.kind === "typeahead" && alts ? { alts } : {}) }];
+    // School searches: what to type, in order, and only accept a real match (the dashboard's schoolNames).
+    const search = Array.isArray(it.search) ? it.search.filter((a) => typeof a === "string").map((a) => a.slice(0, 100)).slice(0, 4) : undefined;
+    return [{ ...out, value: it.value.slice(0, 20000), ...(f.kind === "typeahead" && alts ? { alts } : {}), ...(f.kind === "typeahead" && search ? { search, strict: it.strict === true } : {}) }];
   });
 }
 
@@ -175,7 +177,17 @@ async function remember(tabId, result) {
 }
 
 async function autofill(tabId, confirmed) {
-  return remember(tabId, await fillPage(tabId, confirmed));
+  const r = await remember(tabId, await fillPage(tabId, confirmed));
+  // The toolbar button gets the same backup as Fill selected: the AI agent finishes what the rules / Jev / the
+  // answer model left (it runs on after the popup closes; its steps show on the page).
+  if (needsAgent(r) && (await agentModel())) {
+    const tab = await chrome.tabs.get(tabId);
+    void agentFinish(tabId, { id: r.job?.id ?? "", url: tab.url })
+      .catch(() => {})
+      .finally(() => detachDebugger(tabId));
+    return { ...r, agent: true };
+  }
+  return r;
 }
 
 async function waitForNextPage(tabId, frameId, before) {
@@ -290,7 +302,11 @@ async function trustedInput(msg, sender) {
   if (!canDebug() || !sender.tab?.id || sender.frameId !== 0) return false;
   const tabId = sender.tab.id;
   if (msg.type === "cov-click" && Number.isFinite(msg.x) && Number.isFinite(msg.y)) await trustedClick(tabId, msg.x, msg.y);
-  else if (msg.type === "cov-type" && typeof msg.text === "string") await cdp(tabId, "Input.insertText", { text: msg.text.slice(0, 500) });
+  else if (msg.type === "cov-type" && typeof msg.text === "string") {
+    // Long answers go in pieces (it used to stop at 500 characters, cutting essay answers off mid-word).
+    const text = msg.text.slice(0, 12000);
+    for (let i = 0; i < text.length; i += 400) await cdp(tabId, "Input.insertText", { text: text.slice(i, i + 400) });
+  }
   else if (msg.type === "cov-key" && typeof msg.key === "string") await trustedKey(tabId, msg.key);
   else return false;
   return true;

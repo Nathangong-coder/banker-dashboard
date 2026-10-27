@@ -5,7 +5,7 @@ import Link from "next/link";
 import { BriefcaseBusiness, ChevronDown, ChevronRight, ExternalLink, Eye, Mail, Plus, Puzzle, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { scanApplicationEmails, scanSummary } from "@/lib/appEmailsRun";
 import { useStore } from "@/lib/store";
-import { sendCommand, useExtension } from "@/lib/applyBridge";
+import { coverPdf, sendCommand, useExtension } from "@/lib/applyBridge";
 import { FILL_LABELS, JOB_STATUSES, guessFromUrl, parseJobCapture, type FillStatus, type JobApplication, type JobCapture, type JobStatus } from "@/lib/apply";
 import { isRecruiter } from "@/lib/recruiters";
 import { canonBank } from "@/lib/banks";
@@ -696,11 +696,41 @@ function FillLine({ fill, onShow }: { fill: NonNullable<JobApplication["fill"]>;
   );
 }
 
+/** The cover letter Coverage made for this job: read it, download the exact PDF that was uploaded, or remake it. */
+function CoverLetterBox({ j, onChange }: { j: JobApplication; onChange: (patch: Partial<JobApplication>) => void }) {
+  const profile = useStore((s) => s.apply.profile);
+  if (!j.coverLetter) return null;
+  const download = () => {
+    const f = coverPdf(j.coverLetter!.text, profile, j.company);
+    const a = document.createElement("a");
+    a.href = `data:${f.type};base64,${f.base64}`;
+    a.download = f.name;
+    a.click();
+  };
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium text-ink-2">
+        Cover letter {j.coverLetter.tailored ? <Badge tone="green">tailored to this job</Badge> : <Badge>name + date only</Badge>}
+        <span className="font-normal text-muted">{fmtDate(j.coverLetter.at)}</span>
+        <div className="flex-1" />
+        <Button size="sm" variant="ghost" onClick={download}>
+          Download PDF
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => onChange({ coverLetter: undefined })} title="Made again (tailored) the next time this job is filled">
+          Remake
+        </Button>
+      </div>
+      <Textarea rows={8} readOnly value={j.coverLetter.text} className="text-[12.5px]" />
+    </div>
+  );
+}
+
 function JobDetail({ j, onChange }: { j: JobApplication; onChange: (patch: Partial<JobApplication>) => void }) {
   const setApply = useStore((s) => s.setApply);
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-2">
       <div className="grid gap-3">
+        <CoverLetterBox j={j} onChange={onChange} />
         <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
           <Field label="Application link">
             <Input

@@ -66,6 +66,8 @@ export interface JobApplication {
   summer?: number;
   /** The graduation date this application uses (your early date when the posting asks for that class), once decided. */
   gradAs?: string;
+  /** The cover letter made for this job (your template tailored to it), exactly as uploaded. */
+  coverLetter?: { text: string; at: string; tailored: boolean };
 }
 
 /**
@@ -257,6 +259,10 @@ export interface FillItem {
   optionLabel?: string;
   /** For a typeahead: other ways to say the answer, to match against the suggestions. */
   alts?: string[];
+  /** For a typeahead: what to type, in order, when the first search finds nothing (school names). */
+  search?: string[];
+  /** For a typeahead: only accept a suggestion containing every word of one of `alts` (or an acronym word). */
+  strict?: boolean;
   source: FillSource;
   label: string;
   /** Shown in the review list ("AI: check the facts"). */
@@ -480,6 +486,28 @@ function typeaheadAlts(want: string, synonyms: RegExp[]): string[] {
   return [...out].slice(0, 8);
 }
 
+const UC_CAMPUS: Record<string, string> = { UCLA: "Los Angeles", UCB: "Berkeley", UCSD: "San Diego", UCI: "Irvine", UCSB: "Santa Barbara", UCD: "Davis", UCSC: "Santa Cruz", UCR: "Riverside", UCM: "Merced" };
+
+/**
+ * How a school can be written in a site's school search (owner, 2026-10-26: Greenhouse lists UCLA as "University of
+ * California - Los Angeles"). `accept` = names an option must contain (every word, any punctuation) or the acronym as
+ * a word; `search` = what to type, in order (full name, acronym, the part after the comma, the first words). A city
+ * alone ("Los Angeles") is only ever typed, never accepted, so "Los Angeles City College" can't be picked.
+ */
+export function schoolNames(school: string): { accept: string[]; search: string[] } {
+  const given = school.trim();
+  const key = given.toUpperCase().replace(/[^A-Z]/g, "");
+  const full = UC_CAMPUS[key] ? `University of California, ${UC_CAMPUS[key]}` : given;
+  const words = full.replace(/[^A-Za-z ]/g, " ").split(/\s+/).filter(Boolean);
+  const acronym = words.filter((w) => !/^(of|the|at|and|in|for)$/i.test(w)).map((w) => w[0].toUpperCase()).join("");
+  const tail = full.includes(",") ? full.split(",").pop()!.trim() : "";
+  const uniq = (xs: string[]) => [...new Set(xs.filter((x) => x && x.length >= 2))];
+  return {
+    accept: uniq([full, given, acronym.length >= 3 ? acronym : ""]),
+    search: uniq([full, acronym.length >= 3 ? acronym : "", tail, words.slice(0, 3).join(" ")]).slice(0, 4),
+  };
+}
+
 /** A sentence-style prompt ("Please state why…", "Describe…"), not a short fact field. */
 const ASKS = /^(why|how|what|describe|tell|explain|please|share|in \d+|briefly|list)\b/i;
 
@@ -561,13 +589,18 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
         continue;
       }
       if (f.options?.length && (f.kind === "select" || f.kind === "radio" || f.kind === "listbox")) {
-        const value = pickOption(f.options, want, rule.options?.(profile) ?? []);
+        const schoolSyn = /school\|university/.test(rule.re.source) ? schoolNames(want).accept.map((n) => new RegExp(n.replace(/[^A-Za-z0-9]+/g, "[^A-Za-z0-9]+"), "i")) : [];
+        const value = pickOption(f.options, want, [...(rule.options?.(profile) ?? []), ...schoolSyn]);
         if (value === undefined) skip(f, `None of the options matched your answer ("${want}").`);
         else items.push({ id: f.id, value, source: "profile", label: f.label, optionLabel: f.options.find((o) => o.value === value)?.label });
       } else if (f.kind === "listbox") {
         skip(f, "A dropdown whose choices couldn't be read: pick it yourself.");
       } else if (f.kind === "typeahead") {
-        items.push({ id: f.id, value: typeaheadText(want), alts: typeaheadAlts(want, rule.options?.(profile) ?? []), source: "profile", label: f.label });
+        if (/school\|university/.test(rule.re.source)) {
+          // School searches differ per site: try several wordings, accept only a real match (schoolNames).
+          const names = schoolNames(want);
+          items.push({ id: f.id, value: names.search[0], alts: names.accept, search: names.search, strict: true, source: "profile", label: f.label });
+        } else items.push({ id: f.id, value: typeaheadText(want), alts: typeaheadAlts(want, rule.options?.(profile) ?? []), source: "profile", label: f.label });
       } else if (f.kind === "checkbox") {
         // A box states something; tick it when the statement is true for you. "I will NOT require sponsorship" / "I am
         // under 18" say the opposite of the question, so a "no" answer ticks them.

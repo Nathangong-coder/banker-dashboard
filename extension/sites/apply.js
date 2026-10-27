@@ -281,10 +281,20 @@ export async function scanForm() {
   let error;
   try {
     fields = await collect();
-    if (!fields.some((f) => f.kind !== "file")) {
+    // Workday marks parts of the page aria-hidden while a notice / popup is open, which hid all but one field of a
+    // logged-in form (owner, 2026-10-26). With few fields found, look again without that filter and keep the clearly
+    // bigger result (size, position, visibility and clipping checks still keep hidden traps out).
+    const real = fields.filter((f) => f.kind !== "file").length;
+    if (real < 4) {
       ariaStrict = false;
       for (const el of document.querySelectorAll("[data-coverage-field]")) el.removeAttribute("data-coverage-field");
-      fields = await collect();
+      const loose = await collect();
+      if (loose.filter((f) => f.kind !== "file").length >= real + 2 || !real) fields = loose;
+      else {
+        ariaStrict = true;
+        for (const el of document.querySelectorAll("[data-coverage-field]")) el.removeAttribute("data-coverage-field");
+        fields = await collect();
+      }
     }
   } catch (e) {
     error = String(e?.message || e).slice(0, 200);
@@ -571,22 +581,43 @@ export async function fillForm(items, review) {
       } else if (el.tagName === "INPUT" && el.getAttribute("role") === "combobox") {
         // Suggestion box: type, wait for the list, click the best match (or clear it again).
         if (typeof it.value !== "string" || !it.value) continue;
-        // A search box (School, Location): real typing when available, so the site's search runs.
-        const typedReal = (await realClick(el)) && (await real("cov-type", { text: it.value }));
-        if (!typedReal) {
-          el.focus();
-          el.click();
-          setNative(el, it.value);
+        // A search box (School, Location): real typing when available, so the site's search runs. Schools are tried
+        // several ways ("University of California, Los Angeles", "UCLA", "Los Angeles") and only a real match is taken.
+        const alts = Array.isArray(it.alts) ? it.alts : [];
+        const words = (w) => norm(w).split(" ").filter((x) => x.length > 1 && !STOP.has(x));
+        const accept = (o) => {
+          const t = ` ${norm(o.innerText)} `;
+          return alts.some((w) => {
+            const ws = words(w);
+            return ws.length && ws.every((x) => t.includes(` ${x} `));
+          });
+        };
+        const queries = (Array.isArray(it.search) && it.search.length ? it.search : [it.value]).slice(0, 4);
+        let opt = null;
+        let typedReal = false;
+        for (const q of queries) {
+          setNative(el, "");
+          typedReal = (await realClick(el)) && (await real("cov-type", { text: q }));
+          if (!typedReal) {
+            el.focus();
+            el.click();
+            setNative(el, q);
+          }
+          let opts = [];
+          for (let i = 0; i < 30; i++) {
+            await sleep(120);
+            opts = rsOptions(el);
+            if (opts.length && !opts.every((o) => /loading|searching|no (results|options)/i.test(o.innerText))) break;
+          }
+          if (it.strict) {
+            // Prefer the full name over the acronym, then the shortest ("UCLA Extension" loses to "UCLA").
+            const good = opts.filter(accept).sort((a, b) => Number(!words(alts[0] ?? "").every((x) => ` ${norm(a.innerText)} `.includes(` ${x} `))) - Number(!words(alts[0] ?? "").every((x) => ` ${norm(b.innerText)} `.includes(` ${x} `))) || a.innerText.length - b.innerText.length);
+            opt = good[0] ?? null;
+          } else opt = best(opts, [it.value, ...alts]);
+          if (opt) break;
         }
-        let opts = [];
-        for (let i = 0; i < 30; i++) {
-          await sleep(120);
-          opts = rsOptions(el);
-          if (opts.length && !opts.every((o) => /loading|searching|no (results|options)/i.test(o.innerText))) break;
-        }
-        const opt = best(opts, [it.value, ...(Array.isArray(it.alts) ? it.alts : [])]);
         if (!opt) {
-          if (!typedReal) setNative(el, "");
+          setNative(el, "");
           await rsClose(el);
           throw new Error("None of its suggestions matched: pick it yourself.");
         }
@@ -682,7 +713,7 @@ export function pageState() {
  * Presses the page's Next / Continue button. Fixed rules, no AI: the button's text must be one of a few forward
  * words, and anything that could submit, apply, sign or remove is refused. Workday's own next button is preferred.
  */
-export function clickNext() {
+export async function clickNext() {
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const DENY = /submit|apply|sign|withdraw|delete|remove|cancel|decline|back|previous|finish|send|accept|agree|pay|purchase|log ?out/i;
   const ALLOW = /^(next|continue|save and continue|save & continue|save and next|next step|proceed)$/i;
@@ -694,13 +725,21 @@ export function clickNext() {
   const workday = [...document.querySelectorAll('[data-automation-id="bottom-navigation-next-button"], [data-automation-id="pageFooterNextButton"]')].find(shown);
   let pick = workday && !DENY.test(text(workday)) ? workday : null;
   if (!pick) {
-    const ok = [...document.querySelectorAll("button, [role='button'], input[type='button'], input[type='submit']")].filter((b) => shown(b) && ALLOW.test(text(b)) && !DENY.test(text(b)));
+    const ok = [...document.querySelectorAll("button, [role='button'], input[type='button'], input[type='submit']")].filter((b) => shown(b) && ALLOW.test(text(b)) && !DENY.test(text(b)) && !b.closest("header, nav"));
     if (ok.length !== 1) return { clicked: false, why: ok.length ? "More than one Next button: go on yourself." : "No Next button on this page." };
     pick = ok[0];
   }
   const label = text(pick);
   if (DENY.test(label)) return { clicked: false, why: `Won't press "${label}".` };
-  pick.click();
+  pick.scrollIntoView({ block: "center", behavior: "instant" });
+  const r = pick.getBoundingClientRect();
+  let real = false;
+  try {
+    real = window.top === window && (await chrome.runtime.sendMessage({ type: "cov-click", x: r.left + r.width / 2, y: r.top + r.height / 2 })) === true;
+  } catch {
+    // no real clicks here
+  }
+  if (!real) pick.click();
   return { clicked: true, label };
 }
 
@@ -735,7 +774,7 @@ export function loginState() {
  * (owner, 2026-10-26: "account creation on Workday … automated"; opt-in in Options). Only on the site the password was
  * saved for; nothing else on the page is touched.
  */
-export function createAccount(email, password, first, last, origin) {
+export async function createAccount(email, password, first, last, origin) {
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   if (window.top !== window || location.origin !== origin) return { ok: false, why: "Not the saved site." };
   const shown = (el) => {
@@ -769,12 +808,33 @@ export function createAccount(email, password, first, last, origin) {
     const t = clean(`${c.closest("label")?.innerText || ""} ${c.id ? document.querySelector(`label[for="${CSS.escape(c.id)}"]`)?.innerText || "" : ""} ${c.getAttribute("aria-label") || ""} ${c.getAttribute("data-automation-id") || ""}`);
     if (/agree|terms|privacy|consent|acknowledge|createAccountCheckbox/i.test(t)) c.click();
   }
-  const label = (b) => clean(b.innerText || b.value || b.getAttribute("aria-label") || "");
+  // Workday's buttons are a bare <div data-automation-id="click_filter" role="button" aria-label="Sign In"> over the
+  // visible button, and the page header has its own "Sign In" (utilityButtonSignIn): pick the matching button nearest
+  // the form, never one in the header, and press it with a real click when the extension can (else .click()).
+  const pickButton = (re, anchor) => {
+    const label = (b) => clean(b.innerText || b.value || b.getAttribute("aria-label") || "");
+    const ay = anchor ? anchor.getBoundingClientRect().top : 0;
+    const all = [...document.querySelectorAll('button, [role=button], input[type=submit], [data-automation-id="click_filter"]')].filter(
+      (b) => shown(b) && re.test(label(b)) && !b.closest('header, nav, [data-automation-id^="utility"], [data-automation-id="globalNavigation"]') && !/^utility/.test(b.getAttribute("data-automation-id") || ""),
+    );
+    return all.sort((a, b) => Math.abs(a.getBoundingClientRect().top - ay) - Math.abs(b.getBoundingClientRect().top - ay))[0] ?? null;
+  };
+  const press = async (b) => {
+    b.scrollIntoView({ block: "center", behavior: "instant" });
+    const r = b.getBoundingClientRect();
+    try {
+      if (window.top === window && (await chrome.runtime.sendMessage({ type: "cov-click", x: r.left + r.width / 2, y: r.top + r.height / 2 })) === true) return;
+    } catch {
+      // no real clicks here: fall back
+    }
+    // Click what a person's click would land on: Workday's click_filter overlay sits on top of the visible button.
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    (top && (b.contains(top) || top.contains(b) || top.getAttribute("data-automation-id") === "click_filter") ? top : b).click();
+  };
   const wd = [...document.querySelectorAll('[data-automation-id="createAccountSubmitButton"]')].find(shown);
-  const candidates = [...scope.querySelectorAll("button, [role=button], input[type=submit]")].filter((b) => shown(b) && /^(create account|create my account|sign up|register|create)$/i.test(label(b)));
-  const btn = wd || (candidates.length === 1 ? candidates[0] : null);
+  const btn = wd || pickButton(/^(create account|create my account|sign up|register|create)$/i, pw[pw.length - 1]);
   if (!btn) return { ok: true, clicked: false, filled, why: "Filled it in; press Create Account yourself." };
-  btn.click();
+  await press(btn);
   return { ok: true, clicked: true, filled };
 }
 
@@ -811,7 +871,7 @@ export function switchToSignIn() {
  * Types a saved login into this page's sign-in form and presses its Sign in button. Runs only in the top frame,
  * only when the page's origin is exactly the login's (checked again here), only with one visible password box.
  */
-export function signIn(username, password, origin) {
+export async function signIn(username, password, origin) {
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   if (window.top !== window || location.origin !== origin) return { ok: false, why: "Not the saved site." };
   const shown = (el) => {
@@ -831,15 +891,35 @@ export function signIn(username, password, origin) {
     el.dispatchEvent(new Event("change", { bubbles: true }));
     el.dispatchEvent(new Event("blur", { bubbles: true }));
   };
+  // Workday's buttons are a bare <div data-automation-id="click_filter" role="button" aria-label="Sign In"> over the
+  // visible button, and the page header has its own "Sign In" (utilityButtonSignIn): pick the matching button nearest
+  // the form, never one in the header, and press it with a real click when the extension can (else .click()).
+  const pickButton = (re, anchor) => {
+    const label = (b) => clean(b.innerText || b.value || b.getAttribute("aria-label") || "");
+    const ay = anchor ? anchor.getBoundingClientRect().top : 0;
+    const all = [...document.querySelectorAll('button, [role=button], input[type=submit], [data-automation-id="click_filter"]')].filter(
+      (b) => shown(b) && re.test(label(b)) && !b.closest('header, nav, [data-automation-id^="utility"], [data-automation-id="globalNavigation"]') && !/^utility/.test(b.getAttribute("data-automation-id") || ""),
+    );
+    return all.sort((a, b) => Math.abs(a.getBoundingClientRect().top - ay) - Math.abs(b.getBoundingClientRect().top - ay))[0] ?? null;
+  };
+  const press = async (b) => {
+    b.scrollIntoView({ block: "center", behavior: "instant" });
+    const r = b.getBoundingClientRect();
+    try {
+      if (window.top === window && (await chrome.runtime.sendMessage({ type: "cov-click", x: r.left + r.width / 2, y: r.top + r.height / 2 })) === true) return;
+    } catch {
+      // no real clicks here: fall back
+    }
+    // Click what a person's click would land on: Workday's click_filter overlay sits on top of the visible button.
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    (top && (b.contains(top) || top.contains(b) || top.getAttribute("data-automation-id") === "click_filter") ? top : b).click();
+  };
   if (user && !user.value) set(user, username);
   set(pw[0], password);
-  const DENY = /create|register|sign up|forgot|reset|google|linkedin|apple|microsoft|facebook|application|apply/i;
-  const label = (b) => clean(b.innerText || b.value || b.getAttribute("aria-label") || "");
   const wd = [...document.querySelectorAll('[data-automation-id="signInSubmitButton"]')].find(shown);
-  const candidates = [...scope.querySelectorAll("button, [role=button], input[type=submit]")].filter((b) => shown(b) && /^(sign in|log in|login|continue|next)$/i.test(label(b)) && !DENY.test(label(b)));
-  const btn = wd || (candidates.length === 1 ? candidates[0] : null);
+  const btn = wd || pickButton(/^(sign in|log in|login|continue|next)$/i, pw[0]);
   if (!btn) return { ok: true, clicked: false, why: "Typed it in; press Sign in yourself." };
-  btn.click();
+  await press(btn);
   return { ok: true, clicked: true };
 }
 

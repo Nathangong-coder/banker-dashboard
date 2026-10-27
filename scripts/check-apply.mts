@@ -3,7 +3,7 @@
  * which are left for you. No browser, no network.
  *   npm run check:apply
  */
-import { chooseResume, gradFor, gradYearsAsked } from "../src/lib/apply";
+import { chooseResume, gradFor, gradYearsAsked, schoolNames } from "../src/lib/apply";
 import { coverLetterFrom, letterPdf } from "../src/lib/coverLetter";
 import { openVault } from "../src/lib/vaultCrypto";
 import { EMPTY_PROFILE, planFill, pickOption, sameJobSite, guessFromUrl, knownJobSite, parseJobCapture, type ApplyProfile, type FormField } from "../src/lib/apply";
@@ -224,6 +224,19 @@ eq("two unlabelled file inputs → left for you", planFill([f("u", "file", ""), 
   eq("resume: the one marked for the year this application uses", [chooseResume({ role: "", description: "" }, "", rs, 2028, 2029), chooseResume({ role: "", description: "" }, "", rs, 2029, 2029)], ["jr", undefined]);
 }
 
+// School names (owner, 2026-10-26: Greenhouse lists UCLA as "University of California - Los Angeles").
+eq("school: UCLA → full name + acronym accepted; searches add the campus city", schoolNames("University of California, Los Angeles"), {
+  accept: ["University of California, Los Angeles", "UCLA"],
+  search: ["University of California, Los Angeles", "UCLA", "Los Angeles", "University of California"],
+});
+eq("school: typed as UCLA → expanded", schoolNames("UCLA").accept, ["University of California, Los Angeles", "UCLA"]);
+{
+  const ucla = planFill([f("s", "typeahead", "School")], { ...me, school: "University of California, Los Angeles" }, { hasResume: true }).items[0];
+  eq("school typeahead: strict match with several searches", [ucla?.strict, ucla?.search?.length], [true, 4]);
+  const list = planFill([f("s2", "listbox", "School", { options: ["University of California - Berkeley", "University of California - Los Angeles", "Los Angeles City College"].map((l, i) => ({ value: String(i), label: l })) })], { ...me, school: "University of California, Los Angeles" }, { hasResume: true }).items[0];
+  eq("school dropdown: punctuation doesn't matter", list?.optionLabel, "University of California - Los Angeles");
+}
+
 // The AI agent's fill mode (extension 1.5): stops at the final submit, never creates accounts or deletes.
 const { fillGate } = await import("../extension/agent/agent.js");
 eq(
@@ -267,7 +280,7 @@ const wd = planFill(
 const w = (id: string) => wd.items.find((x) => x.id === id);
 eq("custom dropdown: work authorization → Yes (by option text)", [w("w1")?.value, w("w1")?.optionLabel], ["1", "Yes"]);
 eq("custom dropdown: veteran", w("w2")?.optionLabel, "I am not a protected veteran");
-eq("typeahead school types your school", w("w3")?.value, "UCLA");
+eq("typeahead school types the full name first, then the acronym", [w("w3")?.value, w("w3")?.search?.[1]], ["University of California, Los Angeles", "UCLA"]);
 eq("typeahead gender decline offers decline phrasings", w("w4")?.alts?.includes("Prefer not to say"), true);
 eq("a dropdown whose options couldn't be read is left for you", wd.skipped.some((x) => x.id === "w5"), true);
 eq("an unplaceable typeahead is left for you, not sent to the AI", [wd.skipped.some((x) => x.id === "w6"), wd.ai.length], [true, 0]);
