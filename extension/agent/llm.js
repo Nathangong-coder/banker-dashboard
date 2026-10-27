@@ -6,8 +6,15 @@ export const PROVIDERS = {
   anthropic: { label: "Anthropic (Claude)", placeholder: "claude-haiku-5-5" },
   openai: { label: "OpenAI", placeholder: "a model id from your account" },
   google: { label: "Google (Gemini)", placeholder: "a Gemini model id" },
-  compatible: { label: "OpenAI-compatible (DeepSeek, GLM, …)", placeholder: "model id", needsBase: true },
+  // OpenAI-compatible providers with their own slots (owner, 2026-10-27: DeepSeek + Qwen + GLM side by side). Their
+  // keys and base addresses come from your Coverage dashboard (Settings → Data) automatically.
+  deepseek: { label: "DeepSeek", placeholder: "deepseek-chat", base: "https://api.deepseek.com/v1" },
+  qwen: { label: "Qwen (Alibaba Model Studio)", placeholder: "qwen-plus, or qwen-vl-max for screenshots", base: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", needsBase: true },
+  glm: { label: "GLM (Z.ai / Zhipu)", placeholder: "a GLM model id (a GLM-V one for screenshots)", base: "https://api.z.ai/api/paas/v4", needsBase: true },
+  compatible: { label: "Other OpenAI-compatible", placeholder: "model id", needsBase: true },
 };
+/** The provider's base address: the one you (or the dashboard) set, else its default. */
+const baseOf = (provider, baseURL) => String(baseURL || PROVIDERS[provider]?.base || "").replace(/\/+$/, "");
 
 const b64 = (dataUrl) => dataUrl.slice(dataUrl.indexOf(",") + 1);
 
@@ -54,15 +61,23 @@ export async function complete({ provider, model, key, baseURL, system, text, im
       outTokens: (d.usageMetadata?.candidatesTokenCount ?? 0) + (d.usageMetadata?.thoughtsTokenCount ?? 0),
     };
   } else {
-    const base = provider === "openai" ? "https://api.openai.com/v1" : String(baseURL || "").replace(/\/+$/, "");
+    const base = provider === "openai" ? "https://api.openai.com/v1" : baseOf(provider, baseURL);
     if (!/^https:\/\//.test(base)) throw new Error("Set the provider's https:// base URL (e.g. https://api.deepseek.com/v1).");
     const content = [{ type: "text", text }];
     if (image) content.push({ type: "image_url", image_url: { url: image } });
+    const body = { model, messages: [{ role: "system", content: system }, { role: "user", content: image ? content : text }], response_format: { type: "json_object" } };
     const d = await post(
       `${base}/chat/completions`,
       { authorization: `Bearer ${key}` },
-      { model, messages: [{ role: "system", content: system }, { role: "user", content: image ? content : text }], response_format: { type: "json_object" } },
-    );
+      body,
+    ).catch(async (e) => {
+      // Some OpenAI-compatible models (GLM vision ones, some Qwen-VL) reject JSON mode: ask again without it (the
+      // prompt already asks for JSON only, and parseJson reads it out of the reply).
+      if (!/response_format|json/i.test(e.message)) throw e;
+      const plain = { ...body };
+      delete plain.response_format;
+      return post(`${base}/chat/completions`, { authorization: `Bearer ${key}` }, plain);
+    });
     out = {
       text: d.choices?.[0]?.message?.content ?? "",
       inTokens: d.usage?.prompt_tokens ?? 0,
@@ -88,7 +103,7 @@ export async function listModels({ provider, key, baseURL }) {
     if (!r.ok) throw new Error(d?.error?.message || r.statusText);
     return (d.models ?? []).filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent")).map((m) => m.name.replace(/^models\//, ""));
   }
-  const base = provider === "openai" ? "https://api.openai.com/v1" : String(baseURL || "").replace(/\/+$/, "");
+  const base = provider === "openai" ? "https://api.openai.com/v1" : baseOf(provider, baseURL);
   const r = await fetch(`${base}/models`, { headers: { authorization: `Bearer ${key}` } });
   const d = await r.json();
   if (!r.ok) throw new Error(d?.error?.message || r.statusText);

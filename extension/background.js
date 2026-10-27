@@ -648,6 +648,18 @@ async function mixedModels() {
   return pool.length > 1 ? pool : null;
 }
 
+/**
+ * Can this model read a screenshot? Claude, Gemini and GPT-4o-class models can; for Qwen / GLM / other OpenAI-compatible
+ * ones only vision models (names with VL / V / vision / omni). DeepSeek's API takes no images.
+ */
+function canSee(m) {
+  if (!m) return false;
+  if (m.provider === "anthropic" || m.provider === "google") return true;
+  if (m.provider === "openai") return /gpt-4o|gpt-4\.1|gpt-5|^o\d/i.test(m.model);
+  if (m.provider === "deepseek") return false;
+  return /vl|vision|omni|(^|-)v(\d|$|-)|\dv|4v|5v/i.test(m.model);
+}
+
 /** The optional vision helper (Options): reads the screenshots when the agent's own model can't (DeepSeek). */
 async function visionModel() {
   const S = await chrome.storage.local.get({ keys: {}, bases: {}, prefs: {} });
@@ -679,7 +691,8 @@ async function agentFinish(tabId, job) {
     model,
     models: models ?? undefined,
     maxSteps: 30,
-    screenshots: model.provider !== "compatible" || !/deepseek/i.test(model.baseURL ?? ""),
+    // Screenshots go to the main model only when it can read images; otherwise only to the vision helper.
+    screenshots: canSee(model),
     vision,
     // Why it's paused right now (shown on the page): its turn in the pacing, or the provider being busy.
     onWait: (msg) => progress(tabId, msg),
@@ -908,6 +921,24 @@ async function handshakeHandOff(tabId, job) {
 const okVault = (b) => b === null || (b && b.v === 1 && ["salt", "iv", "data"].every((k) => typeof b[k] === "string" && b[k].length < 400_000));
 let lastAdopted = null;
 let vaultBusy = false;
+/**
+ * Your AI keys from the Coverage dashboard (Settings → Data), so the agent test bench, Mix models and the vision helper
+ * can use them without typing them again (owner, 2026-10-27). Runs when your Coverage tab opens. A key you typed in the
+ * extension for a provider the dashboard doesn't have is kept; the dashboard's wins for the same provider.
+ */
+async function syncAiKeys() {
+  const list = await askDashboard("aiKeys", {}).catch(() => null);
+  if (!Array.isArray(list) || !list.length) return;
+  const S = await chrome.storage.local.get({ keys: {}, bases: {}, models: {} });
+  for (const k of list) {
+    if (!k || typeof k.provider !== "string" || typeof k.key !== "string" || !/^(anthropic|openai|google|deepseek|qwen|glm|compatible)$/.test(k.provider)) continue;
+    S.keys[k.provider] = k.key.slice(0, 400);
+    if (typeof k.baseURL === "string" && /^https:\/\//.test(k.baseURL)) S.bases[k.provider] = k.baseURL.slice(0, 300);
+    if (Array.isArray(k.models)) S.models[k.provider] = k.models.filter((m) => typeof m === "string").slice(0, 200);
+  }
+  await chrome.storage.local.set({ keys: S.keys, bases: S.bases, models: S.models, aiKeysAt: new Date().toISOString() });
+}
+
 async function syncVault() {
   if (vaultBusy) return { busy: true };
   vaultBusy = true;
@@ -962,7 +993,10 @@ async function fromDashboard(msg, sender) {
   const dashboard = await getDashboard();
   if (sender.frameId !== 0 || !sender.url || new URL(sender.url).origin !== dashboard) throw new Error("Not your Coverage dashboard.");
   const p = msg.payload ?? {};
-  if (msg.type === "vaultSync") return syncVault();
+  if (msg.type === "vaultSync") {
+    syncAiKeys().catch(() => {});
+    return syncVault();
+  }
   if (msg.type === "fillJobs") return fillJobs({ jobs: cleanJobs(p.jobs), watch: p.watch === true });
   if (msg.type === "focusJob" && ID.test(String(p.jobId))) return focusJob(String(p.jobId));
   const known = (Array.isArray(p.known) ? p.known : []).map(String).filter((x) => /^\d{3,15}$/.test(x)).slice(-3000);

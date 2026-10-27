@@ -736,6 +736,13 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   bench's ticked models take turns step by step within an application (`runFill({ models })`; off in Benchmark
   mode). The vision helper is only used on screenshot steps (stuck / failed); keep Gemini out of the dashboard's AI
   fallbacks (Settings → Data → Customize) to save its free quota for that.
+- **1.17.0 keys + vision (owner, 2026-10-27):** the extension imports the dashboard's working AI keys on every bridge
+  hello (`background.js#syncAiKeys` ← `applyBridge.ts#aiKeys`: first ok key per provider; a "custom" DashScope key =
+  qwen). `llm.js` PROVIDERS has deepseek / qwen / glm slots (default bases: api.deepseek.com/v1,
+  dashscope-intl…/compatible-mode/v1, api.z.ai/api/paas/v4; the dashboard's baseURL wins) and retries without JSON mode
+  when a model rejects it. `background.js#canSee` decides if the main model gets screenshots (Claude / Gemini /
+  GPT-4o-class; Qwen / GLM only VL / V / vision names; never DeepSeek); otherwise only the vision helper does.
+  `check:agent` covers each provider's image format, the JSON-mode retry and the vision-helper routing.
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

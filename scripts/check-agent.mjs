@@ -110,4 +110,65 @@ const mixed = await runFill({
 const mixOk = hosts.join(",") === "api.deepseek.com,dashscope.example.com,api.deepseek.com,dashscope.example.com" && mixed.model === "deepseek-chat + qwen-plus";
 console.log(`${mixOk ? "ok  " : "FAIL"} mix models: providers take turns step by step`);
 checks.push(["mix", mixOk]);
+// Screenshots reach vision models in each provider's own format; JSON mode is dropped for models that reject it.
+{
+  const { complete } = await import(pathToFileURL(`${repo}/extension/agent/llm.js`).href);
+  const sent = [];
+  let rejectJson = false;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    sent.push({ host: new URL(String(url)).host, body });
+    if (rejectJson && body.response_format) return { ok: false, status: 400, statusText: "Bad Request", json: async () => ({ error: { message: "response_format is not supported for this model" } }) };
+    if (String(url).includes("anthropic")) return { ok: true, json: async () => ({ content: [{ type: "text", text: "{}" }], usage: {} }) };
+    if (String(url).includes("googleapis")) return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: "{}" }] } }], usageMetadata: {} }) };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: "{}" } }], usage: {} }) };
+  };
+  const image = "data:image/jpeg;base64,QUJD";
+  await complete({ provider: "anthropic", model: "claude-haiku-5-5", key: "k", system: "s", text: "t", image });
+  await complete({ provider: "google", model: "gemini-flash", key: "k", system: "s", text: "t", image });
+  await complete({ provider: "qwen", model: "qwen-vl-max", key: "k", system: "s", text: "t", image });
+  rejectJson = true;
+  await complete({ provider: "glm", model: "glm-4.5v", key: "k", system: "s", text: "t", image });
+  const [a, g, q, glm1, glm2] = sent;
+  const ok = [
+    ["Claude gets a base64 image block", a.body.messages[0].content.some((c) => c.type === "image" && c.source.data === "QUJD" && c.source.media_type === "image/jpeg")],
+    ["Gemini gets inline image data", g.body.contents[0].parts.some((p) => p.inlineData?.data === "QUJD")],
+    ["Qwen gets a data-URL image at DashScope", q.host === "dashscope-intl.aliyuncs.com" && q.body.messages[1].content.some((c) => c.type === "image_url" && c.image_url.url === image)],
+    ["GLM at Z.ai: JSON mode refused → asked again without it, image kept", glm1.host === "api.z.ai" && !!glm1.body.response_format && !glm2.body.response_format && glm2.body.messages[1].content.some((c) => c.type === "image_url")],
+  ];
+  for (const [name, pass] of ok) {
+    console.log(`${pass ? "ok  " : "FAIL"} ${name}`);
+    checks.push([name, pass]);
+  }
+}
+
+// The vision helper: DeepSeek fills, and only the screenshot step goes to the helper (Gemini).
+{
+  pageIdx = 0;
+  call = 0;
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    const host = new URL(String(url)).host;
+    const body = JSON.parse(init.body);
+    const withImage = JSON.stringify(body).includes("inlineData") || JSON.stringify(body).includes("image_url");
+    seen.push(`${host}${withImage ? "+img" : ""}`);
+    const text = JSON.stringify(replies[call++] ?? { actions: [{ type: "done", success: false, answer: "out of replies" }] });
+    if (host.includes("googleapis")) return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }], usageMetadata: {} }) };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: text } }], usage: {} }) };
+  };
+  const run = await runFill({
+    tabId: 1,
+    task: "Fill out this application.",
+    model: { provider: "deepseek", model: "deepseek-chat", key: "k" },
+    vision: { provider: "google", model: "gemini-flash", key: "k" },
+    screenshots: false,
+    shot: async () => "data:image/jpeg;base64,QUJD",
+    secrets: { phone: "425-000-0000" },
+    signal: new AbortController().signal,
+    onStep: () => {},
+  });
+  const pass = seen.filter((x) => x.includes("+img")).every((x) => x.startsWith("generativelanguage")) && seen.some((x) => x === "generativelanguage.googleapis.com+img") && !seen.some((x) => x.startsWith("api.deepseek.com+img")) && run.visionSteps === 1;
+  console.log(`${pass ? "ok  " : "FAIL"} vision helper: only the screenshot step goes to it (${seen.join(", ")})`);
+  checks.push(["vision helper", pass]);
+}
 process.exit(checks.every(([, ok]) => ok) ? 0 : 1);

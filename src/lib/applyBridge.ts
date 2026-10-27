@@ -399,6 +399,23 @@ function agentRun(payload: unknown) {
   return { ok: true };
 }
 
+/**
+ * Your AI keys for the extension's agent (it runs the agent in your browser with your own keys): the first working key
+ * per provider, mapped to the extension's providers (an "Other OpenAI-compatible" key on Alibaba's DashScope = Qwen).
+ * Only to the extension's bridge on this page; never to a server.
+ */
+function aiKeys() {
+  const st = useStore.getState();
+  const out = new Map<string, { provider: string; key: string; baseURL?: string; models?: string[] }>();
+  for (const e of st.settings.vault.ai ?? []) {
+    if (e.ok === false || !e.value || !e.provider) continue;
+    const provider = e.provider === "custom" ? (/dashscope|aliyuncs/i.test(e.baseURL ?? "") ? "qwen" : "compatible") : e.provider === "gateway" ? "" : e.provider;
+    if (!provider || out.has(provider)) continue;
+    out.set(provider, { provider, key: e.value, baseURL: e.baseURL || undefined, models: e.models?.slice(0, 200) });
+  }
+  return [...out.values()];
+}
+
 export interface PlanResult {
   job?: { id: string; company: string; role: string };
   items: (FillItem & { fileData?: { name: string; type: string; base64: string } })[];
@@ -784,7 +801,7 @@ async function agentBrief(payload: unknown) {
   return { task, secrets: { email: me.email, phone: me.phone, address1: me.address1, address2: me.address2, zip: me.zip }, jobId: job?.id };
 }
 
-const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption, accountInfo, accountCreated, verifyLink, learnAnswer, agentRun };
+const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption, accountInfo, accountCreated, verifyLink, learnAnswer, agentRun, aiKeys };
 
 /** Mounted once in Shell: answers the extension, and learns whether it's installed (for the Applications page). */
 export function useExtensionBridge(ready: boolean) {

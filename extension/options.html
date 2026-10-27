@@ -172,7 +172,7 @@
       <label class="switch"><input id="benchOn" type="checkbox" /> Benchmark mode: take turns through the models ticked in the agent test bench (each job gets the next one), so Applications → Agent benchmark can compare them</label>
       <p class="muted" style="margin:8px 0 4px">Vision helper (optional): a model that can read screenshots, used only for the steps where the agent needs to look at the page (DeepSeek can't read images). Its key comes from the agent test bench.</p>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <select id="visionProvider"><option value="">No vision helper</option><option value="google">Google (Gemini)</option><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option><option value="compatible">OpenAI-compatible</option></select>
+        <select id="visionProvider"><option value="">No vision helper</option><option value="google">Google (Gemini)</option><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option><option value="qwen">Qwen (e.g. qwen-vl-max)</option><option value="glm">GLM (a GLM-V model)</option><option value="compatible">OpenAI-compatible</option></select>
         <input id="visionModel" placeholder="model id, e.g. a Gemini Flash model" style="min-width:220px" />
       </div>
       <label class="switch"><input id="autoAccountsOn" type="checkbox" /> Create accounts for me (Workday and similar): a strong password is generated and saved in your saved logins (needs them on and unlocked), your Coverage email and name are used, and the site's verification email is opened from your Gmail through your Coverage tab</label>
