@@ -116,6 +116,10 @@ async function fillPage(tabId, confirmed, opts = {}) {
     // The form is embedded from another site: allow that site (if it's an application system) and try again.
     const frame = frames.find((f) => sitePattern(f)) ?? frames[0];
     if (frame) throw new Error(`FRAME:${frame}`);
+    const seen = scan?.seen;
+    if (seen?.error) throw new Error(`Couldn't read this form (${seen.error}). Reload the page and try again, and tell Coverage's developer this message.`);
+    if (seen && seen.inputs + seen.dropdowns > 0)
+      throw new Error(`Found ${seen.inputs} inputs and ${seen.dropdowns} dropdowns, but none look fillable (hidden or disabled). Close any open popup on the page, scroll the form into view and try again.`);
     throw new Error("No form fields on this page. Open the application form itself (after any 'Apply' button).");
   }
 

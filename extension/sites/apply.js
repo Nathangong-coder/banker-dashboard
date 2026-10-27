@@ -36,9 +36,12 @@ export const isMultiPageSite = (url) => /^https:\/\/([a-z0-9-]+\.)*(myworkdayjob
 export async function scanForm() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clean = (s) => (s || "").replace(/\s+/g, " ").replace(/\s*\*\s*$/, "").trim().slice(0, 600);
+  // Workday (and other apps) set aria-hidden / inert on the whole page while a dropdown or dialog is open. If that hides
+  // every field, scan again without it: size, position, visibility and clipping checks still keep hidden traps out.
+  let ariaStrict = true;
   const shown = (el) => {
     if (!el || !el.getBoundingClientRect) return false;
-    if (el.closest('[aria-hidden="true"],[hidden],[inert],template')) return false;
+    if (el.closest(ariaStrict ? '[aria-hidden="true"],[hidden],[inert],template' : "[hidden],template")) return false;
     const r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return false;
     // Pushed off the page (left: -9999px and similar): a field you can't see is never filled.
@@ -92,12 +95,25 @@ export async function scanForm() {
     }
     return "";
   };
+  // A file input hidden behind an "Attach" / "Upload resume" link has no label: use the text around it (the link and
+  // the heading above it), staying inside the box that holds only this upload. Then its id ("resume_upload").
+  const fileLabel = (el) => {
+    for (let node = el.parentElement, i = 0; i < 5 && node && node !== document.body; i++, node = node.parentElement) {
+      // Stop before a box that also holds another question's input or dropdown.
+      const others = [...node.querySelectorAll('input:not([type=hidden]), select, textarea, [aria-haspopup="listbox"]')].filter((x) => x !== el);
+      if (others.length) break;
+      const t = clean(node.innerText);
+      if (t) return t.slice(0, 120);
+    }
+    return clean((el.id || "").replace(/[_-]+/g, " "));
+  };
   const visibleOptions = () => [...document.querySelectorAll('[role="option"]')].filter(shown);
   const placeholderish = (t) => !t || /^(select|select one|choose|choose one|please select|--|—|-)\b/i.test(t);
 
-  const fields = [];
-  let n = 0;
   const tag = (el, id) => el.setAttribute("data-coverage-field", id);
+  let n = 0;
+  const collect = async () => {
+  const fields = [];
   const groups = new Map();
   const skipKinds = new Set(["hidden", "submit", "button", "reset", "image", "password", "search", "range", "color"]);
 
@@ -127,7 +143,9 @@ export async function scanForm() {
 
     const isFile = type === "file";
     if (!isFile && !shown(el)) continue;
-    const label = ownLabel(el) || containerLabel(el) || clean(el.getAttribute("placeholder") || el.getAttribute("name") || "");
+    const label = isFile
+      ? ownLabel(el) || fileLabel(el) || clean(el.getAttribute("name") || "")
+      : ownLabel(el) || containerLabel(el) || clean(el.getAttribute("placeholder") || el.getAttribute("name") || "");
     const id = `cf${n++}`;
     tag(el, id);
     // A text box that only takes a picked suggestion (react-select, Workday search boxes).
@@ -193,6 +211,23 @@ export async function scanForm() {
     }
     fields.push(field);
   }
+  return fields;
+  };
+
+  let fields = [];
+  let error;
+  try {
+    fields = await collect();
+    if (!fields.some((f) => f.kind !== "file")) {
+      ariaStrict = false;
+      for (const el of document.querySelectorAll("[data-coverage-field]")) el.removeAttribute("data-coverage-field");
+      fields = await collect();
+    }
+  } catch (e) {
+    error = String(e?.message || e).slice(0, 200);
+  }
+  // What the page had, for the "no fields" message.
+  const seen = { inputs: document.querySelectorAll("input:not([type=hidden]), select, textarea").length, dropdowns: document.querySelectorAll('[aria-haspopup="listbox"], [role="combobox"]').length, error };
 
   const frames = [...document.querySelectorAll("iframe")]
     .filter((f) => {
@@ -205,7 +240,7 @@ export async function scanForm() {
     })
     .map((f) => new URL(f.src, location.href).href.slice(0, 500));
   const main = document.querySelector("main") || document.body;
-  return { fields, frames, text: (main.innerText || "").replace(/\s+/g, " ").slice(0, 6000), url: location.href, title: document.title.slice(0, 200) };
+  return { fields, frames, seen, text: (main.innerText || "").replace(/\s+/g, " ").slice(0, 6000), url: location.href, title: document.title.slice(0, 200) };
 }
 
 /**

@@ -434,8 +434,16 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
   const skipped: FillPlan["skipped"] = [];
   const skip = (f: FormField, why: string) => skipped.push({ id: f.id, label: f.label, why });
 
+  // Sites often hide the file input behind an "Attach" / "Upload resume" link, so it has no label of its own. When it's
+  // the form's only file input, it's the resume.
+  const onlyFile = fields.filter((f) => f.kind === "file").length === 1;
   for (const f of fields) {
     const label = norm(f.label || f.placeholder || "");
+    if (!label && f.kind === "file" && onlyFile && !f.filled) {
+      if (opts.hasResume) items.push({ id: f.id, file: "resume", source: "resume", label: "Resume (upload link)" });
+      else skip(f, "No resume uploaded on Applications → Resumes.");
+      continue;
+    }
     if (!label) {
       if (!f.filled) skip(f, "No label: couldn't tell what it asks.");
       continue;

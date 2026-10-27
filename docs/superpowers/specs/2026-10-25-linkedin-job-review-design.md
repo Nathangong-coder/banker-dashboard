@@ -19,14 +19,33 @@ limited AI plans). The same "read once, store, judge" pattern is meant to apply 
    firms that should rank higher, i.e. "prestige" = a recognizable name, not elite-IB only. Firm rank uses what
    Coverage already knows (workbook target tiers, `/firms` stars, `STARTER_TARGETS`, banks on the tracker); the AI
    rates only firms none of those know (known name vs unknown).
-2. **Role** must be direct finance / investing, in this priority order:
-   1. investment banking
-   2. project finance
-   3. investing / buy-side (PE, growth, credit, hedge-fund-style investing)
-   4. general finance / back-office finance roles
+2. **Role.** The AI puts each posting in one **role type** from a list; each role type has a verdict the user sets
+   (**Apply / Maybe / Skip**) and the list order is the priority (owner, 2026-10-26: "everything but sales & trading
+   and quant", S&T = maybe, quant = filtered out). Defaults, in priority order:
 
-   **Filtered out entirely:** wealth management and asset management (the owner confirmed: skip AM even though it's
-   buy-side).
+   | Role type | Default | Covers |
+   |---|---|---|
+   | Investment banking | Apply | M&A, coverage groups, ECM / DCM, leveraged finance, restructuring |
+   | Project finance | Apply | project / infrastructure / energy finance |
+   | Investing / buy-side | Apply | PE, growth, VC, private credit, hedge-fund-style investing |
+   | Corporate banking | Apply | corporate / commercial banking analyst programs |
+   | Equity research | Apply | sell-side research |
+   | Corporate development / strategy | Apply | corp dev, strategic finance |
+   | Financial advisory / valuation | Apply | transaction services, valuation, Big 4 deal advisory |
+   | Risk / credit | Apply | credit analysis, risk management |
+   | General finance | Apply | FP&A, treasury, corporate finance, finance rotational / back-office finance |
+   | Sales & trading | Maybe | sales, trading, markets |
+   | Quant | Skip | quant research / trading / developer roles |
+   | Wealth management | Skip | private wealth, financial advisor (owner confirmed 2026-10-25) |
+   | Asset management | Skip | AM, even though it's buy-side (owner confirmed 2026-10-25) |
+   | Not finance | Skip | software, marketing, operations, anything else |
+
+   **Customizable per user** (Applications → Find jobs → "What jobs I want"): change any role type's verdict with an
+   Apply / Maybe / Skip switch, drag to reorder (priority sorts the lists), add a custom role type (name + a short
+   "covers" line, e.g. "Real estate investing"), or delete one. The AI gets the list (name + covers) and must answer
+   with one of its ids (server-checked); "Not finance" always exists as the catch-all and can't be deleted. Changing a
+   verdict re-sorts stored reviews instantly with no AI call (the verdict is computed by code from the stored role
+   type); only adding / editing a role type's "covers" text offers "Re-check N jobs".
 3. **Class year.** The posting must be open to the owner's class years: **class of 2028 or 2029**. Postings rarely say
    "class of"; the AI converts what they do say ("graduating Dec 2027 – Jun 2028", "rising junior", "Summer 2027
    Analyst" = class of 2028, "Summer 2028" = class of 2029). If it can't tell: "year unclear", never a guess.
@@ -53,6 +72,18 @@ For other users the class years default from their profile's graduation date: th
   why and adds a rule.
 - A job already tracked (by link, LinkedIn id, or firm + title: `jobFinder.ts#freshJobs` rules) is never added twice.
 - End-of-run line: "Read 30 · 7 added · 9 maybe · 14 skipped".
+
+## Starting a run + the reminder text (owner, 2026-10-26)
+
+- **A run starts only when you press the button**: "Search LinkedIn jobs" on Applications → Find jobs. No automatic or
+  scheduled runs (LinkedIn is read in your own logged-in Chrome, so you're there when it happens). Shows "N runs left
+  today" against the daily cap.
+- **Reminder text:** the 9 PM WhatsApp text (Mon–Thu, `digestFormat.ts`) gets a line "Find jobs: press Search
+  LinkedIn jobs (last run 2 days ago)" with a link to `/applications?find=1`, which opens the Find jobs card with the
+  button in view. It's left out once a run happened that day. Server side: the dashboard pushes `lastJobRunAt` with the
+  digest plan, so the server's text knows. Settings (Applications → Find jobs, next to the role types): reminder on /
+  off (default on) and "remind me if I haven't run it in N days" (default 1 = every text night). Fri–Sun texts keep
+  their rule (only when there were calls), so the reminder doesn't create a weekend text on its own.
 
 ## A run (owner-approved approach)
 

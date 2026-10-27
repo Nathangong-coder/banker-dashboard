@@ -102,6 +102,9 @@ eq("sensitive answers never come from the AI", plan.ai.some((x) => /gender|race|
 const blank = planFill(form.filter((x) => ["i", "k", "l", "g"].includes(x.id)), { ...me, gender: "", race: "", veteran: "", authorized: "" }, { hasResume: false });
 eq("unset sensitive answers are skipped, not AI'd", [blank.items.length, blank.ai.length, blank.skipped.length], [0, 0, 4]);
 eq("no resume → file left for you", planFill([form[4]], me, { hasResume: false }).skipped.length, 1);
+// An "Attach resume" link hiding an unlabelled file input: the only file input on the form is the resume.
+eq("unlabelled lone file input → resume", planFill([f("u", "file", ""), f("v", "text", "First Name")], me, { hasResume: true }).items.find((x) => x.id === "u")?.file, "resume");
+eq("two unlabelled file inputs → left for you", planFill([f("u", "file", ""), f("w", "file", "")], me, { hasResume: true }).skipped.length, 2);
 
 eq("pickOption decline phrasing", pickOption([{ value: "a", label: "Yes" }, { value: "b", label: "I prefer not to say" }], "decline"), "b");
 eq("pickOption ignores the placeholder", pickOption(yn, "yes"), "1");

@@ -97,6 +97,15 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
 Listing: https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp (item id `hjmfcaldipgcjffmcemcljllmlpjlnlp`,
 in `src/lib/site.ts` → `SITE.extension.chromeUrl`).
 
+### 1.3.2
+
+Bug fixes only: (1) a resume upload hidden behind an "Attach" / "Upload resume" link (a file input with no label) was
+reported as "Unlabelled field" and not filled; the scan now labels it from the text around it. (2) Workday sets
+aria-hidden on the whole page while a popup is open, so the scan found "No form fields"; when that hides every field it
+scans again without the aria check (size / position / clipping checks still keep traps out), and an empty scan now says
+what it saw. No new permissions;
+review answers same as 1.3.1. `npm run pack:extension` → `dist/coverage-extension-1.3.2.zip`.
+
 ### 1.3.1 (after 1.3.0 is approved)
 
 Only change: saved logins sync through the user's Coverage account (the PIN-encrypted vault goes through the dashboard
