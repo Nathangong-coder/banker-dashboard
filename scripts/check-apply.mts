@@ -146,12 +146,39 @@ eq("two unlabelled file inputs → left for you", planFill([f("u", "file", ""), 
   );
 }
 
+// Eligibility confirmations (owner, 2026-10-26: only 2 of 5 were done): all answered from My info, any wording.
+{
+  const elig = [
+    f("e1", "checkbox", "I certify that I am at least 18 years of age."),
+    f("e2", "checkbox", "I confirm that I am legally authorized to work in the United States."),
+    f("e3", "checkbox", "I acknowledge that I will not require visa sponsorship now or in the future."),
+    f("e4", "radio", "Will you now or in the future require sponsorship for employment visa status?", { options: [{ value: "y", label: "Yes" }, { value: "n", label: "No" }] }),
+    f("e5", "select", "Are you at least 18 years old?", { options: [{ value: "", label: "Select" }, { value: "1", label: "Yes" }, { value: "0", label: "No" }] }),
+    f("c1", "checkbox", "I certify that the information I have provided is true and complete."),
+  ];
+  const pl = planFill(elig, me, { hasResume: true });
+  const got = Object.fromEntries(pl.items.map((x) => [x.id, x.checked ?? x.value]));
+  eq("all 5 eligibility questions answered; the general certification is left for you", [got, pl.skipped.map((x) => x.id)], [{ e1: true, e2: true, e3: true, e4: "n", e5: "1" }, ["c1"]]);
+  eq("needs sponsorship → the 'will not require' box stays unticked", planFill([elig[2]], { ...me, sponsorFuture: "yes" }, { hasResume: true }).items[0]?.checked, false);
+  eq("not set in My info → left for you (never guessed)", planFill([elig[0]], { ...me, over18: "" }, { hasResume: true }).skipped.length, 1);
+}
+
 // The AI agent's fill mode (extension 1.5): stops at the final submit, never creates accounts or deletes.
 const { fillGate } = await import("../extension/agent/agent.js");
 eq(
   "agent fill gate",
   ["Submit Application", "Send application", "Sign and Submit", "Next", "Save and Continue", "Apply Manually", "Add Another", "Create Account", "Delete", "Sign Out"].map((t) => fillGate(t)),
   ["stop", "stop", "stop", "approve", "approve", "approve", "approve", "skip", "skip", "skip"],
+);
+eq(
+  "agent: a bare Submit on an eligibility screener goes on; on a review page it stops",
+  [
+    fillGate("Submit", "Eligibility questions. Are you authorized to work in the US? Are you 18 years or older?"),
+    fillGate("Submit", "Review your application. By submitting this application you certify…"),
+    fillGate("Submit", ""),
+    fillGate("Submit Application", "Eligibility questions"),
+  ],
+  ["approve", "stop", "stop", "stop"],
 );
 
 eq("pickOption decline phrasing", pickOption([{ value: "a", label: "Yes" }, { value: "b", label: "I prefer not to say" }], "decline"), "b");

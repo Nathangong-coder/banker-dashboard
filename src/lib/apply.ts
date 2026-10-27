@@ -272,6 +272,8 @@ export const NEVER_FILL =
   /\b(password|passcode|ssn|social security|social insurance|national insurance|tax id|taxpayer|itin|bank account|routing|account number|iban|swift|credit card|card number|cvv|cvc|security code|driver'?s? licen[cs]e|passport number|mother'?s maiden|date of birth|birth ?date|\bdob\b)/i;
 
 /** A legal attestation or consent box: you tick these yourself. */
+/** Eligibility facts (age, work authorization, sponsorship): answered from My info even in "I certify…" wording. */
+const ELIGIBILITY = /\b18\b|legal (working )?age|(authori[sz]ed|eligible|permitted) to work|work authori[sz]ation|right to work|sponsor/i;
 const ATTEST = /\b(certify|attest|acknowledge|i agree|agree to|consent|terms|privacy (policy|notice)|accurate and complete|true and correct|electronic signature|e-?sign)/i;
 
 const YES = /^(yes\b|y$|true|i am\b|i do\b|i will\b|i have\b|authori[sz]ed)/i;
@@ -507,7 +509,10 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
       items.push({ id: f.id, value: f.maxLength ? opts.coverText.slice(0, f.maxLength) : opts.coverText, source: "profile", label: f.label, note: "Your cover letter template, dated today, with this firm's name" });
       continue;
     }
-    if ((f.kind === "checkbox" || f.kind === "checkboxes") && ATTEST.test(label)) {
+    // Eligibility confirmations ("I certify that I am at least 18", "I am authorized to work in the U.S.", "I will not
+    // require sponsorship") are answered from My info even when worded as a certification (owner, 2026-10-26: only 2 of
+    // 5 eligibility boxes were ticked). Other certifications / consents stay yours.
+    if ((f.kind === "checkbox" || f.kind === "checkboxes") && ATTEST.test(label) && !ELIGIBILITY.test(label)) {
       skip(f, "Consent / certification: tick it yourself after reading it.");
       continue;
     }
@@ -534,7 +539,10 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
       } else if (f.kind === "typeahead") {
         items.push({ id: f.id, value: typeaheadText(want), alts: typeaheadAlts(want, rule.options?.(profile) ?? []), source: "profile", label: f.label });
       } else if (f.kind === "checkbox") {
-        if (want === "yes" || want === "no") items.push({ id: f.id, checked: want === "yes", source: "profile", label: f.label });
+        // A box states something; tick it when the statement is true for you. "I will NOT require sponsorship" / "I am
+        // under 18" say the opposite of the question, so a "no" answer ticks them.
+        const negative = /\b(not|n't|never|no longer|without)\b|\bunder (the age of )?18\b|younger than 18/.test(label);
+        if (want === "yes" || want === "no") items.push({ id: f.id, checked: (want === "yes") !== negative, source: "profile", label: f.label });
         else skip(f, "A tick box for this: set it yourself.");
       } else if (f.kind === "checkboxes") {
         // Race "select all that apply" and similar: tick the one that matches.

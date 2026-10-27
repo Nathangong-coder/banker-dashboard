@@ -496,7 +496,8 @@ async function agentBrief(payload: unknown) {
     me.website && `Website: ${me.website}`,
     `School: ${me.school}; degree: ${me.degree}; major: ${me.major}; graduation: ${grad}${me.gpa ? `; GPA: ${me.gpa}` : ""}`,
     `Authorized to work in the US: ${yesNo(me.authorized)}; needs sponsorship now: ${yesNo(me.sponsorNow)}; in the future: ${yesNo(me.sponsorFuture)}${me.citizenship ? `; citizenship: ${me.citizenship}` : ""}`,
-    `18 or older: ${yesNo(me.over18)}; willing to relocate: ${yesNo(me.relocate)}${me.startDate ? `; can start: ${me.startDate}` : ""}${me.howHeard ? `; how they heard about the job: ${me.howHeard}` : ""}`,
+    `Eligibility (answer every eligibility / pre-screen question and confirmation from these): 18 or older: ${yesNo(me.over18)}; authorized to work in the US: ${yesNo(me.authorized)}; needs visa sponsorship now: ${yesNo(me.sponsorNow)}; in the future: ${yesNo(me.sponsorFuture)}`,
+    `Willing to relocate: ${yesNo(me.relocate)}${me.startDate ? `; can start: ${me.startDate}` : ""}${me.howHeard ? `; how they heard about the job: ${me.howHeard}` : ""}`,
     "Demographic / EEO questions (gender, race, veteran, disability…): leave them alone.",
     "Salary questions, consent / certification checkboxes, signatures: leave them for the student.",
   ].filter(Boolean);

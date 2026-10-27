@@ -350,7 +350,14 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
       (e) => toast.err((e as Error).message),
     );
 
-  const infoGaps = [!profile.firstName && "name", !profile.email && "email", !profile.school && "school", !profile.authorized && "work authorization"].filter(Boolean);
+  const infoGaps = [
+    !profile.firstName && "name",
+    !profile.email && "email",
+    !profile.school && "school",
+    !profile.authorized && "work authorization",
+    !profile.over18 && "18 or older",
+    (!profile.sponsorNow || !profile.sponsorFuture) && "visa sponsorship (now / future)",
+  ].filter(Boolean);
 
   return (
     <>
