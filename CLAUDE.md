@@ -174,6 +174,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   data, blobs, linked server account with Google revoked, sessions), `link`. **Dev login** `api/auth/dev` answers only with
   `COVERAGE_DEV_LOGIN=1` on 127.0.0.1/localhost and never on Vercel (e2e). Google Cloud needs the redirect URI
   `<site>/api/auth/google/callback` (+ `http://127.0.0.1:<port>/…` for local tests).
+- **Usage budget (owner, 2026-10-26: the free Upstash plan's 500K commands/month ran out → sign-in failed; Vercel Blob
+  + Fast Origin Transfer over the Hobby limits):** background pulls every 2 min while visible, 10 min after 5 quiet
+  pulls (was 30 s); `/api/sync/*` + `/api/auth/me` skip the per-IP rate limiter (session-checked anyway); the session
+  check doesn't read the TTL (slides once a day from `at`); files re-upload only when their SHA-256 changed, the
+  parsed sheets at most every 10 min (all on flushSync); the automatic-sending sync at most every 2 min unless the
+  send queue changed, the 10-min one only while visible. Keep new polling / per-request Redis calls rare.
 - **Sync** (`lib/syncDocs.ts` pure + `check:sync`; `lib/sync.ts` browser; `lib/server/userData.ts`): the persisted state is cut into docs
   (`c:` per contact, `aj:` job, `af:` found job, `is:` info session, `b:` bank, `p:<tab>\0<cell>` per manual cell edit, `cm:<field>\0<key>`
   per coverage-map key, `o:<list>` list orders, `s:<field>` the rest, `apply`, `cov`, `bm:<file>` file metas). Each is sealed with

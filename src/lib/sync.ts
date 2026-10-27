@@ -15,7 +15,8 @@ import { batches, diffDocs, fromDocs, serialize, toDocs } from "./syncDocs";
  * - Big files (workbook, parsed sheets, resumes, logo) go up and down in 3 MB parts, described by `bm:<name>` docs.
  */
 
-type BlobMeta = { parts: number; size: number; kind: "ab" | "json" | "file"; at: string; deleted?: boolean };
+/** `hash` = SHA-256 of the uploaded bytes, so an identical rewrite isn't uploaded again. */
+type BlobMeta = { parts: number; size: number; kind: "ab" | "json" | "file"; at: string; deleted?: boolean; hash?: string };
 interface Meta {
   rev: number;
   /** Each doc as the server last had it (what a push is diffed against). */
@@ -27,7 +28,15 @@ export const useSyncStatus = create<{ state: SyncState; at?: string; error?: str
 
 const PART = 3 * 1024 * 1024;
 const PUSH_DELAY = 3000;
-const POLL = 30_000;
+/**
+ * Background pulls (owner, 2026-10-26: every-30-s polling used up the Upstash plan): every 2 min while the tab is
+ * visible, stretching to 10 min after several pulls in a row brought nothing. Focus, another tab's push and your own
+ * changes still sync right away.
+ */
+const POLL = 120_000;
+const IDLE_POLL = 600_000;
+let quietPulls = 0;
+let lastPullAt = 0;
 const META_KEY = (uid: string) => `sync:${uid}`;
 
 let uid: string | null = null;
@@ -118,8 +127,10 @@ function applyRemote(docs: Record<string, string>, removed: string[], force = fa
 type Pulled = { rev: number; docs: Record<string, string>; removed: string[]; more: boolean };
 
 async function pullNow(force = false) {
+  lastPullAt = Date.now();
   for (let guard = 0; guard < 50; guard++) {
     const r = await api<Pulled>(`/api/sync/pull?since=${meta.rev}`);
+    quietPulls = Object.keys(r.docs).length || r.removed.length ? 0 : quietPulls + 1;
     applyRemote(r.docs, r.removed, force);
     for (const [k, v] of Object.entries(r.docs)) if (k.startsWith("bm:")) await receiveBlob(k.slice(3) as BlobName, JSON.parse(v) as BlobMeta);
     meta.rev = r.rev;
@@ -178,10 +189,14 @@ async function sendBlob(name: BlobName) {
     m = { parts: 0, size: 0, kind: "ab", at: new Date().toISOString(), deleted: true };
   } else {
     const { bytes, kind } = encodeBlob(v);
+    // Same bytes as last time (re-imports, format upgrades and bank-tab refreshes rewrite identical files): skip.
+    // Each upload goes through a function (Vercel Fast Origin Transfer) and into Blob storage (operations).
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>)), (b) => b.toString(16).padStart(2, "0")).join("");
+    if (meta.blobs[name]?.hash === hash && !meta.blobs[name]?.deleted) return;
     const parts = Math.max(1, Math.ceil(bytes.length / PART));
     for (let i = 0; i < parts; i++) await api(`/api/sync/blob?${q({ name, part: i })}`, { method: "PUT", body: bytes.slice(i * PART, (i + 1) * PART) });
     if ((meta.blobs[name]?.parts ?? 0) > parts) await api(`/api/sync/blob?${q({ name, from: parts })}`, { method: "DELETE" });
-    m = { parts, size: bytes.length, kind, at: new Date().toISOString() };
+    m = { parts, size: bytes.length, kind, at: new Date().toISOString(), hash };
   }
   await api("/api/sync/push", { method: "POST", body: JSON.stringify({ changed: { [`bm:${name}`]: JSON.stringify(m) }, removed: [] }) });
   meta.blobs[name] = m;
@@ -237,13 +252,19 @@ function schedulePush() {
 }
 
 /** Push what changed here, upload changed files, then pull what changed elsewhere. */
-export function syncNow() {
+const lastSent = new Map<string, number>();
+
+export function syncNow(final = false) {
   return queue(async () => {
     if (!uid) return;
     try {
       await pushNow();
       for (const name of [...dirtyBlobs]) {
+        // The parsed sheets change with every grid edit; they go up at most every 10 min (all of them on sign-out /
+        // Download via flushSync, which passes `final`).
+        if (name === "snapshots" && !final && Date.now() - (lastSent.get(name) ?? 0) < 600_000) continue;
         dirtyBlobs.delete(name);
+        lastSent.set(name, Date.now());
         try {
           await sendBlob(name);
         } catch (e) {
@@ -268,7 +289,7 @@ export async function flushSync() {
     clearTimeout(pushTimer);
     pushTimer = null;
   }
-  await syncNow();
+  await syncNow(true);
   const s = useSyncStatus.getState().state;
   return s === "saved" && !dirtyBlobs.size;
 }
@@ -298,7 +319,11 @@ export async function startSync(userId: string, opts: { localWins?: boolean } = 
     schedulePush();
   });
   const onFocus = () => document.visibilityState === "visible" && void syncNow();
-  const timer = setInterval(() => document.visibilityState === "visible" && void syncNow(), POLL);
+  const timer = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    if (quietPulls >= 5 && Date.now() - lastPullAt < IDLE_POLL) return;
+    void syncNow();
+  }, POLL);
   const onLeave = (e: BeforeUnloadEvent) => {
     if (!hasUnsaved()) return;
     void syncNow();

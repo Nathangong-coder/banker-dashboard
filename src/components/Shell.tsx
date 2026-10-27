@@ -170,19 +170,33 @@ function useDailyWhatsApp(ready: boolean) {
  * Keep the server's copy current (lib/serverSync.ts): the send queue and the next two weeks of 9am texts, pushed a few
  * seconds after anything changes and every 10 minutes (which also pulls in sends the server made while away).
  */
+/** When the server last got a sync from this tab, and the send queue it got (module-level: survives re-renders). */
+const lastServerSync = { at: 0, sends: "" };
+
 function useServerSync(ready: boolean) {
   const connected = useStore((s) => !!s.settings.server?.email);
   const contacts = useStore((s) => s.contacts);
   const settings = useStore((s) => s.settings);
+  // Changes sync a few seconds later, but at most every 2 minutes (each sync is several Redis commands plus Gmail
+  // tracking; owner hit the Upstash plan limit 2026-10-26), except when the queue of emails to send changed.
+  const sends = contacts
+    .filter((c) => c.serverSend)
+    .map((c) => `${c.serverSend!.draftId}@${c.serverSend!.sendAt}`)
+    .join(",");
   useEffect(() => {
     if (!ready || !connected) return;
-    const run = () => syncServer().catch(() => undefined);
-    const t = setTimeout(run, 4000);
+    const run = () => {
+      lastServerSync.at = Date.now();
+      lastServerSync.sends = sends;
+      return syncServer().catch(() => undefined);
+    };
+    const wait = sends !== lastServerSync.sends ? 4000 : Math.max(4000, lastServerSync.at + 120_000 - Date.now());
+    const t = setTimeout(run, wait);
     return () => clearTimeout(t);
-  }, [ready, connected, contacts, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
+  }, [ready, connected, contacts, sends, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
   useEffect(() => {
     if (!ready || !connected) return;
-    const i = setInterval(() => syncServer().catch(() => undefined), 10 * 60_000);
+    const i = setInterval(() => document.visibilityState === "visible" && syncServer().catch(() => undefined), 10 * 60_000);
     return () => clearInterval(i);
   }, [ready, connected]);
   // Chats → their Google Docs (lib/chatDocs.ts): a Drive search for chats with no doc, at most once a day each.

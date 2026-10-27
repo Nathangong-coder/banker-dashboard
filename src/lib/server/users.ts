@@ -100,10 +100,11 @@ export async function currentUser(req: Request): Promise<User | null> {
   if (!token || token.length < 32) return null;
   if (!sameOrigin(req)) throw new HttpError(403, "This request came from another site.");
   const hash = sha(token);
-  const s = await db().get<{ uid: string }>(SESS(hash));
+  const s = await db().get<{ uid: string; at?: string }>(SESS(hash));
   if (!s) return null;
-  const ttl = await db().ttl(SESS(hash));
-  if (ttl > 0 && ttl < (SESSION_DAYS * 86400) / 2) await db().expire(SESS(hash), SESSION_DAYS * 86400);
+  // Slide the expiry forward at most once a day, from the date stored in the session (no TTL read per request:
+  // every request was costing an extra Redis command, owner 2026-10-26 hit the Upstash plan limit).
+  if (!s.at || Date.now() - Date.parse(s.at) > 86_400_000) await db().set(SESS(hash), { uid: s.uid, at: new Date().toISOString() }, { ex: SESSION_DAYS * 86400 });
   return loadUser(s.uid);
 }
 
