@@ -2,7 +2,7 @@
 // It is the bridge between the extension and the dashboard tab, both ways:
 // - extension → dashboard: the worker asks the dashboard to plan an autofill (your application info lives in the
 //   dashboard, not in the extension) and reports how a batch fill is going; the answer comes back here.
-// - dashboard → extension (1.3): "Fill selected" and the opt-in LinkedIn job search are started from the
+// - dashboard → extension (1.3): "Fill selected" and the opt-in LinkedIn / Handshake job search are started from the
 //   dashboard's buttons. Only a fixed list of commands is relayed, and the worker checks they come from the
 //   dashboard address set in Options.
 // - saved logins (1.3.1): the PIN-encrypted vault is kept in your account through the dashboard ("vault"), so it
@@ -11,12 +11,15 @@
 (() => {
   const CHANNEL = "coverage-ext";
   const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault"]);
-  const COMMANDS = new Set(["fillJobs", "focusJob", "linkedinJobs"]);
+  const COMMANDS = new Set(["fillJobs", "focusJob", "linkedinJobs", "handshakeJobs"]);
   const pending = new Map();
   const hello = async () => {
     // What this copy can do: the store build has no LinkedIn access, so LinkedIn job search is off there.
-    const { linkedinAgent } = await chrome.storage.local.get("linkedinAgent").catch(() => ({}));
-    window.postMessage({ channel: CHANNEL, kind: "hello", version: chrome.runtime.getManifest().version, features: { fillJobs: true, linkedinJobs: linkedinAgent === true } }, location.origin);
+    const { linkedinAgent, handshakeAgent } = await chrome.storage.local.get(["linkedinAgent", "handshakeAgent"]).catch(() => ({}));
+    window.postMessage(
+      { channel: CHANNEL, kind: "hello", version: chrome.runtime.getManifest().version, features: { fillJobs: true, linkedinJobs: linkedinAgent === true, handshakeJobs: handshakeAgent === true } },
+      location.origin,
+    );
   };
 
   window.addEventListener("message", (e) => {

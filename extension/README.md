@@ -97,6 +97,18 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
 Listing: https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp (item id `hjmfcaldipgcjffmcemcljllmlpjlnlp`,
 in `src/lib/site.ts` → `SITE.extension.chromeUrl`).
 
+### 1.4.0
+
+- **AI job review** (dashboard side, works with every source): finds are reviewed against Applications → Find jobs →
+  "What jobs I want"; Apply jobs are added under "Added by AI" (Keep / Remove; Remove asks why → a rule).
+- **LinkedIn reader** (test build): reads job ids from the search cards (`data-job-id`, `currentJobId=`), pages 2, 3…,
+  skips ids the dashboard already has, 30 per run / 90 per day, every page load has a time limit.
+- **Handshake reader** (test build, new Options toggle, optional `https://*.joinhandshake.com/*`): same pattern
+  (`sites/handshake.js`). Fill selected on a Handshake posting presses "Apply externally" and fills the form it opens
+  (same tab for a link, the new tab for a button); Handshake's own Apply is left for you.
+- Fill selected takes up to 50 jobs; the dashboard texts a summary (WhatsApp) when the batch is done.
+- Store build: unchanged permissions (LinkedIn and Handshake are stripped by `pack:extension`).
+
 ### 1.3.2
 
 Bug fixes only: (1) a resume upload hidden behind an "Attach" / "Upload resume" link (a file input with no label) was

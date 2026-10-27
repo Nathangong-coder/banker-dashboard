@@ -37,6 +37,8 @@ export interface Account {
   whatsapp?: { phone: string; apiKey: string };
   /** Local day (YYYY-MM-DD in `tz`) → what the 9 PM text says. */
   digests: Record<string, { items: DigestItem[]; queued: number }>;
+  /** When you last searched for jobs + how often the 9 PM text reminds you (unset = no reminder). */
+  jobRun?: { lastAt?: string; everyDays: number };
   /** People today's calendar events are matched against (name + email only). */
   people?: CalPerson[];
   /** People whose Gmail the server watches (pushed by the dashboard): names + addresses only. */

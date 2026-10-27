@@ -10,6 +10,8 @@ import { FOLLOW_UP_SPREAD, pastRange, planSends, tooSoon, windowOf } from "./sen
 import { vpPlusWarning } from "./seniority";
 import type { Contact } from "./types";
 import { applyTracking, readReplies, trackList, type TrackStateWire } from "./referrals";
+import { rulesOf } from "./jobReview";
+import type { ApplyState } from "./apply";
 
 /**
  * The browser half of automatic sending (server half: app/api/server). The browser keeps the source of truth and
@@ -129,6 +131,7 @@ export function syncServer(): Promise<ServerStatus | null> {
       people: whatsappOn ? calendarPeople(st.contacts) : [],
       // Everyone the server should watch in Gmail for replies, thank-yous and intros (used only with read access).
       track: trackList(st.contacts),
+      jobRun: jobRunOf(st.apply),
       trackAck: pendingAck,
       sends: st.contacts
         .filter((c) => c.serverSend)
@@ -160,6 +163,12 @@ export function syncServer(): Promise<ServerStatus | null> {
     inflight = null;
   });
   return inflight;
+}
+
+/** The "press Search" reminder for the 9 PM text, from Applications → Find jobs → What jobs I want. */
+function jobRunOf(apply: ApplyState) {
+  const r = rulesOf(apply.finder.rules, apply.profile.gradDate).reminder;
+  return r.on ? { lastAt: apply.finder.lastRunAt, everyDays: r.everyDays } : null;
 }
 
 /** Who a calendar event today could be with: everyone who replied or has a call (name + email, nothing else). */

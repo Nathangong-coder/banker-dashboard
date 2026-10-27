@@ -622,6 +622,32 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **Queued next (owner):** the recruiting orchestrator (Trackr / Superday / Extern / Slack → sheet + Applications →
   calendar + notifications). Plan + brainstorm before building.
 
+## AI job review, Handshake, jobs → Excel, mass-fill text (owner, 2026-10-26; extension 1.4.0)
+
+- Spec: `docs/superpowers/specs/2026-10-25-linkedin-job-review-design.md` (+ the 2026-10-26 addendum). Pure rules in
+  `lib/jobReview.ts` (role types with Apply / Maybe / Skip, class years, learned rules, reminder; `judge` = the verdict
+  BY CODE from the AI's fields, so a verdict change re-sorts with no AI call), browser runner `lib/jobReviewRun.ts`
+  (`reviewPending` single-flight, 6 per call to `api/jobs/review`, `quickReview` skips obvious non-internships / non-US
+  for free, `autoAdd` → `JobApplication.addedBy = "ai"`), settings UI `components/JobRules.tsx` (+ `WhyModal`: Remove /
+  "Should apply" ask why → `finder.rules.rules`, version bump → "Re-check N"). Reviews live on `FoundJob.review` (synced
+  `af:` docs; never re-sent). Owner defaults: everything finance = Apply, S&T = Maybe, quant / wealth / AM = Skip; class
+  years from `profile.gradDate` (that class + the one before); year unclear keeps the verdict. Resume: `ApplyResume.classYear`
+  (Resumes tab) → `resumeFor` for single-class postings.
+- Applications Jobs table: My list (open / applied / all) vs "Added by AI" (Keep / Remove). `apply.batch` + `applyBridge.ts#batchDone`
+  = one WhatsApp text when a Fill selected run (≤50) has finished.
+- **Excel** (`lib/jobSheet.ts`, `check:jobs`): My list jobs get `sheetRef` (`assignSheetRows`, once) on the applications tab
+  (`findAppsTable`: Institution Name + Program headers; owner's `APP ('27)`), same firm+program row → free numbered row → below
+  the list. `jobPatches` is merged into `actions.ts#currentPatches` and the sheet view: fills empty cells only; status
+  (IN PROCESS / INTERVIEWING / OFFER / REJECTED / WITHDRAWN) only moves forward; a row now holding another firm is left alone.
+- **Reminder:** `finder.lastRunAt` (any search button) → `serverSync` `jobRun` → `Account.jobRun` → tick adds
+  `digestFormat.ts#jobRunLine` on text nights (link `/applications?find=1` scrolls to Find jobs).
+- **Extension 1.4.0 (test build only for both readers):** `background.js#readJobs(site)` = search pages (LinkedIn `&start=`,
+  Handshake `?page=`) → new ids (known ids sent by the dashboard are skipped) → each job page, 30/run, 90/day, timed waits.
+  `sites/handshake.js` (Options toggle `handshakeAgent`, optional `https://*.joinhandshake.com/*`, stripped from the store
+  build). Fill selected on a Handshake URL: `handshakeHandOff` presses "Apply externally" (link → same tab; button → the
+  opened tab takes over), Handshake's own Apply → needs_you. Readers tested only on mock pages (headless Edge): the real
+  Handshake / LinkedIn DOM is unverified.
+
 ## Reply / thank-you / referral tracking (owner, 2026-10-22)
 
 - **Why:** thank-yous showed as "not sent" because only the browser read Gmail (open tab + token), and runs missed

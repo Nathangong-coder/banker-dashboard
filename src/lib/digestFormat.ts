@@ -97,6 +97,19 @@ export function digestMessages(items: DigestItem[], extra: number | string[] = [
 export const digestTitle = (i: number, n: number) => (n > 1 ? `Tonight's networking list (${i + 1}/${n})` : "Tonight's networking list");
 
 /** Text nights: Monday–Thursday (sends go out Tue–Thu mornings, so Thursday night covers Friday through Monday). */
+/**
+ * The "press Search" reminder (owner, 2026-10-26): a line in the text night's message when your last job search was
+ * `everyDays` or more days ago (or never). `lastAt` is ISO; `day` is tonight in your zone (YYYY-MM-DD).
+ */
+export function jobRunLine(jobRun: { lastAt?: string; everyDays: number } | undefined, day: string, app: string): string | null {
+  if (!jobRun) return null;
+  const last = jobRun.lastAt?.slice(0, 10);
+  const days = last ? Math.round((Date.parse(`${day}T12:00:00Z`) - Date.parse(`${last}T12:00:00Z`)) / 86_400_000) : Infinity;
+  if (days < Math.max(1, jobRun.everyDays)) return null;
+  const when = days === Infinity ? "you haven't searched yet" : days === 1 ? "last run yesterday" : `last run ${days} days ago`;
+  return `🔎 Find jobs: press Search (${when}): ${app}/applications?find=1`;
+}
+
 export const TEXT_DAYS = [1, 2, 3, 4];
 export const TEXT_HOUR = 21;
 

@@ -13,8 +13,9 @@
 // turned that on (vault.js), and reporting back a status per job. Only sites you allowed are filled this way.
 // "Watch it work" fills one tab at a time in front of you, typing visibly, with a Stop button on the page.
 //
-// LinkedIn job search (opt-in, test build only): reads a LinkedIn Jobs search in your own browser at a human pace
-// and hands each job to your dashboard. The store build has no LinkedIn access, so it can't run there.
+// LinkedIn / Handshake job search (opt-in, test build only): reads a job search in your own browser at a human pace
+// and hands each job to your dashboard, where the AI reviews it. The store build has no access to either site.
+// Fill selected on a Handshake posting presses "Apply externally" and fills the bank's form it opens.
 //
 // The job page never talks to the extension: it only gets values typed into its fields.
 import { getDashboard } from "./settings.js";
@@ -34,10 +35,12 @@ import {
   switchToSignIn,
 } from "./sites/apply.js";
 import { captureLinkedInJob, isLinkedInWall, linkedinJobsUrl, readLinkedInJobs } from "./sites/linkedin.js";
+import { captureHandshakeJob, clickApplyExternally, handshakeJobUrl, handshakePage, isHandshake, isHandshakeWall, readHandshakeJobs } from "./sites/handshake.js";
 
 const progress = (tabId, text) => chrome.runtime.sendMessage({ type: "autofill-progress", tabId, text }).catch(() => {});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const LINKEDIN = "https://www.linkedin.com/*";
+const HANDSHAKE = "https://*.joinhandshake.com/*";
 
 /**
  * The open Coverage tab (or a new one), with its bridge answering. Tabs are found by asking each one: only the bridge
@@ -274,7 +277,15 @@ async function drive(tabId, job) {
   let started = false;
   for (let step = 0; step < 12; step++) {
     if (await inTab(tabId, stopRequested)) return report(job.id, "stopped", "You pressed Stop on the page.");
-    const tab = await chrome.tabs.get(tabId);
+    let tab = await chrome.tabs.get(tabId);
+    if (isHandshake(tab.url) && !isHandshakeWall(tab.url)) {
+      progress(tabId, "Pressing Apply externally on Handshake…");
+      const h = await handshakeHandOff(tabId, job);
+      if (h.needs) return wait("needs_you", h.needs);
+      if (h.error) return wait("needs_you", h.error);
+      if (h.tabId !== tabId) return drive(h.tabId, job);
+      tab = await chrome.tabs.get(tabId);
+    }
     if (!(await hasAccess(tab.url))) return wait("access", `The application moved to ${new URL(tab.url).hostname}. Allow that site in the extension's Options, then press Fill again.`);
     const ls = await inTab(tabId, loginState);
     if (ls?.kind === "signin" || ls?.kind === "signup") {
@@ -348,12 +359,17 @@ let running = Promise.resolve();
 
 /** Fill selected: one tab at a time when you watch, two at a time otherwise. */
 function fillJobs({ jobs, watch }) {
-  const list = jobs.slice(0, 25);
+  const list = jobs.slice(0, 50);
   running = running.then(async () => {
     const queue = [];
     for (const job of list) {
       if (isBlockedSite(job.url)) await report(job.id, "error", "That's a LinkedIn listing: add the bank's own application link to the job.");
-      else if (!(await hasAccess(job.url))) await report(job.id, "access", `Allow Coverage on ${new URL(job.url).hostname} (extension Options → Application sites), then press Fill again.`);
+      else if (!(await hasAccess(job.url)))
+        await report(
+          job.id,
+          "access",
+          isHandshake(job.url) ? "Turn on Handshake job search in the extension's Options (test build), then press Fill again." : `Allow Coverage on ${new URL(job.url).hostname} (extension Options → Application sites), then press Fill again.`,
+        );
       else {
         await report(job.id, "queued", "Waiting for a free tab…");
         queue.push({ ...job, watch });
@@ -393,55 +409,159 @@ async function focusJob(jobId) {
   return { found: true };
 }
 
-/* ---------------- LinkedIn job search (opt-in, test build) ---------------- */
+/* ---------------- LinkedIn / Handshake job readers (opt-in, test build) ---------------- */
 
-async function linkedinReady() {
-  const { linkedinAgent } = await chrome.storage.local.get("linkedinAgent");
-  return linkedinAgent === true && (await chrome.permissions.contains({ origins: [LINKEDIN] }).catch(() => false));
+const SITES = {
+  linkedin: {
+    name: "LinkedIn",
+    origin: LINKEDIN,
+    flag: "linkedinAgent",
+    dayKey: "liDay",
+    page: (url, i) => {
+      const u = new URL(url);
+      if (i) u.searchParams.set("start", String(i * 25));
+      return u.toString();
+    },
+    view: (id) => `https://www.linkedin.com/jobs/view/${id}/`,
+    read: readLinkedInJobs,
+    capture: captureLinkedInJob,
+    wall: isLinkedInWall,
+  },
+  handshake: {
+    name: "Handshake",
+    origin: HANDSHAKE,
+    flag: "handshakeAgent",
+    dayKey: "hsDay",
+    page: (url, i) => handshakePage(url, i + 1),
+    view: handshakeJobUrl,
+    read: readHandshakeJobs,
+    capture: captureHandshakeJob,
+    wall: isHandshakeWall,
+  },
+};
+/** Per run and per day, per site: a good session is 30; three of those a day (owner, 2026-10-25). */
+const PER_RUN = 30;
+const PER_DAY = 90;
+
+async function siteReady(site) {
+  const s = SITES[site];
+  const flags = await chrome.storage.local.get(s.flag);
+  return flags[s.flag] === true && (await chrome.permissions.contains({ origins: [s.origin] }).catch(() => false));
 }
 
 const finder = (text, done = false) => askDashboard("finderStatus", { text, done }).catch(() => {});
 
-async function linkedinJobs({ terms, location, max, watch }) {
-  if (!(await linkedinReady())) throw new Error("Turn on LinkedIn job search in the extension's Options first (test build only).");
+/** Waits for a tab to finish loading, at most `ms` (never forever: a stuck page is skipped). */
+async function loadedWithin(tabId, ms) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    const t = await chrome.tabs.get(tabId).catch(() => null);
+    if (!t) throw new Error("The tab was closed.");
+    if (t.status === "complete") return true;
+    await sleep(400);
+  }
+  return false;
+}
+
+/**
+ * Reads up to `max` new jobs from a LinkedIn / Handshake search in your browser: the search pages one by one
+ * (ids you already have are skipped without opening them), then each new job's own page at a person's pace, handing
+ * every posting to your dashboard (which stores it and has the AI review it). Every wait has a time limit.
+ */
+async function readJobs(site, { url, max, watch, known }) {
+  const s = SITES[site];
+  if (!(await siteReady(site))) throw new Error(`Turn on ${s.name} job search in the extension's Options first (test build only).`);
   const today = new Date().toISOString().slice(0, 10);
-  const { liDay } = await chrome.storage.local.get("liDay");
-  const used = liDay?.date === today ? liDay.count : 0;
-  const n = Math.max(0, Math.min(max, 25, 60 - used));
-  if (!n) throw new Error("Reached today's limit of 60 LinkedIn jobs (kept low so it reads like a person). Try again tomorrow.");
+  const day = (await chrome.storage.local.get(s.dayKey))[s.dayKey];
+  const used = day?.date === today ? day.count : 0;
+  const n = Math.max(0, Math.min(max, PER_RUN, PER_DAY - used));
+  if (!n) throw new Error(`Reached today's limit of ${PER_DAY} ${s.name} jobs (kept low so it reads like a person). Try again tomorrow.`);
   const dash = await dashboardTab();
-  const tab = await chrome.tabs.create({ url: linkedinJobsUrl(terms, location), active: !!watch, windowId: dash.windowId });
+  const tab = await chrome.tabs.create({ url: s.page(url, 0), active: !!watch, windowId: dash.windowId });
   await addToGroup(tab.id);
   (async () => {
     let got = 0;
+    const skip = new Set(known);
     try {
-      await loaded(tab.id);
-      await sleep(4000 + Math.random() * 2000);
-      if (isLinkedInWall((await chrome.tabs.get(tab.id)).url)) return finder("LinkedIn asked you to sign in or pass a check. Do that in the tab, then search again.", true);
-      finder("Reading the search results…");
-      const list = (await inTab(tab.id, readLinkedInJobs, [n])) ?? [];
-      if (!list.length) return finder("No jobs on that LinkedIn search.", true);
-      for (const [i, j] of list.entries()) {
-        finder(`Reading job ${i + 1} of ${list.length}: ${j.company || ""} ${j.title}`.trim());
-        await chrome.tabs.update(tab.id, { url: `https://www.linkedin.com/jobs/view/${j.id}/` });
-        await loaded(tab.id);
-        await sleep(6000 + Math.random() * 8000); // a person's pace, not a scraper's
-        if (isLinkedInWall((await chrome.tabs.get(tab.id)).url)) return finder(`LinkedIn asked for a check after ${got} jobs. Stopped there.`, true);
-        const job = await inTab(tab.id, captureLinkedInJob);
-        if (job && !job.error) {
-          await askDashboard("foundJob", job).catch(() => {});
-          got++;
-          await chrome.storage.local.set({ liDay: { date: today, count: used + got } });
+      // 1. The list: page after page until there are enough new ids (or the results run out).
+      const ids = [];
+      for (let page = 0; page < 6 && ids.length < n; page++) {
+        if (page) await chrome.tabs.update(tab.id, { url: s.page(url, page) });
+        await loadedWithin(tab.id, 30000);
+        await sleep(3500 + Math.random() * 2000);
+        if (s.wall((await chrome.tabs.get(tab.id)).url)) return finder(`${s.name} asked you to sign in or pass a check. Do that in the tab, then search again.`, true);
+        finder(`Reading ${s.name} results, page ${page + 1}…`);
+        const list = (await inTab(tab.id, s.read, [n - ids.length, [...skip]]).catch(() => [])) ?? [];
+        if (!list.length) break;
+        for (const j of list) {
+          if (skip.has(j.id)) continue;
+          skip.add(j.id);
+          ids.push(j);
         }
       }
-      finder(`Done: ${got} LinkedIn job${got === 1 ? "" : "s"} added to your finds.`, true);
+      if (!ids.length) return finder(`No new ${s.name} jobs on that search (the ones listed are already in Coverage).`, true);
+      // 2. Each job's own page (full description), at a person's pace.
+      for (const [i, j] of ids.slice(0, n).entries()) {
+        finder(`Reading ${s.name} job ${i + 1} of ${Math.min(n, ids.length)}: ${j.company || ""} ${j.title}`.trim());
+        await chrome.tabs.update(tab.id, { url: s.view(j.id) });
+        if (!(await loadedWithin(tab.id, 30000))) continue; // didn't load in time: skip it
+        await sleep(6000 + Math.random() * 8000); // a person's pace, not a scraper's
+        if (s.wall((await chrome.tabs.get(tab.id)).url)) return finder(`${s.name} asked for a check after ${got} jobs. Stopped there.`, true);
+        const job = await inTab(tab.id, s.capture).catch(() => null);
+        if (job && !job.error) {
+          await askDashboard("foundJob", { ...job, site }).catch(() => {});
+          got++;
+          await chrome.storage.local.set({ [s.dayKey]: { date: today, count: used + got } });
+        }
+      }
+      finder(`Done: read ${got} ${s.name} job${got === 1 ? "" : "s"}.`, true);
     } catch (e) {
-      finder(`LinkedIn search stopped: ${e instanceof Error ? e.message : String(e)}`, true);
+      finder(`${s.name} search stopped after ${got} jobs: ${e instanceof Error ? e.message : String(e)}`, true);
     } finally {
       chrome.tabs.remove(tab.id).catch(() => {});
     }
   })();
   return { started: true, max: n };
+}
+
+/**
+ * Fill selected on a Handshake posting: press "Apply externally" and carry on in the bank's form. A link is opened in
+ * the same tab; a button opens a new tab, which takes this job over (the Handshake tab is closed).
+ */
+async function handshakeHandOff(tabId, job) {
+  const r = await inTab(tabId, clickApplyExternally);
+  if (r?.href) {
+    await chrome.tabs.update(tabId, { url: r.href });
+    await loadedWithin(tabId, 30000);
+    await sleep(2500);
+    return { tabId };
+  }
+  if (r?.clicked) {
+    const child = await new Promise((resolve) => {
+      const done = (id) => {
+        chrome.tabs.onCreated.removeListener(onCreated);
+        clearTimeout(timer);
+        resolve(id);
+      };
+      const onCreated = (t) => t.openerTabId === tabId && done(t.id);
+      const timer = setTimeout(() => done(null), 15000);
+      chrome.tabs.onCreated.addListener(onCreated);
+    });
+    if (!child) {
+      // Some postings open the form in the same tab instead.
+      await loadedWithin(tabId, 15000);
+      return isHandshake((await chrome.tabs.get(tabId)).url) ? { error: "Pressed Apply externally, but no application opened. Carry on in that tab." } : { tabId };
+    }
+    await addToGroup(child);
+    await chrome.storage.session.remove(batchKey(tabId));
+    await chrome.storage.session.set({ [batchKey(child)]: { ...job, stage: "filling" } });
+    chrome.tabs.remove(tabId).catch(() => {});
+    await loadedWithin(child, 30000);
+    await sleep(2500);
+    return { tabId: child };
+  }
+  if (r?.internal) return { needs: "This one applies inside Handshake: pick your resume there and submit it yourself." };
+  return { error: "Couldn't find Handshake's Apply externally button. Carry on in that tab." };
 }
 
 /* ---------------- saved logins sync (1.3.1) ---------------- */
@@ -494,7 +614,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 const ID = /^[A-Za-z0-9_-]{1,60}$/;
 function cleanJobs(raw) {
-  return (Array.isArray(raw) ? raw : []).slice(0, 25).flatMap((j) => {
+  return (Array.isArray(raw) ? raw : []).slice(0, 50).flatMap((j) => {
     // https only (plain http just for a local dev server, as in settings.js).
     if (!j || typeof j !== "object" || !ID.test(String(j.id)) || typeof j.url !== "string" || !/^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)[:/])/.test(j.url)) return [];
     return [{ id: String(j.id), url: j.url.slice(0, 2000), company: String(j.company ?? "").slice(0, 120) }];
@@ -509,8 +629,16 @@ async function fromDashboard(msg, sender) {
   if (msg.type === "vaultSync") return syncVault();
   if (msg.type === "fillJobs") return fillJobs({ jobs: cleanJobs(p.jobs), watch: p.watch === true });
   if (msg.type === "focusJob" && ID.test(String(p.jobId))) return focusJob(String(p.jobId));
+  const known = (Array.isArray(p.known) ? p.known : []).map(String).filter((x) => /^\d{3,15}$/.test(x)).slice(-3000);
+  const max = Math.min(Number(p.max) || PER_RUN, PER_RUN);
   if (msg.type === "linkedinJobs")
-    return linkedinJobs({ terms: String(p.terms ?? "").slice(0, 120), location: String(p.location ?? "").slice(0, 80), max: Math.min(Number(p.max) || 15, 25), watch: p.watch === true });
+    return readJobs("linkedin", { url: linkedinJobsUrl(String(p.terms ?? "").slice(0, 120), String(p.location ?? "").slice(0, 80)), max, watch: p.watch === true, known });
+  if (msg.type === "handshakeJobs") {
+    // Only a Handshake job search address (the dashboard builds it from your words).
+    const url = String(p.url ?? "");
+    if (!/^https:\/\/app\.joinhandshake\.com\/(job-search|stu\/postings|jobs)\b/.test(url)) throw new Error("Not a Handshake job search.");
+    return readJobs("handshake", { url: url.slice(0, 600), max, watch: p.watch === true, known });
+  }
   throw new Error("Unknown command.");
 }
 

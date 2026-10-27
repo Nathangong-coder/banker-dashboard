@@ -1,25 +1,31 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ExternalLink, Globe, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronRight, ExternalLink, Globe, GraduationCap, Search, Sparkles, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { usableKeys } from "@/lib/keys";
 import { canonBank } from "@/lib/banks";
-import { boardOf, companyFor, freshJobs, mergeBoards, rankJobs, searchQueries, type Board, type FoundJob } from "@/lib/jobFinder";
-import type { JobApplication } from "@/lib/apply";
+import { boardOf, companyFor, freshJobs, handshakeJobsUrl, knownIds, mergeBoards, searchQueries, type Board, type FoundJob } from "@/lib/jobFinder";
+import { judge, rulesOf, sortReviewed, type Verdict } from "@/lib/jobReview";
+import { addReviewRule, reviewPending, summarize, trackedFrom } from "@/lib/jobReviewRun";
 import { sendCommand, useExtension, useFinderStatus } from "@/lib/applyBridge";
-import { cn, relDays, uid } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, toast } from "@/components/ui";
+import { cn, relDays } from "@/lib/util";
+import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, Segmented, toast } from "@/components/ui";
+import { JobRules, WhyModal } from "@/components/JobRules";
 import { askSignIn } from "@/lib/session";
 
-const SOURCE: Record<FoundJob["source"], string> = { workday: "Workday", greenhouse: "Greenhouse", lever: "Lever", search: "Google", linkedin: "LinkedIn" };
+const SOURCE: Record<FoundJob["source"], string> = { workday: "Workday", greenhouse: "Greenhouse", lever: "Lever", search: "Google", linkedin: "LinkedIn", handshake: "Handshake" };
+const VERDICT_TONE: Record<Verdict, "green" | "amber" | "neutral"> = { apply: "green", maybe: "amber", skip: "neutral" };
+type List = "review" | "pending" | "skipped";
 const THIS_YEAR = new Date().getFullYear();
 const YEARS = [THIS_YEAR + 1, THIS_YEAR + 2];
 
 /**
  * Applications → Find jobs: internships from the banks' own career boards (Workday, Greenhouse, Lever) and a Google
- * search over them, plus the extension's opt-in LinkedIn job search. Finds are listed here; you pick which to track.
+ * search over them, plus the extension's opt-in LinkedIn / Handshake readers. Every find is reviewed by the AI against
+ * "What jobs I want" (lib/jobReview.ts): Apply jobs go onto the tracker under "Added by AI", Maybe jobs are listed here,
+ * Skip jobs are kept under "Skipped". A run only starts when you press a button (the 9 PM text reminds you).
  */
 export function JobFinder() {
   const finder = useStore((s) => s.apply.finder);
@@ -31,6 +37,12 @@ export function JobFinder() {
   const setApply = useStore((s) => s.setApply);
   const features = useExtension((s) => s.features);
   const liStatus = useFinderStatus();
+  const gradDate = useStore((s) => s.apply.profile.gradDate);
+  const rules = useMemo(() => rulesOf(finder.rules, gradDate), [finder.rules, gradDate]);
+  const [list, setList] = useState<List>("review");
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [ask, setAsk] = useState<Parameters<typeof WhyModal>[0]["ask"]>(null);
+  const [reviewing, setReviewing] = useState(false);
   const [terms, setTerms] = useState(finder.terms ?? "summer analyst");
   const [years, setYears] = useState<number[]>(finder.years ?? [YEARS[0]]);
   const [location, setLocation] = useState(finder.location ?? "United States");
@@ -48,9 +60,37 @@ export function JobFinder() {
   const hasSearch = usableKeys(settings, "serper").length > 0 || usableKeys(settings, "brave").length > 0;
   // Boards learned before, plus any your tracked jobs live on.
   const boards = useMemo(() => mergeBoards(finder.boards, jobs.flatMap((j) => [j.url, j.applyUrl].flatMap((u) => (u && boardOf(u)) || []))), [finder.boards, jobs]);
-  const fresh = useMemo(() => rankJobs(freshJobs(finder.found, jobs, finder.dismissed), banks), [finder.found, finder.dismissed, jobs, banks]);
   const known = useMemo(() => new Set(banks.map(canonBank)), [banks]);
-  const shown = showAll ? fresh : fresh.slice(0, 40);
+  const fresh = useMemo(() => sortReviewed(freshJobs(finder.found, jobs, finder.dismissed), rules, known), [finder.found, finder.dismissed, jobs, rules, known]);
+  const verdictOf = (f: FoundJob) => (f.review ? judge(f.review, rules, f.location) : null);
+  const lists = useMemo(() => {
+    const out: Record<List, FoundJob[]> = { review: [], pending: [], skipped: [] };
+    for (const f of fresh) {
+      const v = f.review ? judge(f.review, rules, f.location).verdict : null;
+      out[!v ? "pending" : v === "skip" ? "skipped" : "review"].push(f);
+    }
+    return out;
+  }, [fresh, rules]);
+  const current = lists[list];
+  const shown = showAll ? current : current.slice(0, 40);
+  const stale = finder.found.filter((f) => f.review && !f.review.quick && f.review.version < rules.version && freshJobs([f], jobs, finder.dismissed).length).length;
+
+  // Finds without a review (a run that ended before the AI was reachable): review them when the page opens.
+  useEffect(() => {
+    if (useStore.getState().apply.finder.found.some((f) => !f.review)) void reviewPending({ quiet: true });
+    // The 9 PM text's reminder links here (/applications?find=1).
+    if (new URLSearchParams(window.location.search).has("find")) document.getElementById("find-jobs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+  const review = async (recheck = false) => {
+    setReviewing(true);
+    try {
+      const r = await reviewPending({ recheck });
+      if (r) toast.ok(`Reviewed ${r.reviewed} job${r.reviewed === 1 ? "" : "s"}${r.added ? `, ${r.added} added to your tracker` : ""}.`);
+    } finally {
+      setReviewing(false);
+    }
+  };
+  const ran = () => setApply((a) => ({ ...a, finder: { ...a.finder, terms, years, location, lastRunAt: new Date().toISOString() } }));
 
   const search = async () => {
     if (askSignIn("search for jobs")) return;
@@ -66,12 +106,14 @@ export function JobFinder() {
       const found = r.jobs.map((j) => ({ ...j, company: companyFor(j.company, banks), foundAt: at }));
       setApply((a) => {
         const byKey = new Map(a.finder.found.map((f) => [f.key, f]));
-        for (const f of found) byKey.set(f.key, { ...f, foundAt: byKey.get(f.key)?.foundAt ?? at });
-        return { ...a, finder: { ...a.finder, found: [...byKey.values()].slice(-300), boards: mergeBoards(boards, r.boards), at, terms, years, location } };
+        // A job found again keeps its stored review (never sent to the AI twice).
+        for (const f of found) byKey.set(f.key, { ...f, review: byKey.get(f.key)?.review, foundAt: byKey.get(f.key)?.foundAt ?? at });
+        return { ...a, finder: { ...a.finder, found: [...byKey.values()].slice(-400), boards: mergeBoards(boards, r.boards), at, terms, years, location, lastRunAt: at } };
       });
-      const n = freshJobs(found, jobs, finder.dismissed).length;
-      toast.ok(`${n} new internship${n === 1 ? "" : "s"} found across ${mergeBoards(boards, r.boards).length} career boards.`);
+      const newKeys = freshJobs(found, jobs, finder.dismissed).map((f) => f.key);
       if (r.warnings.length) toast.info(r.warnings.slice(0, 2).join(" · "));
+      const rv = await reviewPending({ quiet: true });
+      toast.ok(`${newKeys.length} new internship${newKeys.length === 1 ? "" : "s"} across ${mergeBoards(boards, r.boards).length} career boards. ${summarize(newKeys, rv?.added ?? 0)}.`);
     } catch (e) {
       toast.err((e as Error).message);
     } finally {
@@ -79,11 +121,19 @@ export function JobFinder() {
     }
   };
 
-  const searchLinkedIn = async (watch: boolean) => {
-    setApply((a) => ({ ...a, finder: { ...a.finder, terms, years, location } }));
+  /** LinkedIn / Handshake: the extension reads up to 30 new postings in your own browser (ids you have are skipped). */
+  const searchSite = async (site: "linkedin" | "handshake", watch: boolean) => {
+    if (askSignIn("search for jobs")) return;
+    ran();
+    const name = site === "linkedin" ? "LinkedIn" : "Handshake";
     try {
-      const r = await sendCommand<{ max: number }>("linkedinJobs", { terms: `${terms} ${years.join(" ")}`.trim(), location, max: 15, watch });
-      useFinderStatus.getState().set(`Reading up to ${r.max} LinkedIn jobs at a person's pace (about 10 seconds each)…`, true);
+      const have = knownIds(finder.found, finder.dismissed, jobs, site);
+      const q = `${terms} ${years.join(" ")}`.trim();
+      const r =
+        site === "linkedin"
+          ? await sendCommand<{ max: number }>("linkedinJobs", { terms: q, location, max: 30, watch, known: have })
+          : await sendCommand<{ max: number }>("handshakeJobs", { url: handshakeJobsUrl(q), max: 30, watch, known: have });
+      useFinderStatus.getState().set(`Reading up to ${r.max} new ${name} jobs at a person's pace (about 10 seconds each); the AI reviews them as they come in…`, true);
     } catch (e) {
       toast.err((e as Error).message);
     }
@@ -91,22 +141,21 @@ export function JobFinder() {
 
   const track = (list: FoundJob[]) => {
     const now = new Date().toISOString();
-    const add: JobApplication[] = list.map((f) => ({
-      id: uid("job"),
-      company: f.company,
-      role: f.title,
-      url: f.url,
-      applyUrl: f.applyUrl,
-      linkedinJobId: f.linkedinJobId,
-      description: f.description,
-      location: f.location,
-      status: "saved",
-      createdAt: now,
-    }));
+    const add = list.map((f) => trackedFrom(f, now));
     setApply((a) => ({ ...a, jobs: [...add, ...a.jobs] }));
     setPicked(new Set());
     toast.ok(`Tracking ${add.length} job${add.length === 1 ? "" : "s"}. Tick them below and press Fill selected when you're ready.`);
   };
+  /** "This should be Apply": track it on My list, and the reason becomes a rule. */
+  const overrule = (f: FoundJob) =>
+    setAsk({
+      title: `Track ${f.company} · ${f.title}`,
+      placeholder: "e.g. rotational finance programs at banks count as banking",
+      act: (why) => {
+        if (why) addReviewRule(`Should apply: ${f.company} "${f.title}". ${why}`);
+        track([f]);
+      },
+    });
   const dismiss = (keys: string[]) => {
     setApply((a) => ({ ...a, finder: { ...a.finder, dismissed: [...new Set([...a.finder.dismissed, ...keys])].slice(-2000) } }));
     setPicked(new Set());
@@ -118,17 +167,18 @@ export function JobFinder() {
       else n.delete(k);
       return n;
     });
-  const chosen = fresh.filter((f) => picked.has(f.key));
+  const chosen = current.filter((f) => picked.has(f.key));
 
   return (
-    <Card>
+    <Card id="find-jobs" className="scroll-mt-20">
       <CardHeader
         title="Find jobs"
         sub={
           <>
             Internships on the banks&apos; own career boards (Workday, Greenhouse, Lever) and a Google search over them
-            {features.linkedinJobs ? ", plus LinkedIn Jobs from your browser" : ""}. {boards.length ? `${boards.length} career boards known so far` : "Career boards are learned as you search and track jobs"}
-            {finder.at ? ` · last searched ${relDays(finder.at)}` : ""}.
+            {features.linkedinJobs || features.handshakeJobs ? `, plus ${[features.linkedinJobs && "LinkedIn", features.handshakeJobs && "Handshake"].filter(Boolean).join(" and ")} from your browser` : ""}. The AI
+            reviews each one and adds the ones you want. {boards.length ? `${boards.length} career boards known so far` : "Career boards are learned as you search and track jobs"}
+            {finder.lastRunAt ?? finder.at ? ` · last searched ${relDays((finder.lastRunAt ?? finder.at)!)}` : ""}.
           </>
         }
       />
@@ -158,20 +208,57 @@ export function JobFinder() {
             Find jobs
           </Button>
           {features.linkedinJobs && (
-            <Button variant="brass" icon={<Globe className="size-3.5" />} disabled={liStatus.running} onClick={() => searchLinkedIn(true)}>
-              Search LinkedIn Jobs
+            <Button variant="brass" icon={<Globe className="size-3.5" />} disabled={liStatus.running} onClick={() => searchSite("linkedin", true)}>
+              Search LinkedIn
+            </Button>
+          )}
+          {features.handshakeJobs && (
+            <Button variant="brass" icon={<GraduationCap className="size-3.5" />} disabled={liStatus.running} onClick={() => searchSite("handshake", true)}>
+              Search Handshake
             </Button>
           )}
         </div>
       </div>
-      {liStatus.text && <p className={cn("px-4 pb-3 text-[12.5px]", liStatus.running ? "text-ink-2" : "text-muted")}>LinkedIn: {liStatus.text}</p>}
+      {liStatus.text && <p className={cn("px-4 pb-3 text-[12.5px]", liStatus.running ? "text-ink-2" : "text-muted")}>{liStatus.text}</p>}
+      <details className="group border-t border-line" open={rulesOpen} onToggle={(e) => setRulesOpen((e.target as HTMLDetailsElement).open)}>
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-ink [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="size-4 text-muted transition-transform group-open:rotate-90" />
+          <Sparkles className="size-3.5 text-brass" /> What jobs I want
+          <span className="font-normal text-muted">
+            {rules.roleTypes.filter((t) => t.verdict === "apply").length} role types to apply to · class of {rules.classYears.join(" / ") || "?"}
+            {stale ? ` · ${stale} to re-check` : ""}
+          </span>
+        </summary>
+        {rulesOpen && <JobRules stale={stale} onRecheck={() => review(true)} />}
+      </details>
       {!hasSearch && <p className="px-4 pb-3 text-[12.5px] text-muted">No Serper / Brave key: only the career boards Coverage already knows are listed. Add a key in Settings → Data to search for more.</p>}
 
       {fresh.length > 0 && (
         <>
-          <div className="flex flex-wrap items-center gap-2 border-y border-line bg-subtle px-4 py-2 text-[12.5px]">
+          <div className="flex flex-wrap items-center gap-2 border-y border-line px-4 py-2">
+            <Segmented
+              value={list}
+              onChange={(v: List) => {
+                setList(v);
+                setPicked(new Set());
+                setShowAll(false);
+              }}
+              options={[
+                ["review", `To look at ${lists.review.length}`],
+                ["pending", `Not reviewed ${lists.pending.length}`],
+                ["skipped", `Skipped by AI ${lists.skipped.length}`],
+              ]}
+            />
+            <div className="flex-1" />
+            {lists.pending.length > 0 && (
+              <Button size="sm" variant="brass" icon={<Sparkles className="size-3.5" />} loading={reviewing} onClick={() => review()}>
+                Review {lists.pending.length} with AI
+              </Button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-4 py-2 text-[12.5px]">
             <Checkbox checked={chosen.length === shown.length && shown.length > 0} onChange={(on) => setPicked(new Set(on ? shown.map((f) => f.key) : []))} label="Select all shown" />
-            <span className="text-muted">{chosen.length ? `${chosen.length} selected` : `${fresh.length} new`}</span>
+            <span className="text-muted">{chosen.length ? `${chosen.length} selected` : `${current.length} here`}</span>
             <div className="flex-1" />
             <Button size="sm" variant="primary" disabled={!chosen.length} onClick={() => track(chosen)}>
               Track {chosen.length || ""}
@@ -191,7 +278,17 @@ export function JobFinder() {
                     <span className="font-medium text-ink">{f.company}</span>
                     <span className="text-ink-2">{f.title}</span>
                     {known.has(canonBank(f.company)) && <Badge tone="green" className="px-1.5 py-0 text-[10.5px]">on your list</Badge>}
+                    {(() => {
+                      const v = verdictOf(f);
+                      return v ? (
+                        <Badge tone={VERDICT_TONE[v.verdict]} className="px-1.5 py-0 text-[10.5px]">
+                          {v.roleLabel}
+                          {f.review!.classYears.length ? ` · class of ${f.review!.classYears.join("/")}` : " · year unclear"}
+                        </Badge>
+                      ) : null;
+                    })()}
                   </div>
+                  {f.review && <p className="mt-0.5 text-[12px] text-ink-2">{verdictOf(f)?.why}</p>}
                   <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11.5px] text-muted">
                     <span>{SOURCE[f.source]}</span>
                     {f.location && <span>{f.location}</span>}
@@ -202,8 +299,8 @@ export function JobFinder() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-                  <Button size="sm" variant="brass" onClick={() => track([f])}>
-                    Track
+                  <Button size="sm" variant="brass" onClick={() => (list === "skipped" ? overrule(f) : track([f]))}>
+                    {list === "skipped" ? "Should apply" : "Track"}
                   </Button>
                   <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" title="Not interested" aria-label="Not interested" onClick={() => dismiss([f.key])}>
                     <X className="size-3.5" />
@@ -212,13 +309,14 @@ export function JobFinder() {
               </li>
             ))}
           </ul>
-          {fresh.length > shown.length && (
+          {current.length > shown.length && (
             <button className="w-full border-t border-line px-4 py-2 text-[12.5px] font-medium text-navy hover:bg-subtle" onClick={() => setShowAll(true)}>
-              Show all {fresh.length}
+              Show all {current.length}
             </button>
           )}
         </>
       )}
+      <WhyModal ask={ask} onClose={() => setAsk(null)} />
     </Card>
   );
 }

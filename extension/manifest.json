@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Coverage – IB Networking",
   "short_name": "Coverage",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Track LinkedIn bankers and jobs in Coverage, and fill job applications from your saved info. You review and submit.",
   "homepage_url": "https://banker-dashboard-three.vercel.app",
   "permissions": [
@@ -31,6 +31,7 @@
     "https://*.avature.net/*",
     "https://*.workable.com/*",
     "https://www.linkedin.com/*",
+    "https://*.joinhandshake.com/*",
     "<all_urls>"
   ],
   "background": {

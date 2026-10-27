@@ -3,6 +3,7 @@
 import { blobs, useStore } from "./store";
 import { requireAccount } from "./session";
 import { allocateRow, applyPatches, blankTablesPatches, buildWorkbook, contactPatches, detectRegion, locationTeamDropdowns, mergePatches, parseSnapshots, parseWorkbook, referralColumns, splitLocationTeamPatches, type Patches } from "./workbook";
+import { jobPatches, tierLookup } from "./jobSheet";
 import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "./locationTeam";
 import { reconcileTitle } from "./titles";
 import { callApi } from "./api";
@@ -185,7 +186,7 @@ export async function downloadBlankCopy() {
 
 export function currentPatches() {
   const s = useStore.getState();
-  return mergePatches(contactPatches(s.contacts, s.snapshots), s.patches);
+  return mergePatches(contactPatches(s.contacts, s.snapshots), jobPatches(s.apply.jobs, s.snapshots, tierLookup(s.targets)), s.patches);
 }
 
 /** A save or an Excel re-read is running (they both replace the baseline, so never at the same time). */

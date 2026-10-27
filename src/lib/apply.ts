@@ -9,6 +9,7 @@
  */
 
 import type { Board, FoundJob } from "./jobFinder";
+import type { JobReview, ReviewRules } from "./jobReview";
 
 export type JobStatus = "saved" | "applying" | "submitted" | "interview" | "offer" | "rejected" | "withdrawn";
 
@@ -31,6 +32,14 @@ export interface JobApplication {
   applyUrl?: string;
   /** LinkedIn's job id, when the job came from "Track this job" (so it isn't added twice). */
   linkedinJobId?: string;
+  /** Handshake's job id (found by the Handshake reader). */
+  handshakeJobId?: string;
+  /** "ai" = added by the AI job review: shown under "Added by AI" until you Keep it (then it's on My list). */
+  addedBy?: "ai";
+  /** The AI's review it was added on. */
+  review?: JobReview;
+  /** Its row on the workbook's applications tab (My list jobs only). */
+  sheetRef?: { sheet: string; row: number };
   /** The job description as captured (≤ 6,000 characters): what the job is, for AI answers. */
   description?: string;
   location?: string;
@@ -84,6 +93,10 @@ export interface JobFinderState {
   terms?: string;
   years?: number[];
   location?: string;
+  /** What you want (role types, class years, learned rules, reminder). Undefined = the defaults (`jobReview.rulesOf`). */
+  rules?: ReviewRules;
+  /** When you last pressed a search button (the 9 PM text reminds you when it's been a while). */
+  lastRunAt?: string;
 }
 
 export const EMPTY_FINDER: JobFinderState = { found: [], dismissed: [], boards: [] };
@@ -159,6 +172,8 @@ export interface WritingSample {
 export interface ApplyResume {
   id: string;
   name: string;
+  /** The class year this version is for (the owner's "junior" resume = 2028): postings only open to that year use it. */
+  classYear?: number;
   size: number;
   addedAt: string;
 }
@@ -173,6 +188,8 @@ export interface ApplyState {
   /** The job you last clicked "Autofill" on, so a fill on that site is filed under it. */
   activeJob?: { id: string; at: string };
   finder: JobFinderState;
+  /** The last "Fill selected" run: when every job in it has finished, one WhatsApp text says what's ready (mass apply). */
+  batch?: { ids: string[]; at: string; texted?: boolean };
   /** The extension's saved logins, still encrypted with your PIN (synced through your account; nobody else can read them). */
   vault?: { blob: { v: 1; salt: string; iv: string; data: string } | null; at: string };
 }

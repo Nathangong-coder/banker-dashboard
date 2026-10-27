@@ -39,6 +39,8 @@ const Body = z.object({
     )
     .max(400)
     .optional(),
+  /** The "press Search" reminder: null = off. */
+  jobRun: z.object({ lastAt: z.string().max(40).optional(), everyDays: z.number().int().min(1).max(14) }).nullable().optional(),
   /** Reply texts the dashboard has read (dropped from the server). */
   trackAck: z.array(z.object({ contactId: z.string().max(200), ids: z.array(z.string().max(100)).max(50) })).max(400).default([]),
   /** Every send the dashboard wants queued. Queued sends missing from this list are cancelled. */
@@ -61,6 +63,8 @@ export async function POST(req: Request) {
       throw new HttpError(400, `Unknown time zone ${b.tz}.`);
     }
     const next = { ...a, tz: b.tz, ...(b.digests ? { digests: Object.fromEntries(Object.entries(b.digests).slice(0, 31)) } : {}), ...(b.people ? { people: b.people } : {}), ...(b.track ? { track: b.track } : {}) };
+    if (b.jobRun === null) delete next.jobRun;
+    else if (b.jobRun) next.jobRun = b.jobRun;
     if (b.whatsapp === null) delete next.whatsapp;
     else if (b.whatsapp) next.whatsapp = { phone: seal(b.whatsapp.phone), apiKey: seal(b.whatsapp.apiKey) };
     await saveAccount(next);

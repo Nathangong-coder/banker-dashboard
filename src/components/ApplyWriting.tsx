@@ -231,6 +231,23 @@ export function ApplyResumes() {
               <li key={r.id} className="flex items-center gap-2 px-4 py-2.5 text-[13px]">
                 <FileText className="size-3.5 text-brass" />
                 <span className="min-w-0 flex-1 truncate font-medium">{r.name}</span>
+                {/* Postings only open to this class year go out with this version (the AI job review picks it). */}
+                <select
+                  className="h-7 rounded-md border border-line-2 bg-panel px-1.5 text-[12px] text-ink-2"
+                  aria-label={`Class year ${r.name} is for`}
+                  value={r.classYear ?? ""}
+                  onChange={(e) => setApply((a) => ({ ...a, resumes: a.resumes.map((x) => (x.id === r.id ? { ...x, classYear: Number(e.target.value) || undefined } : x)) }))}
+                >
+                  <option value="">Any class year</option>
+                  {[0, 1, 2, 3].map((d) => {
+                    const y = new Date().getFullYear() + d;
+                    return (
+                      <option key={y} value={y}>
+                        For class of {y} postings
+                      </option>
+                    );
+                  })}
+                </select>
                 <span className="text-[11.5px] text-muted">
                   {Math.round(r.size / 1024)} KB · {fmtDate(r.addedAt)}
                 </span>

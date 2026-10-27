@@ -11,8 +11,9 @@
  *   3. LinkedIn Jobs, read by the extension in your own browser (opt-in, test build only; see extension/README.md).
  */
 import { canonBank } from "./banks";
+import type { JobReview } from "./jobReview";
 
-export type JobSource = "workday" | "greenhouse" | "lever" | "search" | "linkedin";
+export type JobSource = "workday" | "greenhouse" | "lever" | "search" | "linkedin" | "handshake";
 
 export interface FoundJob {
   /** Stable id: the posting's address without tracking parameters. */
@@ -28,7 +29,10 @@ export interface FoundJob {
   description?: string;
   applyUrl?: string;
   linkedinJobId?: string;
+  handshakeJobId?: string;
   foundAt: string;
+  /** The AI's read of it (stored, so a job is never sent to the AI twice). */
+  review?: JobReview;
 }
 
 /** A career board Coverage can list jobs from. */
@@ -90,6 +94,8 @@ export function jobKey(raw: string): string {
     for (const p of [...u.searchParams.keys()]) if (/^(utm_|source|src|ref|gh_src|lever-|trk|refId|trackingId)/i.test(p)) u.searchParams.delete(p);
     const li = u.pathname.match(/\/jobs\/view\/(\d+)/);
     if (/(^|\.)linkedin\.com$/i.test(u.hostname) && li) return `linkedin:${li[1]}`;
+    const hs = u.pathname.match(/\/(?:stu\/)?(?:jobs|job-search)\/(\d+)/);
+    if (/(^|\.)joinhandshake\.com$/i.test(u.hostname) && hs) return `handshake:${hs[1]}`;
     return `${u.hostname.toLowerCase()}${u.pathname.replace(/\/+$/, "")}${u.search}`;
   } catch {
     return raw.trim().toLowerCase();
@@ -171,6 +177,7 @@ export interface TrackedLike {
   url: string;
   applyUrl?: string;
   linkedinJobId?: string;
+  handshakeJobId?: string;
   company: string;
   role: string;
 }
@@ -181,6 +188,7 @@ export function freshJobs(found: FoundJob[], tracked: TrackedLike[], dismissed: 
   for (const j of tracked) {
     for (const u of [j.url, j.applyUrl]) if (u) keys.add(jobKey(u));
     if (j.linkedinJobId) keys.add(`linkedin:${j.linkedinJobId}`);
+    if (j.handshakeJobId) keys.add(`handshake:${j.handshakeJobId}`);
     keys.add(`${canonBank(j.company)}|${j.role.trim().toLowerCase()}`);
   }
   const out: FoundJob[] = [];
@@ -208,4 +216,26 @@ export function linkedinJobsUrl(terms: string, location: string): string {
   u.searchParams.set("f_TPR", "r2592000");
   u.searchParams.set("f_E", "1");
   return u.toString();
+}
+
+/** A Handshake job search address for the extension's opt-in job reader. */
+export function handshakeJobsUrl(terms: string): string {
+  const u = new URL("https://app.joinhandshake.com/job-search");
+  u.searchParams.set("query", terms.trim() || "summer analyst");
+  u.searchParams.set("per_page", "25");
+  return u.toString();
+}
+
+/** Ids of every job you already have (found, dismissed, tracked), so the readers skip them without reading. */
+export function knownIds(found: FoundJob[], dismissed: string[], tracked: TrackedLike[], site: "linkedin" | "handshake"): string[] {
+  const out = new Set<string>();
+  const add = (k: string) => k.startsWith(`${site}:`) && out.add(k.slice(site.length + 1));
+  for (const f of found) add(f.key);
+  for (const k of dismissed) add(k);
+  for (const j of tracked) {
+    if (site === "linkedin" && j.linkedinJobId) out.add(j.linkedinJobId);
+    if (site === "handshake" && j.handshakeJobId) out.add(j.handshakeJobId);
+    for (const u of [j.url, j.applyUrl]) if (u) add(jobKey(u));
+  }
+  return [...out].slice(-3000);
 }

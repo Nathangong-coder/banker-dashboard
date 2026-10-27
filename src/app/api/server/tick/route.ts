@@ -5,7 +5,7 @@ import { verifyQstash } from "@/lib/server/jobs";
 import { trackAccount, trackStates, type TrackState } from "@/lib/server/gmailTrack";
 import { planItems } from "@/lib/server/tonight";
 import { sendWhatsApp } from "@/lib/server/whatsapp";
-import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, nextTextDay, type CallPerson, type DigestItem } from "@/lib/digestFormat";
+import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, jobRunLine, nextTextDay, type CallPerson, type DigestItem } from "@/lib/digestFormat";
 import { looksLikeChat, matchEvent } from "@/lib/calendarMatch";
 import { followUpTiming, reminderDue } from "@/lib/infoSessions";
 
@@ -90,7 +90,10 @@ async function nightText(a: Account, app: string) {
   });
   if (toLog.length || (!met.length && items.some((i) => i.label === LABELS.thankToday))) extra.push(...afterCallLines(toLog, app, day));
   if (cal.note) extra.push(cal.note);
-  const messages = items.length || toLog.length ? digestMessages(items, extra) : [];
+  // Text nights also remind you to search for jobs when it's been a while (never on its own on an off night).
+  const jobLine = textDay ? jobRunLine(a.jobRun, day, app) : null;
+  if (jobLine) extra.push(jobLine);
+  const messages = items.length || toLog.length || jobLine ? digestMessages(items, extra) : [];
   if (!messages.length) return false;
   try {
     for (let i = 0; i < messages.length; i++) {

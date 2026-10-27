@@ -114,27 +114,28 @@ $("wipe").addEventListener("click", async () => {
 });
 showVault();
 
-/* LinkedIn job search (test build only; the store build strips this section and has no LinkedIn access) */
-const li = $("liOn");
-if (li) {
-  const LINKEDIN = "https://www.linkedin.com/*";
+/* LinkedIn / Handshake job search (test build only; the store build strips these sections and has no access to either site) */
+function siteToggle(box, status, origin, flag, button) {
+  if (!box) return;
   const show = async () => {
-    const { linkedinAgent } = await chrome.storage.local.get("linkedinAgent");
-    li.checked = linkedinAgent === true && (await chrome.permissions.contains({ origins: [LINKEDIN] }).catch(() => false));
+    const flags = await chrome.storage.local.get(flag);
+    box.checked = flags[flag] === true && (await chrome.permissions.contains({ origins: [origin] }).catch(() => false));
   };
-  li.addEventListener("change", () => {
-    if (li.checked) {
+  box.addEventListener("change", () => {
+    if (box.checked) {
       // Asked straight from the click (permission requests need the gesture).
-      chrome.permissions.request({ origins: [LINKEDIN] }).then(async (ok) => {
-        await chrome.storage.local.set({ linkedinAgent: ok });
-        $("liStatus").textContent = ok ? "On. Reload your Coverage tab to see “Search LinkedIn Jobs”." : "Not allowed.";
+      chrome.permissions.request({ origins: [origin] }).then(async (ok) => {
+        await chrome.storage.local.set({ [flag]: ok });
+        status.textContent = ok ? `On. Reload your Coverage tab to see “${button}”.` : "Not allowed.";
         show();
       });
     } else {
-      chrome.storage.local.set({ linkedinAgent: false });
-      chrome.permissions.remove({ origins: [LINKEDIN] }).catch(() => {});
-      $("liStatus").textContent = "Off.";
+      chrome.storage.local.set({ [flag]: false });
+      chrome.permissions.remove({ origins: [origin] }).catch(() => {});
+      status.textContent = "Off.";
     }
   });
   show();
 }
+siteToggle($("liOn"), $("liStatus"), "https://www.linkedin.com/*", "linkedinAgent", "Search LinkedIn");
+siteToggle($("hsOn"), $("hsStatus"), "https://*.joinhandshake.com/*", "handshakeAgent", "Search Handshake");

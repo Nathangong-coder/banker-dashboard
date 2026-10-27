@@ -5,10 +5,11 @@ import { create } from "zustand";
 import { blobs, useStore } from "./store";
 import { callApi } from "./api";
 import { aiReady } from "./keys";
-import { knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
+import { FILL_LABELS, knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
 import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
 import { documentText } from "./fileText";
+import { reviewPending, summarize } from "./jobReviewRun";
 
 /**
  * The dashboard's half of the extension bridge (extension/content/dashboard.js is the other half).
@@ -19,9 +20,10 @@ import { documentText } from "./fileText";
  *             plus AI answers for open questions) and your resume file for upload fields.
  *   submitted { url } → marks the job as submitted.
  *   fillStatus { jobId, status, note, needs } → how a "Fill selected" job is going (1.3).
- *   foundJob / finderStatus → the opt-in LinkedIn job search's finds and progress (1.3, test build).
+ *   foundJob / finderStatus → the opt-in LinkedIn / Handshake job readers' finds and progress (test build); each
+ *             find is reviewed by the AI (lib/jobReviewRun.ts) and "apply" ones are added to the tracker.
  *   vault { op: get | put } → the extension's PIN-encrypted saved logins, synced through the account.
- * And it sends the extension commands (`sendCommand`): fillJobs, focusJob, linkedinJobs. The extension's worker
+ * And it sends the extension commands (`sendCommand`): fillJobs, focusJob, linkedinJobs, handshakeJobs. The extension's worker
  * checks they come from the dashboard address set in its Options.
  * Your application info never leaves this page except as the values for the fields the extension scanned. The job
  * page itself has no way to reach this: only the extension's content script on THIS origin posts here.
@@ -37,6 +39,7 @@ const JUST_CLICKED = 30 * 60 * 1000;
 export interface ExtensionFeatures {
   fillJobs?: boolean;
   linkedinJobs?: boolean;
+  handshakeJobs?: boolean;
 }
 
 export const useExtension = create<{ version?: string; features: ExtensionFeatures; setVersion: (v: string, f: ExtensionFeatures) => void }>((set) => ({
@@ -52,7 +55,7 @@ export const useFinderStatus = create<{ text?: string; running: boolean; set: (t
 
 let cmdSeq = 0;
 /** Ask the extension to do something (only these commands exist; see extension/content/dashboard.js). */
-export function sendCommand<T = unknown>(type: "fillJobs" | "focusJob" | "linkedinJobs", payload: unknown): Promise<T> {
+export function sendCommand<T = unknown>(type: "fillJobs" | "focusJob" | "linkedinJobs" | "handshakeJobs", payload: unknown): Promise<T> {
   const id = `cmd${Date.now()}_${cmdSeq++}`;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -262,16 +265,22 @@ function fillStatus(payload: unknown) {
     ),
   }));
   if (status === "ready") toast.ok(`${job.company}: filled up to review. Check it and submit it yourself.`);
+  if (DONE.has(status)) void batchDone();
   if (status === "signin" || status === "account") toast.info(`${job.company}: ${str(p.note, 200)}`);
   return { ok: true };
 }
 
-/** A job the LinkedIn job search read (untrusted: it comes from a web page). Added to finds, not tracked. */
+/** Finds of the current LinkedIn / Handshake run (for the end-of-run summary). */
+let runKeys: string[] = [];
+let reviewTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** A job the LinkedIn / Handshake reader read (untrusted: it comes from a web page). Added to finds, then reviewed. */
 function foundJob(payload: unknown) {
   const p = (payload ?? {}) as Record<string, unknown>;
-  const id = str(p.linkedinJobId, 20);
-  if (!/^\d{5,15}$/.test(id)) return { ok: false };
-  const url = `https://www.linkedin.com/jobs/view/${id}/`;
+  const site = p.site === "handshake" ? "handshake" : "linkedin";
+  const id = str(site === "handshake" ? p.handshakeJobId : p.linkedinJobId, 20);
+  if (!/^\d{3,15}$/.test(id)) return { ok: false };
+  const url = site === "handshake" ? `https://app.joinhandshake.com/jobs/${id}` : `https://www.linkedin.com/jobs/view/${id}/`;
   const apply = str(p.applyUrl, 1000);
   const job: FoundJob = {
     key: jobKey(url),
@@ -279,21 +288,74 @@ function foundJob(payload: unknown) {
     title: str(p.title, 200),
     url,
     location: str(p.location, 120) || undefined,
-    source: "linkedin",
+    source: site,
     description: str(p.description, 6000) || undefined,
-    applyUrl: /^https:\/\//.test(apply) ? apply : undefined,
-    linkedinJobId: id,
+    applyUrl: /^https:\/\//.test(apply) && !/^https:\/\/([a-z0-9-]+\.)*(linkedin|joinhandshake)\.com\//i.test(apply) ? apply : undefined,
+    ...(site === "handshake" ? { handshakeJobId: id } : { linkedinJobId: id }),
+    posted: str(p.posted, 60) || undefined,
     foundAt: new Date().toISOString(),
   };
-  useStore.getState().setApply((a) => ({ ...a, finder: { ...a.finder, found: [job, ...a.finder.found.filter((f) => f.key !== job.key)].slice(0, 300) } }));
+  useStore.getState().setApply((a) => {
+    const prev = a.finder.found.find((f) => f.key === job.key);
+    // A stored review is kept: the same job is never sent to the AI twice.
+    const merged = prev ? { ...job, review: prev.review, foundAt: prev.foundAt } : job;
+    return { ...a, finder: { ...a.finder, found: [merged, ...a.finder.found.filter((f) => f.key !== job.key)].slice(0, 400) } };
+  });
+  runKeys.push(job.key);
+  // Review as jobs arrive, a few at a time.
+  clearTimeout(reviewTimer);
+  reviewTimer = setTimeout(() => void reviewPending({ quiet: true }), 8000);
   return { ok: true };
 }
 
 function finderStatus(payload: unknown) {
   const p = (payload ?? {}) as Record<string, unknown>;
-  useFinderStatus.getState().set(str(p.text, 300), p.done !== true);
-  if (p.done === true && p.text) toast.info(str(p.text, 300));
+  const text = str(p.text, 300);
+  useFinderStatus.getState().set(text, p.done !== true);
+  if (p.done === true) {
+    const keys = [...new Set(runKeys)];
+    runKeys = [];
+    clearTimeout(reviewTimer);
+    if (text) toast.info(text);
+    if (keys.length)
+      void reviewPending({ quiet: true }).then((r) => {
+        const line = summarize(keys, r?.added ?? 0);
+        useFinderStatus.getState().set(`${text} ${line}.`, false);
+        toast.ok(line);
+      });
+  }
   return { ok: true };
+}
+
+const DONE = new Set<FillStatus>(["ready", "needs_you", "signin", "account", "access", "error", "stopped"]);
+
+/**
+ * Mass apply: once every job of the last Fill selected run has finished, one WhatsApp text says how many are ready to
+ * review and submit and what the rest need (owner, 2026-10-25). Needs the WhatsApp connection (Follow-ups → Reminders).
+ */
+async function batchDone() {
+  const st = useStore.getState();
+  const b = st.apply.batch;
+  if (!b || b.texted) return;
+  const jobs = b.ids.map((id) => st.apply.jobs.find((j) => j.id === id)).filter((j): j is JobApplication => !!j);
+  if (!jobs.length || jobs.some((j) => !j.fill || !DONE.has(j.fill.status) || j.fill.at < b.at)) return;
+  st.setApply((a) => ({ ...a, batch: a.batch && { ...a.batch, texted: true } }));
+  const ready = jobs.filter((j) => j.fill!.status === "ready");
+  const rest = jobs.filter((j) => j.fill!.status !== "ready");
+  const lines = [
+    `*Applications filled* (${jobs.length})`,
+    `${ready.length} ready to review and submit${rest.length ? ` · ${rest.length} need you` : ""}.`,
+    ...rest.slice(0, 12).map((j) => `• ${j.company}: ${FILL_LABELS[j.fill!.status]}${j.fill!.note ? ` (${j.fill!.note.slice(0, 90)})` : ""}`),
+    `Review them: ${window.location.origin}/applications`,
+  ];
+  toast.ok(`All ${jobs.length} applications filled: ${ready.length} ready to review.`);
+  const k = st.settings.keys;
+  if (!k.whatsappPhone || !k.whatsappApiKey) return;
+  try {
+    await callApi("/api/notify", { channel: "whatsapp", title: "Applications filled", message: lines.join("\n"), whatsapp: { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } }, st.settings);
+  } catch (e) {
+    toast.err(`Couldn't text you the summary: ${(e as Error).message}`);
+  }
 }
 
 /**
@@ -326,7 +388,7 @@ export function useExtensionBridge(ready: boolean) {
       const m = e.data as Partial<Omit<Req, "kind">> & { kind?: string; version?: string; features?: ExtensionFeatures };
       if (!m || m.channel !== CHANNEL) return;
       if (m.kind === "hello" && typeof m.version === "string")
-        useExtension.getState().setVersion(m.version.slice(0, 20), { fillJobs: m.features?.fillJobs === true, linkedinJobs: m.features?.linkedinJobs === true });
+        useExtension.getState().setVersion(m.version.slice(0, 20), { fillJobs: m.features?.fillJobs === true, linkedinJobs: m.features?.linkedinJobs === true, handshakeJobs: m.features?.handshakeJobs === true });
       if (m.kind !== "request" || typeof m.id !== "string" || typeof m.type !== "string") return;
       const handler = HANDLERS[m.type];
       if (!handler) return reply(m.id, { ok: false, error: "Unknown request." });

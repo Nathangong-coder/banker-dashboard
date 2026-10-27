@@ -6,6 +6,7 @@ import { Columns2, Download, Eraser, FileSpreadsheet, Link2, Plus, Save, Sparkle
 import { useStore } from "@/lib/store";
 import { bankTabsSkipped, describeTabChanges, enrichContacts, ensureBankTabs, restorableTabLinks, restoreTabLinks, splitLocationTeamColumns, undoBankTabs } from "@/lib/actions";
 import { contactPatches, mergePatches, splitLocationTeamPatches } from "@/lib/workbook";
+import { jobPatches, tierLookup } from "@/lib/jobSheet";
 import { Button, Card, Menu, PageHeader, Progress, Segmented, toast } from "@/components/ui";
 import { ResetTrackerModal, WorkbookEmpty, useImportWorkbook, useSaveWorkbook } from "@/components/WorkbookControls";
 import { SheetGrid } from "@/components/SheetGrid";
@@ -37,9 +38,11 @@ function SheetInner() {
   const saver = useSaveWorkbook();
 
   const manual = useStore((s) => s.patches);
+  const jobs = useStore((s) => s.apply.jobs);
+  const targetsForTier = useStore((s) => s.targets);
   const patches = useMemo(
-    () => mergePatches(contactPatches(contacts, snapshots), manual),
-    [contacts, snapshots, manual],
+    () => mergePatches(contactPatches(contacts, snapshots), jobPatches(jobs, snapshots, tierLookup(targetsForTier)), manual),
+    [contacts, snapshots, manual, jobs, targetsForTier],
   );
   const activeSheet = sheet ?? snapshots.find((s) => contacts.some((c) => c.ref?.sheet === s.name))?.name ?? snapshots[0]?.name;
 

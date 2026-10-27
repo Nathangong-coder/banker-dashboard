@@ -11,6 +11,10 @@ import { canonBank } from "@/lib/banks";
 import { cn, fmtDate, relDays, uid } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Kpi, Menu, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
 import { JobFinder } from "@/components/JobFinder";
+import { WhyModal } from "@/components/JobRules";
+import { addReviewRule, assignSheetRows, currentRules } from "@/lib/jobReviewRun";
+import { judge } from "@/lib/jobReview";
+import { jobKey } from "@/lib/jobFinder";
 import { ApplyInfo } from "@/components/ApplyInfo";
 import { ApplyResumes, ApplyWriting } from "@/components/ApplyWriting";
 
@@ -118,18 +122,42 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
   const setApply = useStore((s) => s.setApply);
   const version = useExtension((s) => s.version);
   const features = useExtension((s) => s.features);
-  const [view, setView] = useState<"open" | "done" | "all">("open");
+  const [view, setView] = useState<"open" | "done" | "all" | "ai">("open");
+  const [ask, setAsk] = useState<Parameters<typeof WhyModal>[0]["ask"]>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [watch, setWatch] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
   const [draft, setDraft] = useState({ url: "", company: "", role: "", location: "", deadline: "" });
   const [now] = useState(() => Date.now());
+  const snapshots = useStore((s) => s.snapshots);
+  // My list jobs get a row on your spreadsheet's applications tab (written on the next Save).
+  useEffect(() => assignSheetRows(), [jobs, snapshots]);
 
   const update = (id: string, patch: Partial<JobApplication>) => setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)) }));
   const remove = (j: JobApplication) => {
     setApply((a) => ({ ...a, jobs: a.jobs.filter((x) => x.id !== j.id) }));
     toast.info(`Removed ${j.company}${j.role ? ` · ${j.role}` : ""}.`);
   };
+  /** "Added by AI" → My list (and onto your spreadsheet's applications tab). */
+  const keep = (list: JobApplication[]) => {
+    const ids = new Set(list.map((j) => j.id));
+    setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (ids.has(j.id) ? { ...j, addedBy: undefined } : j)) }));
+    toast.ok(`Moved ${list.length} job${list.length === 1 ? "" : "s"} to My list${useStore.getState().snapshots.length ? " (and your spreadsheet's applications tab, on the next Save)" : ""}.`);
+    setSelected(new Set());
+  };
+  /** Remove an AI-added job: asks why (the answer becomes a review rule) and never adds it again. */
+  const removeAi = (list: JobApplication[]) =>
+    setAsk({
+      title: list.length === 1 ? `Remove ${list[0].company} · ${list[0].role}` : `Remove ${list.length} jobs`,
+      placeholder: "e.g. no insurance companies' rotational programs",
+      act: (why) => {
+        if (why) addReviewRule(`Not for me: ${list.map((j) => `${j.company} "${j.role}"`).join("; ").slice(0, 160)}. ${why}`);
+        const ids = new Set(list.map((j) => j.id));
+        const keys = list.flatMap((j) => [j.url && jobKey(j.url), j.applyUrl && jobKey(j.applyUrl)].filter((k): k is string => !!k));
+        setApply((a) => ({ ...a, jobs: a.jobs.filter((x) => !ids.has(x.id)), finder: { ...a.finder, dismissed: [...new Set([...a.finder.dismissed, ...keys])].slice(-2000) } }));
+        setSelected(new Set());
+      },
+    });
 
   const add = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,11 +213,13 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
     [targets, jobs],
   );
 
-  const shown = jobs
-    .filter((j) => view === "all" || (view === "open" ? OPEN.includes(j.status) : !OPEN.includes(j.status)))
+  // My list = jobs you added or kept; "Added by AI" = the AI's adds you haven't kept or removed yet.
+  const mine = jobs.filter((j) => j.addedBy !== "ai");
+  const aiJobs = jobs.filter((j) => j.addedBy === "ai");
+  const shown = (view === "ai" ? aiJobs : mine.filter((j) => view === "all" || (view === "open" ? OPEN.includes(j.status) : !OPEN.includes(j.status))))
     .sort((a, b) => (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999") || b.createdAt.localeCompare(a.createdAt));
   const counts = {
-    open: jobs.filter((j) => OPEN.includes(j.status)).length,
+    open: mine.filter((j) => OPEN.includes(j.status)).length,
     submitted: jobs.filter((j) => j.status === "submitted").length,
     interview: jobs.filter((j) => j.status === "interview" || j.status === "offer").length,
     soon: jobs.filter((j) => OPEN.includes(j.status) && j.deadline && Date.parse(j.deadline) - now < 7 * 86_400_000 && Date.parse(j.deadline) >= now - 86_400_000).length,
@@ -204,11 +234,19 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
   const fillSelected = async () => {
     const list = picked.filter(fillable);
     if (!list.length) return toast.err("None of those has the bank's own https application link yet (a LinkedIn listing isn't enough).");
+    if (list.length > 50) return toast.err("Up to 50 at a time: select fewer.");
     const at = new Date().toISOString();
-    setApply((a) => ({ ...a, jobs: a.jobs.map((j) => (list.some((x) => x.id === j.id) ? { ...j, fill: { status: "queued", note: "Sent to the extension…", at } } : j)) }));
+    // Mass apply: when all of these finish, one WhatsApp text says what's ready (applyBridge.ts#batchDone).
+    setApply((a) => ({
+      ...a,
+      batch: { ids: list.map((j) => j.id), at },
+      jobs: a.jobs.map((j) => (list.some((x) => x.id === j.id) ? { ...j, fill: { status: "queued", note: "Sent to the extension…", at } } : j)),
+    }));
     try {
       await sendCommand("fillJobs", { jobs: list.map((j) => ({ id: j.id, url: fillable(j), company: j.company })), watch });
-      toast.ok(`Filling ${list.length} application${list.length === 1 ? "" : "s"} in a “Coverage” tab group${watch ? ", one at a time so you can watch" : ""}. Nothing gets submitted.`);
+      toast.ok(
+        `Filling ${list.length} application${list.length === 1 ? "" : "s"} in a “Coverage” tab group${watch ? ", one at a time so you can watch" : ", two at a time"}. Nothing gets submitted; you'll get a WhatsApp text when they're all done.`,
+      );
       setSelected(new Set());
     } catch (e) {
       toast.err((e as Error).message);
@@ -282,11 +320,22 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
             onChange={setView}
             options={[
               ["open", `To apply ${counts.open}`],
-              ["done", `Applied ${jobs.length - counts.open}`],
-              ["all", `All ${jobs.length}`],
+              ["done", `Applied ${mine.length - counts.open}`],
+              ["all", `My list ${mine.length}`],
+              ["ai", `Added by AI ${aiJobs.length}`],
             ]}
           />
           <div className="flex-1" />
+          {view === "ai" && picked.length > 0 && (
+            <>
+              <Button size="sm" variant="secondary" onClick={() => keep(picked)}>
+                Keep {picked.length}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => removeAi(picked)}>
+                Remove {picked.length}
+              </Button>
+            </>
+          )}
           {features.fillJobs ? (
             <>
               <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2" title="One tab at a time in front of you: it types visibly, with a Stop button on the page">
@@ -302,7 +351,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
         </div>
         {shown.length === 0 ? (
           <Empty icon={<BriefcaseBusiness className="size-6" />} title={jobs.length ? "Nothing here" : "No jobs tracked yet"}>
-            {jobs.length ? "Switch tabs above." : "Paste an application link above to start."}
+            {view === "ai" ? "Jobs the AI review adds land here. Press Find jobs above to search." : jobs.length ? "Switch tabs above." : "Paste an application link above to start."}
           </Empty>
         ) : (
           <div className="overflow-x-auto">
@@ -359,6 +408,13 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                             {j.lastFilledAt && <span>filled {relDays(j.lastFilledAt)}</span>}
                             {j.submittedAt && <span>submitted {fmtDate(j.submittedAt)}</span>}
                           </div>
+                          {j.review && j.addedBy === "ai" && (
+                            <p className="mt-0.5 pl-5 text-[12px] text-ink-2">
+                              <Sparkles className="mr-1 inline size-3 text-brass" />
+                              {judge(j.review, currentRules(), j.location).why}
+                              <span className="text-muted"> · {j.review.classYears.length ? `class of ${j.review.classYears.join("/")}` : "year unclear"}</span>
+                            </p>
+                          )}
                           {j.fill && <FillLine fill={j.fill} onShow={() => showTab(j)} />}
                         </td>
                         <td className="px-2 py-2.5">
@@ -410,15 +466,26 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
                         <td className="px-2 py-2.5">
                           <Select className="h-8 max-w-[150px] text-[12.5px]" value={j.resumeId ?? ""} aria-label="Resume to upload" onChange={(e) => update(j.id, { resumeId: e.target.value || undefined })}>
                             <option value="">{resumeName ? `Main (${resumeName})` : "Main resume"}</option>
-                            {resumes.map((r) => (
+                {resumes.map((r) => (
                               <option key={r.id} value={r.id}>
                                 {r.name}
+                                {r.classYear ? ` (class of ${r.classYear})` : ""}
                               </option>
                             ))}
                           </Select>
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center justify-end gap-1">
+                            {j.addedBy === "ai" && (
+                              <>
+                                <Button size="sm" variant="secondary" onClick={() => keep([j])}>
+                                  Keep
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => removeAi([j])}>
+                                  Remove
+                                </Button>
+                              </>
+                            )}
                             {OPEN.includes(j.status) && (
                               <Button size="sm" variant="brass" icon={<Wand2 className="size-3.5" />} onClick={() => autofill(j)} disabled={!webLink(j.url)}>
                                 Autofill
@@ -451,6 +518,8 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
           </div>
         )}
       </Card>
+
+      <WhyModal ask={ask} onClose={() => setAsk(null)} />
 
       {sheetApps.length > 0 && (
         <details className="group rounded-lg border border-line bg-panel">

@@ -125,23 +125,31 @@ export const isLinkedInWall = (url) => /linkedin\.com\/(checkpoint|authwall|logi
 
 /**
  * Injected into a LinkedIn Jobs search tab: scrolls the results list a little at a time (like reading it) and
- * returns the jobs listed: [{ id, title, company, location }]. Self-contained.
+ * returns the jobs listed that aren't in `known`: [{ id, title, company, location }]. Self-contained.
+ * LinkedIn's search list mostly carries the job id on the card (data-job-id / data-occludable-job-id) and links with
+ * ?currentJobId=, not /jobs/view/ links: all three are read.
  */
-export async function readLinkedInJobs(max) {
+export async function readLinkedInJobs(max, known) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const skip = new Set(known || []);
   const list = document.querySelector(".jobs-search-results-list, .scaffold-layout__list, [class*='jobs-search-results']") || document.scrollingElement;
   const seen = new Map();
+  const idOf = (el) =>
+    el.getAttribute("data-job-id") ||
+    el.getAttribute("data-occludable-job-id") ||
+    ((el.getAttribute("href") || "").match(/\/jobs\/view\/(\d+)|[?&]currentJobId=(\d+)/) || []).slice(1).find(Boolean);
   for (let round = 0; round < 8 && seen.size < max; round++) {
-    for (const a of document.querySelectorAll('a[href*="/jobs/view/"]')) {
-      const id = (a.getAttribute("href").match(/\/jobs\/view\/(\d+)/) || [])[1];
-      if (!id || seen.has(id)) continue;
+    for (const a of document.querySelectorAll('[data-job-id], [data-occludable-job-id], a[href*="/jobs/view/"], a[href*="currentJobId="]')) {
+      const id = idOf(a);
+      if (!id || !/^\d{5,15}$/.test(id) || seen.has(id) || skip.has(id)) continue;
       const card = a.closest("li, [data-job-id], [data-occludable-job-id]") || a.parentElement;
       const lines = clean(card?.innerText ?? "")
         .split(/\s{2,}|\n/)
         .map(clean)
         .filter(Boolean);
-      const title = clean((a.querySelector("strong, span[aria-hidden='true']") || a).innerText) || lines[0] || "";
+      const link = a.matches("a") ? a : card?.querySelector('a[href*="/jobs/"]') || a;
+      const title = clean((link.querySelector("strong, span[aria-hidden='true']") || link).innerText) || lines[0] || "";
       const company = clean(card?.querySelector("[class*='subtitle'], [class*='company']")?.innerText) || "";
       const location = clean(card?.querySelector("[class*='metadata'], [class*='location']")?.innerText) || "";
       seen.set(id, { id, title: title.slice(0, 200), company: company.slice(0, 120), location: location.slice(0, 120) });

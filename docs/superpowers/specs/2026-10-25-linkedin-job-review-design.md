@@ -163,3 +163,29 @@ For other users the class years default from their profile's graduation date: th
   for stored skipped jobs, and the UI details within the existing Applications page pattern.
 - Tests: pure logic (class-year conversion helpers if any, auto-add decision, dedupe, resume pick) in `check:jobs`;
   the click-through reader on a mock LinkedIn page in the headless harness, as for 1.3.
+
+## Added 2026-10-26: Handshake, the Excel tab, mass apply (owner: "build ASAP"; calls marked "my call")
+
+- **Class years:** the owner applies to Summer 2027 internships and doesn't mind class of 2028 or 2029, so both are
+  open and "year unclear" keeps the role's verdict (tagged "year unclear"); only a posting clearly for other years
+  (class of 2027, MBA, graduate students) is skipped (my call).
+- **Handshake** is a second source in the same pipeline (stored reads, AI review, auto-add). Opt-in in the extension's
+  Options, test build only, same risk note as LinkedIn (Handshake's terms forbid automated access): the reader opens a
+  Handshake job search in your own logged-in browser, reads each posting's page at a person's pace (same caps), and
+  stops at any sign-in. Most Handshake postings say **"Apply externally"**: Fill selected opens the Handshake page,
+  clicks that button (never "Apply" inside Handshake, never submit), follows the tab it opens (usually Workday) and
+  fills that like any other job. A posting that applies inside Handshake is "needs you" (my call: Handshake's own
+  apply is one click on a resume you pick; it stays yours).
+- **LinkedIn reader (my call, for speed):** keeps opening each job's own page (it reads the full description reliably)
+  instead of clicking cards in the pane; adds the job-id attributes, pages 2, 3…, skipping known ids, 30 per run,
+  90 per day.
+- **Excel:** every job on **My list** (added by you, or Kept from "Added by AI") gets a row on the workbook's
+  applications tab (the owner's `APP ('27)`: Program Type = role, Institution Name = firm, Institution Type = tier
+  when known, Application Link, Submitted Date, Status, Target Location), in the first numbered row with no firm, or
+  the existing row with the same firm + program. Status words follow the owner's: submitted → IN PROCESS, then
+  INTERVIEWING / OFFER / REJECTED / WITHDRAWN; a status typed in Excel that the dashboard doesn't know is never
+  overwritten, and a status is only moved forward. "Added by AI" jobs aren't written until Kept (keeps the sheet
+  free of jobs you'd prune). Written like every other dashboard edit: pending until you Save.
+- **Mass apply (first cut of step 2):** Fill selected takes up to 50 jobs, runs two background tabs at a time, and
+  when the last one finishes sends one WhatsApp text: "N ready to review and submit · M need you" with the reasons
+  and a link to Applications. You still review and click Submit on each.
