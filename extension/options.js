@@ -141,6 +141,16 @@ siteToggle($("liOn"), $("liStatus"), "https://www.linkedin.com/*", "linkedinAgen
 siteToggle($("hsOn"), $("hsStatus"), "https://*.joinhandshake.com/*", "handshakeAgent", "Search Handshake");
 siteToggle($("anySiteOn"), $("agentStatus"), "<all_urls>", "anySite", "Fill selected");
 
+/* Create accounts for me (test build): autoAccounts, off unless turned on. */
+const autoBox = $("autoAccountsOn");
+if (autoBox) {
+  chrome.storage.local.get("autoAccounts").then(({ autoAccounts }) => (autoBox.checked = autoAccounts === true));
+  autoBox.addEventListener("change", async () => {
+    await chrome.storage.local.set({ autoAccounts: autoBox.checked });
+    $("agentStatus").textContent = autoBox.checked ? "Accounts: on. Turn on and unlock saved logins too, so the passwords are kept." : "Accounts: off.";
+  });
+}
+
 /* The AI agent finishes applications (test build): prefs.fillAgent, on unless turned off. */
 const fillAgentBox = $("fillAgentOn");
 if (fillAgentBox) {

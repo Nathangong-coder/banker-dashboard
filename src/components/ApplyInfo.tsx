@@ -1,7 +1,9 @@
 "use client";
 
 import { ShieldCheck, UserRound } from "lucide-react";
+import { useState } from "react";
 import { useStore } from "@/lib/store";
+import { openVault } from "@/lib/vaultCrypto";
 import type { ApplyProfile } from "@/lib/apply";
 import { Button, Card, CardHeader, Field, Input, Select, Textarea, toast } from "./ui";
 
@@ -210,6 +212,84 @@ export function ApplyInfo() {
           {area("styleNotes", "How you write", 3, "e.g. Short sentences, specific examples, no buzzwords, confident but not stiff.", "Your writing samples (Writing tab) show it; this says it.")}
         </div>
       </Card>
+
+      <CreatedAccounts />
     </div>
+  );
+}
+
+/**
+ * Accounts the extension created on application sites ("Create accounts for me"). The passwords are only in the
+ * extension's PIN-locked saved logins (synced encrypted through your account): "Show password" asks for the PIN and
+ * opens the vault in this tab for 30 seconds (lib/vaultCrypto.ts). Nothing is stored unencrypted.
+ */
+function CreatedAccounts() {
+  const accounts = useStore((s) => s.apply.accounts);
+  const vault = useStore((s) => s.apply.vault);
+  const [asking, setAsking] = useState<string | null>(null);
+  const [pin, setPin] = useState("");
+  const [shown, setShown] = useState<{ key: string; password: string } | null>(null);
+  if (!accounts?.length) return null;
+  const reveal = async (origin: string, email: string) => {
+    if (!vault?.blob) return toast.err("Your saved logins haven't synced to this account yet: open the extension's Options once.");
+    try {
+      const logins = await openVault(vault.blob, pin);
+      const hit = logins.find((l) => l.origin === origin && l.username === email) ?? logins.find((l) => l.origin === origin);
+      if (!hit) return toast.err("That login isn't in your saved logins (it may have been deleted).");
+      setShown({ key: `${origin}|${email}`, password: hit.password });
+      setAsking(null);
+      setPin("");
+      setTimeout(() => setShown(null), 30_000);
+    } catch (e) {
+      toast.err((e as Error).message);
+    }
+  };
+  return (
+    <Card>
+      <CardHeader title="Accounts Coverage created" sub="Made on application sites with your email and a generated password. The passwords are kept in the extension's saved logins, locked with your PIN." />
+      <ul className="divide-y divide-line border-t border-line">
+        {accounts
+          .slice()
+          .reverse()
+          .map((a) => {
+            const key = `${a.origin}|${a.email}`;
+            return (
+              <li key={key} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
+                <span className="font-medium text-ink">{a.company ?? new URL(a.origin).hostname}</span>
+                <span className="text-muted">
+                  {new URL(a.origin).hostname} · {a.email} · {new Date(a.at).toLocaleDateString()}
+                  {a.verified ? " · email verified" : ""}
+                </span>
+                <div className="flex-1" />
+                {shown?.key === key ? (
+                  <>
+                    <code className="rounded bg-subtle px-1.5 py-0.5 text-[12px]">{shown.password}</code>
+                    <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(shown.password).then(() => toast.ok("Copied."))}>
+                      Copy
+                    </Button>
+                  </>
+                ) : asking === key ? (
+                  <form
+                    className="flex items-center gap-1.5"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void reveal(a.origin, a.email);
+                    }}
+                  >
+                    <Input type="password" autoFocus className="h-8 w-32" placeholder="Your PIN" value={pin} onChange={(e) => setPin(e.target.value)} aria-label="Saved-logins PIN" />
+                    <Button size="sm" variant="secondary" type="submit" disabled={pin.length < 6}>
+                      Show
+                    </Button>
+                  </form>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={() => setAsking(key)}>
+                    Show password
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+      </ul>
+    </Card>
   );
 }

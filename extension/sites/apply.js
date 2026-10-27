@@ -657,6 +657,55 @@ export function loginState() {
   return { kind: "none", signInSwitch };
 }
 
+/**
+ * Fills a create-account form (Workday and similar) with your email, a password Coverage generated and already saved
+ * in your vault, and your name when it's asked, ticks the form's own terms box, and presses "Create Account"
+ * (owner, 2026-10-26: "account creation on Workday … automated"; opt-in in Options). Only on the site the password was
+ * saved for; nothing else on the page is touched.
+ */
+export function createAccount(email, password, first, last, origin) {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  if (window.top !== window || location.origin !== origin) return { ok: false, why: "Not the saved site." };
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
+  };
+  const pw = [...document.querySelectorAll("input[type=password]")].filter(shown);
+  if (pw.length < 1) return { ok: false, why: "No password fields." };
+  const scope = pw[0].form || pw[0].closest("[role=dialog], form, section, main") || document;
+  const set = (el, v) => {
+    el.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.dispatchEvent(new Event("blur", { bubbles: true }));
+  };
+  const labelOf = (i) => clean(`${i.getAttribute("aria-label") || ""} ${i.id ? document.querySelector(`label[for="${CSS.escape(i.id)}"]`)?.innerText || "" : ""} ${i.name} ${i.id} ${i.autocomplete} ${i.placeholder || ""} ${i.getAttribute("data-automation-id") || ""}`).toLowerCase();
+  const inputs = [...scope.querySelectorAll("input")].filter((i) => shown(i) && !["password", "hidden", "checkbox", "radio", "submit", "button"].includes(i.type));
+  let filled = 0;
+  for (const i of inputs) {
+    if (i.value) continue;
+    const l = labelOf(i);
+    const v = i.type === "email" || /e-?mail|user ?name|login/.test(l) ? email : /first|given/.test(l) ? first : /last|family|surname/.test(l) ? last : "";
+    if (!v) continue;
+    set(i, v);
+    filled++;
+  }
+  for (const p of pw) set(p, password);
+  // The create-account form's own terms / privacy box (Workday's "I agree" under the password).
+  for (const c of [...scope.querySelectorAll("input[type=checkbox]")].filter((c) => (shown(c) || shown(c.closest("label") || c)) && !c.checked)) {
+    const t = clean(`${c.closest("label")?.innerText || ""} ${c.id ? document.querySelector(`label[for="${CSS.escape(c.id)}"]`)?.innerText || "" : ""} ${c.getAttribute("aria-label") || ""} ${c.getAttribute("data-automation-id") || ""}`);
+    if (/agree|terms|privacy|consent|acknowledge|createAccountCheckbox/i.test(t)) c.click();
+  }
+  const label = (b) => clean(b.innerText || b.value || b.getAttribute("aria-label") || "");
+  const wd = [...document.querySelectorAll('[data-automation-id="createAccountSubmitButton"]')].find(shown);
+  const candidates = [...scope.querySelectorAll("button, [role=button], input[type=submit]")].filter((b) => shown(b) && /^(create account|create my account|sign up|register|create)$/i.test(label(b)));
+  const btn = wd || (candidates.length === 1 ? candidates[0] : null);
+  if (!btn) return { ok: true, clicked: false, filled, why: "Filled it in; press Create Account yourself." };
+  btn.click();
+  return { ok: true, clicked: true, filled };
+}
+
 /** On a create-account page, press the "Sign in" link (for an account you already have). Fixed rule, nothing else. */
 export function switchToSignIn() {
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();

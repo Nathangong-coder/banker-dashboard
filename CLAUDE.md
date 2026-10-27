@@ -679,6 +679,13 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   education "End date" = graduation (`gradDate` may be a full date; month-only = the 15th), optional "additional
   information" questions left blank. Background fills: up to 4 at once in their own window, `autoDiscardable:false`,
   and page scripts wait through the worker (`cov-sleep`: hidden tabs' own timers drop to ~1/min after 5 min).
+- **1.10.0 accounts (owner, 2026-10-26; opt-in "Create accounts for me", test build):** `background.js#makeAccount` on a
+  signup page with no saved login: `newPassword()` → `vault.js#saveLogin` FIRST (vault must be on + unlocked) →
+  `sites/apply.js#createAccount` (email / name from `applyBridge#accountInfo`, the form's own terms box, Create Account)
+  → `accountCreated` → `apply.accounts`. Verify page → `applyBridge#verifyLink` polls Gmail ≤ 2 min only without a popup
+  (`gmail.ts#gmailReadableQuietly`), `appEmails.ts#pickVerificationLink` takes only an https link on the same site
+  (Workday family) → the tab opens it → back to the job → saved-login sign-in. My info → "Accounts Coverage created":
+  Show password = PIN → `lib/vaultCrypto.ts#openVault` in the tab for 30 s.
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

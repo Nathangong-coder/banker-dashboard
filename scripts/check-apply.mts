@@ -5,6 +5,7 @@
  */
 import { chooseResume } from "../src/lib/apply";
 import { coverLetterFrom, letterPdf } from "../src/lib/coverLetter";
+import { openVault } from "../src/lib/vaultCrypto";
 import { EMPTY_PROFILE, planFill, pickOption, sameJobSite, guessFromUrl, knownJobSite, parseJobCapture, type ApplyProfile, type FormField } from "../src/lib/apply";
 
 let failed = 0;
@@ -182,6 +183,20 @@ eq("two unlabelled file inputs → left for you", planFill([f("u", "file", ""), 
   eq("end date month / year / full date, essential functions, driver's license", got, { m: "June", y: "2029", d: "06/15/2029", ef: "Yes", dl: "Yes" });
   eq("license number never filled; optional extra left blank (not sent to the AI)", [pl.skipped.map((x) => x.id).sort(), pl.ai.length], [["dln", "x"], 0]);
   eq("a month-only graduation reads as the 15th", planFill([fs2[2]], { ...me, gradDate: "2029-06" }, { hasResume: true }).items[0]?.value, "06/15/2029");
+}
+
+// The dashboard opens the extension's vault with the PIN (same scheme as extension/vault.js).
+{
+  const b64 = (buf: ArrayBuffer | Uint8Array) => Buffer.from(buf instanceof Uint8Array ? buf : new Uint8Array(buf)).toString("base64");
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode("123456"), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 600_000 }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+  const logins = [{ origin: "https://gs.wd5.myworkdayjobs.com", username: "me@ucla.edu", password: "Xy7!generated" }];
+  const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(logins)));
+  const blob = { v: 1 as const, salt: b64(salt), iv: b64(iv), data: b64(data) };
+  eq("vault: right PIN opens it in the dashboard", (await openVault(blob, "123456"))[0]?.password, "Xy7!generated");
+  eq("vault: wrong PIN refused", await openVault(blob, "654321").then(() => "opened", (e: Error) => e.message), "Wrong PIN.");
 }
 
 // The AI agent's fill mode (extension 1.5): stops at the final submit, never creates accounts or deletes.

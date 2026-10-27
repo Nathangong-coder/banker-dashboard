@@ -7,7 +7,8 @@
 //   only, cleared when the browser closes, and not readable by content scripts or web pages.
 // - A login is used ONLY on the exact site (origin) it was saved for, only in a sign-in form, by fixed rules.
 //   No AI ever sees it, it never goes to the dashboard or any server, and Chrome's saved passwords are never read
-//   (there's no API for that). It never creates accounts.
+//   (there's no API for that). With "Create accounts for me" on (Options, test build), background.js#makeAccount
+//   saves a generated password here BEFORE using it on that site's create-account form.
 
 const ROUNDS = 600_000;
 const enc = new TextEncoder();

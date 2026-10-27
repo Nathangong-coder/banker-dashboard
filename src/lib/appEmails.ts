@@ -166,3 +166,26 @@ export function statusAfter(cur: JobStatus, kind: AppEmailKind): JobStatus {
   if (next === "rejected" || next === "offer") return cur === "offer" ? cur : next;
   return RANK[next] > RANK[cur] ? next : cur;
 }
+
+/**
+ * The verification / activation link in an email from an application site: only an https link on that same site (its
+ * registrable domain; Workday's family of domains for Workday) worded like a verification. Pure, for check:jobs.
+ */
+export function pickVerificationLink(html: string, text: string, siteHost: string): string | null {
+  const base = siteHost.split(".").slice(-2).join(".");
+  // Workday sends from myworkday.com while the site is myworkdayjobs.com / myworkdaysite.com.
+  const family = /^myworkday(jobs|site)?\.com$/.test(base) ? ["myworkday.com", "myworkdayjobs.com", "myworkdaysite.com", "workday.com"] : [base];
+  const links = [...html.matchAll(/href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].map((x) => ({ url: x[1].replace(/&amp;/g, "&"), label: x[2].replace(/<[^>]+>/g, " ") }));
+  for (const u of text.match(/https:\/\/[^\s<>"')]+/g) ?? []) links.push({ url: u, label: "" });
+  for (const l of links) {
+    let u: URL;
+    try {
+      u = new URL(l.url);
+    } catch {
+      continue;
+    }
+    const onSite = family.some((d) => u.hostname === d || u.hostname.endsWith(`.${d}`));
+    if (u.protocol === "https:" && onSite && /verif|activat|confirm|validate|registration/i.test(`${u.pathname}${u.search} ${l.label}`)) return u.href;
+  }
+  return null;
+}

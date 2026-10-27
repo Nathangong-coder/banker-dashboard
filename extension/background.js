@@ -19,9 +19,10 @@
 //
 // The job page never talks to the extension: it only gets values typed into its fields.
 import { getDashboard } from "./settings.js";
-import { loginFor } from "./vault.js";
+import { loginFor, saveLogin, vaultStatus } from "./vault.js";
 import {
   clickNext,
+  createAccount,
   fillForm,
   isBlockedSite,
   isMultiPageSite,
@@ -246,6 +247,45 @@ async function loaded(tabId) {
   return chrome.tabs.get(tabId);
 }
 
+/* ---------------- accounts (opt-in, test build; owner 2026-10-26) ---------------- */
+
+/** "Create accounts for me" (extension Options): off unless you turned it on. */
+async function autoAccountsOn() {
+  const { autoAccounts } = await chrome.storage.local.get("autoAccounts");
+  return autoAccounts === true;
+}
+
+/** A strong password: 20 characters with upper / lower / digit / symbol (what application sites require). */
+function newPassword() {
+  const sets = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%*?"];
+  const all = sets.join("");
+  const pick = (chars) => chars[crypto.getRandomValues(new Uint32Array(1))[0] % chars.length];
+  const out = [...sets.map(pick), ...Array.from({ length: 16 }, () => pick(all))];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out.join("");
+}
+
+/**
+ * Create an account on this site: your email and name from Coverage (My info), a new password saved to your vault
+ * first (so it's never lost), then the site's own create-account form. Returns { clicked } or { why }.
+ */
+async function makeAccount(tabId, url, job) {
+  const st = await vaultStatus();
+  if (!st.on || !st.hasPin) return { why: "To create accounts, turn on saved logins (extension Options) so the password Coverage makes is kept." };
+  if (!st.unlocked) return { why: "Unlock your saved logins (extension Options → enter your PIN) so Coverage can save the new password, then press Fill again." };
+  const me = await askDashboard("accountInfo", {}).catch(() => null);
+  if (!me?.email) return { why: "Add your email in Applications → My info, then press Fill again." };
+  const password = newPassword();
+  const origin = new URL(url).origin;
+  await saveLogin(url, me.email, password);
+  const r = await inTab(tabId, createAccount, [me.email, password, me.firstName ?? "", me.lastName ?? "", origin]);
+  await askDashboard("accountCreated", { jobId: job.id, origin, email: me.email, clicked: !!r?.clicked }).catch(() => {});
+  return r?.clicked ? { clicked: true } : { why: r?.why ?? "Filled the account form; press Create Account in that tab." };
+}
+
 /** All of a batch's tabs go in one "Coverage" tab group in the dashboard's window. */
 async function addToGroup(tabId) {
   try {
@@ -279,6 +319,9 @@ async function drive(tabId, job) {
   };
   let signInTries = 0;
   let started = false;
+  let created = false;
+  let verifyTries = 0;
+  const since = Date.now();
   for (let step = 0; step < 12; step++) {
     if (await inTab(tabId, stopRequested)) return report(job.id, "stopped", "You pressed Stop on the page.");
     let tab = await chrome.tabs.get(tabId);
@@ -301,7 +344,19 @@ async function drive(tabId, job) {
         await sleep(2000);
         continue;
       }
-      if (ls.kind === "signup") return wait("account", `${new URL(tab.url).hostname} wants an account. Create it in that tab (Chrome can make and save the password); Coverage carries on once you're in.`);
+      // No account here yet: create one (opt-in), with a password saved to your vault BEFORE it's used.
+      if (ls.kind === "signup" && !cred.username && !created && (await autoAccountsOn())) {
+        const made = await makeAccount(tabId, tab.url, job);
+        created = true;
+        if (made.clicked) {
+          progress(tabId, "Created an account (password saved in your vault)…");
+          await sleep(5000);
+          await loaded(tabId);
+          continue;
+        }
+        return wait("account", made.why);
+      }
+      if (ls.kind === "signup") return wait("account", `${new URL(tab.url).hostname} wants an account. Create it in that tab (Chrome can make and save the password), or turn on "Create accounts for me" in the extension's Options; Coverage carries on once you're in.`);
       if (cred.username && signInTries < 2) {
         progress(tabId, "Signing in with your saved login…");
         const r = await inTab(tabId, signIn, [cred.username, cred.password, new URL(tab.url).origin]);
@@ -320,7 +375,27 @@ async function drive(tabId, job) {
       }[cred.why] ?? "Sign in in that tab. Coverage carries on once you're in.";
       return wait("signin", signInTries ? "Your saved login didn't get in. Sign in in that tab; Coverage carries on once you're in." : why);
     }
-    if (ls?.kind === "verify") return wait("account", "Verify your email (check your inbox), then sign in in that tab. Coverage carries on once you're in.");
+    if (ls?.kind === "verify") {
+      // The site emailed a verification link: your Coverage tab finds it in Gmail; it's opened here, then sign-in
+      // (saved login) and the application carry on.
+      if (verifyTries < 2 && (await autoAccountsOn())) {
+        verifyTries++;
+        await report(job.id, "filling", "Waiting for the verification email (Coverage checks your Gmail)…");
+        const link = await askDashboard("verifyLink", { jobId: job.id, url: tab.url, since }).catch(() => null);
+        if (typeof link === "string" && /^https:\/\//.test(link)) {
+          progress(tabId, "Opening the verification link…");
+          await chrome.tabs.update(tabId, { url: link });
+          await sleep(5000);
+          await loaded(tabId);
+          // Back to the job (verification pages land on the site's home or sign-in page).
+          await chrome.tabs.update(tabId, { url: job.url });
+          await sleep(3000);
+          await loaded(tabId);
+          continue;
+        }
+      }
+      return wait("account", "Verify your email (check your inbox), then sign in in that tab. Coverage carries on once you're in.");
+    }
 
     const { scan } = await scanBest(tabId);
     if ((scan?.fields?.length ?? 0) < 3 && !started) {

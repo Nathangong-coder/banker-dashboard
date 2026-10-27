@@ -1,6 +1,7 @@
 "use client";
 
 import type { AppEmail } from "./appEmails";
+import { pickVerificationLink } from "./appEmails";
 import { EMAIL_FONTS, type EmailFont } from "./types";
 
 /**
@@ -698,4 +699,30 @@ export async function labelMessages(clientId: string, byLabel: Record<string, st
     }
   }
   return n;
+}
+
+/* ---------------- account verification emails (Applications → created accounts) ---------------- */
+
+/**
+ * The verification / activation link in the newest email from an application site since `sinceMs`: only an https
+ * link on the same site (its registrable domain, e.g. myworkdayjobs.com / myworkday.com for Workday) and worded like
+ * a verification. Null if there's none yet. Never follows anything itself.
+ */
+export async function verificationLink(clientId: string, siteHost: string, sinceMs: number): Promise<string | null> {
+  const after = Math.floor((sinceMs - 120_000) / 1000);
+  const q = `after:${after} (verify OR verification OR activate OR activation OR confirm OR "create your account" OR "complete your registration")`;
+  const list = await listMessages(clientId, q, 10);
+  for (const m of list) {
+    const full = await gapi<MsgMeta & { payload?: Part & { headers?: { name: string; value: string }[] } }>(clientId, `/messages/${m.id}?format=full`).catch(() => null);
+    if (!full || Number(full.internalDate) < sinceMs - 120_000) continue;
+    const link = pickVerificationLink(partText(full.payload, "text/html"), partText(full.payload, "text/plain"), siteHost);
+    if (link) return link;
+  }
+  return null;
+}
+
+/** Can Gmail be read without opening Google's window (a token in this tab, or your connected Google account)? */
+export async function gmailReadableQuietly(clientId: string): Promise<boolean> {
+  if (gmailConnected(clientId)) return true;
+  return !!(await serverGoogleToken(SCOPES.split(" ")).catch(() => null));
 }

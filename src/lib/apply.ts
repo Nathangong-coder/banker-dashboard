@@ -201,6 +201,8 @@ export interface ApplyState {
   /** The job you last clicked "Autofill" on, so a fill on that site is filed under it. */
   activeJob?: { id: string; at: string };
   finder: JobFinderState;
+  /** Accounts Coverage created on application sites (the passwords are only in your PIN-locked saved logins). */
+  accounts?: { origin: string; email: string; at: string; company?: string; jobId?: string; verified?: string }[];
   /** Gmail application-email scan: message ids already read (never read twice), labels still to put on in Gmail. */
   mail?: { seen: string[]; at?: string; pendingLabels?: { id: string; label: string }[] };
   /** The last "Fill selected" run: when every job in it has finished, one WhatsApp text says what's ready (mass apply). */

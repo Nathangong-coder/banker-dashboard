@@ -4,7 +4,8 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { blobs, useStore } from "./store";
 import { callApi } from "./api";
-import { aiReady, hasKey } from "./keys";
+import { aiReady, googleClientId, hasKey } from "./keys";
+import { gmailReadableQuietly, verificationLink } from "./gmail";
 import { FILL_LABELS, chooseResume, knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
 import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
@@ -206,6 +207,60 @@ async function pickOption(payload: unknown) {
   ).catch(() => null);
   const pick = r?.picks[0];
   return pick && pick.confidence >= 0.5 ? pick.label : null;
+}
+
+/** Your email and name for a site's create-account form (extension 1.10, "Create accounts for me"). */
+function accountInfo() {
+  const st = useStore.getState();
+  const me = st.apply.profile;
+  return { email: me.email || st.settings.profile.email || "", firstName: me.firstName, lastName: me.lastName };
+}
+
+/** The extension created an account: listed under Applications → My info (the password stays in the PIN vault). */
+function accountCreated(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  let origin = "";
+  try {
+    origin = new URL(str(p.origin, 300)).origin;
+  } catch {
+    return { ok: false };
+  }
+  const email = str(p.email, 200);
+  const st = useStore.getState();
+  const job = st.apply.jobs.find((j) => j.id === str(p.jobId, 60));
+  st.setApply((a) => ({
+    ...a,
+    accounts: [...(a.accounts ?? []).filter((x) => !(x.origin === origin && x.email === email)), { origin, email, at: new Date().toISOString(), company: job?.company, jobId: job?.id }].slice(-200),
+  }));
+  toast.ok(`Created an account on ${new URL(origin).hostname}${job ? ` for ${job.company}` : ""}. Its password is in your saved logins.`);
+  return { ok: true };
+}
+
+/**
+ * The site emailed a verification link: look for it in Gmail (only without a popup: a Gmail token in this tab or the
+ * connected Google account), every 15 s for up to ~2 minutes. Only an https link on that same site comes back.
+ */
+async function verifyLink(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  let host = "";
+  try {
+    host = new URL(str(p.url, 2000)).hostname;
+  } catch {
+    return null;
+  }
+  const st = useStore.getState();
+  const clientId = googleClientId(st.settings);
+  if (!(await gmailReadableQuietly(clientId))) return null;
+  const since = Number(p.since) || Date.now() - 10 * 60_000;
+  for (let i = 0; i < 8; i++) {
+    const link = await verificationLink(clientId, host, since).catch(() => null);
+    if (link) {
+      st.setApply((a) => ({ ...a, accounts: (a.accounts ?? []).map((x) => (new URL(x.origin).hostname === host && !x.verified ? { ...x, verified: new Date().toISOString() } : x)) }));
+      return link;
+    }
+    await new Promise((r) => setTimeout(r, 15_000));
+  }
+  return null;
 }
 
 export interface PlanResult {
@@ -515,7 +570,7 @@ async function agentBrief(payload: unknown) {
   return { task, secrets: { email: me.email, phone: me.phone, address1: me.address1, address2: me.address2, zip: me.zip }, jobId: job?.id };
 }
 
-const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption };
+const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption, accountInfo, accountCreated, verifyLink };
 
 /** Mounted once in Shell: answers the extension, and learns whether it's installed (for the Applications page). */
 export function useExtensionBridge(ready: boolean) {

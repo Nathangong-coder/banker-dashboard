@@ -212,7 +212,11 @@ export default function PrivacyPage() {
         fills each the same way, on application sites you allowed in the extension. If you turn on <b>saved logins</b> in the extension, it can sign
         in to application accounts you already have: those logins are encrypted with your PIN inside the extension and used only on the site they were
         saved for. So they follow you to your other browsers, the extension keeps that encrypted copy in your {SITE.name} account (extension 1.3.1+);
-        your PIN never leaves the extension, so neither we nor your dashboard can read a login, and logins are never sent to any AI.
+        your PIN never leaves the extension, so neither we nor your dashboard can read a login, and logins are never sent to any AI. If you turn on <b>Create accounts for me</b> (test build), the extension makes an account on an application site
+        that asks for one, with your email and name from My info and a password it generates and saves in those same
+        PIN-locked logins first; when the site emails a verification link, your Coverage tab looks for that one email in your
+        Gmail (only a link on that same site is used) and the extension opens it. The dashboard lists the accounts made, and
+        shows a password only after you type your PIN in that tab.
       </p>
       <p className="mt-3">
         <b>Find jobs</b>: the search you start on Applications runs through {SITE.name}&apos;s server, which reads public job lists from the career

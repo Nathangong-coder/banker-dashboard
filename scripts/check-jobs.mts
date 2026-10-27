@@ -8,7 +8,7 @@ import { knownIds, searchVariants } from "../src/lib/jobFinder";
 import { DEFAULT_ROLE_TYPES, judge, quickReview, resumeFor, roleTypeId, rulesOf, sortReviewed, type JobReview } from "../src/lib/jobReview";
 import { assignJobRows, findAppsTable, jobPatches } from "../src/lib/jobSheet";
 import { jobRunLine } from "../src/lib/digestFormat";
-import { applicationQuery, companyOf, kindOf, labelFor, matchJob, statusAfter, summerOf } from "../src/lib/appEmails";
+import { applicationQuery, companyOf, kindOf, labelFor, matchJob, pickVerificationLink, statusAfter, summerOf } from "../src/lib/appEmails";
 import type { JobApplication } from "../src/lib/apply";
 import type { SheetSnapshot } from "../src/lib/types";
 
@@ -207,6 +207,16 @@ eq("the search covers ATS senders and confirmation subjects, never sent mail", [
   eq("economic consulting and investment-firm business roles → apply", ["econ_consulting", "investment_firm_business"].map((id) => judge(rv({ roleType: id }), rulesOf(undefined)).verdict), ["apply", "apply"]);
   const v = searchVariants("finance summer internship", [2027], new Date("2026-10-26T12:00:00Z"));
   eq("search variations: yours first, 4 in all, each with the year", [v[0], v.length, v.every((q) => q.endsWith(" 2027")), new Set(v).size], ["finance summer internship 2027", 4, true, 4]);
+}
+
+
+// Account verification emails (owner, 2026-10-26): only a verification link on the application's own site.
+{
+  const html = `<p>Hi</p><a href="https://evil.example.com/verify?x=1">Verify</a><a href="https://gs.wd5.myworkday.com/gs/activate?token=abc&amp;u=1">Verify your account</a>`;
+  eq("verification link: Workday family only, &amp; decoded", pickVerificationLink(html, "", "gs.wd5.myworkdayjobs.com"), "https://gs.wd5.myworkday.com/gs/activate?token=abc&u=1");
+  eq("verification link: another site's link is never taken", pickVerificationLink(`<a href="https://phish.com/verify">Verify</a>`, "", "gs.wd5.myworkdayjobs.com"), null);
+  eq("verification link: from plain text, same site", pickVerificationLink("", "Click https://jobs.example.com/confirm/123 to confirm.", "careers.example.com"), "https://jobs.example.com/confirm/123");
+  eq("verification link: http or unrelated paths ignored", pickVerificationLink(`<a href="http://x.myworkday.com/verify">a</a><a href="https://x.myworkday.com/privacy">Privacy</a>`, "", "x.myworkdayjobs.com"), null);
 }
 
 console.log(failed ? `\n${failed} failed` : "\njob finder OK");
