@@ -30,6 +30,8 @@ export interface ReviewRules {
   reminder: { on: boolean; everyDays: number };
   /** Bumped when what the AI is told changes (role type wording, rules): older reviews can be re-checked. */
   version: number;
+  /** Default role type ids this list has seen, so ones added to the defaults later are added to your list too. */
+  defaultsSeen?: string[];
 }
 
 export interface JobReview {
@@ -106,6 +108,9 @@ export const DEFAULT_ROLE_TYPES: RoleType[] = [
     covers: "FP&A, treasury, corporate finance, finance rotational / back-office finance",
     verdict: "apply",
   },
+  // Added 2026-10-26 (owner: K1's Business Development Intern and Econ One's Healthcare Economics Summer Analyst were skipped).
+  { id: "econ_consulting", label: "Economic consulting / research", covers: "economic & litigation consulting, healthcare / antitrust economics, research analyst roles (Econ One, Analysis Group, Cornerstone, NERA, Compass Lexecon, Brattle)", verdict: "apply" },
+  { id: "investment_firm_business", label: "Investment firm business roles", covers: "business development, investor relations, capital raising, strategy or operations interns at PE / VC / hedge fund / investment firms", verdict: "apply" },
   {
     id: "sales_trading",
     label: "Sales & trading",
@@ -146,16 +151,31 @@ export function defaultClassYears(gradDate?: string): number[] {
 
 /** Your saved rules, with defaults filled in (and "Not finance" always there, last). */
 export function rulesOf(saved: Partial<ReviewRules> | undefined, gradDate?: string): ReviewRules {
-  const types = saved?.roleTypes?.length ? saved.roleTypes : DEFAULT_ROLE_TYPES;
+  let types = saved?.roleTypes?.length ? saved.roleTypes : DEFAULT_ROLE_TYPES;
+  // Role types added to the defaults after you saved your list: added above the catch-all (deleting one keeps it gone).
+  const seen = saved?.defaultsSeen ?? (saved?.roleTypes?.length ? ORIGINAL_DEFAULTS : DEFAULT_ROLE_TYPES.map((t) => t.id));
+  const fresh = DEFAULT_ROLE_TYPES.filter((d) => !seen.includes(d.id) && !types.some((t) => t.id === d.id));
+  if (fresh.length) {
+    const at = types.findIndex((t) => t.id === NOT_FINANCE);
+    types = at < 0 ? [...types, ...fresh] : [...types.slice(0, at), ...fresh, ...types.slice(at)];
+  }
   const withCatchAll = types.some((t) => t.id === NOT_FINANCE) ? types : [...types, DEFAULT_ROLE_TYPES[DEFAULT_ROLE_TYPES.length - 1]];
   return {
     roleTypes: withCatchAll,
     classYears: saved?.classYears?.length ? saved.classYears : defaultClassYears(gradDate),
     rules: saved?.rules ?? [],
     reminder: saved?.reminder ?? { on: true, everyDays: 1 },
-    version: saved?.version ?? 1,
+    // New role types change what the AI is told: older reviews become re-checkable.
+    // Unsaved = the defaults' own version; a saved list goes up one when new default role types were just added to it.
+    version: saved?.version ? saved.version + (fresh.length ? 1 : 0) : DEFAULTS_VERSION,
+    defaultsSeen: DEFAULT_ROLE_TYPES.map((t) => t.id),
   };
 }
+
+/** The default list as first shipped (2026-10-25): lists saved before `defaultsSeen` existed had seen these. */
+const ORIGINAL_DEFAULTS = ["ib", "project_finance", "investing", "corporate_banking", "equity_research", "corp_dev", "advisory", "risk_credit", "general_finance", "sales_trading", "quant", "wealth", "asset_management", NOT_FINANCE];
+/** Bumped when the defaults change, so every review made before is offered a re-check (2 = econ consulting + investment firm roles). */
+const DEFAULTS_VERSION = 2;
 
 export interface Judged {
   verdict: Verdict;

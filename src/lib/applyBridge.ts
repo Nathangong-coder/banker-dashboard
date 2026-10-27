@@ -5,11 +5,13 @@ import { create } from "zustand";
 import { blobs, useStore } from "./store";
 import { callApi } from "./api";
 import { aiReady } from "./keys";
-import { FILL_LABELS, knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
+import { FILL_LABELS, chooseResume, knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
 import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
 import { documentText } from "./fileText";
 import { reviewPending, summarize } from "./jobReviewRun";
+import { coverLetterFrom, letterPdf } from "./coverLetter";
+import { STARTER_TARGETS } from "./banks";
 
 /**
  * The dashboard's half of the extension bridge (extension/content/dashboard.js is the other half).
@@ -130,12 +132,30 @@ function jobFor(url: string): JobApplication | undefined {
   return jobs.find((j) => [j.url, j.applyUrl].some((u) => !!u && url.startsWith(u))) ?? jobs.find((j) => onSite(j) && j.status !== "submitted" && j.status !== "confirmed");
 }
 
-async function resumeFile(job?: JobApplication) {
-  const r = (job?.resumeId && (await blobs.appResume(job.resumeId))) || (await blobs.resume());
+async function resumeFile(job?: JobApplication, pageText = "") {
+  const pick = chooseResume(job, pageText, useStore.getState().apply.resumes);
+  const r = (pick && (await blobs.appResume(pick))) || (await blobs.resume());
   if (!r) return undefined;
   // Its text is the AI's main source of facts for open questions (read here, in the browser; never stored).
   const text = await documentText(r.name, r.data).catch(() => "");
   return { name: r.name, type: r.type || "application/pdf", base64: base64(r.data), text: text.slice(0, 15000) };
+}
+
+/** Your cover letter template (latest Writing sample marked "Cover letter"), dated today, for this job's firm. */
+function coverText(job?: JobApplication): string | undefined {
+  const st = useStore.getState();
+  const tpl = [...st.apply.samples].reverse().find((x) => x.kind === "cover_letter");
+  if (!tpl?.text.trim() || !job?.company) return undefined;
+  const known = [...STARTER_TARGETS.map((t) => t.name), ...st.targets.map((t) => t.name), ...st.coverage.added.map((t) => t.name), ...st.contacts.map((c) => c.bank), ...st.apply.jobs.map((j) => j.company)].filter(Boolean);
+  return coverLetterFrom(tpl.text, job.company, new Date(), known);
+}
+
+/** The letter as a PDF named like a file you'd upload ("Nathan Gong Cover Letter - Evercore.pdf"). */
+function coverPdf(text: string, me: { firstName: string; lastName: string }) {
+  const bytes = letterPdf(text);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { name: `${[me.firstName, me.lastName].filter(Boolean).join(" ") || "Cover"} Cover Letter.pdf`, type: "application/pdf", base64: btoa(bin) };
 }
 
 export interface PlanResult {
@@ -162,10 +182,13 @@ async function plan(payload: unknown): Promise<PlanResult> {
     } catch {}
     throw new Error(`UNKNOWN_SITE:${host}`);
   }
-  const file = await resumeFile(job);
-  const base = planFill(fields, st.apply.profile, { hasResume: !!file });
+  const pageText = str(p.pageText, 8000);
+  const file = await resumeFile(job, pageText);
+  const cover = coverText(job);
+  const base = planFill(fields, st.apply.profile, { hasResume: !!file, coverText: cover });
   const fileData = file && { name: file.name, type: file.type, base64: file.base64 };
-  const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && fileData ? { ...it, fileData } : it));
+  const coverFile = cover ? coverPdf(cover, st.apply.profile) : undefined;
+  const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && fileData ? { ...it, fileData } : it.file === "cover" && coverFile ? { ...it, fileData: coverFile } : it));
   const skipped = [...base.skipped];
   const result: PlanResult = { job: job && { id: job.id, company: job.company, role: job.role }, items, skipped, ai: { asked: base.ai.length } };
 

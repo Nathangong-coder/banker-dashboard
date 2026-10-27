@@ -29,7 +29,7 @@ let running: Promise<{ reviewed: number; added: number } | null> | null = null;
  * Review every find that has no review yet (or, with `recheck`, one made under older rules; quick skips stay).
  * Single-flight: a second call while one runs waits for it, then picks up anything that arrived meanwhile.
  */
-export function reviewPending(opts: { recheck?: boolean; quiet?: boolean } = {}): Promise<{ reviewed: number; added: number } | null> {
+export function reviewPending(opts: { recheck?: boolean | "skipped"; quiet?: boolean } = {}): Promise<{ reviewed: number; added: number } | null> {
   const next = (running ?? Promise.resolve(null)).then(() => run(opts));
   running = next.finally(() => {
     if (running === next) running = null;
@@ -37,11 +37,14 @@ export function reviewPending(opts: { recheck?: boolean; quiet?: boolean } = {})
   return next;
 }
 
-async function run({ recheck, quiet }: { recheck?: boolean; quiet?: boolean }) {
+async function run({ recheck, quiet }: { recheck?: boolean | "skipped"; quiet?: boolean }) {
   const st = useStore.getState();
   const rules = currentRules();
   const at = new Date().toISOString();
-  const pending = st.apply.finder.found.filter((f) => !f.review || (recheck && !f.review.quick && f.review.version < rules.version));
+  // recheck "skipped" = only reviews that came out Skip (after new role types: cheap, and those are the ones that change).
+  const pending = st.apply.finder.found.filter(
+    (f) => !f.review || (recheck && !f.review.quick && f.review.version < rules.version && (recheck !== "skipped" || judge(f.review, rules, f.location).verdict === "skip")),
+  );
   if (!pending.length) return { reviewed: 0, added: autoAdd(quiet) };
 
   // Obvious skips cost no AI call.

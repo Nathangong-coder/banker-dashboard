@@ -32,18 +32,39 @@ const OPEN: JobStatus[] = ["saved", "applying"];
 const webLink = (url: string) => (/^https?:\/\//i.test(url.trim()) ? url.trim() : "");
 
 /** "Track this job" on a LinkedIn job page (extension): add it, or refresh the copy you already track. */
+/** "Save + fill" from the popup: start Fill selected on this one job (watching), once the extension bridge is up. */
+function fillNow(job: JobApplication) {
+  const url = job.applyUrl || job.url;
+  const at = new Date().toISOString();
+  useStore.getState().setApply((a) => ({ ...a, batch: { ids: [job.id], at }, jobs: a.jobs.map((j) => (j.id === job.id ? { ...j, fill: { status: "queued", note: "Sent to the extension…", at } } : j)) }));
+  setTimeout(
+    () =>
+      sendCommand("fillJobs", { jobs: [{ id: job.id, url, company: job.company }], watch: true }).then(
+        () => toast.ok(`Filling ${job.company} in a new tab. Nothing gets submitted.`),
+        (e) => toast.err((e as Error).message),
+      ),
+    1500,
+  );
+}
+
 function addCapturedJob(cap: JobCapture) {
   const st = useStore.getState();
   const same = st.apply.jobs.find(
-    (j) => (cap.linkedinJobId && j.linkedinJobId === cap.linkedinJobId) || (canonBank(j.company) === canonBank(cap.company) && j.role.toLowerCase() === cap.title.toLowerCase()),
+    (j) =>
+      (cap.linkedinJobId && j.linkedinJobId === cap.linkedinJobId) ||
+      (cap.handshakeJobId && j.handshakeJobId === cap.handshakeJobId) ||
+      (canonBank(j.company) === canonBank(cap.company) && j.role.toLowerCase() === cap.title.toLowerCase()),
   );
   if (same) {
     st.setApply((a) => ({
       ...a,
       jobs: a.jobs.map((j) =>
-        j.id === same.id ? { ...j, linkedinJobId: j.linkedinJobId ?? cap.linkedinJobId, applyUrl: j.applyUrl ?? cap.applyUrl, description: cap.description || j.description, location: j.location ?? (cap.location || undefined) } : j,
+        j.id === same.id
+          ? { ...j, linkedinJobId: j.linkedinJobId ?? cap.linkedinJobId, handshakeJobId: j.handshakeJobId ?? cap.handshakeJobId, applyUrl: j.applyUrl ?? cap.applyUrl, description: cap.description || j.description, location: j.location ?? (cap.location || undefined), addedBy: undefined }
+          : j,
       ),
     }));
+    if (cap.fill) return fillNow({ ...same, applyUrl: same.applyUrl ?? cap.applyUrl });
     return toast.info(`Already tracking ${same.company} · ${same.role || cap.title}. Updated its details.`);
   }
   const job: JobApplication = {
@@ -53,12 +74,14 @@ function addCapturedJob(cap: JobCapture) {
     url: cap.url,
     applyUrl: cap.applyUrl,
     linkedinJobId: cap.linkedinJobId,
+    handshakeJobId: cap.handshakeJobId,
     description: cap.description || undefined,
     location: cap.location || undefined,
     status: "saved",
     createdAt: new Date().toISOString(),
   };
   st.setApply((a) => ({ ...a, jobs: [job, ...a.jobs] }));
+  if (cap.fill) return fillNow(job);
   toast.ok(`Tracking ${job.company} · ${job.role}${job.applyUrl ? "" : ". Its application link appears once you autofill it on the bank's site."}`);
 }
 
@@ -73,7 +96,7 @@ export default function ApplicationsPage() {
     if (!window.location.hash.startsWith("#job=")) return;
     const cap = parseJobCapture(window.location.hash);
     history.replaceState(null, "", window.location.pathname + window.location.search);
-    setTimeout(() => (cap ? addCapturedJob(cap) : toast.err("Couldn't read that job. Open it on LinkedIn and try again.")), 0);
+    setTimeout(() => (cap ? addCapturedJob(cap) : toast.err("Couldn't read that job. Open it on LinkedIn or Handshake and try again.")), 0);
   }, []);
   const choose = (t: Tab) => {
     setTab(t);

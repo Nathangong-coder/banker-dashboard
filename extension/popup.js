@@ -3,6 +3,61 @@
 import { getDashboard } from "./settings.js";
 import { captureLinkedIn, captureLinkedInJob, captureUrl, isLinkedIn, isLinkedInJob, isProfile, jobCaptureUrl } from "./sites/linkedin.js";
 import { sitePattern } from "./sites/apply.js";
+import { captureHandshakeJob } from "./sites/handshake.js";
+
+/** A Handshake job page (app.joinhandshake.com/jobs/<id>, or a search with a job open). */
+const isHandshakeJob = (url) => /^https:\/\/([a-z0-9-]+\.)*joinhandshake\.com\/(stu\/)?(jobs|job-search)\/\d+/i.test(url ?? "");
+
+/**
+ * Handshake job page: save it to Coverage, or save it and start filling the application right away (Coverage presses
+ * "Apply externally" and fills the bank's form; you submit). Reading the page needs only the popup click (activeTab).
+ */
+async function handshakeView(tab) {
+  const error = el("p", { class: "error", hidden: "" });
+  const go = (fill) => async (e) => {
+    const button = e.currentTarget;
+    const label = button.textContent;
+    for (const b of view.querySelectorAll("button")) b.disabled = true;
+    button.textContent = "Reading the job…";
+    try {
+      // A search page shows the job on the right, but the job's own page is what reads cleanly: open that first.
+      const id = (tab.url.match(/\/(?:stu\/)?(?:jobs|job-search)\/(\d+)/) || [])[1];
+      if (/\/job-search\//.test(tab.url)) {
+        await chrome.tabs.update(tab.id, { url: `https://app.joinhandshake.com/jobs/${id}` });
+        for (let i = 0; i < 40; i++) {
+          await new Promise((r) => setTimeout(r, 300));
+          if ((await chrome.tabs.get(tab.id)).status === "complete") break;
+        }
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+      const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: captureHandshakeJob });
+      if (!result || result.error) throw new Error(result?.error ?? "Couldn't read this job. Open the job itself (click its title), then try again.");
+      const job = { ...result, url: `https://app.joinhandshake.com/jobs/${result.handshakeJobId}`, fill };
+      await chrome.tabs.create({ url: jobCaptureUrl(await getDashboard(), job) });
+      window.close();
+    } catch (err) {
+      error.textContent = err instanceof Error ? err.message : String(err);
+      error.hidden = false;
+      for (const b of view.querySelectorAll("button")) b.disabled = false;
+      button.textContent = label;
+    }
+  };
+  const save = el("button", {}, "Save to Coverage");
+  save.addEventListener("click", go(false));
+  const fill = el("button", { class: "secondary", style: "margin-top:6px" }, "Save + fill the application");
+  fill.addEventListener("click", go(true));
+  show(
+    el(
+      "div",
+      { class: "card" },
+      el("h2", {}, "Handshake job"),
+      el("p", { class: "muted" }, "Saves the job (title, firm, description) to Applications. \"Save + fill\" also presses Apply externally and fills the bank's form for you to review and submit."),
+      save,
+      fill,
+      error,
+    ),
+  );
+}
 
 const view = document.getElementById("view");
 
@@ -273,6 +328,7 @@ async function main() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const dashboard = await getDashboard();
   if (tab?.id && isLinkedIn(tab.url)) await linkedInView(tab);
+  else if (tab?.id && isHandshakeJob(tab.url)) await handshakeView(tab);
   else if (tab?.id && /^https?:\/\//.test(tab.url ?? "") && !tab.url.startsWith(dashboard)) await applyView(tab);
   else otherView();
 }

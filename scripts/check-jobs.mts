@@ -4,7 +4,7 @@
  */
 import { boardOf, freshJobs, inUS, isBankingRole, isInternship, jobKey, mergeBoards, parseResultTitle, rankJobs, searchQueries, type FoundJob } from "../src/lib/jobFinder";
 import { isRecruiter } from "../src/lib/recruiters";
-import { knownIds } from "../src/lib/jobFinder";
+import { knownIds, searchVariants } from "../src/lib/jobFinder";
 import { DEFAULT_ROLE_TYPES, judge, quickReview, resumeFor, roleTypeId, rulesOf, sortReviewed, type JobReview } from "../src/lib/jobReview";
 import { assignJobRows, findAppsTable, jobPatches } from "../src/lib/jobSheet";
 import { jobRunLine } from "../src/lib/digestFormat";
@@ -77,7 +77,7 @@ eq(
 );
 const flipped = { ...rules, roleTypes: rules.roleTypes.map((t) => (t.id === "sales_trading" ? { ...t, verdict: "apply" as const } : t)) };
 eq("changing a verdict re-sorts stored reviews without the AI", judge(rv({ roleType: "sales_trading" }), flipped).verdict, "apply");
-eq("Not finance can't go missing", rulesOf({ roleTypes: [{ id: "ib", label: "IB", covers: "", verdict: "apply" }] }).roleTypes.map((t) => t.id), ["ib", "not_finance"]);
+eq("Not finance can't go missing", rulesOf({ roleTypes: [{ id: "ib", label: "IB", covers: "", verdict: "apply" }], defaultsSeen: DEFAULT_ROLE_TYPES.map((t) => t.id) }).roleTypes.map((t) => t.id), ["ib", "not_finance"]);
 eq(
   "quick skips: VP title, London; an intern title isn't skipped",
   [quickReview({ title: "Vice President, M&A", location: "New York, NY" }, 1, "x")?.internship, quickReview({ title: "Summer Analyst", location: "London, UK" }, 1, "x")?.us, quickReview({ title: "Senior Summer Intern Program", location: "" }, 1, "x")],
@@ -195,6 +195,19 @@ eq(
   ["confirmed", "confirmed", "interview", "rejected", "confirmed"],
 );
 eq("the search covers ATS senders and confirmation subjects, never sent mail", [applicationQuery().includes("from:myworkday.com"), applicationQuery().includes('subject:"thank you for applying"'), applicationQuery().includes("-in:sent")], [true, true, true]);
+
+
+// 2026-10-26: new default role types reach saved lists; search variations
+{
+  const old = rulesOf({ roleTypes: DEFAULT_ROLE_TYPES.filter((t) => !["econ_consulting", "investment_firm_business"].includes(t.id)), version: 3 });
+  eq("saved list gets the new role types above Not finance, version +1", [old.roleTypes.slice(-3).map((t) => t.id), old.version], [["econ_consulting", "investment_firm_business", "not_finance"], 4]);
+  const removed = rulesOf({ roleTypes: old.roleTypes.filter((t) => t.id !== "econ_consulting"), version: 4, defaultsSeen: old.defaultsSeen });
+  eq("a new type you deleted stays deleted", [removed.roleTypes.some((t) => t.id === "econ_consulting"), removed.version], [false, 4]);
+  eq("unsaved = the defaults' version (old reviews re-checkable)", rulesOf(undefined).version, 2);
+  eq("economic consulting and investment-firm business roles → apply", ["econ_consulting", "investment_firm_business"].map((id) => judge(rv({ roleType: id }), rulesOf(undefined)).verdict), ["apply", "apply"]);
+  const v = searchVariants("finance summer internship", [2027], new Date("2026-10-26T12:00:00Z"));
+  eq("search variations: yours first, 4 in all, each with the year", [v[0], v.length, v.every((q) => q.endsWith(" 2027")), new Set(v).size], ["finance summer internship 2027", 4, true, 4]);
+}
 
 console.log(failed ? `\n${failed} failed` : "\njob finder OK");
 process.exit(failed ? 1 : 0);

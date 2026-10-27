@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { usableKeys } from "@/lib/keys";
 import { canonBank } from "@/lib/banks";
-import { boardOf, companyFor, freshJobs, handshakeJobsUrl, knownIds, mergeBoards, searchQueries, type Board, type FoundJob } from "@/lib/jobFinder";
+import { boardOf, companyFor, freshJobs, handshakeJobsUrl, knownIds, mergeBoards, searchQueries, searchVariants, type Board, type FoundJob } from "@/lib/jobFinder";
 import { judge, rulesOf, sortReviewed, type Verdict } from "@/lib/jobReview";
 import { addReviewRule, reviewPending, summarize, trackedFrom } from "@/lib/jobReviewRun";
 import { sendCommand, useExtension, useFinderStatus } from "@/lib/applyBridge";
@@ -43,7 +43,8 @@ export function JobFinder() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [ask, setAsk] = useState<Parameters<typeof WhyModal>[0]["ask"]>(null);
   const [reviewing, setReviewing] = useState(false);
-  const [terms, setTerms] = useState(finder.terms ?? "summer analyst");
+  // The first default ("summer analyst") is replaced by the broader one (owner, 2026-10-26); words you typed stay.
+  const [terms, setTerms] = useState(!finder.terms || finder.terms === "summer analyst" ? "finance summer internship" : finder.terms);
   const [years, setYears] = useState<number[]>(finder.years ?? [YEARS[0]]);
   const [location, setLocation] = useState(finder.location ?? "United States");
   const [busy, setBusy] = useState(false);
@@ -78,9 +79,20 @@ export function JobFinder() {
   // Finds without a review (a run that ended before the AI was reachable): review them when the page opens.
   useEffect(() => {
     if (useStore.getState().apply.finder.found.some((f) => !f.review)) void reviewPending({ quiet: true });
+    // New default role types (2026-10-26: economic consulting, investment firm business roles): re-check what the AI
+    // skipped before, once per rules version.
+    try {
+      const key = `coverage:recheck:${rules.version}`;
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, "1");
+        void reviewPending({ recheck: "skipped", quiet: true }).then((r) => r?.added && toast.ok(`Re-checked skipped jobs with the new role types: ${r.added} added.`));
+      }
+    } catch {
+      /* no storage: the Re-check button still works */
+    }
     // The 9 PM text's reminder links here (/applications?find=1).
     if (new URLSearchParams(window.location.search).has("find")) document.getElementById("find-jobs")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
+  }, [rules.version]);
   const review = async (recheck = false) => {
     setReviewing(true);
     try {
@@ -128,11 +140,12 @@ export function JobFinder() {
     const name = site === "linkedin" ? "LinkedIn" : "Handshake";
     try {
       const have = knownIds(finder.found, finder.dismissed, jobs, site);
-      const q = `${terms} ${years.join(" ")}`.trim();
+      // Your words first, then finance-adjacent variations (each with the summer year), so runs find different jobs.
+      const qs = searchVariants(terms, years);
       const r =
         site === "linkedin"
-          ? await sendCommand<{ max: number }>("linkedinJobs", { terms: q, location, max: 30, watch, known: have })
-          : await sendCommand<{ max: number }>("handshakeJobs", { url: handshakeJobsUrl(q), max: 30, watch, known: have });
+          ? await sendCommand<{ max: number }>("linkedinJobs", { terms: qs[0], variants: qs, location, max: 30, watch, known: have })
+          : await sendCommand<{ max: number }>("handshakeJobs", { url: handshakeJobsUrl(qs[0]), urls: qs.map(handshakeJobsUrl), max: 30, watch, known: have });
       useFinderStatus.getState().set(`Reading up to ${r.max} new ${name} jobs at a person's pace (about 10 seconds each); the AI reviews them as they come in…`, true);
     } catch (e) {
       toast.err((e as Error).message);
@@ -184,7 +197,7 @@ export function JobFinder() {
       />
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 px-4 pb-3 md:grid-cols-[2fr_auto_1.2fr_auto] md:items-end">
         <Field label="Looking for">
-          <Input value={terms} onChange={(e) => setTerms(e.target.value)} placeholder="summer analyst" />
+          <Input value={terms} onChange={(e) => setTerms(e.target.value)} placeholder="finance summer internship" />
         </Field>
         <Field label="Summer">
           <div className="flex h-9 items-center gap-3 text-[13px]">

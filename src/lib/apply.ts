@@ -183,6 +183,8 @@ export interface ApplyResume {
   name: string;
   /** The class year this version is for (the owner's "junior" resume = 2028): postings only open to that year use it. */
   classYear?: number;
+  /** What it's for, in your words ("consulting, economics"): a job whose title / description has these words gets it. */
+  tags?: string;
   size: number;
   addedAt: string;
 }
@@ -238,8 +240,8 @@ export interface FillItem {
   value?: string;
   /** Checkbox state. */
   checked?: boolean;
-  /** Which of your files goes into a file input. */
-  file?: "resume";
+  /** Which of your files goes into a file input: a resume, or a cover letter made from your template. */
+  file?: "resume" | "cover";
   /** For a custom dropdown: the option's text (its position can change when the list reopens). */
   optionLabel?: string;
   /** For a typeahead: other ways to say the answer, to match against the suggestions. */
@@ -456,7 +458,7 @@ const isQuestion = (f: FormField) => f.kind === "textarea" || (f.kind === "text"
  * Decide what goes in each field. Rules from your profile first (sensitive answers ONLY from rules); open
  * questions go to `ai`; anything else is left for you with a reason.
  */
-export function planFill(fields: FormField[], profile: ApplyProfile, opts: { hasResume: boolean }): FillPlan {
+export function planFill(fields: FormField[], profile: ApplyProfile, opts: { hasResume: boolean; coverText?: string }): FillPlan {
   const items: FillItem[] = [];
   const ai: FormField[] = [];
   const skipped: FillPlan["skipped"] = [];
@@ -465,11 +467,16 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
   // Sites often hide the file input behind an "Attach" / "Upload resume" link, so it has no label of its own. When it's
   // the form's only file input, it's the resume.
   const onlyFile = fields.filter((f) => f.kind === "file").length === 1;
+  // The resume goes into ONE upload field (owner, 2026-10-26: it once went into the cover letter box too).
+  let resumeUsed = false;
+  const fileLabels = fields.filter((f) => f.kind === "file").map((f) => norm(f.label || ""));
+  const resumeNamed = fileLabels.some((l) => /resume|\bcv\b|curriculum/.test(l));
   for (const f of fields) {
     const label = norm(f.label || f.placeholder || "");
     if (!label && f.kind === "file" && onlyFile && !f.filled) {
       if (opts.hasResume) items.push({ id: f.id, file: "resume", source: "resume", label: "Resume (upload link)" });
       else skip(f, "No resume uploaded on Applications → Resumes.");
+      resumeUsed = true;
       continue;
     }
     if (!label) {
@@ -482,11 +489,22 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
     }
     if (f.filled) continue;
     if (f.kind === "file") {
-      if (/cover/.test(label)) skip(f, "Cover letter: attach one yourself (or paste an AI draft from Writing).");
-      else if (/resume|cv|curriculum/.test(label) || !/transcript|portfolio|writing sample|photo|image/.test(label)) {
+      if (/cover/.test(label)) {
+        if (opts.coverText) items.push({ id: f.id, file: "cover", source: "profile", label: f.label, note: "Your cover letter template, dated today, with this firm's name" });
+        else skip(f, "Cover letter: add your template under Applications → Writing (kind: Cover letter) and it's attached for you.");
+        continue;
+      }
+      const named = /resume|\bcv\b|curriculum/.test(label);
+      // A field that doesn't say what it's for gets the resume only when no field is named "resume" and none got it yet.
+      if (!resumeUsed && (named || (!resumeNamed && !/transcript|portfolio|writing sample|photo|image|additional|other/.test(label)))) {
         if (opts.hasResume) items.push({ id: f.id, file: "resume", source: "resume", label: f.label });
         else skip(f, "No resume uploaded on Applications → Resumes.");
-      } else skip(f, "Attach this file yourself.");
+        resumeUsed = true;
+      } else skip(f, "Attach this file yourself (couldn't tell it's for your resume).");
+      continue;
+    }
+    if (f.kind === "textarea" && /cover letter/.test(label) && opts.coverText) {
+      items.push({ id: f.id, value: f.maxLength ? opts.coverText.slice(0, f.maxLength) : opts.coverText, source: "profile", label: f.label, note: "Your cover letter template, dated today, with this firm's name" });
       continue;
     }
     if ((f.kind === "checkbox" || f.kind === "checkboxes") && ATTEST.test(label)) {
@@ -589,11 +607,14 @@ export interface JobCapture {
   company: string;
   location: string;
   description: string;
-  /** The LinkedIn job page. */
+  /** The LinkedIn / Handshake job page. */
   url: string;
   /** The bank's own application page, when LinkedIn shows it. */
   applyUrl?: string;
   linkedinJobId?: string;
+  handshakeJobId?: string;
+  /** "Save + fill" in the popup: start Fill selected on it right away. */
+  fill?: boolean;
 }
 
 const webUrl = (v: unknown) => {
@@ -618,16 +639,54 @@ export function parseJobCapture(hash: string): JobCapture | null {
   const url = webUrl(raw.url);
   const title = str(raw.title, 200);
   const company = str(raw.company, 120);
-  if (!url || !/(^|\.)linkedin\.com$/i.test(new URL(url).hostname) || (!title && !company)) return null;
+  const host = url ? new URL(url).hostname : "";
+  const handshake = /(^|\.)joinhandshake\.com$/i.test(host);
+  if (!url || !(/(^|\.)linkedin\.com$/i.test(host) || handshake) || (!title && !company)) return null;
   const applyUrl = webUrl(raw.applyUrl);
   const id = str(raw.linkedinJobId, 30);
+  const hsId = str(raw.handshakeJobId, 30);
   return {
+    handshakeJobId: handshake && /^\d+$/.test(hsId) ? hsId : undefined,
+    fill: raw.fill === true,
     title,
     company,
     location: str(raw.location, 120),
     description: typeof raw.description === "string" ? raw.description.replace(/[ \t]+/g, " ").trim().slice(0, 6000) : "",
     url,
-    applyUrl: applyUrl && !/(^|\.)linkedin\.com$/i.test(new URL(applyUrl).hostname) ? applyUrl : undefined,
-    linkedinJobId: /^\d+$/.test(id) ? id : undefined,
+    applyUrl: applyUrl && !/(^|\.)(linkedin|joinhandshake)\.com$/i.test(new URL(applyUrl).hostname) ? applyUrl : undefined,
+    linkedinJobId: !handshake && /^\d+$/.test(id) ? id : undefined,
   };
+}
+
+/**
+ * Which resume a job gets (owner, 2026-10-26: a class-of-2028 posting went out with the class-of-2029 resume): one you
+ * picked on the job, else the version marked for the class year the posting asks for (the AI review's class years,
+ * or "class of 2028" / "graduating in 2028" in the posting or the form), else the version whose tags match the most
+ * words of the job, else your main resume (undefined).
+ */
+export function chooseResume(
+  job: Pick<JobApplication, "resumeId" | "role" | "description" | "review"> | undefined,
+  pageText: string,
+  resumes: Pick<ApplyResume, "id" | "classYear" | "tags">[],
+): string | undefined {
+  if (job?.resumeId) return job.resumeId;
+  if (!resumes.length) return undefined;
+  const text = `${job?.role ?? ""}\n${job?.description ?? ""}\n${pageText}`.toLowerCase();
+  const asked = new Set<number>(job?.review?.classYears ?? []);
+  for (const m of text.matchAll(/\b(?:class of|graduat(?:e|es|ing|ion)(?: date)?(?: in| between| by)?|expected graduation:?)\s+(?:[a-z]+\s+)?(20\d{2})((?:\s*(?:,|\/|or|and|-|–|to)\s*(?:[a-z]+\s+)?20\d{2})*)/g)) {
+    // "class of 2028 or 2029", "graduating between December 2027 and June 2028": every year named.
+    for (const y of `${m[1]} ${m[2] ?? ""}`.match(/20\d{2}/g) ?? []) asked.add(Number(y));
+  }
+  if (asked.size === 1) {
+    const year = [...asked][0];
+    const hit = resumes.find((r) => r.classYear === year);
+    if (hit) return hit.id;
+  }
+  let best: { id: string; n: number } | undefined;
+  for (const r of resumes) {
+    const words = (r.tags ?? "").toLowerCase().split(/[,;]+/).map((w) => w.trim()).filter((w) => w.length > 1);
+    const n = words.filter((w) => text.includes(w)).length;
+    if (n && (!best || n > best.n)) best = { id: r.id, n };
+  }
+  return best?.id;
 }

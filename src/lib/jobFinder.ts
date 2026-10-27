@@ -239,3 +239,16 @@ export function knownIds(found: FoundJob[], dismissed: string[], tracked: Tracke
   }
   return [...out].slice(-3000);
 }
+
+/**
+ * Search words for one LinkedIn / Handshake run (owner, 2026-10-26: "finance summer internship 2027", then vary it):
+ * your words first, then finance-adjacent variations, the summer year on each, rotated by day so runs differ.
+ */
+export const SEARCH_VARIANTS = ["finance summer internship", "summer analyst", "investment banking summer analyst", "private equity summer intern", "economics consulting summer analyst", "corporate finance intern"];
+export function searchVariants(terms: string, years: number[], day = new Date()): string[] {
+  const year = years.length ? ` ${years.join(" ")}` : "";
+  const mine = terms.trim() || SEARCH_VARIANTS[0];
+  const rest = SEARCH_VARIANTS.filter((v) => v.toLowerCase() !== mine.toLowerCase());
+  const shift = Math.floor(day.getTime() / 86_400_000) % rest.length;
+  return [mine, ...rest.slice(shift), ...rest.slice(0, shift)].slice(0, 4).map((v) => `${v}${year}`);
+}

@@ -35,6 +35,14 @@ export function observePage(maxElements, maxText) {
     const type = el.getAttribute("type");
     const role = el.getAttribute("role");
     let desc = role ? `${tag} role=${role}` : type ? `${tag} type=${type}` : tag;
+    // Pick-from-a-list fields, so the model uses "choose" instead of typing into them.
+    const kind =
+      tag === "select" || el.getAttribute("aria-haspopup") === "listbox" || (role === "combobox" && tag !== "input") || (tag === "button" && /^(select( one)?|choose|--)/i.test(clean(el.innerText)))
+        ? " [dropdown]"
+        : tag === "input" && (role === "combobox" || el.getAttribute("aria-autocomplete") || el.getAttribute("list"))
+          ? " [typeahead]"
+          : "";
+    desc += kind;
     const label = cut(labelOf(el), 90);
     let extra = "";
     if (tag === "input" && (type === "checkbox" || type === "radio")) extra = el.checked ? " [checked]" : " [unchecked]";
@@ -60,7 +68,8 @@ export function observePage(maxElements, maxText) {
 }
 
 /** Do one action. Returns { ok, note }. Typing sets the value the way React / Vue inputs expect (native setter + events). */
-export function actPage(action) {
+export async function actPage(action) {
+  const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const find = (i) => document.querySelector(`[data-cov-i="${Number(i)}"]`);
   const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   const setValue = (el, value) => {
@@ -97,6 +106,57 @@ export function actPage(action) {
         if (!action.noSubmit) el.form?.requestSubmit?.();
       }
       return { ok: true, note: `typed ${text.length} characters${action.enter ? " + Enter" : ""}` };
+    }
+    if (action.type === "choose") {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const want = clean(String(action.value ?? "")).toLowerCase();
+      if (!want) return { ok: false, note: "say which option (value)" };
+      const norm = (s) => clean(s).toLowerCase();
+      const pick = (opts) =>
+        opts.find((o) => norm(o.innerText || o.text) === want) ||
+        opts.find((o) => norm(o.innerText || o.text).startsWith(want)) ||
+        opts.find((o) => norm(o.innerText || o.text).includes(want)) ||
+        opts.find((o) => want.split(" ").filter((w) => w.length > 2).every((w) => norm(o.innerText || o.text).includes(w)));
+      if (el instanceof HTMLSelectElement) {
+        const opt = pick([...el.options]);
+        if (!opt) return { ok: false, note: `no option like "${action.value}"; options: ${[...el.options].slice(0, 12).map((o) => clean(o.text)).join(" | ")}` };
+        setValue(el, opt.value);
+        return { ok: true, note: `selected "${clean(opt.text)}"` };
+      }
+      const shown = (o) => {
+        const r = o.getBoundingClientRect();
+        return r.width > 1 && r.height > 1 && getComputedStyle(o).visibility !== "hidden";
+      };
+      const options = () => [...document.querySelectorAll('[role="option"], [role="menuitem"], li[id*="option" i], [data-automation-id="promptOption"]')].filter(shown);
+      const press = (o) => {
+        for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup"]) o.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
+        o.click();
+      };
+      el.focus?.();
+      if (el instanceof HTMLInputElement) {
+        // A typeahead: type a few words to filter, then pick from the suggestions.
+        setValue(el, String(action.value).slice(0, 40));
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      } else press(el);
+      let opt;
+      for (let i = 0; i < 15 && !opt; i++) {
+        await sleep(200);
+        opt = pick(options());
+      }
+      if (!opt && el instanceof HTMLInputElement) {
+        // Some boxes search on Enter.
+        for (const t of ["keydown", "keyup"]) el.dispatchEvent(new KeyboardEvent(t, { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+        for (let i = 0; i < 10 && !opt; i++) {
+          await sleep(250);
+          opt = pick(options());
+        }
+      }
+      if (!opt) {
+        const seen = options().slice(0, 15).map((o) => clean(o.innerText)).filter(Boolean);
+        return { ok: false, note: seen.length ? `no option like "${action.value}"; options shown: ${seen.join(" | ")}` : `no list opened for "${action.value}" (try click, then look)` };
+      }
+      press(opt);
+      return { ok: true, note: `chose "${clean(opt.innerText).slice(0, 60)}"` };
     }
     if (action.type === "select") {
       if (!(el instanceof HTMLSelectElement)) return { ok: false, note: "that element isn't a dropdown; click it instead" };

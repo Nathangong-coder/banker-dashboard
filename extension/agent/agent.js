@@ -7,6 +7,27 @@ import { complete, parseJson } from "./llm.js";
 const MAX_ELEMENTS = 150;
 const MAX_TEXT = 3500;
 const HISTORY = 12;
+/**
+ * Pacing (owner, 2026-10-26: "a bit more staggered"): at least this long between two model calls from this extension
+ * (all tabs share it), plus a random extra, so providers like DeepSeek don't rate-limit a batch. Rate-limit / busy
+ * errors wait and retry (10 s, 20 s, 40 s) instead of ending the run.
+ */
+const MIN_GAP = 3500;
+let lastCall = 0;
+async function paced(fn) {
+  for (let tries = 0; ; tries++) {
+    const wait = lastCall + MIN_GAP + Math.random() * 1500 - Date.now();
+    lastCall = Math.max(Date.now(), lastCall + MIN_GAP);
+    if (wait > 0) await sleep(wait);
+    try {
+      return await fn();
+    } catch (e) {
+      const busy = /^(429|500|502|503|504|529)\b|rate|overloaded|busy|timeout|network|failed to fetch/i.test(e.message);
+      if (!busy || tries >= 3) throw e;
+      await sleep(10_000 * 2 ** tries);
+    }
+  }
+}
 
 export const SYSTEM = `You control one web browser tab to complete the user's task.
 Each turn you get the task, what you already did, and the current page: a numbered list of interactive elements and the page's visible text (and, in screenshot mode, a screenshot of the visible area).
@@ -35,7 +56,7 @@ Reply with ONLY a JSON object, no other text:
 Actions:
 {"type":"click","index":N}
 {"type":"type","index":N,"text":"...","enter":false}   (replaces the field's text; enter:true presses Enter, e.g. to search a typeahead)
-{"type":"select","index":N,"value":"<option text>"}     (native dropdowns only; for custom dropdowns click them, then click the option)
+{"type":"choose","index":N,"value":"<option text>"}     (ANY dropdown or pick-from-list box: native select, "Select One" buttons, comboboxes, typeaheads like School / Location. It opens it, types to filter if it's a search box, and clicks the option. Use this, never "type", for elements marked [dropdown] or [typeahead])
 {"type":"scroll","direction":"down"|"up"}
 {"type":"wait"}
 {"type":"done","success":true|false,"answer":"<one line: where you stopped and what the student must still do>"}
@@ -43,7 +64,8 @@ How to fill:
 - Use ONLY the FACTS. Values written as {{name}} are placeholders: type the placeholder exactly (e.g. "{{phone}}") and it becomes the real value. Never invent facts. If a REQUIRED question needs a fact you don't have, leave it and mention it in your final answer.
 - Leave fields that already have a value alone unless they're clearly wrong for these facts (fix those).
 - Work experience / education sections: add one entry per item in the RESUME / EXPERIENCE facts (click "Add", fill title, company, dates, description).
-- Custom dropdowns: click the field, then click the option (type in the search box first if there is one).
+- Dropdowns: elements marked [dropdown] or [typeahead] in the list are pick-from-a-list fields. Use "choose" with the option text you want (e.g. "University of California, Los Angeles", "Yes", "Bachelor's"). If choose says the option wasn't found, try a shorter or different wording that is likely in the list (e.g. "UCLA" → "California, Los Angeles"), or open it with click and read the options listed next turn.
+- Cover letter / resume upload fields are handled by Coverage: skip them.
 - When a page is done, click Next / Continue / Save and continue.
 - The resume file is already attached when the site allows it; never remove it. You can't upload files.
 - STOP with done (success true) when you reach the final review page or the only way forward is Submit / Send / Sign. Never click those.
@@ -118,7 +140,7 @@ export async function runAgent({ tabId, task, model, mode, maxSteps, allowLinked
     const step = { n, url: page.url, thought: "", action: null, result: "", inTokens: 0, outTokens: 0, ms: 0 };
     let reply;
     try {
-      const r = await complete({ ...model, system: fill ? FILL_SYSTEM : SYSTEM, text: promptFor(task, history, page, image ? "screenshot" : "text"), image });
+      const r = await paced(() => complete({ ...model, system: fill ? FILL_SYSTEM : SYSTEM, text: promptFor(task, history, page, image ? "screenshot" : "text"), image }));
       Object.assign(step, { inTokens: r.inTokens, outTokens: r.outTokens, ms: r.ms });
       run.inTokens += r.inTokens;
       run.outTokens += r.outTokens;
@@ -198,7 +220,8 @@ export async function runAgent({ tabId, task, model, mode, maxSteps, allowLinked
     } else {
       const r = await inTab(tabId, actPage, [fill ? { ...a, text: swap(a.text), value: swap(a.value) } : a]);
       step.result = r?.note ?? "no result (the page may have navigated)";
-      await sleep(700);
+      // Let the page react (dropdowns open, sections expand) before looking again.
+      await sleep(fill ? 1200 : 700);
     }
     history.push(`${n}. ${a.type}${a.index !== undefined ? ` [${a.index}] "${target.slice(0, 50)}"` : ""}${a.text ? ` "${String(a.text).slice(0, 60)}"` : ""}${a.value ? ` "${a.value}"` : ""}${a.url ? ` ${a.url}` : ""}${a.direction ? ` ${a.direction}` : ""} → ${step.result}`);
     onStep(step);

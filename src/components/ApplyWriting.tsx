@@ -248,6 +248,14 @@ export function ApplyResumes() {
                     );
                   })}
                 </select>
+                <input
+                  className="h-7 w-44 rounded-md border border-line-2 bg-panel px-1.5 text-[12px] text-ink-2 placeholder:text-muted/70"
+                  aria-label={`What ${r.name} is for`}
+                  title="Jobs whose title or description has these words get this resume (comma-separated)"
+                  placeholder="for: consulting, economics"
+                  defaultValue={r.tags ?? ""}
+                  onBlur={(e) => setApply((a) => ({ ...a, resumes: a.resumes.map((x) => (x.id === r.id ? { ...x, tags: e.target.value.trim().slice(0, 200) || undefined } : x)) }))}
+                />
                 <span className="text-[11.5px] text-muted">
                   {Math.round(r.size / 1024)} KB · {fmtDate(r.addedAt)}
                 </span>

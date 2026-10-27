@@ -143,8 +143,9 @@ export async function scanForm() {
 
     const isFile = type === "file";
     if (!isFile && !shown(el)) continue;
+    // Upload fields: their id / name often says what they're for ("cover_letter", "resume") when the visible text doesn't.
     const label = isFile
-      ? ownLabel(el) || fileLabel(el) || clean(el.getAttribute("name") || "")
+      ? clean(`${ownLabel(el) || fileLabel(el)} ${[el.id, el.getAttribute("name"), el.getAttribute("data-automation-id")].filter(Boolean).join(" ").replace(/[_-]+/g, " ")}`)
       : ownLabel(el) || containerLabel(el) || clean(el.getAttribute("placeholder") || el.getAttribute("name") || "");
     const id = `cf${n++}`;
     tag(el, id);

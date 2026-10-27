@@ -73,6 +73,8 @@ export async function POST(req: Request) {
           "You sort internship postings for a US college student recruiting for finance internships. For each posting, return: its role type (one id from " +
           "ROLE TYPES, by what the job actually does, not its title alone; use the most specific type; anything that isn't finance or investing is " +
           '"not_finance"), the class years it is open to, whether it is an internship, whether it is in the US, and whether the firm is a well-known name. ' +
+          "Finance-adjacent roles belong in the closest finance / economics type, not not_finance: a business role at an investment firm (business development, investor relations, strategy) " +
+          "or economic consulting / research (e.g. healthcare economics at an economics consultancy). Use not_finance only when no type fits. " +
           "CLASS YEARS: convert what the posting says into graduation years. 'Graduating between Dec 2027 and Jun 2028' = 2028. A 'Summer 2027' analyst / " +
           "intern program for rising seniors (or penultimate-year students, juniors) = 2028; 'Summer 2028' = 2029. A sophomore / early insight / " +
           "freshman program for Summer 2027 = 2029 (sophomore) or 2030 (freshman). 'Rising junior' in Summer 2027 = 2029. If it doesn't say enough to tell, " +

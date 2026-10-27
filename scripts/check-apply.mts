@@ -3,6 +3,8 @@
  * which are left for you. No browser, no network.
  *   npm run check:apply
  */
+import { chooseResume } from "../src/lib/apply";
+import { coverLetterFrom, letterPdf } from "../src/lib/coverLetter";
 import { EMPTY_PROFILE, planFill, pickOption, sameJobSite, guessFromUrl, knownJobSite, parseJobCapture, type ApplyProfile, type FormField } from "../src/lib/apply";
 
 let failed = 0;
@@ -105,6 +107,44 @@ eq("no resume → file left for you", planFill([form[4]], me, { hasResume: false
 // An "Attach resume" link hiding an unlabelled file input: the only file input on the form is the resume.
 eq("unlabelled lone file input → resume", planFill([f("u", "file", ""), f("v", "text", "First Name")], me, { hasResume: true }).items.find((x) => x.id === "u")?.file, "resume");
 eq("two unlabelled file inputs → left for you", planFill([f("u", "file", ""), f("w", "file", "")], me, { hasResume: true }).skipped.length, 2);
+
+// Resume once, cover letter from your template (owner, 2026-10-26)
+{
+  const two = [f("r", "file", "Attach Dropbox Google Drive resume"), f("c", "file", "Attach Dropbox Google Drive cover letter")];
+  const pl = planFill(two, me, { hasResume: true, coverText: "Dear team" });
+  eq("resume + cover letter boxes: each gets its own file", pl.items.map((x) => [x.id, x.file]), [["r", "resume"], ["c", "cover"]]);
+  const vague = planFill([f("a", "file", "Attach"), f("b", "file", "Attach")], me, { hasResume: true });
+  eq("two unclear upload boxes: resume only in the first", [vague.items.map((x) => x.id), vague.skipped.map((x) => x.id)], [["a"], ["b"]]);
+  eq("cover letter box without a template is left for you", planFill([two[1]], me, { hasResume: true }).skipped.length, 1);
+  eq("cover letter text box gets the letter", planFill([f("t", "textarea", "Cover Letter")], me, { hasResume: true, coverText: "Dear team" }).items[0]?.value, "Dear team");
+}
+{
+  const tpl = "October 5, 2026\n\nDear Evercore Recruiting Team,\n\nI am excited to apply to Evercore's Summer Analyst program. At Evercore, I hope to learn.\n\nSincerely,\nNathan";
+  const out = coverLetterFrom(tpl, "Houlihan Lokey", new Date(2026, 9, 26), ["Evercore", "Goldman Sachs", "Lazard"]);
+  eq("cover letter: today's date, new firm everywhere, nothing else", out, "October 26, 2026\n\nDear Houlihan Lokey Recruiting Team,\n\nI am excited to apply to Houlihan Lokey's Summer Analyst program. At Houlihan Lokey, I hope to learn.\n\nSincerely,\nNathan");
+  eq("cover letter: {{company}} placeholder and 10/5/2026 dates", coverLetterFrom("10/5/2026 Dear {{company}} team", "Citi", new Date(2026, 9, 26), []), "10/26/2026 Dear Citi team");
+  eq("cover letter: a firm name inside another word isn't touched", coverLetterFrom("Dear Citi team, citizenship aside", "UBS", new Date(2026, 9, 26), ["Citi"]), "Dear UBS team, citizenship aside");
+  const pdf = new TextDecoder("latin1").decode(letterPdf("Hello (world)\n\nSecond paragraph"));
+  eq("cover letter PDF is a PDF with the text", [pdf.startsWith("%PDF-1.4"), pdf.includes("(Hello \\(world\\)) Tj"), pdf.trimEnd().endsWith("%%EOF")], [true, true, true]);
+}
+{
+  const rs = [
+    { id: "jr", classYear: 2028 },
+    { id: "econ", tags: "economics, consulting" },
+  ];
+  eq(
+    "resume choice: picked > class year in the posting > tags > main",
+    [
+      chooseResume({ resumeId: "x", role: "", description: "" }, "", rs),
+      chooseResume({ role: "Summer Analyst", description: "Open to students in the Class of 2028." }, "", rs),
+      chooseResume({ role: "Summer Analyst", description: "", review: { classYears: [2028] } as never }, "", rs),
+      chooseResume({ role: "Healthcare Economics Summer Analyst", description: "economic consulting" }, "", rs),
+      chooseResume({ role: "IB Summer Analyst", description: "class of 2028 or 2029" }, "", rs),
+      chooseResume({ role: "IB Summer Analyst", description: "" }, "", rs),
+    ],
+    ["x", "jr", "jr", "econ", undefined, undefined],
+  );
+}
 
 // The AI agent's fill mode (extension 1.5): stops at the final submit, never creates accounts or deletes.
 const { fillGate } = await import("../extension/agent/agent.js");

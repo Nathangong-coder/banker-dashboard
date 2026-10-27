@@ -393,8 +393,14 @@ function fillJobs({ jobs, watch }) {
         queue.push({ ...job, watch });
       }
     }
-    const workers = Array.from({ length: watch ? 1 : 2 }, async () => {
-      while (queue.length) await fillOne(queue.shift(), watch);
+    // With the AI agent on, one application at a time and a pause between them (every step is a model call, and
+    // providers rate-limit bursts); rules only: two at a time.
+    const agentOn = !!(await agentModel());
+    const workers = Array.from({ length: watch || agentOn ? 1 : 2 }, async () => {
+      while (queue.length) {
+        await fillOne(queue.shift(), watch);
+        if (agentOn && queue.length) await sleep(8000 + Math.random() * 4000);
+      }
     });
     await Promise.all(workers);
   });
@@ -539,7 +545,8 @@ async function loadedWithin(tabId, ms) {
  * (ids you already have are skipped without opening them), then each new job's own page at a person's pace, handing
  * every posting to your dashboard (which stores it and has the AI review it). Every wait has a time limit.
  */
-async function readJobs(site, { url, max, watch, known }) {
+async function readJobs(site, { urls, max, watch, known }) {
+  const url = urls[0];
   const s = SITES[site];
   if (!(await siteReady(site))) throw new Error(`Turn on ${s.name} job search in the extension's Options first (test build only).`);
   const today = new Date().toISOString().slice(0, 10);
@@ -554,16 +561,17 @@ async function readJobs(site, { url, max, watch, known }) {
     let got = 0;
     const skip = new Set(known);
     try {
-      // 1. The list: page after page until there are enough new ids (or the results run out).
+      // 1. The list: each search (your words, then variations), page after page, until there are enough new ids.
       const ids = [];
-      for (let page = 0; page < 6 && ids.length < n; page++) {
-        if (page) await chrome.tabs.update(tab.id, { url: s.page(url, page) });
+      for (const [q, search] of urls.entries())
+      for (let page = 0; page < (urls.length > 1 ? 3 : 6) && ids.length < n; page++) {
+        if (page || q) await chrome.tabs.update(tab.id, { url: s.page(search, page) });
         await loadedWithin(tab.id, 30000);
         await sleep(3500 + Math.random() * 2000);
         if (s.wall((await chrome.tabs.get(tab.id)).url)) return finder(`${s.name} asked you to sign in or pass a check. Do that in the tab, then search again.`, true);
         finder(`Reading ${s.name} results, page ${page + 1}…`);
         const list = (await inTab(tab.id, s.read, [n - ids.length, [...skip]]).catch(() => [])) ?? [];
-        if (!list.length) break;
+        if (!list.length) break; // this search has no more new jobs: next variation
         for (const j of list) {
           if (skip.has(j.id)) continue;
           skip.add(j.id);
@@ -709,13 +717,16 @@ async function fromDashboard(msg, sender) {
   if (msg.type === "focusJob" && ID.test(String(p.jobId))) return focusJob(String(p.jobId));
   const known = (Array.isArray(p.known) ? p.known : []).map(String).filter((x) => /^\d{3,15}$/.test(x)).slice(-3000);
   const max = Math.min(Number(p.max) || PER_RUN, PER_RUN);
-  if (msg.type === "linkedinJobs")
-    return readJobs("linkedin", { url: linkedinJobsUrl(String(p.terms ?? "").slice(0, 120), String(p.location ?? "").slice(0, 80)), max, watch: p.watch === true, known });
+  if (msg.type === "linkedinJobs") {
+    const where = String(p.location ?? "").slice(0, 80);
+    const terms = (Array.isArray(p.variants) && p.variants.length ? p.variants : [p.terms]).slice(0, 5).map((t) => String(t ?? "").slice(0, 120));
+    return readJobs("linkedin", { urls: terms.map((t) => linkedinJobsUrl(t, where)), max, watch: p.watch === true, known });
+  }
   if (msg.type === "handshakeJobs") {
-    // Only a Handshake job search address (the dashboard builds it from your words).
-    const url = String(p.url ?? "");
-    if (!/^https:\/\/app\.joinhandshake\.com\/(job-search|stu\/postings|jobs)\b/.test(url)) throw new Error("Not a Handshake job search.");
-    return readJobs("handshake", { url: url.slice(0, 600), max, watch: p.watch === true, known });
+    // Only Handshake job search addresses (the dashboard builds them from your words).
+    const urls = (Array.isArray(p.urls) && p.urls.length ? p.urls : [p.url]).slice(0, 5).map((u) => String(u ?? "").slice(0, 600));
+    if (!urls.every((u) => /^https:\/\/app\.joinhandshake\.com\/(job-search|stu\/postings|jobs)\b/.test(u))) throw new Error("Not a Handshake job search.");
+    return readJobs("handshake", { urls, max, watch: p.watch === true, known });
   }
   throw new Error("Unknown command.");
 }
