@@ -70,14 +70,29 @@ export function captureLinkedInJob() {
     document.querySelector(".job-details-jobs-unified-top-card__container--two-pane, .jobs-unified-top-card, .job-view-layout, [class*='top-card']") ||
     document.querySelector("main") ||
     document.body;
-  const title = clean((top.querySelector("h1, h2, [class*='job-title']") || {}).innerText);
+  // LinkedIn's 2026 layout has no stable title element, but the tab title is "<title> | <company> | LinkedIn".
+  const parts = document.title.split(" | ");
+  const fromTab = parts.length >= 3 && /linkedin/i.test(parts[parts.length - 1]);
   const companyEl = top.querySelector("[class*='company-name'] a, [class*='company-name'], a[href*='/company/']");
-  const company = clean(companyEl && companyEl.innerText);
+  const title = fromTab ? clean(parts.slice(0, -2).join(" | ")) : clean((top.querySelector("h1, [class*='job-title']") || {}).innerText);
+  const company = fromTab ? clean(parts[parts.length - 2]) : clean(companyEl && companyEl.innerText);
   const location_ = clean((top.querySelector("[class*='primary-description'] span, [class*='tertiary-description'] span, [class*='bullet']") || {}).innerText);
-  const desc = document.querySelector("#job-details, .jobs-description__content, [class*='jobs-description'], [class*='description__text']");
+  const descEl = document.querySelector("#job-details, .jobs-description__content, [class*='jobs-description'], [class*='description__text']");
+  let descText = clean(descEl && descEl.innerText);
+  if (!descText) {
+    // New layout: the text under "About the job", up to the next section.
+    const all = (document.querySelector("main") || document.body).innerText;
+    const at = all.search(/\nAbout the job\s*\n/i);
+    const rest = at >= 0 ? all.slice(at).replace(/^\s*About the job\s*/i, "") : "";
+    const end = rest.search(/\n(Set alert for similar jobs|About the company|More jobs|Looking for talent\?|Similar jobs|People you can reach out to)\b/i);
+    descText = clean(end > 0 ? rest.slice(0, end) : rest).replace(/… more$/, "");
+  }
+  // "Los Angeles, CA · 15 hours ago · 20 people clicked apply" under the title.
+  const metaLine = ((document.querySelector("main") || document.body).innerText.split("\n").find((l) => / · /.test(l) && /ago|reposted/i.test(l)) || "").split(" · ")[0];
   // An external job's Apply button sometimes links through LinkedIn's redirect with the real address in ?url=.
   let applyUrl = "";
-  for (const a of document.querySelectorAll("a[href*='externalApply'], a[href*='/redir/'], a[data-tracking-control-name*='apply']")) {
+  const applyLinks = [...document.querySelectorAll("a[href*='externalApply'], a[href*='/redir/'], a[data-tracking-control-name*='apply']"), ...[...document.querySelectorAll("a[href]")].filter((a) => /^apply$/i.test(clean(a.innerText)))];
+  for (const a of applyLinks) {
     try {
       const u = new URL(a.href, location.href);
       const real = u.searchParams.get("url");
@@ -94,8 +109,8 @@ export function captureLinkedInJob() {
   return {
     title: title.slice(0, 200),
     company: company.slice(0, 120),
-    location: location_.slice(0, 120),
-    description: clean(desc && desc.innerText).slice(0, 6000),
+    location: (location_ || clean(metaLine)).slice(0, 120),
+    description: descText.slice(0, 6000),
     url: `https://www.linkedin.com/jobs/view/${id}/`,
     applyUrl: applyUrl.slice(0, 1000),
     linkedinJobId: id,
@@ -133,16 +148,28 @@ export async function readLinkedInJobs(max, known) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const skip = new Set(known || []);
-  const list = document.querySelector(".jobs-search-results-list, .scaffold-layout__list, [class*='jobs-search-results']") || document.scrollingElement;
+  const CARD = '[componentkey^="job-card-component-ref-"]';
+  // The results scroll in their own box (no stable class): the scrollable element holding the cards.
+  const list =
+    document.querySelector(".jobs-search-results-list, .scaffold-layout__list, [class*='jobs-search-results']") ||
+    [...document.querySelectorAll("div, ul, section")].find((e) => e.scrollHeight > e.clientHeight + 200 && /auto|scroll/.test(getComputedStyle(e).overflowY) && e.querySelector(`${CARD}, [data-occludable-job-id]`)) ||
+    document.scrollingElement;
   const seen = new Map();
   const idOf = (el) =>
+    (el.getAttribute("componentkey") || "").replace(/^job-card-component-ref-/, "") ||
     el.getAttribute("data-job-id") ||
     el.getAttribute("data-occludable-job-id") ||
     ((el.getAttribute("href") || "").match(/\/jobs\/view\/(\d+)|[?&]currentJobId=(\d+)/) || []).slice(1).find(Boolean);
   for (let round = 0; round < 8 && seen.size < max; round++) {
-    for (const a of document.querySelectorAll('[data-job-id], [data-occludable-job-id], a[href*="/jobs/view/"], a[href*="currentJobId="]')) {
+    for (const a of document.querySelectorAll(`${CARD}, [data-job-id], [data-occludable-job-id], a[href*="/jobs/view/"]`)) {
       const id = idOf(a);
       if (!id || !/^\d{5,15}$/.test(id) || seen.has(id) || skip.has(id)) continue;
+      if (a.matches(CARD)) {
+        // "Selected, <title> (Verified job)" / <title> / <company> / <location> / …
+        const lines = [...new Set((a.innerText || "").split("\n").map(clean).filter(Boolean).map((l) => l.replace(/^Selected, /, "").replace(/\s*\(Verified job\)$/, "")))];
+        seen.set(id, { id, title: (lines[0] || "").slice(0, 200), company: (lines[1] || "").slice(0, 120), location: (lines[2] || "").slice(0, 120) });
+        continue;
+      }
       const card = a.closest("li, [data-job-id], [data-occludable-job-id]") || a.parentElement;
       const lines = clean(card?.innerText ?? "")
         .split(/\s{2,}|\n/)

@@ -22,55 +22,64 @@ export function handshakePage(url, page) {
 }
 
 /**
- * Injected into a Handshake job search tab: scrolls the results a little at a time and returns the jobs listed that
- * aren't in `known` ([{ id, title, company }]).
+ * Injected into a Handshake job search tab: returns the jobs listed that aren't in `known` ([{ id, title, company,
+ * location }]). Handshake's 2026 cards are `[data-hook="job-result-card | <id>"]` with lines company / title / type /
+ * location (checked on the live site 2026-10-26); job links (/job-search/<id>, /jobs/<id>) are the fallback.
  */
 export async function readHandshakeJobs(max, known) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const skip = new Set(known || []);
   const seen = new Map();
-  const idOf = (href) => ((href || "").match(/\/(?:stu\/)?(?:jobs|job-search)\/(\d{3,15})/) || [])[1];
-  for (let round = 0; round < 8 && seen.size < max; round++) {
-    for (const a of document.querySelectorAll('a[href*="/jobs/"], a[href*="/job-search/"]')) {
-      const id = idOf(a.getAttribute("href"));
-      if (!id || seen.has(id) || skip.has(id)) continue;
-      const card = a.closest("li, [role='listitem'], [data-hook*='card'], [class*='card' i]") || a;
-      // Line breaks first (clean() would join title and company into one line).
-      const lines = (card.innerText || "").split(/\n|\s{3,}/).map(clean).filter(Boolean);
-      seen.set(id, { id, title: (lines[0] || clean(a.innerText)).slice(0, 200), company: (lines[1] || "").slice(0, 120) });
+  const CARD = '[data-hook^="job-result-card |"]';
+  const box = [...document.querySelectorAll("div, ul, section, main")].find((e) => e.scrollHeight > e.clientHeight + 200 && /auto|scroll/.test(getComputedStyle(e).overflowY) && e.querySelector(CARD));
+  for (let round = 0; round < 6 && seen.size < max; round++) {
+    for (const card of document.querySelectorAll(CARD)) {
+      const id = (card.getAttribute("data-hook").split("|")[1] || "").trim();
+      if (!/^\d{3,15}$/.test(id) || seen.has(id) || skip.has(id)) continue;
+      const lines = (card.innerText || "").split("\n").map(clean).filter((l) => l && l !== "∙");
+      seen.set(id, { id, company: (lines[0] || "").slice(0, 120), title: (lines[1] || "").slice(0, 200), location: (lines.find((l, k) => k > 1 && /,\s*[A-Z]{2}\b|remote|united states/i.test(l)) || "").slice(0, 120) });
     }
-    const list = document.querySelector("[data-hook*='search-results'], [class*='results' i], main") || document.scrollingElement;
-    list.scrollBy({ top: 700, behavior: "smooth" });
-    window.scrollBy({ top: 500, behavior: "smooth" });
-    await sleep(1200 + Math.random() * 1200);
+    if (!document.querySelector(CARD))
+      for (const a of document.querySelectorAll('a[href*="/jobs/"], a[href*="/job-search/"]')) {
+        const id = ((a.getAttribute("href") || "").match(/\/(?:stu\/)?(?:jobs|job-search)\/(\d{3,15})/) || [])[1];
+        if (!id || seen.has(id) || skip.has(id)) continue;
+        // The link is an empty overlay; its aria-label reads "<company> <title> $pay · Internship · … <location> <age>".
+        const label = clean(a.getAttribute("aria-label")).replace(/^Selected,\s*/, "");
+        seen.set(id, { id, company: "", title: label.split(/\s+\$|\s+·\s+/)[0].slice(0, 200), location: "" });
+      }
+    (box || document.scrollingElement).scrollBy({ top: 700, behavior: "smooth" });
+    await sleep(1000 + Math.random() * 1000);
   }
   return [...seen.values()].slice(0, max);
 }
 
-/** Injected on a Handshake job page: title, company, location, description, the external apply link when it's a link. */
-export function captureHandshakeJob() {
+/**
+ * Injected on a Handshake job page: firm (the page's first line), title (h1), location, posted / deadline, the full
+ * description (its "More" buttons are pressed first; they only expand text), and the apply link when it's a link.
+ */
+export async function captureHandshakeJob() {
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const id = (location.pathname.match(/\/(?:stu\/)?(?:jobs|job-search)\/(\d{3,15})/) || [])[1] || "";
   const main = document.querySelector("main") || document.body;
+  for (const b of main.querySelectorAll("button")) if (/^(more|show more|see more)$/i.test(clean(b.innerText))) b.click();
+  await new Promise((r) => setTimeout(r, 600));
   const title = clean((main.querySelector("h1") || {}).innerText);
-  const employer = main.querySelector('a[href*="/e/"], a[href*="/employers/"]');
-  const company = clean(employer && employer.innerText);
-  // Location: a short line naming a city / Remote near the top.
-  const lines = (main.innerText || "").split("\n").map(clean).filter(Boolean).slice(0, 60);
-  const location_ = lines.find((l) => l.length < 80 && /(,\s*[A-Z]{2}\b|remote|united states|new york|san francisco|chicago|los angeles|boston|charlotte|houston|dallas)/i.test(l) && l !== title) || "";
-  const posted = lines.find((l) => /^posted\b|ago$|apply by/i.test(l) && l.length < 80) || "";
-  // The description: the biggest block of text on the page.
-  let desc = "";
-  for (const el of main.querySelectorAll("[class*='description' i], [data-hook*='description'], section, article, div")) {
-    const t = clean(el.innerText);
-    if (t.length > desc.length && t.length < 20000 && el.querySelectorAll("a[href*='/jobs/']").length < 5) desc = t;
-  }
+  const lines = (main.innerText || "").split("\n").map(clean).filter(Boolean);
+  const company = lines[0] && lines[0] !== title ? lines[0] : clean((main.querySelector('a[href*="/e/"], a[href*="/employers/"]') || {}).innerText);
+  const location_ = (lines.find((l) => /^(hybrid|onsite|on-site|remote|in person)\b.*\bbased in\b/i.test(l) || /^(hybrid|onsite|remote)$/i.test(l)) || lines.find((l) => l.length < 80 && /,\s*[A-Z]{2}\b/.test(l) && l !== title) || "").replace(/^.*?based in\s*/i, "");
+  const posted = lines.find((l) => /^posted\b/i.test(l)) || "";
+  // The description: from "Job description" to the employer section.
+  const text = main.innerText || "";
+  const at = text.search(/\nJob description\s*\n/i);
+  const rest = at >= 0 ? text.slice(at).replace(/^\s*Job description\s*/i, "") : "";
+  const end = rest.search(/\n(About the employer|Similar Jobs|Alumni at this employer)\b/i);
+  const desc = clean((end > 0 ? rest.slice(0, end) : rest).replace(/\n(Less|More)\n/g, "\n"));
   let applyUrl = "";
   for (const a of main.querySelectorAll("a[href^='http']")) {
     try {
       const u = new URL(a.href);
-      if (!/joinhandshake\.com$/i.test(u.hostname) && /apply/i.test(a.innerText + a.getAttribute("aria-label"))) {
+      if (!/joinhandshake\.com$/i.test(u.hostname) && /apply/i.test(`${a.innerText} ${a.getAttribute("aria-label") || ""}`)) {
         applyUrl = u.href;
         break;
       }

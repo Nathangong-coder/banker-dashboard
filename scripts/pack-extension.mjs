@@ -74,12 +74,16 @@ const add = (dir) => {
   }
 };
 add(src);
+// The worker imports agent/agent.js (the AI agent that finishes applications); the store build gets a stand-in that
+// turns it off, so the store build still has no agent code.
+const AGENT_STUB = "// Store build: no AI agent (the test build has extension/agent/).\nexport const runAgent = null;\n";
+if (!withAgent) zip.file("agent/agent.js", AGENT_STUB);
 fs.mkdirSync(path.join(root, "dist"), { recursive: true });
 const out = path.join(root, "dist", `coverage-extension-${manifest.version}${withAgent ? "-agent" : ""}.zip`);
 fs.writeFileSync(out, await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
 const popup = await zip.file("popup.html").async("string");
 const options = await zip.file("options.html").async("string");
-if (!withAgent && (popup.includes('id="agent"') || options.includes('id="liOn"') || options.includes('id="hsOn"') || manifest.optional_host_permissions.includes(LINKEDIN) || manifest.optional_host_permissions.includes(HANDSHAKE) || Object.keys(zip.files).some((f) => f.startsWith("agent/")))) {
+if (!withAgent && (popup.includes('id="agent"') || options.includes('id="liOn"') || options.includes('id="hsOn"') || manifest.optional_host_permissions.includes(LINKEDIN) || manifest.optional_host_permissions.includes(HANDSHAKE) || Object.keys(zip.files).some((f) => f.startsWith("agent/") && f !== "agent/" && f !== "agent/agent.js") || (await zip.file("agent/agent.js").async("string")) !== AGENT_STUB)) {
   console.error("The store build still contains the agent.");
   process.exit(1);
 }

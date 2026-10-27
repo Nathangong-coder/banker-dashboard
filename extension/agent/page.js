@@ -93,7 +93,8 @@ export function actPage(action) {
       } else setValue(el, text);
       if (action.enter) {
         for (const t of ["keydown", "keypress", "keyup"]) el.dispatchEvent(new KeyboardEvent(t, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
-        el.form?.requestSubmit?.();
+        // Fill mode never submits a form with Enter (it only presses the key, for search boxes / typeaheads).
+        if (!action.noSubmit) el.form?.requestSubmit?.();
       }
       return { ok: true, note: `typed ${text.length} characters${action.enter ? " + Enter" : ""}` };
     }

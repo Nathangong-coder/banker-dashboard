@@ -106,6 +106,14 @@ eq("no resume → file left for you", planFill([form[4]], me, { hasResume: false
 eq("unlabelled lone file input → resume", planFill([f("u", "file", ""), f("v", "text", "First Name")], me, { hasResume: true }).items.find((x) => x.id === "u")?.file, "resume");
 eq("two unlabelled file inputs → left for you", planFill([f("u", "file", ""), f("w", "file", "")], me, { hasResume: true }).skipped.length, 2);
 
+// The AI agent's fill mode (extension 1.5): stops at the final submit, never creates accounts or deletes.
+const { fillGate } = await import("../extension/agent/agent.js");
+eq(
+  "agent fill gate",
+  ["Submit Application", "Send application", "Sign and Submit", "Next", "Save and Continue", "Apply Manually", "Add Another", "Create Account", "Delete", "Sign Out"].map((t) => fillGate(t)),
+  ["stop", "stop", "stop", "approve", "approve", "approve", "approve", "skip", "skip", "skip"],
+);
+
 eq("pickOption decline phrasing", pickOption([{ value: "a", label: "Yes" }, { value: "b", label: "I prefer not to say" }], "decline"), "b");
 eq("pickOption ignores the placeholder", pickOption(yn, "yes"), "1");
 eq("same job site (Workday subdomain)", sameJobSite("https://gs.wd1.myworkdayjobs.com/en-US/careers/job/123", "https://gs.wd1.myworkdayjobs.com/en-US/careers/apply"), true);

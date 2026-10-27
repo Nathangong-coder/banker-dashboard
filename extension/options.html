@@ -158,6 +158,18 @@
       <label class="switch"><input id="hsOn" type="checkbox" /> Turn on Handshake job search (I accept the risk to my account)</label>
       <p id="hsStatus" class="muted" role="status"></p>
     </section>
+    <section>
+      <h2>AI agent for applications <span class="tag">test build</span></h2>
+      <p class="muted">
+        After the rules fill what they can (and attach your resume), the model you picked in the agent test bench (popup → Agent test bench) finishes the
+        application: it reads the page (and a screenshot when you watch), adds your experience, answers the rest from your Coverage info and resume, and
+        presses Next. It stops before the final Submit, never creates accounts, and never leaves the application. Your phone, email and street address are
+        typed by the extension, not sent to the model. Uses your own API key; each step is one model call.
+      </p>
+      <label class="switch"><input id="fillAgentOn" type="checkbox" /> Let the AI agent finish applications in Fill selected</label>
+      <label class="switch"><input id="anySiteOn" type="checkbox" /> Fill applications on any site (careers pages like TikTok's that aren't in the list above)</label>
+      <p id="agentStatus" class="muted" role="status"></p>
+    </section>
     <!-- agent:end -->
 
     <script type="module" src="options.js"></script>

@@ -645,8 +645,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   Handshake `?page=`) → new ids (known ids sent by the dashboard are skipped) → each job page, 30/run, 90/day, timed waits.
   `sites/handshake.js` (Options toggle `handshakeAgent`, optional `https://*.joinhandshake.com/*`, stripped from the store
   build). Fill selected on a Handshake URL: `handshakeHandOff` presses "Apply externally" (link → same tab; button → the
-  opened tab takes over), Handshake's own Apply → needs_you. Readers tested only on mock pages (headless Edge): the real
-  Handshake / LinkedIn DOM is unverified.
+  opened tab takes over), Handshake's own Apply → needs_you. **1.5.0:** readers re-keyed on the live sites (LinkedIn
+  `componentkey="job-card-component-ref-<id>"` cards + tab-title capture; Handshake `data-hook="job-result-card | <id>"`;
+  checked in the owner's Chrome 2026-10-26) and the **AI agent finishes applications** after the rules (`agent/agent.js`
+  fill mode + `fillGate`, `background.js#agentFinish`, dashboard `applyBridge.ts#agentBrief`; model + key from the agent
+  test bench; store build gets a stub). Not yet run end to end with a real key.
 
 - **Gmail → applications (owner, 2026-10-26):** statuses "submitted" = **Pend. applied**, new `confirmed` = **Off. applied**
   (the firm's "thanks for applying" email arrived). Applications → **Check Gmail** (`lib/appEmailsRun.ts`; also quietly on open

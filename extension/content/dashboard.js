@@ -10,7 +10,7 @@
 // The dashboard side is src/lib/applyBridge.ts. Messages are only exchanged with this same window.
 (() => {
   const CHANNEL = "coverage-ext";
-  const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault"]);
+  const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault", "agentBrief"]);
   const COMMANDS = new Set(["fillJobs", "focusJob", "linkedinJobs", "handshakeJobs"]);
   const pending = new Map();
   const hello = async () => {

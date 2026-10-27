@@ -35,6 +35,7 @@ import {
   switchToSignIn,
 } from "./sites/apply.js";
 import { captureLinkedInJob, isLinkedInWall, linkedinJobsUrl, readLinkedInJobs } from "./sites/linkedin.js";
+import { runAgent } from "./agent/agent.js";
 import { captureHandshakeJob, clickApplyExternally, handshakeJobUrl, handshakePage, isHandshake, isHandshakeWall, readHandshakeJobs } from "./sites/handshake.js";
 
 const progress = (tabId, text) => chrome.runtime.sendMessage({ type: "autofill-progress", tabId, text }).catch(() => {});
@@ -286,7 +287,8 @@ async function drive(tabId, job) {
       if (h.tabId !== tabId) return drive(h.tabId, job);
       tab = await chrome.tabs.get(tabId);
     }
-    if (!(await hasAccess(tab.url))) return wait("access", `The application moved to ${new URL(tab.url).hostname}. Allow that site in the extension's Options, then press Fill again.`);
+    if (!(await hasAccess(tab.url)))
+      return wait("access", `The application moved to ${new URL(tab.url).hostname}. Allow that site in the extension's Options${typeof runAgent === "function" ? ' (or "Fill applications on any site")' : ""}, then press Fill again.`);
     const ls = await inTab(tabId, loginState);
     if (ls?.kind === "signin" || ls?.kind === "signup") {
       const cred = await loginFor(tab.url);
@@ -329,12 +331,24 @@ async function drive(tabId, job) {
         continue;
       }
     }
-    if (!scan?.fields?.length) return report(job.id, "error", "No application form on that page. Open it there and use the Coverage icon.");
+    if (!scan?.fields?.length) {
+      // No form the rules can read (a careers page with its own Apply flow, an unusual site): the AI agent takes it.
+      const run = await agentFinish(tabId, job);
+      await chrome.storage.session.remove(key);
+      if (run) return agentReport(job, run, "");
+      return report(job.id, "error", "No application form on that page. Open it there and use the Coverage icon (or pick an agent model in the agent test bench to let the AI do it).");
+    }
 
     let r = await remember(tabId, await fillPage(tabId, true, { jobId: job.id, watch: job.watch }));
     if (r.multi && !r.stopped) r = await continuePages(tabId, { jobId: job.id, watch: job.watch, batch: true });
+    if (r.stopped) {
+      await chrome.storage.session.remove(key);
+      return report(job.id, "stopped", "You pressed Stop on the page.");
+    }
+    // The AI agent finishes what the rules couldn't (experience entries, custom questions, more pages).
+    const run = await agentFinish(tabId, job);
     await chrome.storage.session.remove(key);
-    if (r.stopped) return report(job.id, "stopped", "You pressed Stop on the page.");
+    if (run) return agentReport(job, run, `Rules filled ${r.filled ?? 0} field${r.filled === 1 ? "" : "s"}.`);
     if (r.needsYou?.length) return report(job.id, "needs_you", `${r.needsYou.length} required question${r.needsYou.length === 1 ? "" : "s"} left for you.`, r.needsYou.slice(0, 10));
     if (r.review || !r.multi)
       return report(job.id, "ready", `${r.multi ? "On the review page" : `Filled ${r.filled} field${r.filled === 1 ? "" : "s"}`}${r.ai ? " (AI drafts to read)" : ""}. Check it and submit it yourself.`);
@@ -368,7 +382,11 @@ function fillJobs({ jobs, watch }) {
         await report(
           job.id,
           "access",
-          isHandshake(job.url) ? "Turn on Handshake job search in the extension's Options (test build), then press Fill again." : `Allow Coverage on ${new URL(job.url).hostname} (extension Options → Application sites), then press Fill again.`,
+          isHandshake(job.url)
+            ? "Turn on Handshake job search in the extension's Options (test build), then press Fill again."
+            : typeof runAgent === "function"
+              ? `Coverage can't open ${new URL(job.url).hostname} yet: extension Options → "Fill applications on any site" (or allow just this site), then press Fill again.`
+              : `Allow Coverage on ${new URL(job.url).hostname} (extension Options → Application sites), then press Fill again.`,
         );
       else {
         await report(job.id, "queued", "Waiting for a free tab…");
@@ -407,6 +425,59 @@ async function focusJob(jobId) {
   await chrome.tabs.update(tab.id, { active: true });
   await chrome.windows.update(tab.windowId, { focused: true });
   return { found: true };
+}
+
+/* ---------------- AI agent finishes the application (test build, 1.5) ---------------- */
+
+/**
+ * The model you picked in the agent test bench (side panel), with its key, if "Finish applications with this model"
+ * isn't turned off there. The store build ships a stub runAgent (null): no agent.
+ */
+async function agentModel() {
+  if (typeof runAgent !== "function") return null;
+  const S = await chrome.storage.local.get({ keys: {}, bases: {}, picked: {}, prefs: {} });
+  const { provider, model } = S.picked ?? {};
+  if (!provider || !model || !S.keys[provider] || S.prefs.fillAgent === false) return null;
+  return { provider, model, key: S.keys[provider], baseURL: S.bases[provider] };
+}
+
+/**
+ * After the rule-based fill (and the resume upload), the AI agent finishes the page and the next ones: experience
+ * entries, custom widgets, questions the rules skipped, Next / Continue. It stops at the final submit (fillGate).
+ * Returns null when there's no agent model.
+ */
+async function agentFinish(tabId, job) {
+  const model = await agentModel();
+  if (!model) return null;
+  const tab = await chrome.tabs.get(tabId);
+  const brief = await askDashboard("agentBrief", { jobId: job.id, url: tab.url });
+  if (!brief?.task) return null;
+  await report(job.id, "filling", `AI agent (${model.model}) is filling the rest…`);
+  const ctrl = new AbortController();
+  return runAgent({
+    tabId,
+    task: brief.task,
+    secrets: brief.secrets ?? {},
+    fill: true,
+    model,
+    mode: "screenshot",
+    maxSteps: 60,
+    allowLinkedIn: false,
+    signal: ctrl.signal,
+    confirm: async () => "approve",
+    onStep: (s) => {
+      progress(tabId, `AI step ${s.n}: ${s.thought || s.result}`);
+      inTab(tabId, stopRequested).then((stop) => stop && ctrl.abort(), () => {});
+    },
+  });
+}
+
+/** The agent's result as a Fill selected status. */
+function agentReport(job, run, before) {
+  if (run.outcome === "stopped") return report(job.id, "stopped", "You pressed Stop on the page.");
+  if (run.outcome === "done") return report(job.id, "ready", `${before ? `${before} ` : ""}AI agent: ${run.answer || "filled up to review"}. Check it and submit it yourself.`.trim());
+  const why = run.outcome === "max_steps" ? "Ran out of steps" : run.outcome === "error" ? `AI error: ${run.answer}` : run.answer || "Stopped";
+  return report(job.id, "needs_you", `${why}. Carry on in that tab.`.slice(0, 300));
 }
 
 /* ---------------- LinkedIn / Handshake job readers (opt-in, test build) ---------------- */
@@ -556,6 +627,13 @@ async function handshakeHandOff(tabId, job) {
     await chrome.storage.session.remove(batchKey(tabId));
     await chrome.storage.session.set({ [batchKey(child)]: { ...job, stage: "filling" } });
     chrome.tabs.remove(tabId).catch(() => {});
+    // Handshake opens the tab blank, then sends it to the bank's site: wait for a real address (≤ 25 s).
+    for (let i = 0; i < 50; i++) {
+      const t = await chrome.tabs.get(child).catch(() => null);
+      if (!t) return { error: "The application tab was closed." };
+      if (/^https?:\/\//.test(t.url ?? t.pendingUrl ?? "") && !/^about:/.test(t.url ?? "")) break;
+      await sleep(500);
+    }
     await loadedWithin(child, 30000);
     await sleep(2500);
     return { tabId: child };

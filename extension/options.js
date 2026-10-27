@@ -139,3 +139,18 @@ function siteToggle(box, status, origin, flag, button) {
 }
 siteToggle($("liOn"), $("liStatus"), "https://www.linkedin.com/*", "linkedinAgent", "Search LinkedIn");
 siteToggle($("hsOn"), $("hsStatus"), "https://*.joinhandshake.com/*", "handshakeAgent", "Search Handshake");
+siteToggle($("anySiteOn"), $("agentStatus"), "<all_urls>", "anySite", "Fill selected");
+
+/* The AI agent finishes applications (test build): prefs.fillAgent, on unless turned off. */
+const fillAgentBox = $("fillAgentOn");
+if (fillAgentBox) {
+  chrome.storage.local.get({ prefs: {}, picked: {}, keys: {} }).then(({ prefs, picked, keys }) => {
+    fillAgentBox.checked = prefs.fillAgent !== false;
+    if (!picked?.model || !keys?.[picked?.provider]) $("agentStatus").textContent = "No model yet: open the agent test bench (popup) and pick a model with your API key.";
+  });
+  fillAgentBox.addEventListener("change", async () => {
+    const { prefs } = await chrome.storage.local.get({ prefs: {} });
+    await chrome.storage.local.set({ prefs: { ...prefs, fillAgent: fillAgentBox.checked } });
+    $("agentStatus").textContent = fillAgentBox.checked ? "On." : "Off: Fill selected uses the rules only.";
+  });
+}

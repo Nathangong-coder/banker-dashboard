@@ -97,6 +97,22 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
 Listing: https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp (item id `hjmfcaldipgcjffmcemcljllmlpjlnlp`,
 in `src/lib/site.ts` → `SITE.extension.chromeUrl`).
 
+### 1.5.0
+
+- **AI agent finishes applications** (test build): Fill selected runs the rules (+ resume upload) first, then the
+  model picked in the agent test bench (`agent/agent.js` fill mode, `FILL_SYSTEM`) reads the page (screenshot when the
+  tab is in front), adds experience entries, answers the rest from the dashboard's `agentBrief`, presses Next, and
+  stops at the final submit (`fillGate`: submit / send / sign → stop; create account / delete / sign out → refused).
+  No navigating, Enter never submits a form, phone / email / street / ZIP go as {{tokens}} the worker swaps in.
+  Options: "Let the AI agent finish applications", "Fill applications on any site" (optional `<all_urls>`).
+  The store build ships a stub `agent/agent.js` (`runAgent = null`; `pack:extension` checks it).
+- **Readers fixed against the live sites (2026-10-26):** LinkedIn's new search (`/jobs/search-results/`) cards are
+  `[componentkey="job-card-component-ref-<id>"]` (25 per page, `&start=` pages); job pages: title / company from the
+  tab title, description after "About the job", the bank's link from the Apply link's `?url=`. Handshake cards are
+  `[data-hook="job-result-card | <id>"]` (company / title / type / location); job pages: firm = first line, "More"
+  pressed, description from "Job description" to the employer section; "Apply externally" is a button that opens a
+  blank tab first, so the worker waits for the bank's address.
+
 ### 1.4.0
 
 - **AI job review** (dashboard side, works with every source): finds are reviewed against Applications → Find jobs →

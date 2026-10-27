@@ -23,6 +23,7 @@ import { reviewPending, summarize } from "./jobReviewRun";
  *   foundJob / finderStatus → the opt-in LinkedIn / Handshake job readers' finds and progress (test build); each
  *             find is reviewed by the AI (lib/jobReviewRun.ts) and "apply" ones are added to the tracker.
  *   vault { op: get | put } → the extension's PIN-encrypted saved logins, synced through the account.
+ *   agentBrief { jobId, url } → the facts the extension's AI agent may use to finish an application (1.5).
  * And it sends the extension commands (`sendCommand`): fillJobs, focusJob, linkedinJobs, handshakeJobs. The extension's worker
  * checks they come from the dashboard address set in its Options.
  * Your application info never leaves this page except as the values for the fields the extension scanned. The job
@@ -374,7 +375,47 @@ function vault(payload: unknown) {
   return { ok: true };
 }
 
-const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault };
+
+/**
+ * The AI agent's brief for finishing one application (extension 1.5, Fill selected): the facts it may type, the
+ * job, your resume text and answer library. Contact details go as {{placeholders}} (the extension swaps the real
+ * value in when it types); demographic / EEO answers aren't given at all (rules fill those, or they're left for you).
+ */
+async function agentBrief(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const st = useStore.getState();
+  const job = st.apply.jobs.find((j) => j.id === str(p.jobId, 60)) ?? jobFor(str(p.url, 2000));
+  const me = st.apply.profile;
+  const resume = await resumeFile(job);
+  const yesNo = (v: string) => (v === "yes" ? "Yes" : v === "no" ? "No" : "(leave for the student)");
+  const grad = me.gradDate ? new Date(`${me.gradDate}-15T12:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }) : "";
+  const facts = [
+    `Name: ${me.firstName} ${me.lastName}${me.preferredName ? ` (goes by ${me.preferredName})` : ""}`,
+    `Email: {{email}}`,
+    `Phone: {{phone}}`,
+    `Address: {{address1}}${me.address2 ? " {{address2}}" : ""}, ${me.city}, ${me.state} {{zip}}, ${me.country || "United States"}`,
+    me.linkedin && `LinkedIn: ${me.linkedin}`,
+    me.website && `Website: ${me.website}`,
+    `School: ${me.school}; degree: ${me.degree}; major: ${me.major}; graduation: ${grad}${me.gpa ? `; GPA: ${me.gpa}` : ""}`,
+    `Authorized to work in the US: ${yesNo(me.authorized)}; needs sponsorship now: ${yesNo(me.sponsorNow)}; in the future: ${yesNo(me.sponsorFuture)}${me.citizenship ? `; citizenship: ${me.citizenship}` : ""}`,
+    `18 or older: ${yesNo(me.over18)}; willing to relocate: ${yesNo(me.relocate)}${me.startDate ? `; can start: ${me.startDate}` : ""}${me.howHeard ? `; how they heard about the job: ${me.howHeard}` : ""}`,
+    "Demographic / EEO questions (gender, race, veteran, disability…): leave them alone.",
+    "Salary questions, consent / certification checkboxes, signatures: leave them for the student.",
+  ].filter(Boolean);
+  const answers = [...(job?.answers ?? []).map((a) => ({ q: a.question, a: a.answer })), ...st.apply.library].slice(0, 20);
+  const task = [
+    `Fill out this application${job ? ` for ${job.company}${job.role ? ` · ${job.role}` : ""}` : ""}.`,
+    `FACTS\n${facts.join("\n")}`,
+    me.background && `BACKGROUND (the student's own words)\n${me.background.slice(0, 3000)}`,
+    resume?.text && `RESUME (work experience, education, activities: add these as entries)\n${resume.text.slice(0, 8000)}`,
+    answers.length && `ANSWERS THE STUDENT ALREADY WROTE (reuse for the same questions)\n${answers.map((x) => `Q: ${x.q}\nA: ${x.a.slice(0, 1200)}`).join("\n\n")}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return { task, secrets: { email: me.email, phone: me.phone, address1: me.address1, address2: me.address2, zip: me.zip }, jobId: job?.id };
+}
+
+const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief };
 
 /** Mounted once in Shell: answers the extension, and learns whether it's installed (for the Applications page). */
 export function useExtensionBridge(ready: boolean) {
