@@ -260,9 +260,10 @@ export function syncNow(final = false) {
     try {
       await pushNow();
       for (const name of [...dirtyBlobs]) {
-        // The parsed sheets change with every grid edit; they go up at most every 10 min (all of them on sign-out /
-        // Download via flushSync, which passes `final`).
-        if (name === "snapshots" && !final && Date.now() - (lastSent.get(name) ?? 0) < 600_000) continue;
+        // The workbook (2+ MB) and its parsed sheets (~1 MB) change on every save and every Excel autosave Coverage
+        // picks up (it checks once a minute), and each upload passes through a function and Blob, then down to every
+        // other signed-in browser. So they go up at most every 15 min (everything on sign-out / Download: `final`).
+        if ((name === "snapshots" || name === "workbook") && !final && Date.now() - (lastSent.get(name) ?? 0) < 900_000) continue;
         dirtyBlobs.delete(name);
         lastSent.set(name, Date.now());
         try {
@@ -294,7 +295,9 @@ export async function flushSync() {
   return s === "saved" && !dirtyBlobs.size;
 }
 
-export const hasUnsaved = () => !!pushTimer || dirtyBlobs.size > 0 || useSyncStatus.getState().state === "saving";
+/** Unsaved changes worth a "leave the page?" prompt. The workbook files waiting out their 15-min throttle don't count:
+ * the file on your computer has them, and they're re-checked (and sent if changed) the next time Coverage opens. */
+export const hasUnsaved = () => !!pushTimer || [...dirtyBlobs].some((n) => n !== "workbook" && n !== "snapshots") || useSyncStatus.getState().state === "saving";
 
 /**
  * Start syncing `userId`'s data (the store must already show that user's namespace). Resolves after the first sync,
@@ -314,6 +317,8 @@ export async function startSync(userId: string, opts: { localWins?: boolean } = 
     if (applying) return;
     schedulePush();
   });
+  // Files throttled in an earlier session may not have gone up: look again (unchanged bytes are skipped by hash).
+  for (const n of await localBlobNames()) if (n === "workbook" || n === "snapshots") dirtyBlobs.add(n);
   const unBlob = onBlobChange((name) => {
     dirtyBlobs.add(name);
     schedulePush();
@@ -325,8 +330,8 @@ export async function startSync(userId: string, opts: { localWins?: boolean } = 
     void syncNow();
   }, POLL);
   const onLeave = (e: BeforeUnloadEvent) => {
+    if (dirtyBlobs.size) void syncNow(true);
     if (!hasUnsaved()) return;
-    void syncNow();
     e.preventDefault();
   };
   channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(`coverage-sync:${userId}`) : null;
