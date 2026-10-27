@@ -33,7 +33,12 @@ export async function complete({ provider, model, key, baseURL, system, text, im
       { "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
       { model, max_tokens: 1024, system, messages: [{ role: "user", content }] },
     );
-    out = { text: (d.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join(""), inTokens: d.usage?.input_tokens ?? 0, outTokens: d.usage?.output_tokens ?? 0 };
+    out = {
+      text: (d.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join(""),
+      inTokens: (d.usage?.input_tokens ?? 0) + (d.usage?.cache_read_input_tokens ?? 0),
+      cachedTokens: d.usage?.cache_read_input_tokens ?? 0,
+      outTokens: d.usage?.output_tokens ?? 0,
+    };
   } else if (provider === "google") {
     const parts = [{ text }];
     if (image) parts.push({ inlineData: { mimeType: "image/jpeg", data: b64(image) } });
@@ -45,6 +50,7 @@ export async function complete({ provider, model, key, baseURL, system, text, im
     out = {
       text: (d.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join(""),
       inTokens: d.usageMetadata?.promptTokenCount ?? 0,
+      cachedTokens: d.usageMetadata?.cachedContentTokenCount ?? 0,
       outTokens: (d.usageMetadata?.candidatesTokenCount ?? 0) + (d.usageMetadata?.thoughtsTokenCount ?? 0),
     };
   } else {
@@ -57,7 +63,13 @@ export async function complete({ provider, model, key, baseURL, system, text, im
       { authorization: `Bearer ${key}` },
       { model, messages: [{ role: "system", content: system }, { role: "user", content: image ? content : text }], response_format: { type: "json_object" } },
     );
-    out = { text: d.choices?.[0]?.message?.content ?? "", inTokens: d.usage?.prompt_tokens ?? 0, outTokens: d.usage?.completion_tokens ?? 0 };
+    out = {
+      text: d.choices?.[0]?.message?.content ?? "",
+      inTokens: d.usage?.prompt_tokens ?? 0,
+      // DeepSeek: prompt_cache_hit_tokens; OpenAI: prompt_tokens_details.cached_tokens (both part of prompt_tokens).
+      cachedTokens: d.usage?.prompt_cache_hit_tokens ?? d.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+      outTokens: d.usage?.completion_tokens ?? 0,
+    };
   }
   return { ...out, ms: Math.round(performance.now() - t0) };
 }

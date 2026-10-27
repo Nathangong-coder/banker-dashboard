@@ -12,6 +12,7 @@ import { canonBank } from "@/lib/banks";
 import { cn, fmtDate, relDays, uid } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Kpi, Menu, PageHeader, Segmented, Select, Textarea, toast } from "@/components/ui";
 import { JobFinder } from "@/components/JobFinder";
+import { AgentBenchmark } from "@/components/AgentBenchmark";
 import { SITE } from "@/lib/site";
 import { WhyModal } from "@/components/JobRules";
 import { addReviewRule, assignSheetRows, currentRules } from "@/lib/jobReviewRun";
@@ -632,6 +633,8 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
       </Card>
 
       <WhyModal ask={ask} onClose={() => setAsk(null)} />
+
+      <AgentBenchmark />
 
       {sheetApps.length > 0 && (
         <details className="group rounded-lg border border-line bg-panel">

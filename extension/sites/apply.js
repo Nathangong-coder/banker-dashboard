@@ -942,18 +942,23 @@ export async function startApplication() {
     const r = el.getBoundingClientRect();
     return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
   };
-  const manual = () => [...document.querySelectorAll('[data-automation-id="applyManually"]')].find(shown);
+  // Workday: "Autofill with Resume" when it's offered (the resume is uploaded first and Workday fills the experience
+  // and education sections from it; owner, 2026-10-26), else "Apply Manually".
+  const manual = () => [...document.querySelectorAll('[data-automation-id="autofillWithResume"], [data-automation-id="applyManually"]')].filter(shown).sort((a) => (a.getAttribute("data-automation-id") === "autofillWithResume" ? -1 : 1))[0];
+  const name = (el) => (el.getAttribute("data-automation-id") === "autofillWithResume" ? "Autofill with Resume" : "Apply Manually");
   if (manual()) {
-    manual().click();
-    return { clicked: true, label: "Apply Manually" };
+    const m = manual();
+    m.click();
+    return { clicked: true, label: name(m) };
   }
   const adventure = [...document.querySelectorAll('[data-automation-id="adventureButton"]')].find(shown);
   if (adventure) {
     adventure.click();
     for (let i = 0; i < 30 && !manual(); i++) await sleep(200);
     if (manual()) {
-      manual().click();
-      return { clicked: true, label: "Apply → Apply Manually" };
+      const m = manual();
+      m.click();
+      return { clicked: true, label: `Apply → ${name(m)}` };
     }
     return { clicked: true, label: "Apply" };
   }

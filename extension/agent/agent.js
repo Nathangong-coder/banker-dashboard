@@ -14,16 +14,19 @@ const HISTORY = 12;
  */
 const MIN_GAP = 3500;
 let lastCall = 0;
-async function paced(fn) {
+async function paced(fn, onWait) {
   for (let tries = 0; ; tries++) {
     const wait = lastCall + MIN_GAP + Math.random() * 1500 - Date.now();
     lastCall = Math.max(Date.now(), lastCall + MIN_GAP);
+    // The pauses you see: its turn in the shared pacing (several tabs fill at once), or the provider being busy.
+    if (wait > 2500) onWait?.(`Waiting for its turn (AI calls are spaced out across your open applications): ${Math.round(wait / 1000)} s`);
     if (wait > 0) await sleep(wait);
     try {
       return await fn();
     } catch (e) {
       const busy = /^(429|500|502|503|504|529)\b|rate|overloaded|busy|timeout|network|failed to fetch/i.test(e.message);
       if (!busy || tries >= 3) throw e;
+      onWait?.(`The AI provider is busy (${e.message.slice(0, 40)}): trying again in ${10 * 2 ** tries} s`);
       await sleep(10_000 * 2 ** tries);
     }
   }
@@ -248,11 +251,11 @@ export async function runAgent({ tabId, task, model, mode, maxSteps, allowLinked
  * failed or the page didn't change), a short history, and the fixed part (system + facts) first so providers' prompt
  * caches hit. */
 
-const FILL_ELEMENTS = 90;
+const FILL_ELEMENTS = 70;
 /** The page's viewport (observePage): a default when it's missing. */
 const viewOf = (page) => page.view ?? { w: 1280, h: 800, dpr: 1 };
-const FILL_TEXT = 1200;
-const FILL_HISTORY = 8;
+const FILL_TEXT = 800;
+const FILL_HISTORY = 6;
 const MAX_BATCH = 8;
 
 function fillPrompt(task, history, page, withImage) {
@@ -272,9 +275,9 @@ function fillPrompt(task, history, page, withImage) {
  * Fill one application (Fill selected): `task` = the dashboard's brief, `secrets` = {{token}} values. Returns the run
  * summary like runAgent (outcome done / gave_up / stopped / error / max_steps).
  */
-export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signal, secrets = {}, screenshots = true, pick, shot }) {
+export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signal, secrets = {}, screenshots = true, pick, shot, vision, onWait, learn }) {
   const swap = (s) => String(s ?? "").replace(/\{\{(\w+)\}\}/g, (m, k) => (k in secrets ? secrets[k] : m));
-  const run = { task, provider: model.provider, model: model.model, mode: "fill", steps: 0, inTokens: 0, outTokens: 0, ms: 0, outcome: "max_steps", answer: "", startedAt: new Date().toISOString() };
+  const run = { task, provider: model.provider, model: model.model, mode: "fill", steps: 0, inTokens: 0, cachedTokens: 0, outTokens: 0, ms: 0, failedActions: 0, visionSteps: 0, outcome: "max_steps", answer: "", startedAt: new Date().toISOString() };
   const history = [];
   let badReplies = 0;
   let lastSig = "";
@@ -293,13 +296,17 @@ export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signa
     // Vision only when stuck (and the tab is in front, which a screenshot needs).
     let image;
     // `shot` (the worker's debugging-protocol capture) works in background tabs too; otherwise the visible tab only.
-    if (screenshots && (failed || stuck)) image = shot ? await shot(tabId).catch(() => undefined) : tab.active ? await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 50 }).catch(() => undefined) : undefined;
+    if ((screenshots || vision) && (failed || stuck)) image = shot ? await shot(tabId).catch(() => undefined) : tab.active ? await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 50 }).catch(() => undefined) : undefined;
 
     const step = { n, url: page.url, thought: "", action: null, result: "", inTokens: 0, outTokens: 0, ms: 0 };
     let reply;
     try {
-      const r = await paced(() => complete({ ...model, system: FILL_SYSTEM, text: fillPrompt(task, history, page, !!image), image }));
+      // A step with a screenshot goes to the vision helper when your main model can't read images (DeepSeek).
+      const who = image && vision ? vision : model;
+      if (who === vision) run.visionSteps++;
+      const r = await paced(() => complete({ ...who, system: FILL_SYSTEM, text: fillPrompt(task, history, page, !!image), image }), onWait);
       Object.assign(step, { inTokens: r.inTokens, outTokens: r.outTokens, ms: r.ms });
+      run.cachedTokens += r.cachedTokens ?? 0;
       run.inTokens += r.inTokens;
       run.outTokens += r.outTokens;
       run.ms += r.ms;
@@ -365,9 +372,15 @@ export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signa
         }
       }
       results.push(res.note);
+      // A short answer that worked (typed or chosen, not a placeholder like {{phone}}): remembered for this platform.
+      if (res.ok && learn && (a.type === "type" || a.type === "choose" || a.type === "select") && target) {
+        const v = String(a.type === "type" ? a.text ?? "" : a.value ?? "");
+        if (v && v.length <= 120 && !/\{\{\w+\}\}/.test(v)) learn({ label: target, value: v, kind: a.type });
+      }
       history.push(`${n}. ${a.type}${a.index !== undefined ? ` [${a.index}] "${target.slice(0, 40)}"` : ""}${a.value ? ` "${String(a.value).slice(0, 40)}"` : a.text ? ` "${String(a.text).slice(0, 40)}"` : ""} → ${res.note}`);
       if (!res.ok) {
         failed = true;
+        run.failedActions++;
         break;
       }
       // A click can open a list, change the page or go to the next one: look again before anything else.

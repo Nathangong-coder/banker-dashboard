@@ -6,9 +6,10 @@ import { blobs, useStore } from "./store";
 import { callApi } from "./api";
 import { aiReady, googleClientId, hasKey } from "./keys";
 import { gmailReadableQuietly, verificationLink } from "./gmail";
-import { FILL_LABELS, chooseResume, gradFor, knownJobSite, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
+import { FILL_LABELS, NEVER_FILL, NEVER_LEARN, chooseResume, gradFor, learnKey, platformOf, knownJobSite, type FillRun, planFill, sameJobSite, type ApplyState, type FillItem, type FillStatus, type FormField, type JobApplication } from "./apply";
 import { jobKey, type FoundJob } from "./jobFinder";
 import { toast } from "@/components/ui";
+import { uid } from "./util";
 import { documentText } from "./fileText";
 import { reviewPending, summarize } from "./jobReviewRun";
 import { coverLetterFrom, letterPdf, templateFirm } from "./coverLetter";
@@ -331,6 +332,73 @@ function factMenu(me: ApplyState["profile"]): Record<string, { what: string; val
   return Object.fromEntries(Object.entries(all).filter(([, v]) => v.value?.trim()));
 }
 
+/* ---------------- learned answers + the agent benchmark (2026-10-26) ---------------- */
+
+/** Remember an answer that worked on this platform (from the agent, Jev or the answer model): short, non-sensitive. */
+function rememberAnswer(url: string, label: string, value: string, kind?: string) {
+  const site = platformOf(url);
+  const key = learnKey(label);
+  if (!site || !key || key.length < 3 || !value || value.length > 120 || NEVER_LEARN.test(label) || NEVER_FILL.test(label) || /\{\{\w+\}\}/.test(value)) return;
+  useStore.getState().setApply((a) => {
+    const learned = { ...(a.learned ?? {}) };
+    const forSite = { ...(learned[site] ?? {}) };
+    const prev = forSite[key];
+    forSite[key] = { value, kind, at: new Date().toISOString(), n: (prev?.value === value ? prev.n : 0) + 1 };
+    // Keep the 400 most recent per platform.
+    learned[site] = Object.fromEntries(Object.entries(forSite).sort((x, y) => y[1].at.localeCompare(x[1].at)).slice(0, 400));
+    return { ...a, learned };
+  });
+}
+
+function learnAnswer(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  rememberAnswer(str(p.url, 2000), str(p.label, 300), str(p.value, 200), str(p.kind, 20) || undefined);
+  return { ok: true };
+}
+
+/** The open benchmark record for a job (this fill), created on first use. */
+function runFor(jobId: string, url: string): string | undefined {
+  const st = useStore.getState();
+  const job = st.apply.jobs.find((j) => j.id === jobId);
+  if (!job) return undefined;
+  const open = (st.apply.runs ?? []).find((r) => r.jobId === jobId && !r.endedAt);
+  if (open) return open.id;
+  const id = uid("run");
+  st.setApply((a) => ({
+    ...a,
+    runs: [...(a.runs ?? []), { id, jobId, company: job.company, site: platformOf(url || job.applyUrl || job.url), startedAt: new Date().toISOString(), rules: 0, jev: 0, ai: 0, learned: 0, left: 0 }].slice(-300),
+  }));
+  return id;
+}
+function updateRun(id: string | undefined, fn: (r: FillRun) => FillRun) {
+  if (!id) return;
+  useStore.getState().setApply((a) => ({ ...a, runs: (a.runs ?? []).map((r) => (r.id === id ? fn(r) : r)) }));
+}
+
+/** The agent's run on a job (extension): model, steps, tokens, time, how it ended. */
+function agentRun(payload: unknown) {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const num = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0);
+  const id = runFor(str(p.jobId, 60), str(p.url, 2000));
+  updateRun(id, (r) => ({
+    ...r,
+    agent: {
+      provider: str(p.provider, 40),
+      model: str(p.model, 120),
+      vision: str(p.vision, 120) || undefined,
+      steps: num(p.steps),
+      inTokens: num(p.inTokens),
+      cachedTokens: num(p.cachedTokens),
+      outTokens: num(p.outTokens),
+      ms: num(p.ms),
+      failedActions: num(p.failedActions),
+      visionSteps: num(p.visionSteps),
+      outcome: str(p.outcome, 30),
+    },
+  }));
+  return { ok: true };
+}
+
 export interface PlanResult {
   job?: { id: string; company: string; role: string };
   items: (FillItem & { fileData?: { name: string; type: string; base64: string } })[];
@@ -366,7 +434,8 @@ async function plan(payload: unknown): Promise<PlanResult> {
   const fileJob = job && { ...job, gradAs };
   const file = await resumeFile(fileJob, pageText);
   const cover = await coverFor(job, pageText);
-  const base = planFill(fields, gradAs === me.gradDate ? me : { ...me, gradDate: gradAs }, { hasResume: !!file, coverText: cover });
+  const learned = st.apply.learned?.[platformOf(url)];
+  const base = planFill(fields, gradAs === me.gradDate ? me : { ...me, gradDate: gradAs }, { hasResume: !!file, coverText: cover, learned });
   const fileData = file && { name: file.name, type: file.type, base64: file.base64 };
   const coverFile = cover ? coverPdf(cover, st.apply.profile, job?.company) : undefined;
   const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && fileData ? { ...it, fileData } : it.file === "cover" && coverFile ? { ...it, fileData: coverFile } : it));
@@ -477,6 +546,28 @@ async function plan(payload: unknown): Promise<PlanResult> {
     }
   }
 
+  // Benchmark: who filled what on this page; option answers from Jev / the answer model are remembered for the platform.
+  if (job) {
+    const fieldOf = new Map(fields.map((f) => [f.id, f]));
+    for (const it of items)
+      if (it.source === "ai" && it.value !== undefined) {
+        const f = fieldOf.get(it.id);
+        const shown = it.optionLabel ?? f?.options?.find((o) => o.value === it.value)?.label ?? (f && !f.options?.length && f.kind !== "textarea" ? it.value : undefined);
+        if (f && shown) rememberAnswer(url, f.label, shown, f.kind);
+      }
+    const isJev = (n?: string) => /^Jev/.test(n ?? "");
+    const isLearned = (n?: string) => /^Learned/.test(n ?? "");
+    const runId = runFor(job.id, url);
+    updateRun(runId, (r) => ({
+      ...r,
+      jev: r.jev + items.filter((i) => isJev(i.note)).length,
+      learned: r.learned + items.filter((i) => isLearned(i.note)).length,
+      ai: r.ai + items.filter((i) => i.source === "ai" && !isJev(i.note)).length,
+      rules: r.rules + items.filter((i) => i.source !== "ai" && !isJev(i.note) && !isLearned(i.note)).length,
+      left: r.left + skipped.length,
+    }));
+  }
+
   if (job) {
     const at = new Date().toISOString();
     const written = items.filter((i) => i.source === "ai" && i.value).map((i) => ({ question: i.label, answer: i.value!, at }));
@@ -529,8 +620,16 @@ function fillStatus(payload: unknown) {
         : j,
     ),
   }));
+  // Benchmark: a fill starts at its first "filling", ends at its final status.
+  const runId = runFor(job.id, job.applyUrl || job.url);
+  if (DONE.has(status)) updateRun(runId, (r) => ({ ...r, endedAt: new Date().toISOString(), outcome: status }));
   if (status === "ready") toast.ok(`${job.company}: filled up to review. Check it and submit it yourself.`);
-  if (DONE.has(status)) void batchDone();
+  // The batch text waits until every job has settled for 3 minutes (a job waiting on a sign-in carries on later, and
+  // the agent may still be working: owner, 2026-10-26, "it texted 'applications filled' while DeepSeek was still at it").
+  if (DONE.has(status)) {
+    clearTimeout(batchTimer);
+    batchTimer = setTimeout(() => void batchDone(), 180_000);
+  }
   if (status === "signin" || status === "account") toast.info(`${job.company}: ${str(p.note, 200)}`);
   return { ok: true };
 }
@@ -593,6 +692,7 @@ function finderStatus(payload: unknown) {
 }
 
 const DONE = new Set<FillStatus>(["ready", "needs_you", "signin", "account", "access", "error", "stopped"]);
+let batchTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
  * Mass apply: once every job of the last Fill selected run has finished, one WhatsApp text says how many are ready to
@@ -604,6 +704,8 @@ async function batchDone() {
   if (!b || b.texted) return;
   const jobs = b.ids.map((id) => st.apply.jobs.find((j) => j.id === id)).filter((j): j is JobApplication => !!j);
   if (!jobs.length || jobs.some((j) => !j.fill || !DONE.has(j.fill.status) || j.fill.at < b.at)) return;
+  // Something moved in the last 3 minutes: not settled yet (the timer runs again on the next status).
+  if (jobs.some((j) => Date.now() - Date.parse(j.fill!.at) < 170_000)) return;
   st.setApply((a) => ({ ...a, batch: a.batch && { ...a.batch, texted: true } }));
   const ready = jobs.filter((j) => j.fill!.status === "ready");
   const rest = jobs.filter((j) => j.fill!.status !== "ready");
@@ -682,7 +784,7 @@ async function agentBrief(payload: unknown) {
   return { task, secrets: { email: me.email, phone: me.phone, address1: me.address1, address2: me.address2, zip: me.zip }, jobId: job?.id };
 }
 
-const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption, accountInfo, accountCreated, verifyLink };
+const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption, accountInfo, accountCreated, verifyLink, learnAnswer, agentRun };
 
 /** Mounted once in Shell: answers the extension, and learns whether it's installed (for the Applications page). */
 export function useExtensionBridge(ready: boolean) {

@@ -721,6 +721,17 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   first words; strict acceptance in the extension). Cover letters: `applyBridge.ts#coverFor` → `api/apply/cover`
   tailors the template to the posting (checked: names the new firm, drops the old, length 75–135%), saved on
   `job.coverLetter`, shown / downloadable / remakeable in the job's detail (`CoverLetterBox`).
+- **1.15.0 (owner, 2026-10-26/27):** a job that waits (sign-in, verify, access) frees its slot and is RESUMED by
+  `tabs.onUpdated` when its page loads again (that's the "stopped debugging → next job → re-filling" the owner saw);
+  the batch WhatsApp text now fires only after every job has settled 3 min (`applyBridge.ts#batchTimer`). Workday:
+  "Autofill with Resume" preferred, and on multi-page sites a page with a resume upload gets it first, waits 9 s for
+  the parse, then re-plans (`fillPage({ resumeDone })`). Learned answers: `apply.learned[platformOf(url)][learnKey]`
+  from the agent's successful short type/choose actions and Jev / AI option picks; `planFill({ learned })` reuses
+  them after the rules, never for `NEVER_LEARN` (demographics, salary, consent…). Agent benchmark: `apply.runs`
+  (FillRun: rules / Jev / learned / AI / left counts from plan, start/end from fillStatus, agent model / steps / tokens
+  incl. cached / failed actions from `agentRun`, `fixes` typed by the owner) → `components/AgentBenchmark.tsx`
+  (per-model table, recent fills, prices, JSON export). Options: Benchmark mode (rotates the test bench's ticked
+  models), vision helper (screenshot steps only). Pauses show on the page (`paced(onWait)`).
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

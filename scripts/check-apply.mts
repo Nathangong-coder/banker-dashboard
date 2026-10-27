@@ -3,7 +3,7 @@
  * which are left for you. No browser, no network.
  *   npm run check:apply
  */
-import { chooseResume, gradFor, gradYearsAsked, schoolNames } from "../src/lib/apply";
+import { chooseResume, gradFor, gradYearsAsked, learnKey, platformOf, schoolNames } from "../src/lib/apply";
 import { coverLetterFrom, letterPdf } from "../src/lib/coverLetter";
 import { openVault } from "../src/lib/vaultCrypto";
 import { EMPTY_PROFILE, planFill, pickOption, sameJobSite, guessFromUrl, knownJobSite, parseJobCapture, type ApplyProfile, type FormField } from "../src/lib/apply";
@@ -235,6 +235,20 @@ eq("school: typed as UCLA → expanded", schoolNames("UCLA").accept, ["Universit
   eq("school typeahead: strict match with several searches", [ucla?.strict, ucla?.search?.length], [true, 4]);
   const list = planFill([f("s2", "listbox", "School", { options: ["University of California - Berkeley", "University of California - Los Angeles", "Los Angeles City College"].map((l, i) => ({ value: String(i), label: l })) })], { ...me, school: "University of California, Los Angeles" }, { hasResume: true }).items[0];
   eq("school dropdown: punctuation doesn't matter", list?.optionLabel, "University of California - Los Angeles");
+}
+
+// Learned answers (owner, 2026-10-26: "record what the AI did for one Workday site, reuse it on the next").
+eq("platform: every Workday host is one platform", [platformOf("https://gs.wd5.myworkdayjobs.com/x"), platformOf("https://wd1.myworkdaysite.com/recruiting/wf/x"), platformOf("https://job-boards.greenhouse.io/x"), platformOf("https://careers.tiktok.com/x")], ["workday", "workday", "greenhouse", "careers.tiktok.com"]);
+eq("label key ignores case, stars and punctuation", learnKey("How did you hear about us? *"), "how did you hear about us");
+{
+  const learned = { [learnKey("Have you previously worked for this company?")]: { value: "No" }, [learnKey("Gender")]: { value: "Male" }, [learnKey("Preferred office")]: { value: "Los Angeles" } };
+  const fs3 = [
+    f("p", "listbox", "Have you previously worked for this company? *", { options: [{ value: "0", label: "Yes" }, { value: "1", label: "No" }] }),
+    f("g", "listbox", "Gender", { options: [{ value: "0", label: "Male" }, { value: "1", label: "Female" }] }),
+    f("o", "text", "Preferred office"),
+  ];
+  const pl = planFill(fs3, { ...me, gender: "" }, { hasResume: true, learned });
+  eq("learned answers reused (an option and a short text); a demographic one never", [pl.items.map((x) => [x.id, x.optionLabel ?? x.value]), pl.skipped.map((x) => x.id)], [[["p", "No"], ["o", "Los Angeles"]], ["g"]]);
 }
 
 // The AI agent's fill mode (extension 1.5): stops at the final submit, never creates accounts or deletes.

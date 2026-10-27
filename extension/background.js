@@ -146,7 +146,16 @@ async function fillPage(tabId, confirmed, opts = {}) {
   if (frameId === 0 && new URL(now.url).origin !== new URL(scan.url).origin) throw new Error("The page changed while answers were being written. Click Autofill again.");
 
   progress(tabId, "Filling…");
-  const items = checkPlan(plan, scan.fields);
+  let items = checkPlan(plan, scan.fields);
+  // Resume first (owner, 2026-10-26): on sites that read the resume into the form (Workday's experience / education),
+  // upload it, give the site a moment to parse it, then look at the page again and fill the rest from there.
+  const fileItems = items.filter((i) => i.fileData);
+  if (fileItems.length && fileItems.length < items.length && !opts.resumeDone && isMultiPageSite(scan.url)) {
+    progress(tabId, "Uploading your resume first (the site fills your experience from it)…");
+    await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: fillForm, args: [fileItems, { skipped: [], watch: !!opts.watch }] });
+    await sleep(9000);
+    return fillPage(tabId, true, { ...opts, resumeDone: true });
+  }
   const skipped = (plan.skipped ?? []).slice(0, 40).map((s) => ({ id: s.id, label: String(s.label ?? "").slice(0, 200), why: String(s.why ?? "").slice(0, 300) }));
   const [{ result: filled }] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: fillForm, args: [items, { skipped, watch: !!opts.watch }] });
   const required = new Set(scan.fields.filter((f) => f.required).map((f) => f.id));
@@ -613,10 +622,26 @@ async function focusJob(jobId) {
  */
 async function agentModel() {
   if (typeof runFill !== "function") return null;
-  const S = await chrome.storage.local.get({ keys: {}, bases: {}, picked: {}, prefs: {} });
-  const { provider, model } = S.picked ?? {};
-  if (!provider || !model || !S.keys[provider] || S.prefs.fillAgent === false) return null;
+  const S = await chrome.storage.local.get({ keys: {}, bases: {}, picked: {}, prefs: {}, compare: [], benchTurn: 0 });
+  if (S.prefs.fillAgent === false) return null;
+  // Benchmark mode (Options): take turns through the models ticked in the agent test bench's comparison list, so each
+  // model gets a share of the same kind of applications (Applications → Agent benchmark compares them).
+  const pool = S.prefs.benchmark ? (S.compare ?? []).filter((c) => c.on && c.model && S.keys[c.provider]) : [];
+  let pick = S.picked ?? {};
+  if (pool.length > 1) {
+    pick = pool[S.benchTurn % pool.length];
+    await chrome.storage.local.set({ benchTurn: S.benchTurn + 1 });
+  }
+  const { provider, model } = pick;
+  if (!provider || !model || !S.keys[provider]) return null;
   return { provider, model, key: S.keys[provider], baseURL: S.bases[provider] };
+}
+
+/** The optional vision helper (Options): reads the screenshots when the agent's own model can't (DeepSeek). */
+async function visionModel() {
+  const S = await chrome.storage.local.get({ keys: {}, bases: {}, prefs: {} });
+  const v = S.prefs.vision;
+  return v?.provider && v?.model && S.keys[v.provider] ? { provider: v.provider, model: v.model, key: S.keys[v.provider], baseURL: S.bases[v.provider] } : undefined;
 }
 
 /**
@@ -632,14 +657,21 @@ async function agentFinish(tabId, job) {
   if (!brief?.task) return null;
   await report(job.id, "filling", `AI agent (${model.model}) is filling the rest…`);
   const ctrl = new AbortController();
+  const vision = await visionModel();
   // runFill: several actions per model call, text first, a screenshot only when stuck (agent/agent.js).
-  return runFill({
+  const started = Date.now();
+  const run = await runFill({
     tabId,
     task: brief.task,
     secrets: brief.secrets ?? {},
     model,
     maxSteps: 30,
     screenshots: model.provider !== "compatible" || !/deepseek/i.test(model.baseURL ?? ""),
+    vision,
+    // Why it's paused right now (shown on the page): its turn in the pacing, or the provider being busy.
+    onWait: (msg) => progress(tabId, msg),
+    // Answers that worked here are remembered for the next application on the same platform (no AI call then).
+    learn: (a) => askDashboard("learnAnswer", { ...a, url: tab.url }).catch(() => {}),
     // Dropdown wording not found: Jev (your TypeSafe key, through your Coverage tab) picks from the shown options.
     pick: (q) => askDashboard("pickOption", { ...q, jobId: job.id }),
     // Screenshots through the debugging protocol: background tabs too (test build).
@@ -650,6 +682,24 @@ async function agentFinish(tabId, job) {
       inTab(tabId, stopRequested).then((stop) => stop && ctrl.abort(), () => {});
     },
   });
+  // For the agent benchmark (Applications): model, steps, tokens, time, how it ended.
+  void askDashboard("agentRun", {
+    jobId: job.id,
+    url: tab.url,
+    provider: run.provider,
+    model: run.model,
+    vision: vision?.model,
+    steps: run.steps,
+    inTokens: run.inTokens,
+    cachedTokens: run.cachedTokens,
+    outTokens: run.outTokens,
+    ms: Date.now() - started,
+    failedActions: run.failedActions,
+    visionSteps: run.visionSteps,
+    outcome: run.outcome,
+    answer: String(run.answer ?? "").slice(0, 300),
+  }).catch(() => {});
+  return run;
 }
 
 /** Skips the agent shouldn't act on either (yours to decide), so they don't call it in. */

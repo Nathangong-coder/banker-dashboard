@@ -214,6 +214,15 @@ export interface ApplyState {
   accounts?: { origin: string; email: string; at: string; company?: string; jobId?: string; verified?: string }[];
   /** Gmail application-email scan: message ids already read (never read twice), labels still to put on in Gmail. */
   mail?: { seen: string[]; at?: string; pendingLabels?: { id: string; label: string }[] };
+  /**
+   * Answers that worked on a platform (Workday, Greenhouse…), keyed by the question's normalized label: reused on the
+   * next application there before any AI call (owner, 2026-10-26: "record what the AI did for one site").
+   */
+  learned?: Record<string, Record<string, { value: string; kind?: string; at: string; n: number }>>;
+  /** One record per application fill, for Applications → Agent benchmark. */
+  runs?: FillRun[];
+  /** Your $ per million tokens per model ("provider/model" → { in, out }), for the benchmark's cost column. */
+  prices?: Record<string, { in: number; out: number }>;
   /** The last "Fill selected" run: when every job in it has finished, one WhatsApp text says what's ready (mass apply). */
   batch?: { ids: string[]; at: string; texted?: boolean };
   /** The extension's saved logins, still encrypted with your PIN (synced through your account; nobody else can read them). */
@@ -518,7 +527,7 @@ const isQuestion = (f: FormField) => f.kind === "textarea" || (f.kind === "text"
  * Decide what goes in each field. Rules from your profile first (sensitive answers ONLY from rules); open
  * questions go to `ai`; anything else is left for you with a reason.
  */
-export function planFill(fields: FormField[], profile: ApplyProfile, opts: { hasResume: boolean; coverText?: string }): FillPlan {
+export function planFill(fields: FormField[], profile: ApplyProfile, opts: { hasResume: boolean; coverText?: string; learned?: Record<string, { value: string; kind?: string }> }): FillPlan {
   const items: FillItem[] = [];
   const ai: FormField[] = [];
   const skipped: FillPlan["skipped"] = [];
@@ -620,6 +629,20 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
       continue;
     }
 
+    // An answer that worked for this question on this platform before (another firm's Workday…): reused, no AI call.
+    const prior = opts.learned?.[learnKey(f.label)];
+    if (prior && !NEVER_LEARN.test(label)) {
+      if (f.options?.length && (f.kind === "select" || f.kind === "radio" || f.kind === "listbox")) {
+        const value = pickOption(f.options, prior.value, []);
+        if (value !== undefined) {
+          items.push({ id: f.id, value, source: "profile", label: f.label, optionLabel: f.options.find((o) => o.value === value)?.label, note: "Learned from an earlier application on this platform" });
+          continue;
+        }
+      } else if (["text", "email", "tel", "url", "number", "typeahead"].includes(f.kind)) {
+        items.push({ id: f.id, value: prior.value, source: "profile", label: f.label, note: "Learned from an earlier application on this platform" });
+        continue;
+      }
+    }
     // Optional open questions ("Is there any additional information you'd like to provide? This is optional") stay
     // blank (owner, 2026-10-26: one was answered with a cover letter). Required ones still go to the AI.
     if (!f.required && (f.kind === "textarea" || f.kind === "text") && (/\boptional\b/.test(label) || /additional information|anything else|supplement(al)? (information|to your application)|other information|is there anything/.test(label))) {
@@ -802,3 +825,60 @@ export function gradFor(profile: Pick<ApplyProfile, "gradDate" | "earlyGradDate"
   const asked = gradYearsAsked(text, reviewYears);
   return asked.length && !asked.includes(main) && asked.includes(early) ? profile.earlyGradDate : profile.gradDate;
 }
+
+/** One application fill, for the agent benchmark (Applications). */
+export interface FillRun {
+  id: string;
+  jobId: string;
+  company: string;
+  site: string;
+  startedAt: string;
+  endedAt?: string;
+  /** The final status (ready = reached review, needs_you, error…). */
+  outcome?: FillStatus;
+  /** Fields filled by your saved info (rules), by Jev, by the answer model; fields left for you. */
+  rules: number;
+  jev: number;
+  ai: number;
+  learned: number;
+  left: number;
+  agent?: { provider: string; model: string; vision?: string; steps: number; inTokens: number; cachedTokens: number; outTokens: number; ms: number; failedActions: number; visionSteps: number; outcome: string };
+  /** Fields you had to fix before submitting (you enter it): the user-corrected count. */
+  fixes?: number;
+}
+
+/** The platform an application runs on: answers learned there are reused on the same platform for other firms. */
+export function platformOf(url: string): string {
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+  for (const [name, re] of [
+    ["workday", /myworkdayjobs\.com$|myworkdaysite\.com$|(^|\.)workday\.com$/],
+    ["greenhouse", /greenhouse\.io$/],
+    ["lever", /lever\.co$/],
+    ["icims", /icims\.com$/],
+    ["ashby", /ashbyhq\.com$/],
+    ["smartrecruiters", /smartrecruiters\.com$/],
+    ["taleo", /taleo\.net$/],
+    ["oracle", /oraclecloud\.com$/],
+    ["successfactors", /successfactors\.(com|eu)$/],
+  ] as const)
+    if (re.test(host)) return name;
+  return host.replace(/^www\./, "");
+}
+
+/** A question's label, normalized for matching across sites ("How did you hear about us? *" → "how did you hear about us"). */
+export const learnKey = (label: string) =>
+  label
+    .toLowerCase()
+    .replace(/\*/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+
+/** Questions never learned or reused: sensitive / demographic / salary / consent ones stay with your rules or with you. */
+export const NEVER_LEARN = /gender|\bsex\b|race|ethnic|hispanic|latin|veteran|disab|orientation|transgender|pronoun|salary|compensation|signature|consent|certify|password|ssn|social security|date of birth|birth/i;

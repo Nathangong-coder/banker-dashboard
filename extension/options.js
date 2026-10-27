@@ -141,6 +141,28 @@ siteToggle($("liOn"), $("liStatus"), "https://www.linkedin.com/*", "linkedinAgen
 siteToggle($("hsOn"), $("hsStatus"), "https://*.joinhandshake.com/*", "handshakeAgent", "Search Handshake");
 siteToggle($("anySiteOn"), $("agentStatus"), "<all_urls>", "anySite", "Fill selected");
 
+/* Benchmark mode + vision helper (test build): prefs.benchmark, prefs.vision { provider, model }. */
+const benchBox = $("benchOn");
+if (benchBox) {
+  chrome.storage.local.get({ prefs: {} }).then(({ prefs }) => {
+    benchBox.checked = prefs.benchmark === true;
+    $("visionProvider").value = prefs.vision?.provider ?? "";
+    $("visionModel").value = prefs.vision?.model ?? "";
+  });
+  const savePrefs = async (patch) => {
+    const { prefs } = await chrome.storage.local.get({ prefs: {} });
+    await chrome.storage.local.set({ prefs: { ...prefs, ...patch } });
+  };
+  benchBox.addEventListener("change", () => savePrefs({ benchmark: benchBox.checked }).then(() => ($("agentStatus").textContent = benchBox.checked ? "Benchmark mode on: tick 2+ models in the agent test bench's comparison list." : "Benchmark mode off.")));
+  const saveVision = () => {
+    const provider = $("visionProvider").value;
+    const model = $("visionModel").value.trim();
+    savePrefs({ vision: provider && model ? { provider, model } : null }).then(() => ($("agentStatus").textContent = provider && model ? `Vision helper: ${model}.` : "No vision helper."));
+  };
+  $("visionProvider").addEventListener("change", saveVision);
+  $("visionModel").addEventListener("change", saveVision);
+}
+
 /* Create accounts for me (test build): autoAccounts, off unless turned on. */
 const autoBox = $("autoAccountsOn");
 if (autoBox) {
