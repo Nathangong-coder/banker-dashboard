@@ -700,6 +700,11 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `#react-select-<input id>-listbox` (the phone field's intl-tel-input keeps 244 hidden `[role=option]` countries that
   were being read as every dropdown's choices). Workday: a sign-in page with no saved login → `switchToCreateAccount`
   (createAccountLink) when "Create accounts for me" is on. The answer AI drafts hypothetical / opinion questions.
+- **1.12.0 general-purpose agent (owner, 2026-10-26):** every agent click / type is real input when the test build
+  has the debugger (`page.js#actPage` → `cov-click` / `cov-type`; Enter stays a dispatched key so a form never submits),
+  screenshots come from CDP `Page.captureScreenshot` (`runFill({ shot })`, background tabs too, still only when stuck),
+  and with a screenshot the model may `click_xy` (image px ÷ dpr → page px; `describePoint` + `fillGate` decide it
+  like any click). Cost ≈ 5–6K input tokens per step text-only (+~1–1.5K per screenshot), ~5–15 steps per application.
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

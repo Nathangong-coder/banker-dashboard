@@ -625,6 +625,8 @@ async function agentFinish(tabId, job) {
     screenshots: model.provider !== "compatible" || !/deepseek/i.test(model.baseURL ?? ""),
     // Dropdown wording not found: Jev (your TypeSafe key, through your Coverage tab) picks from the shown options.
     pick: (q) => askDashboard("pickOption", { ...q, jobId: job.id }),
+    // Screenshots through the debugging protocol: background tabs too (test build).
+    shot: canDebug() ? async (id) => `data:image/jpeg;base64,${(await cdp(id, "Page.captureScreenshot", { format: "jpeg", quality: 50 })).data}` : undefined,
     signal: ctrl.signal,
     onStep: (s) => {
       progress(tabId, `AI step ${s.n}: ${s.thought || s.result}`);

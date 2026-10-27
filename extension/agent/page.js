@@ -66,6 +66,8 @@ export function observePage(maxElements, maxText, formOnly = false) {
   return {
     url: location.href,
     title: document.title,
+    // For clicks at a screenshot point: image pixels / dpr = page (CSS) pixels.
+    view: { w: innerWidth, h: innerHeight, dpr: devicePixelRatio || 1 },
     elements: lines,
     text: cut(text, maxText),
     scroll: { y: Math.round(scrollY), max: Math.max(0, document.documentElement.scrollHeight - innerHeight) },
@@ -75,6 +77,29 @@ export function observePage(maxElements, maxText, formOnly = false) {
 /** Do one action. Returns { ok, note }. Typing sets the value the way React / Vue inputs expect (native setter + events). */
 export async function actPage(action) {
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  // Real mouse / keyboard through the extension (test build: Chrome's debugging protocol); false = not available.
+  const wait = (ms) =>
+    new Promise((r) => {
+      try {
+        chrome.runtime.sendMessage({ type: "cov-sleep", ms }).then(() => r(), () => setTimeout(r, ms));
+      } catch {
+        setTimeout(r, ms);
+      }
+    });
+  const realInput = async (type, payload) => {
+    try {
+      return (await chrome.runtime.sendMessage({ type, ...payload })) === true;
+    } catch {
+      return false;
+    }
+  };
+  const realClickOn = async (node) => {
+    if (window.top !== window) return false;
+    node.scrollIntoView({ block: "center", behavior: "instant" });
+    await wait(100);
+    const r = node.getBoundingClientRect();
+    return realInput("cov-click", { x: r.left + Math.min(r.width / 2, 60), y: r.top + r.height / 2 });
+  };
   const find = (i) => document.querySelector(`[data-cov-i="${Number(i)}"]`);
   const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
   const setValue = (el, value) => {
@@ -90,21 +115,39 @@ export async function actPage(action) {
       window.scrollBy({ top: (action.direction === "up" ? -1 : 1) * innerHeight * 0.8, behavior: "instant" });
       return { ok: true, note: `scrolled ${action.direction === "up" ? "up" : "down"}` };
     }
+    // A click at a point the model saw in the screenshot (already converted to page pixels by the worker).
+    if (action.type === "click_xy") {
+      const x = Number(action.x);
+      const y = Number(action.y);
+      if (!(x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight)) return { ok: false, note: "that point is outside the page" };
+      if (await realInput("cov-click", { x, y })) return { ok: true, note: `clicked at ${Math.round(x)},${Math.round(y)}` };
+      const at = document.elementFromPoint(x, y);
+      if (!at) return { ok: false, note: "nothing there" };
+      at.click();
+      return { ok: true, note: "clicked" };
+    }
     const el = find(action.index);
     if (!el) return { ok: false, note: `no element [${action.index}] (the page changed; look again)` };
     el.scrollIntoView({ block: "center", behavior: "instant" });
     if (action.type === "click") {
+      if (await realClickOn(el)) return { ok: true, note: "clicked" };
       el.focus?.();
       el.click();
       return { ok: true, note: "clicked" };
     }
     if (action.type === "type") {
-      el.focus?.();
       const text = String(action.text ?? "");
-      if (el.isContentEditable) {
-        document.execCommand("selectAll", false);
-        document.execCommand("insertText", false, text);
-      } else setValue(el, text);
+      // Real typing: click into the field, clear it, insert the text (keystrokes the site's own code sees).
+      if (!el.isContentEditable && "value" in el && (await realClickOn(el))) {
+        setValue(el, "");
+        await realInput("cov-type", { text });
+      } else {
+        el.focus?.();
+        if (el.isContentEditable) {
+          document.execCommand("selectAll", false);
+          document.execCommand("insertText", false, text);
+        } else setValue(el, text);
+      }
       if (action.enter) {
         for (const t of ["keydown", "keypress", "keyup"]) el.dispatchEvent(new KeyboardEvent(t, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
         // Fill mode never submits a form with Enter (it only presses the key, for search boxes / typeaheads).
@@ -222,6 +265,13 @@ export async function actPage(action) {
 }
 
 /** Short description of the element an action targets, for the step log and the confirmation prompt. */
+/** What's under a page point (for the click_xy safety check). */
+export function describePoint(x, y) {
+  const el = document.elementFromPoint(Number(x), Number(y));
+  const hit = el?.closest("button, a, [role=button], input, label, [role=option], [role=checkbox], [role=radio]") || el;
+  return hit ? (hit.getAttribute("aria-label") || hit.innerText || hit.value || hit.tagName).replace(/\s+/g, " ").trim().slice(0, 80) : "";
+}
+
 export function describeTarget(index) {
   const el = document.querySelector(`[data-cov-i="${Number(index)}"]`);
   if (!el) return "";

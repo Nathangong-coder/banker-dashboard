@@ -1,7 +1,7 @@
 // The agent loop: observe the tab → ask the model for ONE action → (confirm if risky) → do it → repeat.
 // Each step sends only the task, a short history and the current page, not the whole conversation, which keeps
 // tokens per step roughly flat instead of growing with every step.
-import { actPage, describeTarget, observePage } from "./page.js";
+import { actPage, describePoint, describeTarget, observePage } from "./page.js";
 import { complete, parseJson } from "./llm.js";
 
 const MAX_ELEMENTS = 150;
@@ -57,6 +57,7 @@ Fill every field you can on this page in ONE reply (several type / choose action
 Actions:
 {"type":"click","index":N}
 {"type":"type","index":N,"text":"...","enter":false}   (replaces the field's text; enter:true presses Enter, e.g. to search a typeahead)
+{"type":"click_xy","x":N,"y":N}                         (ONLY when a screenshot is attached: click at that point of the screenshot, in its pixels, for something that isn't in the element list)
 {"type":"choose","index":N,"value":"<option text>"}     (ANY dropdown or pick-from-list box: native select, "Select One" buttons, comboboxes, typeaheads like School / Location. It opens it, types to filter if it's a search box, and clicks the option. Use this, never "type", for elements marked [dropdown] or [typeahead])
 {"type":"scroll","direction":"down"|"up"}
 {"type":"wait"}
@@ -248,6 +249,8 @@ export async function runAgent({ tabId, task, model, mode, maxSteps, allowLinked
  * caches hit. */
 
 const FILL_ELEMENTS = 90;
+/** The page's viewport (observePage): a default when it's missing. */
+const viewOf = (page) => page.view ?? { w: 1280, h: 800, dpr: 1 };
 const FILL_TEXT = 1200;
 const FILL_HISTORY = 8;
 const MAX_BATCH = 8;
@@ -259,7 +262,7 @@ function fillPrompt(task, history, page, withImage) {
     `CURRENT PAGE\nURL: ${page.url}\nTitle: ${page.title}\nScroll: ${page.scroll.y}/${page.scroll.max}px`,
     `FORM ELEMENTS\n${page.elements.join("\n") || "(none visible)"}`,
     `VISIBLE TEXT (start)\n${page.text}`,
-    withImage ? "A screenshot is attached because the last step didn't work: look at it." : "",
+    withImage ? `A screenshot is attached because the last step didn't work: look at it. It is ${Math.round(viewOf(page).w * viewOf(page).dpr)}×${Math.round(viewOf(page).h * viewOf(page).dpr)} pixels; for click_xy give x,y in those pixels.` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -269,7 +272,7 @@ function fillPrompt(task, history, page, withImage) {
  * Fill one application (Fill selected): `task` = the dashboard's brief, `secrets` = {{token}} values. Returns the run
  * summary like runAgent (outcome done / gave_up / stopped / error / max_steps).
  */
-export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signal, secrets = {}, screenshots = true, pick }) {
+export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signal, secrets = {}, screenshots = true, pick, shot }) {
   const swap = (s) => String(s ?? "").replace(/\{\{(\w+)\}\}/g, (m, k) => (k in secrets ? secrets[k] : m));
   const run = { task, provider: model.provider, model: model.model, mode: "fill", steps: 0, inTokens: 0, outTokens: 0, ms: 0, outcome: "max_steps", answer: "", startedAt: new Date().toISOString() };
   const history = [];
@@ -289,7 +292,8 @@ export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signa
     if (stuck >= 3) return { ...run, outcome: "gave_up", answer: "The page stopped changing: carry on in that tab." };
     // Vision only when stuck (and the tab is in front, which a screenshot needs).
     let image;
-    if (screenshots && (failed || stuck) && tab.active) image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 50 }).catch(() => undefined);
+    // `shot` (the worker's debugging-protocol capture) works in background tabs too; otherwise the visible tab only.
+    if (screenshots && (failed || stuck)) image = shot ? await shot(tabId).catch(() => undefined) : tab.active ? await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 50 }).catch(() => undefined) : undefined;
 
     const step = { n, url: page.url, thought: "", action: null, result: "", inTokens: 0, outTokens: 0, ms: 0 };
     let reply;
@@ -325,8 +329,17 @@ export async function runFill({ tabId, task, model, maxSteps = 30, onStep, signa
         history.push(`${n}. navigate → refused: stay on this application`);
         continue;
       }
-      const target = a.index !== undefined ? ((await inTab(tabId, describeTarget, [a.index])) ?? "") : "";
-      if (a.type === "click") {
+      // click_xy: screenshot pixels → page pixels, and the same click rules for whatever is under that point.
+      if (a.type === "click_xy") {
+        if (!image) {
+          history.push(`${n}. click_xy → refused: only with a screenshot`);
+          continue;
+        }
+        a.x = Number(a.x) / viewOf(page).dpr;
+        a.y = Number(a.y) / viewOf(page).dpr;
+      }
+      const target = a.type === "click_xy" ? ((await inTab(tabId, describePoint, [a.x, a.y])) ?? "") : a.index !== undefined ? ((await inTab(tabId, describeTarget, [a.index])) ?? "") : "";
+      if (a.type === "click" || a.type === "click_xy") {
         const g = fillGate(target, page.text);
         if (g === "stop") {
           step.result = [...results, `stopped before "${target}"`].join("; ");
