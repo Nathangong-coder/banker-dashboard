@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, type ReactNode } from "react";
-import { BellRing, Building2, LayoutGrid, Mail, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy, Presentation, NotebookPen, CalendarDays, FileText, BriefcaseBusiness } from "lucide-react";
+import { BellRing, Building2, LayoutGrid, Mail, MailCheck, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Trophy, Presentation, NotebookPen, CalendarDays, FileText, BriefcaseBusiness } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useExtensionBridge } from "@/lib/applyBridge";
 import { useSaveShortcut } from "./useSaveShortcut";
@@ -51,6 +51,7 @@ const GROUPS = [
     pages: [
       { href: "/find", label: "Find people", icon: Search },
       { href: "/drafts", label: "Email drafts", icon: Mail },
+      { href: "/tracking", label: "Email tracking", icon: MailCheck },
       { href: "/templates", label: "Templates", icon: FileText },
       { href: "/lab", label: "Email lab", icon: FlaskConical },
     ],

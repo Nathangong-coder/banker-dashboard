@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { Mail, Search, Wand2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { gotReply, wasSent } from "@/lib/experiments";
-import { SEGMENTS, crossTab, dimensionOf, dimensions, recipientTimeLabel, segmentOf, tierIndex, type Dimension, type Segment } from "@/lib/segments";
+import { firstEmailOpens } from "@/lib/trackingView";
+import { SEGMENTS, crossTab, type Cell, dimensionOf, dimensions, recipientTimeLabel, segmentOf, tierIndex, type Dimension, type Segment } from "@/lib/segments";
 import { autoTagFontsFromGmail } from "@/lib/gmailSync";
 import { googleClientId } from "@/lib/keys";
 import { EMAIL_FONTS, type Contact, type EmailFont } from "@/lib/types";
@@ -29,11 +30,13 @@ export function Explorer() {
   const tiers = useTiers();
   const [dim, setDim] = useState<Dimension>("time");
   const [seg, setSeg] = useState<Segment>("tier");
-  const tab = useMemo(() => crossTab(contacts, dim, seg, { settings, templates }, tiers), [contacts, dim, seg, settings, templates, tiers]);
+  const tracking = useStore((s) => s.tracking);
+  const opens = useMemo(() => firstEmailOpens(tracking.messages, tracking.mx), [tracking]);
+  const tab = useMemo(() => crossTab(contacts, dim, seg, { settings, templates }, tiers, opens), [contacts, dim, seg, settings, templates, tiers, opens]);
   const sent = contacts.filter(wasSent).length;
   const dimLabel = dimensions(settings).find((d) => d.id === dim)?.label ?? dim;
 
-  const cellView = (c: { sent: number; replied: number } | undefined, best: boolean) => {
+  const cellView = (c: Cell | undefined, best: boolean) => {
     if (!c) return <span className="text-muted">·</span>;
     const rate = c.replied / c.sent;
     const thin = c.sent < MIN_CELL;
@@ -47,17 +50,22 @@ export function Explorer() {
         <div className="num text-[10.5px] text-muted">
           {c.replied}/{c.sent}
         </div>
+        {c.tracked > 0 && (
+          <div className="num text-[10.5px] text-ink-2" title={`Open rate: ${c.opened} of ${c.tracked} tracked first emails seen opened (at least; some mail apps block images)`}>
+            opened {Math.round((c.opened / c.tracked) * 100)}% · {c.tracked}
+          </div>
+        )}
       </div>
     );
   };
-  const bestKey = (cells: Map<string, { sent: number; replied: number }>) =>
+  const bestKey = (cells: Map<string, Cell>) =>
     [...cells.entries()].filter(([, c]) => c.sent >= MIN_CELL).sort((a, b) => b[1].replied / b[1].sent - a[1].replied / a[1].sent)[0]?.[0];
 
   return (
     <Card>
       <CardHeader
         title="What works for whom"
-        sub="Reply rate for everything you've sent, compared by one thing and split by the kind of banker. Darker = more replies; outlined = best in that row (5+ sent)."
+        sub="Reply rate for everything you've sent, compared by one thing and split by the kind of banker. Darker = more replies; outlined = best in that row (5+ sent). “Opened” = open rate of first emails sent with open tracking on."
         right={
           <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
             Compare

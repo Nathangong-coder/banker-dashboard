@@ -157,5 +157,46 @@ const q = [{ draftId: "d1" }];
 check("no Google on the server: post an empty queue", opensOnlySends(q, false).length === 0);
 check("Google unknown / connected: post the real queue", opensOnlySends(q, undefined) === q && opensOnlySends(q, true) === q);
 
+// Email tracking page helpers (lib/trackingView.ts) and the thread reader's pixel stripping (lib/gmail.ts).
+{
+  const tv = await import("../src/lib/trackingView");
+  const { stripPixels } = await import("../src/lib/gmail");
+  const pxUrl = pixelUrl("https://x.test", id);
+  const html = `<div>Hi</div><img src="${pxUrl}" width="1"><img src="https://cdn.test/logo.png"><div>Bye</div>`;
+  const stripped = stripPixels(html);
+  check("thread HTML: our pixel removed, other images kept", !PIXEL_PATH_RE.test(stripped) && stripped.includes("logo.png") && stripped.includes("Bye"), stripped);
+  check("thread HTML: an &amp;-escaped pixel src is removed too", !PIXEL_PATH_RE.test(stripPixels(`<img src="${pxUrl}?a=1&amp;b=2">`)));
+  check("whenIn: 'Tue 9:14 AM ET' style", tv.whenIn("2026-10-27T13:14:00Z", "America/New_York") === "Tue 9:14 AM ET", tv.whenIn("2026-10-27T13:14:00Z", "America/New_York"));
+  check("whenIn: a bad zone falls back instead of throwing", typeof tv.whenIn("2026-10-27T13:14:00Z", "Not/AZone") === "string");
+  check("kind labels", tv.kindLabel({ kind: "follow-up", step: 2 }) === "Follow-up #2" && tv.kindLabel({ kind: "gmail" }) === "Sent from Gmail");
+
+  const person = (at: string): RawHit => ({ id: "x", at, ua: "Mozilla/5.0 (Windows NT 10.0) Outlook", ipHash: "h1", net: "other", city: "New York", country: "US" });
+  const msg = (over: Partial<TrackedMessage>): TrackedMessage => ({ id: "m", to: ["sam@gs.com"], subject: "s", kind: "first", createdAt: "2026-10-26T00:00:00Z", source: "coverage", hits: [], seen: [], ...over });
+  const c = { id: "c1", name: "Sam", bank: "GS", region: "NY", location: "NY", sentAt: "2026-10-26T14:00:00Z", followUps: 0, status: "sent", history: [] } as unknown as import("../src/lib/types").Contact;
+  const opened = msg({ id: "a", contactId: "c1", sentAt: "2026-10-26T14:00:00Z", hits: [person("2026-10-27T13:14:00Z"), person("2026-10-27T18:00:00Z")] });
+  const b = tv.contactOpenBadge(c, [opened], {});
+  check("badge: opened 2x with the first open in their zone", b?.text === "Opened 2× · Tue 9:14 AM ET" && b.opened, b);
+  const later = { ...c, lastEmailedAt: "2026-11-03T14:00:00Z", followUps: 1 } as typeof c;
+  check("badge: none when a later untracked email went out", tv.contactOpenBadge(later, [opened], {}) === undefined);
+  const quiet = msg({ id: "q", contactId: "c1", sentAt: "2026-10-26T14:00:00Z" });
+  check("badge: 'Not opened yet' for a tracked email with no opens", tv.contactOpenBadge(c, [quiet], {})?.text === "Not opened yet");
+  check("badge: unsent tracked emails don't count", tv.contactOpenBadge(c, [msg({ contactId: "c1" })], {}) === undefined);
+
+  const replied = { ...c, repliedAt: "2026-10-28T00:00:00Z" } as typeof c;
+  const rows = tv.trackedRows([opened, msg({ id: "u", to: ["x@ms.com"], sentAt: "2026-10-26T15:00:00Z" }), msg({ id: "d" })], [replied], {});
+  const k = tv.trackingKpis(rows, {});
+  check("kpis: sent / opened / replied (unsent left out)", k.sent === 2 && k.opened === 1 && k.replied === 1, k);
+  check("kpis: median time to first open", k.medianToOpen === Date.parse("2026-10-27T13:14:00Z") - Date.parse("2026-10-26T14:00:00Z"), k.medianToOpen);
+  check("rows: firm = bank, else the domain", rows.find((r) => r.m.id === "u")?.firm === "ms.com" && rows.find((r) => r.m.id === "a")?.firm === "GS");
+  const three = [1, 2, 3].map((i) => msg({ id: `s${i}`, to: [`p${i}@blocky.com`], sentAt: "2026-10-26T15:00:00Z" }));
+  check("firms with 0 opens out of 3+ listed", JSON.stringify(tv.silentFirms(tv.trackedRows(three, [], {}))) === JSON.stringify([{ firm: "blocky.com", sent: 3 }]));
+  check("firms with fewer than 3 not listed", tv.silentFirms(tv.trackedRows(three.slice(0, 2), [], {})).length === 0);
+  const byFirm = tv.openRateBy(rows, {}, (r) => ({ key: r.firm, label: r.firm }));
+  check("open rate by group", byFirm.find((g) => g.key === "GS")?.opened === 1 && byFirm.find((g) => g.key === "ms.com")?.opened === 0, byFirm);
+  const fo = tv.firstEmailOpens([opened, msg({ id: "f", kind: "follow-up", step: 1, contactId: "c2", sentAt: "2026-10-26T15:00:00Z" })], {});
+  check("lab: first emails only, opened flag per contact", fo.get("c1") === true && !fo.has("c2"), [...fo]);
+  check("durations read naturally", tv.durationLabel(5 * 60_000) === "5 min" && tv.durationLabel(3 * 3_600_000) === "3.0 h" && tv.durationLabel(3 * 86_400_000) === "3 days");
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nall open-tracking checks passed");
 process.exit(failed ? 1 : 0);

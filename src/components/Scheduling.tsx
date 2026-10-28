@@ -16,6 +16,7 @@ import { EMAIL_FONTS, type Contact } from "@/lib/types";
 import { relDays } from "@/lib/util";
 import { Badge, Button, Checkbox, Empty, Field, Input, Modal, Select, Textarea, toast } from "./ui";
 import { Cell, ListTable, NameCell, Row, RowActions } from "./FollowupsUi";
+import { OpenBadge } from "./OpenBadge";
 
 /* ---------------- reading their reply ---------------- */
 
@@ -377,6 +378,7 @@ export function ScheduleCallsTable({ onOpen }: { onOpen: (c: Contact) => void })
                 name={c.name}
                 sub={`${c.position || "—"} · ${c.bank}${c.repliedAt ? ` · replied ${relDays(c.repliedAt)}` : ""}`}
                 onOpen={() => onOpen(c)}
+                extra={<OpenBadge plain c={c} className="ml-1.5 inline-flex align-middle" />}
               />
             </Cell>
             <Cell className="text-[12px] whitespace-nowrap text-ink-2">{tzLabel(recipientTz(c))}</Cell>

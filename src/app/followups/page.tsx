@@ -35,6 +35,7 @@ import { OffSheetTable, useOffSheet } from "@/components/OffSheet";
 import { ScheduledRow } from "@/components/ScheduledRow";
 import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
+import { OpenBadge } from "@/components/OpenBadge";
 
 type Tab = "due" | "bankers" | "banks" | "reminders";
 
@@ -458,11 +459,14 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           <NameCell
             name={c.name}
             extra={
-              isVpPlus(c.position || c.headline) && (
-                <span className="ml-1.5 rounded-full bg-red-soft px-1.5 py-px text-[10.5px] font-semibold text-red" title="VP or above">
-                  VP+
-                </span>
-              )
+              <>
+                {isVpPlus(c.position || c.headline) && (
+                  <span className="ml-1.5 rounded-full bg-red-soft px-1.5 py-px text-[10.5px] font-semibold text-red" title="VP or above">
+                    VP+
+                  </span>
+                )}
+                <OpenBadge plain c={c} className="ml-1.5 inline-flex align-middle" />
+              </>
             }
             sub={`${c.position || "—"} · ${c.bank}${c.region !== "Other" ? ` (${c.region})` : ""}`}
             onOpen={() => onOpen(c)}

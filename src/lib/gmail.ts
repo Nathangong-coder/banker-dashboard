@@ -12,6 +12,7 @@ import { EMAIL_FONTS, type EmailFont } from "./types";
 import { bodyToHtml, bodyToPlain, logoLineIndex, normalizeBody, normalizeSubject } from "./emailFormat";
 import { dropServerGoogleToken, serverGoogleToken } from "./googleToken";
 import { requireAccount } from "./session";
+import { PIXEL_PATH_RE } from "./pixel";
 
 const SCOPES = "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -755,3 +756,47 @@ export async function gmailReadableQuietly(clientId: string): Promise<boolean> {
   if (gmailConnected(clientId)) return true;
   return !!(await serverGoogleToken(SCOPES.split(" ")).catch(() => null));
 }
+
+/* ---------------- reading a whole thread (Email tracking's side panel) ---------------- */
+
+export interface ThreadMessage {
+  id: string;
+  from: string;
+  to: string;
+  at: string;
+  subject: string;
+  /** The HTML part with every tracking pixel removed (so showing it never counts as an open). */
+  html?: string;
+  /** Plain text with quoted history cut. */
+  text: string;
+}
+
+/** Our own open-tracking images, removed before anything is shown. */
+export function stripPixels(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => (PIXEL_PATH_RE.test(tag.replace(/&amp;/g, "&")) ? "" : tag));
+}
+
+/** Every message in a Gmail thread, oldest first (needs the Gmail read permission). */
+export async function threadMessages(clientId: string, threadId: string): Promise<ThreadMessage[]> {
+  const t = await gapi<{ messages?: (MsgMeta & { payload?: Part & { headers?: { name: string; value: string }[] } })[] }>(
+    clientId,
+    `/threads/${encodeURIComponent(threadId)}?format=full`,
+  );
+  return (t.messages ?? []).map((m) => {
+    const rawHtml = partText(m.payload, "text/html");
+    const plain = partText(m.payload, "text/plain");
+    const html = rawHtml ? stripPixels(rawHtml) : undefined;
+    return {
+      id: m.id,
+      from: header(m, "From") ?? "",
+      to: header(m, "To") ?? "",
+      at: new Date(when(m)).toISOString(),
+      subject: header(m, "Subject") ?? "",
+      html,
+      text: stripQuoted((plain || htmlToText(html ?? "")).trim()),
+    };
+  });
+}
+
+/** Deep link to a thread in Gmail's web app. */
+export const gmailThreadUrl = (threadId: string) => `https://mail.google.com/mail/u/0/#all/${threadId}`;
