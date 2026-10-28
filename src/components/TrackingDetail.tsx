@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { clientOf, labelHits, type HitLabel } from "@/lib/opens";
 import { gmailReadableQuietly, gmailThreadUrl, threadMessages, type ThreadMessage } from "@/lib/gmail";
 import { googleClientId } from "@/lib/keys";
-import { kindLabel, tzFor, whenIn, whenMine, type TrackedRow } from "@/lib/trackingView";
+import { kindLabel, settleFor, tzFor, whenIn, whenMine, type TrackedRow } from "@/lib/trackingView";
 import { Badge, Button, Menu } from "./ui";
 import { SafeEmailHtml } from "./SafeEmailHtml";
 
@@ -19,7 +19,8 @@ const LABEL: Record<HitLabel, { text: string; tone: "green" | "neutral" | "blue"
 
 const FAMILY: Record<string, string> = { outlook: "Outlook", gmail: "Gmail", "apple-mail": "Apple Mail", other: "Mail app" };
 
-type Thread = { state: "idle" | "loading" | "needs" | "error" | "done"; list: ThreadMessage[]; error?: string };
+/** The thread read for one message (`for` = its id), so a late answer for another row is dropped (settleFor). */
+type Thread = { for: string; state: "idle" | "loading" | "needs" | "error" | "done"; list: ThreadMessage[]; error?: string };
 
 /** One tracked email: its open timeline, the thread read from Gmail (pixels removed), and a jump to Gmail. */
 export function TrackingDetail({ row, onClose, onOpenContact }: { row: TrackedRow; onClose: () => void; onOpenContact?: () => void }) {
@@ -32,19 +33,23 @@ export function TrackingDetail({ row, onClose, onOpenContact }: { row: TrackedRo
   const domain = m.to[0]?.split("@")[1]?.toLowerCase();
   const googleHosted = !!domain && mx[domain] === "google";
 
-  const [thread, setThread] = useState<Thread>({ state: "idle", list: [] });
+  const [thread, setThread] = useState<Thread>({ for: m.id, state: "idle", list: [] });
   const [prevId, setPrevId] = useState(m.id);
   if (prevId !== m.id) {
     setPrevId(m.id);
-    setThread({ state: "idle", list: [] });
+    setThread({ for: m.id, state: "idle", list: [] });
   }
+  // Only applied while the panel still shows that message.
+  const settle = (next: Thread) => setThread((prev) => settleFor(prev, next));
 
   const load = async (threadId: string) => {
-    setThread({ state: "loading", list: [] });
+    const id = m.id;
+    settle({ for: id, state: "loading", list: [] });
     try {
-      setThread({ state: "done", list: await threadMessages(clientId, threadId) });
+      const list = await threadMessages(clientId, threadId);
+      settle({ for: id, state: "done", list });
     } catch (e) {
-      setThread({ state: "error", list: [], error: (e as Error).message });
+      settle({ for: id, state: "error", list: [], error: (e as Error).message });
     }
   };
 
@@ -58,14 +63,14 @@ export function TrackingDetail({ row, onClose, onOpenContact }: { row: TrackedRo
       .then((ok) => {
         if (gone) return;
         if (ok) void load(id);
-        else setThread({ state: "needs", list: [] });
+        else settle({ for: m.id, state: "needs", list: [] });
       });
     return () => {
       gone = true;
     };
-    // load is stable enough for this (it only closes over clientId, which is in the deps)
+    // load / settle only close over clientId and m.id, which are in the deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [m.threadId, thread.state, clientId]);
+  }, [m.id, m.threadId, thread.state, clientId]);
 
   const who = c?.name ?? (m.to.length ? m.to.join(", ") : "Unknown recipient");
 

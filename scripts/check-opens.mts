@@ -198,5 +198,19 @@ check("Google unknown / connected: post the real queue", opensOnlySends(q, undef
   check("durations read naturally", tv.durationLabel(5 * 60_000) === "5 min" && tv.durationLabel(3 * 3_600_000) === "3.0 h" && tv.durationLabel(3 * 86_400_000) === "3 days");
 }
 
+// Review fixes: the email allowlist keeps text of non-listed structure; late thread answers for another row are dropped.
+{
+  const { EMAIL_SANITIZER: z } = await import("../src/lib/safeHtml");
+  const kept = new Set([...z.elements, ...z.replaceWithChildrenElements]);
+  const textTags = ["h1", "h2", "h3", "h4", "h5", "h6", "thead", "tfoot", "caption", "section", "article", "header", "footer", "main", "pre", "code", "small", "sup", "sub", "s", "strike", "dl", "dt", "dd", "address", "center", "font"];
+  const lost = textTags.filter((t) => !kept.has(t));
+  check("sanitizer: headings / table parts / sections / code / small print keep their text", lost.length === 0, lost);
+  check("sanitizer: no images, no attributes but href", !kept.has("img") && !kept.has("picture") && JSON.stringify(z.attributes) === JSON.stringify(["href"]));
+  const { settleFor } = await import("../src/lib/trackingView");
+  const shown = { for: "B", state: "idle" };
+  check("panel: a late thread for row A is dropped while B is shown", settleFor(shown, { for: "A", state: "done" }) === shown);
+  check("panel: the thread for the shown row is applied", settleFor(shown, { for: "B", state: "done" }).state === "done");
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nall open-tracking checks passed");
 process.exit(failed ? 1 : 0);

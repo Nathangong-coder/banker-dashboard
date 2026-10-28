@@ -2,21 +2,18 @@
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { cn } from "@/lib/util";
+import { EMAIL_SANITIZER } from "@/lib/safeHtml";
 
 /**
- * An email's HTML, shown safely: the browser's Sanitizer API (`setHTML`) with a short allowlist. No images at all (so
- * no tracking pixel, ours or anyone's, ever loads from here), no styles, no attributes but href; links open in a new
- * tab. Browsers without `setHTML` (Safari today) get the plain-text version instead: no sanitizer library is shipped.
+ * An email's HTML, shown safely: the browser's Sanitizer API (`setHTML`) with a short allowlist (lib/safeHtml.ts). No
+ * images at all (so no tracking pixel, ours or anyone's, ever loads from here), no styles, no attributes but href;
+ * links open in a new tab. Browsers without `setHTML` (Safari today), or whose `setHTML` rejects the config (an older
+ * Sanitizer shape), get the plain-text version instead: no sanitizer library is shipped.
  */
 
-const SANITIZER = {
-  elements: ["p", "div", "br", "span", "b", "strong", "i", "em", "u", "a", "ul", "ol", "li", "blockquote", "table", "tbody", "tr", "td", "th"],
-  attributes: ["href"],
-  replaceWithChildrenElements: ["font", "center"],
-};
+type SetHtml = (html: string, opts: { sanitizer: typeof EMAIL_SANITIZER }) => void;
 
-type SetHtml = (html: string, opts: { sanitizer: typeof SANITIZER }) => void;
-
+const PRE = "font-sans text-[13px] leading-relaxed whitespace-pre-wrap text-ink [overflow-wrap:anywhere]";
 const noop = () => () => {};
 const canSetHtml = () => typeof Element !== "undefined" && "setHTML" in Element.prototype;
 
@@ -28,15 +25,23 @@ export function SafeEmailHtml({ html, text, className }: { html?: string; text: 
   useEffect(() => {
     const el = ref.current;
     if (!el || !useHtml || !html) return;
-    // Images are dropped before parsing too (belt and braces: the sanitizer drops them anyway).
-    (el as unknown as { setHTML: SetHtml }).setHTML(html.replace(/<img\b[^>]*>/gi, ""), { sanitizer: SANITIZER });
-    for (const a of el.querySelectorAll("a")) {
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
+    try {
+      // Images are dropped before parsing too (belt and braces: the sanitizer drops them anyway).
+      (el as unknown as { setHTML: SetHtml }).setHTML(html.replace(/<img\b[^>]*>/gi, ""), { sanitizer: EMAIL_SANITIZER });
+      for (const a of el.querySelectorAll("a")) {
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+      }
+    } catch {
+      // setHTML threw: show the plain text (set as textContent, never parsed).
+      const pre = document.createElement("pre");
+      pre.className = PRE;
+      pre.textContent = text;
+      el.replaceChildren(pre);
     }
-  }, [html, useHtml]);
+  }, [html, text, useHtml]);
 
-  if (!useHtml) return <pre className={cn("font-sans text-[13px] leading-relaxed whitespace-pre-wrap text-ink [overflow-wrap:anywhere]", className)}>{text}</pre>;
+  if (!useHtml) return <pre className={cn(PRE, className)}>{text}</pre>;
   return (
     <div
       ref={ref}

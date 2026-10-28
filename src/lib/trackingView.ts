@@ -229,3 +229,8 @@ export function firstEmailOpens(messages: TrackedMessage[], mx: Mx): Map<string,
   labCache.set(messages, { mx, map: out });
   return out;
 }
+
+/** Async results for the detail panel: keep `next` only when it's for the message the panel still shows. */
+export function settleFor<T extends { for: string }>(prev: T, next: T): T {
+  return prev.for === next.for ? next : prev;
+}
