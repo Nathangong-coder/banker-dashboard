@@ -764,6 +764,37 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `gmail.ts#labelMessages` (modify permission, asked on click; automatic runs keep `mail.pendingLabels`). Excel writes IN PROCESS for
   both applied statuses. Not yet run against the owner's real inbox.
 
+## Email open tracking (owner, 2026-10-28; spec `docs/superpowers/specs/2026-10-28-email-open-tracking-design.md`)
+
+- **Off by default** (Settings -> Email -> Sending -> Track opens, `state.tracking`). A tracked email carries a 1x1 image
+  `<base>/api/o/<acct>.<nonce>.<mac>.gif` (`lib/pixel.ts`: HMAC id keyed per account via `pixelKeyFor(SERVER_ENC_KEY)`; no PII
+  in the URL). `buildMime` adds it (`upsertDraft`, so server sends via `run-send` carry it too); `trackingActions.ts`
+  registers each message (`TrackedMessage`, `state.tracking.messages`).
+- **Server:** `api/o/[file]` answers the gif and records a hit (time, UA, Vercel city/country, `ipHash` = sha256, never the raw
+  IP, network class `netOf`) in a per-account Redis list, 30-day TTL, capped at 2000. `api/server/pixel` mints a key/base for the
+  extension. The sync response returns hits only when the body sends `opens: true` (R4: no Redis cost for non-users); the
+  dashboard acks (`opensAck`) and hits move into its own data. Last hit never lost: `addHits` for an unknown id makes a stub
+  `TrackedMessage` that a later registration fills.
+- **Labels (`lib/opens.ts`, pure, `npm run check:opens`):** `person` / `scanner` / `apple-privacy` / `you`, plus a "possibly
+  forwarded" hint (same message later loaded from a clearly different place). Every number is "at least": Outlook blocks images,
+  gateways and Apple MPP fetch at delivery. A real open within 60 s of `sentAt` is labeled scanner (spec rule). Opens
+  never count the owner's own views (`you`, from `pixelSeen`).
+- **UI:** `/tracking` (`app/tracking`, `components/TrackingDetail.tsx`, `SafeEmailHtml.tsx`: email shown with the Sanitizer API
+  `setHTML`, no remote images so viewing never fires a pixel; without `setHTML` it falls back to plain text in a `<pre>`, no
+  DOMPurify dependency), open badges on Follow-ups rows (`trackingView.ts`).
+- **Extension (test build only):** `extension/pixel.js` + `tracking.js` (worker: mint, outbox that retries on transient errors,
+  asks the Coverage tab quietly) + `sites/gmail.js` (compose root watcher, adds the image, reports a send only once Gmail
+  confirms it, marks Sent rows). Stripped from the store build with `mail.google.com`; turning the option off stops open tabs.
+- **Privacy:** `/privacy` section 8 and `/extension/privacy` section 5a describe it; `legalUpdated` 2026-10-28. Update both
+  if anything recorded about recipients changes.
+- **Build note:** in a git worktree with a junctioned `node_modules`, Turbopack fails; use `npx next build --webpack`.
+  `SERVER_ENC_KEY` exists only on Vercel, so the pixel route can't be exercised locally with real ids.
+- **Not run / untested:** the live Gmail check (compose root, inline reply recipients, Schedule send dialog, Sent rows, Undo
+  send), a browser click-test of `/tracking` (390 px layout, no pixel request while viewing, Connect Gmail gesture), a real send
+  to an Outlook / Apple Mail recipient. Extension version and `SITE.extension.version` are bumped at merge (the parallel
+  extension work also bumps). Deferred: a `tracked_pixel` tool for Claude's direct sends (check if the Gmail connector's
+  `send_message` accepts HTML first).
+
 ## Reply / thank-you / referral tracking (owner, 2026-10-22)
 
 - **Why:** thank-yous showed as "not sent" because only the browser read Gmail (open tab + token), and runs missed

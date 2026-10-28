@@ -231,7 +231,29 @@ export default function PrivacyPage() {
         go to your account the same way.
       </p>
 
-      <H2>8. Your choices and rights</H2>
+      <H2>8. Email open tracking (optional, off by default)</H2>
+      <p>
+        If you turn on <b>Track opens</b> (Settings → Email → Sending), emails you send through {SITE.name} carry a tiny invisible image from our
+        server. When the person you emailed (or their mail program or security filter) loads that image, we record that it happened. This is{" "}
+        <b>data about the people you email</b>, so please use it only for your own recruiting. Per open we keep: the time, which mail app it looks like
+        (Outlook, Gmail, Apple Mail, other; phone or computer), the approximate city and country our host derives from the connection, and a{" "}
+        <b>one-way hash</b> of the connection address (never the address itself) used only to tell whether two opens came from the same place. We
+        label each open (a person, a security scanner, Apple&apos;s privacy proxy, or you) as a best guess.
+      </p>
+      <p className="mt-3">
+        <b>Where it&apos;s kept.</b> The server holds opens for up to 30 days, only until your signed-in dashboard picks them up; then they live in your
+        own {SITE.name} data like everything else you save (and are deleted with it). The image address is a random ID signed with a key only the
+        server has; it contains no name or email address. Emails you view inside {SITE.name} are shown without loading remote images, and your own views
+        are not counted. <b>Turning Track opens off</b> stops new tracking images being added; emails already sent keep the image they carry, and
+        late opens on them are still collected for your dashboard while it holds tracked emails. In the extension&apos;s test build you can also track
+        emails sent from Gmail itself (see the{" "}
+        <a className="text-navy underline" href="/extension/privacy">
+          extension privacy policy
+        </a>
+        ).
+      </p>
+
+      <H2>9. Your choices and rights</H2>
       <ul className="list-disc space-y-1 pl-6">
         <li>Download everything: Settings → Account → Download everything (one file with all your data and files).</li>
         <li>
@@ -249,16 +271,16 @@ export default function PrivacyPage() {
         </li>
       </ul>
 
-      <H2>9. Security</H2>
+      <H2>10. Security</H2>
       <p>
         Traffic is HTTPS only. Secrets on our server are encrypted, server credentials are stored only as hashes, job calls are signed, and API routes are
         rate-limited. No system is perfectly secure. Use strong passwords on the accounts you connect.
       </p>
 
-      <H2>10. Children</H2>
+      <H2>11. Children</H2>
       <p>{SITE.name} is meant for university students and isn&apos;t directed at children under 13.</p>
 
-      <H2>11. Changes</H2>
+      <H2>12. Changes</H2>
       <p>If this policy changes, the date at the top changes too. Material changes will be noted in the app.</p>
     </LegalPage>
   );
