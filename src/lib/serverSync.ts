@@ -127,8 +127,9 @@ const wantsOpens = (st: ReturnType<typeof useStore.getState>) => !!st.settings.t
 
 /** One sync call that also acks the opens stored last time; stores the opens it returns (acked next call). */
 async function callWithOpens<T extends OpensWire>(body: Record<string, unknown>): Promise<T> {
-  const r = await call<T>("/api/server/sync", { ...body, opensAck: pendingOpensAck });
+  const r = await call<T & { email?: string | null }>("/api/server/sync", { ...body, opensAck: pendingOpensAck });
   pendingOpensAck = [];
+  if (r.email !== undefined) serverGoogle = !!r.email;
   if (r.opens?.length) {
     useStore.getState().addHits(r.opens);
     pendingOpensAck = r.opens.map((h) => `${h.id}|${h.at}`);
@@ -151,15 +152,36 @@ async function trackingUpkeep() {
   }
 }
 
+/** Does the server account have a Google connection? From the last sync answer (`email`); undefined = not asked yet. */
+let serverGoogle: boolean | undefined;
+
 /**
- * Open tracking without automatic sending (Google not connected for the server): read the pixel hits only. The same
- * sync route, with the queue as it stands (no sends without Gmail access) and nothing else changed.
+ * The queue to post when only reading opens. Without a Google connection on the server nothing can be queued there,
+ * so an empty list cancels nothing, and a stale `contact.serverSend` must not make the route refuse the call ("Connect
+ * Gmail for automatic sending first"), which would stop opens from ever arriving. Unknown → the real queue.
+ */
+export function opensOnlySends<T>(queue: T[], google: boolean | undefined): T[] {
+  return google === false ? [] : queue;
+}
+const NO_GOOGLE = /Connect Gmail for automatic sending/i;
+
+/**
+ * Open tracking without automatic sending (no Google email recorded here): read the pixel hits only, through the same
+ * sync route with nothing else changed (whatsapp / digests left out = left as is).
  */
 async function syncOpensOnly() {
-  const st = useStore.getState();
-  const body = { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles", opens: true, sends: queuedSends(st.contacts), ack: [] };
-  const r = await callWithOpens<OpensWire>(body);
-  await drainOpens(r, body);
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
+  const body = (google: boolean | undefined) => ({ tz, opens: true, sends: opensOnlySends(queuedSends(useStore.getState().contacts), google), ack: [] });
+  let r: OpensWire;
+  try {
+    r = await callWithOpens<OpensWire>(body(serverGoogle));
+  } catch (e) {
+    // The server says there's no Google connection: nothing can be queued there, so retry with an empty queue.
+    if (!NO_GOOGLE.test((e as Error).message)) throw e;
+    serverGoogle = false;
+    r = await callWithOpens<OpensWire>(body(false));
+  }
+  await drainOpens(r, body(serverGoogle));
   await trackingUpkeep();
 }
 

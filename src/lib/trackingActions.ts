@@ -34,25 +34,28 @@ export async function prepareTracking() {
   await pixelKey();
 }
 
+/** Pixels handed out whose Gmail draft isn't made yet: registered only once the draft exists (notePixelDraft). */
+const pending = new Map<string, TrackedMessage>();
+
 /**
  * The pixel URL for an email Coverage is about to put in Gmail, or undefined (tracking off, offline, no server…): the
- * draft is then made without one. Re-making the same Gmail draft keeps its pixel. Never throws.
+ * draft is then made without one. Re-making the same Gmail draft keeps its pixel. Nothing is registered here: a draft
+ * call that fails would leave an entry with no Gmail draft that a later send could be matched to (counted twice).
+ * Never throws.
  */
 export async function pixelFor(input: { to: string; subject: string; kind: TrackedKind; step?: number; contactId?: string; gmailDraftId?: string }): Promise<string | undefined> {
   try {
     if (!useStore.getState().settings.tracking?.on) return undefined;
     const { key, base, account } = await pixelKey();
     const st = useStore.getState();
-    const to = recipients(input.to);
-    const fields = { to, subject: input.subject, kind: input.kind, step: input.step, contactId: input.contactId };
+    const fields = { to: recipients(input.to), subject: input.subject, kind: input.kind, step: input.step, contactId: input.contactId };
     const same = input.gmailDraftId ? st.tracking.messages.find((m) => m.gmailDraftId === input.gmailDraftId && !m.sentAt && m.id.startsWith(account + ".")) : undefined;
-    if (same) {
-      st.registerTracked({ ...same, ...fields });
-      return pixelUrl(base, same.id);
-    }
-    const id = await mintPixelId(account, key);
-    st.registerTracked({ id, ...fields, createdAt: new Date().toISOString(), gmailDraftId: input.gmailDraftId, source: "coverage", hits: [], seen: [] });
-    return pixelUrl(base, id);
+    const m: TrackedMessage = same
+      ? { ...same, ...fields }
+      : { id: await mintPixelId(account, key), ...fields, createdAt: new Date().toISOString(), source: "coverage", hits: [], seen: [] };
+    if (pending.size > 200) pending.clear();
+    pending.set(m.id, m);
+    return pixelUrl(base, m.id);
   } catch {
     return undefined;
   }
@@ -63,13 +66,14 @@ export function trackedKindOf(t: Pick<Template, "kind" | "step"> | undefined, c:
   return t?.kind === "follow_up" ? { kind: "follow-up", step: t.step ?? c.followUps + 1 } : { kind: "first", step: 0 };
 }
 
-/** After upsertDraft: remember which Gmail draft (and thread) the pixel went into. */
+/** After upsertDraft succeeded: register the pixel's email with the Gmail draft (and thread) it went into. */
 export function notePixelDraft(pixel: string | undefined, draft: { id: string; message?: { threadId?: string } } | undefined) {
   const id = pixel && PIXEL_PATH_RE.exec(pixel)?.[1];
   if (!id || !draft?.id) return;
   const st = useStore.getState();
-  const m = st.tracking.messages.find((x) => x.id === id);
-  if (!m || (m.gmailDraftId === draft.id && (m.threadId || !draft.message?.threadId))) return;
+  const m = pending.get(id) ?? st.tracking.messages.find((x) => x.id === id);
+  pending.delete(id);
+  if (!m) return;
   st.registerTracked({ ...m, gmailDraftId: draft.id, threadId: m.threadId ?? draft.message?.threadId });
 }
 
@@ -82,34 +86,56 @@ export function notePixelDraft(pixel: string | undefined, draft: { id: string; m
  * - reply (scheduling reply in their thread): lastEmailedAt, else lastTouchAt.
  * One minute of slack covers the clock difference between this browser and Gmail.
  */
-export function sentMatches(messages: TrackedMessage[], contacts: Contact[]): { id: string; sentAt: string; threadId?: string }[] {
+export function sentMatches(messages: TrackedMessage[], contacts: Contact[]): { sent: { id: string; sentAt: string; threadId?: string }[]; drop: string[] } {
   const byId = new Map(contacts.map((c) => [c.id, c]));
-  const out: { id: string; sentAt: string; threadId?: string }[] = [];
-  for (const m of messages) {
-    if (m.sentAt || !m.contactId) continue;
-    const c = byId.get(m.contactId);
-    if (!c) continue;
+  const sentAtOf = (m: TrackedMessage, c: Contact) => {
     const created = Date.parse(m.createdAt) - 60_000;
     const after = (at?: string) => (at && Date.parse(at) >= created ? at : undefined);
-    let at: string | undefined;
-    if (m.kind === "first" || (m.kind !== "follow-up" && m.step === 0)) at = after(c.sentAt);
-    else if (m.kind === "follow-up") {
+    if (m.kind === "first" || (m.kind !== "follow-up" && m.step === 0)) return after(c.sentAt);
+    if (m.kind === "follow-up") {
       const n = m.step ?? 1;
-      if (c.followUps >= n) at = after(c.followUpLog?.find((x) => x.step === n)?.at) ?? (c.followUps === n ? after(c.lastTouchAt) : undefined);
-    } else if (m.kind === "thank-you") at = after(c.sentAt) ?? after(c.lastEmailedAt);
-    else if (m.kind === "reply") at = after(c.lastEmailedAt) ?? after(c.lastTouchAt);
-    if (at) out.push({ id: m.id, sentAt: at, threadId: m.threadId ?? c.threadId });
+      if (c.followUps < n) return undefined;
+      return after(c.followUpLog?.find((x) => x.step === n)?.at) ?? (c.followUps === n ? after(c.lastTouchAt) : undefined);
+    }
+    if (m.kind === "thank-you") return after(c.sentAt) ?? after(c.lastEmailedAt);
+    if (m.kind === "reply") return after(c.lastEmailedAt) ?? after(c.lastTouchAt);
+    return undefined;
+  };
+  // One send = one tracked email. Several unsent entries for the same email (a draft re-made after Gmail dropped it)
+  // all look sent by the contact's dates: only the newest gets the date; older ones without hits are dropped,
+  // older ones with hits stay unsent (their opens are kept but not counted as a send).
+  const groups = new Map<string, TrackedMessage[]>();
+  for (const m of messages) {
+    if (m.sentAt || !m.contactId || !byId.has(m.contactId)) continue;
+    const step = m.kind === "first" ? 0 : (m.step ?? (m.kind === "follow-up" ? 1 : 0));
+    const k = `${m.contactId}|${m.kind}|${step}`;
+    (groups.get(k) ?? groups.set(k, []).get(k)!).push(m);
   }
-  return out;
+  const sent: { id: string; sentAt: string; threadId?: string }[] = [];
+  const drop: string[] = [];
+  for (const list of groups.values()) {
+    list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const [newest, ...older] = list;
+    const c = byId.get(newest.contactId!)!;
+    const at = sentAtOf(newest, c);
+    if (!at) continue;
+    sent.push({ id: newest.id, sentAt: at, threadId: newest.threadId ?? c.threadId });
+    for (const m of older) if (!m.hits.length && sentAtOf(m, c)) drop.push(m.id);
+  }
+  return { sent, drop };
 }
 
 /** Stamp sentAt / threadId on tracked emails whose contact shows they went out (after a Gmail or server sync). */
 export function matchTrackedSends() {
   const st = useStore.getState();
-  const found = sentMatches(st.tracking.messages, st.contacts);
-  if (!found.length) return;
-  const by = new Map(found.map((f) => [f.id, f]));
-  st.updateTracking((t) => ({ ...t, messages: t.messages.map((m) => (by.has(m.id) ? { ...m, sentAt: by.get(m.id)!.sentAt, threadId: by.get(m.id)!.threadId } : m)) }));
+  const { sent, drop } = sentMatches(st.tracking.messages, st.contacts);
+  if (!sent.length && !drop.length) return;
+  const by = new Map(sent.map((f) => [f.id, f]));
+  const gone = new Set(drop);
+  st.updateTracking((t) => ({
+    ...t,
+    messages: t.messages.filter((m) => !gone.has(m.id)).map((m) => (by.has(m.id) ? { ...m, sentAt: by.get(m.id)!.sentAt, threadId: by.get(m.id)!.threadId } : m)),
+  }));
 }
 
 /** Ask the server which new recipient domains are on Google mail (≤ 50 per call), cached in tracking.mx. */

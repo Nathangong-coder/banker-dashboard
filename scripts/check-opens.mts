@@ -111,17 +111,51 @@ ts = registerTrackedIn({ ...ts, messages: [{ ...ts.messages[0], seen: ["2026-10-
 check("registering over a stub keeps hits + seen and fills fields", ts.messages.length === 1 && ts.messages[0].hits.length === 2 && ts.messages[0].seen.length === 1 && ts.messages[0].kind === "first" && ts.messages[0].contactId === "c1" && ts.messages[0].source === "coverage" && ts.messages[0].createdAt === "2026-10-28T11:00:00.000Z", ts.messages[0]);
 
 // Sent dates for tracked emails from the contact's dates (pure part of trackingActions).
-const { sentMatches } = await import("../src/lib/trackingActions");
+const { sentMatches, pixelFor, notePixelDraft } = await import("../src/lib/trackingActions");
+const sentOf = (...a: Parameters<typeof sentMatches>) => sentMatches(...a).sent;
 const contact = (o: Record<string, unknown>) => ({ id: "c1", followUps: 0, ...o }) as unknown as import("../src/lib/types").Contact;
 const tFirst = msg({ id: "f", contactId: "c1", sentAt: undefined, createdAt: "2026-10-20T10:00:00.000Z" });
-check("first email: contact.sentAt after the draft", sentMatches([tFirst], [contact({ sentAt: "2026-10-21T16:00:00.000Z", threadId: "th" })])[0]?.threadId === "th");
-check("first email: a sentAt from before the draft isn't this email", sentMatches([tFirst], [contact({ sentAt: "2026-10-01T16:00:00.000Z" })]).length === 0);
+check("first email: contact.sentAt after the draft", sentOf([tFirst], [contact({ sentAt: "2026-10-21T16:00:00.000Z", threadId: "th" })])[0]?.threadId === "th");
+check("first email: a sentAt from before the draft isn't this email", sentOf([tFirst], [contact({ sentAt: "2026-10-01T16:00:00.000Z" })]).length === 0);
 const tFu = msg({ id: "u", kind: "follow-up", step: 2, contactId: "c1", sentAt: undefined, createdAt: "2026-10-20T10:00:00.000Z" });
-check("follow-up #2: from followUpLog", sentMatches([tFu], [contact({ followUps: 2, followUpLog: [{ step: 2, at: "2026-10-22T16:00:00.000Z", gapDays: 7 }] })])[0]?.sentAt === "2026-10-22T16:00:00.000Z");
-check("follow-up #2: not before it went out", sentMatches([tFu], [contact({ followUps: 1, lastTouchAt: "2026-10-22T16:00:00.000Z" })]).length === 0);
-check("follow-up #2: lastTouchAt when it's the latest", sentMatches([tFu], [contact({ followUps: 2, lastTouchAt: "2026-10-23T16:00:00.000Z" })])[0]?.sentAt === "2026-10-23T16:00:00.000Z");
-check("reply: lastEmailedAt", sentMatches([msg({ id: "r", kind: "reply", contactId: "c1", sentAt: undefined, createdAt: "2026-10-20T10:00:00.000Z" })], [contact({ lastEmailedAt: "2026-10-20T11:00:00.000Z" })]).length === 1);
-check("already sent / no contact: skipped", sentMatches([msg({ contactId: "c1" }), msg({ id: "n", sentAt: undefined })], [contact({ sentAt: "2026-10-28T16:00:00.000Z" })]).length === 0);
+check("follow-up #2: from followUpLog", sentOf([tFu], [contact({ followUps: 2, followUpLog: [{ step: 2, at: "2026-10-22T16:00:00.000Z", gapDays: 7 }] })])[0]?.sentAt === "2026-10-22T16:00:00.000Z");
+check("follow-up #2: not before it went out", sentOf([tFu], [contact({ followUps: 1, lastTouchAt: "2026-10-22T16:00:00.000Z" })]).length === 0);
+check("follow-up #2: lastTouchAt when it's the latest", sentOf([tFu], [contact({ followUps: 2, lastTouchAt: "2026-10-23T16:00:00.000Z" })])[0]?.sentAt === "2026-10-23T16:00:00.000Z");
+check("reply: lastEmailedAt", sentOf([msg({ id: "r", kind: "reply", contactId: "c1", sentAt: undefined, createdAt: "2026-10-20T10:00:00.000Z" })], [contact({ lastEmailedAt: "2026-10-20T11:00:00.000Z" })]).length === 1);
+check("already sent / no contact: skipped", sentOf([msg({ contactId: "c1" }), msg({ id: "n", sentAt: undefined })], [contact({ sentAt: "2026-10-28T16:00:00.000Z" })]).length === 0);
+
+// One send = one tracked email: an older entry for the same contact/step (draft call failed, or Gmail dropped the draft
+// and it was re-made) must not also be stamped sent.
+const older = msg({ id: "old", kind: "follow-up", step: 1, contactId: "c1", sentAt: undefined, createdAt: "2026-10-20T10:00:00.000Z" });
+const newer = msg({ id: "new", kind: "follow-up", step: 1, contactId: "c1", sentAt: undefined, createdAt: "2026-10-21T10:00:00.000Z", gmailDraftId: "d2" });
+const oneSend = sentMatches([older, newer], [contact({ followUps: 1, lastTouchAt: "2026-10-22T16:00:00.000Z" })]);
+check("two entries, one send: only the newest gets sentAt", oneSend.sent.length === 1 && oneSend.sent[0].id === "new", oneSend);
+check("two entries, one send: the older one without hits is dropped", JSON.stringify(oneSend.drop) === '["old"]', oneSend.drop);
+const olderHit = sentMatches([{ ...older, hits: [h1] }, newer], [contact({ followUps: 1, lastTouchAt: "2026-10-22T16:00:00.000Z" })]);
+check("an older entry with hits stays (unsent), not dropped", olderHit.sent.length === 1 && olderHit.drop.length === 0, olderHit);
+const otherSteps = sentMatches([tFirst, newer], [contact({ sentAt: "2026-10-20T16:00:00.000Z", followUps: 1, lastTouchAt: "2026-10-22T16:00:00.000Z" })]);
+check("different steps are separate sends", otherSteps.sent.length === 2 && otherSteps.drop.length === 0, otherSteps);
+
+// pixelFor registers nothing until the Gmail draft exists (a failed draft call leaves no entry).
+const { useStore } = await import("../src/lib/store");
+const acctId = "acctTEST";
+useStore.setState({ settings: { ...useStore.getState().settings, tracking: { on: true }, server: { id: acctId, token: "t" } }, tracking: { key: await keyFor(acctId), base: "https://x.app", account: acctId, messages: [], mx: {} } });
+const px = await pixelFor({ to: "Sam <sam@gs.com>", subject: "Hi", kind: "first", step: 0, contactId: "c1" });
+check("pixelFor returns a pixel URL", !!px && PIXEL_PATH_RE.test(px), px);
+check("pixelFor alone registers nothing", useStore.getState().tracking.messages.length === 0);
+notePixelDraft(px, { id: "draft1", message: { threadId: "th1" } });
+const reg = useStore.getState().tracking.messages;
+check("after the draft: one entry with the draft + thread + recipient", reg.length === 1 && reg[0].gmailDraftId === "draft1" && reg[0].threadId === "th1" && reg[0].to[0] === "sam@gs.com", reg);
+const px2 = await pixelFor({ to: "sam@gs.com", subject: "Hi again", kind: "first", step: 0, contactId: "c1", gmailDraftId: "draft1" });
+check("re-making the same Gmail draft reuses its pixel", px2 === px);
+notePixelDraft(px2, { id: "draft1" });
+check("…and updates it in place", useStore.getState().tracking.messages.length === 1 && useStore.getState().tracking.messages[0].subject === "Hi again");
+
+// Opens without automatic sending: a stale queued send must not block reading opens when the server has no Google.
+const { opensOnlySends } = await import("../src/lib/serverSync");
+const q = [{ draftId: "d1" }];
+check("no Google on the server: post an empty queue", opensOnlySends(q, false).length === 0);
+check("Google unknown / connected: post the real queue", opensOnlySends(q, undefined) === q && opensOnlySends(q, true) === q);
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nall open-tracking checks passed");
 process.exit(failed ? 1 : 0);
