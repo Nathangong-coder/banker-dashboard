@@ -69,5 +69,13 @@ check("open rate", rate.sent === 10 && rate.opened === 3 && rate.low < 0.3 && ra
 const heat = readingHeatmap([msg({ hits: [hit("2026-10-27T13:14:00.000Z")] })], {}, () => "America/New_York");
 check("heatmap", heat[2][9] === 1, heat[2]);
 
+const mixed = msg({ hits: [hit("2026-10-27T12:00:00.000Z", { net: "scanner", ipHash: "s" }), hit("2026-10-27T12:00:01.000Z", { ipHash: "p" })] });
+check("person next to a scanner hit survives", openSummary(mixed, {}).opens === 1, labels(mixed));
+check("open rate ignores unsent stubs", openRate([msg(), msg({ id: "b" }), msg({ id: "c", sentAt: undefined })], {}).sent === 2);
+check("garbage time is not an open", openSummary(msg({ hits: [hit("garbage")] }), {}).opens === 0);
+let threw = false;
+try { readingHeatmap([msg({ hits: [hit("2026-10-27T13:14:00.000Z"), hit("garbage")] })], {}, () => "Not/AZone"); } catch { threw = true; }
+check("bad zone / time do not throw heatmap", !threw);
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nall open-tracking checks passed");
 process.exit(failed ? 1 : 0);

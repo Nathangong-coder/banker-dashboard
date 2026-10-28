@@ -86,9 +86,10 @@ export function clientOf(ua: string): { family: "outlook" | "gmail" | "apple-mai
 const ms = (iso: string) => Date.parse(iso);
 
 export function labelHits(m: TrackedMessage, mx: Mx): { hit: RawHit; label: HitLabel }[] {
-  const hits = [...m.hits].sort((a, b) => ms(a.at) - ms(b.at));
-  const sent = m.sentAt ? ms(m.sentAt) : undefined;
-  const seen = m.seen.map(ms);
+  const hits = m.hits.filter((h) => !Number.isNaN(Date.parse(h.at))).sort((a, b) => ms(a.at) - ms(b.at));
+  const sentRaw = m.sentAt ? ms(m.sentAt) : undefined;
+  const sent = sentRaw !== undefined && !Number.isNaN(sentRaw) ? sentRaw : undefined;
+  const seen = m.seen.map(ms).filter((t) => !Number.isNaN(t));
   const domains = m.to.map((a) => a.split("@")[1]?.toLowerCase()).filter(Boolean) as string[];
   const allOther = domains.length > 0 && domains.every((d) => mx[d] === "other");
   const inSeen = (h: RawHit) => seen.some((s) => Math.abs(ms(h.at) - s) <= 120_000);
@@ -107,7 +108,7 @@ export function labelHits(m: TrackedMessage, mx: Mx): { hit: RawHit; label: HitL
   });
 
   // two or more remaining hits within 2 s of each other are a scanner burst
-  const rest = base.filter((b) => b.label === null || b.label === "scanner");
+  const rest = base.filter((b) => b.label === null);
   for (let i = 0; i < rest.length; i++) {
     const near = (j: number) => j >= 0 && j < rest.length && Math.abs(ms(rest[i].hit.at) - ms(rest[j].hit.at)) <= 2000;
     if (near(i - 1) || near(i + 1)) rest[i].label = "scanner";
@@ -144,9 +145,11 @@ export function openSummary(m: TrackedMessage, mx: Mx): { opens: number; firstAt
   return { opens: people.length, firstAt: first.at, lastAt: last.at, forwarded, lastClient: clientOf(last.ua).family, lastCity: last.city };
 }
 
+/** Only messages with a sentAt count as sent; stubs that were never sent are ignored. */
 export function openRate(ms_: TrackedMessage[], mx: Mx): { sent: number; opened: number; low: number; high: number } {
-  const sent = ms_.length;
-  const opened = ms_.filter((m) => openSummary(m, mx).opens > 0).length;
+  const sentMsgs = ms_.filter((m) => !!m.sentAt);
+  const sent = sentMsgs.length;
+  const opened = sentMsgs.filter((m) => openSummary(m, mx).opens > 0).length;
   const { lo, hi } = wilson(opened, sent);
   return { sent, opened, low: lo, high: hi };
 }
@@ -159,7 +162,12 @@ export function readingHeatmap(ms_: TrackedMessage[], mx: Mx, tzOf: (m: TrackedM
     const tz = tzOf(m);
     let f = fmts.get(tz);
     if (!f) {
-      f = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", hour: "numeric", hourCycle: "h23" });
+      const make = (timeZone: string) => new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "numeric", hourCycle: "h23" });
+      try {
+        f = make(tz);
+      } catch {
+        f = make("UTC");
+      }
       fmts.set(tz, f);
     }
     for (const { hit, label } of labelHits(m, mx)) {
