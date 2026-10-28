@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, Mail, Send, Sparkles, Wand2 } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
+import { canonBank } from "@/lib/banks";
 import { callApi } from "@/lib/api";
 import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT } from "@/lib/template";
@@ -60,6 +61,12 @@ function DraftsInner() {
   const reachedByBank = useMemo(() => {
     const m = new Map<string, Contact[]>();
     for (const c of contacts) if (c.sentAt || ["sent", "followed_up", "replied", "call_scheduled", "done"].includes(c.status)) m.set(c.bank, [...(m.get(c.bank) ?? []), c]);
+    return m;
+  }, [contacts]);
+  // Firms where someone referred you (canonBank): every new email there needs care (owner, 2026-10-27).
+  const referrersByBank = useMemo(() => {
+    const m = new Map<string, Contact[]>();
+    for (const c of contacts) if (c.referral) m.set(canonBank(c.bank), [...(m.get(canonBank(c.bank)) ?? []), c]);
     return m;
   }, [contacts]);
   const profileMissing = !settings.profile.name || !settings.profile.school;
@@ -366,6 +373,17 @@ function DraftsInner() {
                           s.setStatus([c.id], "ignored", `Left firm (headline: ${employer})`);
                           s.updateContact(c.id, { comment: [c.comment, `left firm (now ${employer})`].filter(Boolean).join("; ") });
                         }} />
+                        {(() => {
+                          const refs = (referrersByBank.get(canonBank(c.bank)) ?? []).filter((o) => o.id !== c.id);
+                          return refs.length ? (
+                            <div
+                              className="mt-0.5 text-[11.5px] font-medium text-red"
+                              title="Someone here referred you. Before emailing anyone else: mention them by name, go only through them, or ask them first."
+                            >
+                              ⚠ Referral here: {refs.map((o) => o.name).join(", ")}. Careful with this email.
+                            </div>
+                          ) : null;
+                        })()}
                         {(() => {
                           const others = (reachedByBank.get(c.bank) ?? []).filter((o) => o.id !== c.id);
                           return others.length ? (

@@ -8,6 +8,7 @@ import { useStore } from "@/lib/store";
 import { useExtensionBridge } from "@/lib/applyBridge";
 import { useSaveShortcut } from "./useSaveShortcut";
 import { nextAction } from "@/lib/followups";
+import { upkeepPatches } from "@/lib/contactUpkeep";
 import { cn } from "@/lib/util";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
@@ -173,6 +174,27 @@ function useDailyWhatsApp(ready: boolean) {
 /** When the server last got a sync from this tab, and the send queue it got (module-level: survives re-renders). */
 const lastServerSync = { at: 0, sends: "" };
 
+/** Names First Last + automatic move-ons (lib/contactUpkeep.ts): after load, after changes, and every 10 minutes. */
+function useContactUpkeep(ready: boolean) {
+  const contacts = useStore((s) => s.contacts);
+  const fu = useStore((s) => s.settings.followUp);
+  const banks = useStore((s) => s.banks);
+  useEffect(() => {
+    if (!ready) return;
+    const run = () => {
+      const st = useStore.getState();
+      const list = upkeepPatches(st.contacts, st.settings.followUp, st.banks);
+      if (list.length) st.updateContacts(list);
+    };
+    const t = setTimeout(run, 1500);
+    const i = setInterval(run, 10 * 60_000);
+    return () => {
+      clearTimeout(t);
+      clearInterval(i);
+    };
+  }, [ready, contacts, fu, banks]);
+}
+
 function useServerSync(ready: boolean) {
   const connected = useStore((s) => !!s.settings.server?.email);
   const contacts = useStore((s) => s.contacts);
@@ -235,6 +257,7 @@ export function Shell({ children }: { children: ReactNode }) {
   useDailyWhatsApp(ready);
   useExcelEdits(ready);
   useServerSync(ready);
+  useContactUpkeep(ready);
   // The demo's made-up data never goes to the extension (it would fill real forms with it).
   useExtensionBridge(ready && mode !== "demo");
   useAccountLink(mode === "account");

@@ -141,30 +141,51 @@ export function addManualSession(input: { firm: string; title: string; start: Da
 
 export type Extracted = Omit<SessionPerson, "from">;
 
-/** One name per line ("Jane Doe, Analyst, jane@x.com" / "Jane Doe - TMT"), for when no AI is set up. */
-export function namesFromText(text: string): Extracted[] {
-  const out: Extracted[] = [];
+/** "Jane Doe", "Mary-Kate O'Neil", "J. R. Smith": 2–4 words of letters, no sentence words. Not "They said the class is 12". */
+const NOT_NAME = /^(the|they|she|he|we|i|it|said|says|talked|told|asked|about|and|but|so|is|was|are|were|has|have|had|for|with|on|in|at|to|of|a|an|recruiting|class|our|my|their|notes?)$/i;
+export function looksLikeName(s: string) {
+  const words = s.trim().split(/\s+/);
+  if (words.length < 2 || words.length > 4 || s.length > 40) return false;
+  return words.every((w) => /^\p{L}[\p{L}'.-]*$/u.test(w) && !NOT_NAME.test(w)) && words.some((w) => /^\p{Lu}/u.test(w));
+}
+
+/** What a capture held: the people in it, and anything typed that wasn't about one person (saved as session notes). */
+export interface Read {
+  people: Extracted[];
+  notes?: string;
+}
+
+/**
+ * One person per line ("Jane Doe, Analyst, jane@x.com" / "Jane Doe - TMT"), for when no AI is set up. A line that doesn't
+ * start with a name (or carry an email / LinkedIn) isn't a person: it goes to `notes` (the session's notes) instead.
+ */
+export function namesFromText(text: string): Read {
+  const people: Extracted[] = [];
+  const notes: string[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/^[\s•*\-–\d.)]+/, "").trim();
     if (line.length < 2) continue;
     const email = line.match(/[^\s@,;<>]+@[^\s@,;<>]+\.[a-z]{2,}/i)?.[0];
     const linkedin = line.match(/https?:\/\/[^\s]*linkedin\.com\/in\/[^\s,;]+/i)?.[0];
     const rest = line.replace(email ?? "\u0000", "").replace(linkedin ?? "\u0000", "");
-    const [name, ...more] = rest.split(/\s*[,;|]\s*|\s+[-–—]\s+/).map((x) => x.trim()).filter(Boolean);
-    if (!name) continue;
-    out.push({ name, title: more[0] || undefined, note: more.slice(1).join(", ") || undefined, email: email?.toLowerCase(), linkedin });
+    const [name, ...more] = rest.split(/\s*[,;|:]\s*|\s+[-–—]\s+/).map((x) => x.trim()).filter(Boolean);
+    if (!name || !(looksLikeName(name) || ((email || linkedin) && name.split(/\s+/).length <= 4))) {
+      notes.push(raw.trim());
+      continue;
+    }
+    people.push({ name, title: more[0] || undefined, note: more.slice(1).join(", ") || undefined, email: email?.toLowerCase(), linkedin });
   }
-  return out;
+  return { people, notes: notes.join("\n") || undefined };
 }
 
 /** People in a photo / screenshot / pasted text. Without AI only text can be read (one name per line). */
-export async function extractPeople(input: { image?: string; text?: string }, session?: InfoSession): Promise<Extracted[]> {
+export async function extractPeople(input: { image?: string; text?: string }, session?: InfoSession): Promise<Read> {
   const st = useStore.getState();
   if (!aiReady(st.settings)) {
     if (input.text?.trim()) return namesFromText(input.text);
     throw new Error("Reading photos needs an AI key (Settings → Data). Type the names instead.");
   }
-  const r = await callApi<{ people: Extracted[] }>(
+  const r = await callApi<Read>(
     "/api/infosessions/extract",
     {
       image: input.image,
@@ -174,7 +195,21 @@ export async function extractPeople(input: { image?: string; text?: string }, se
     },
     st.settings,
   );
-  return r.people;
+  return { people: r.people, notes: r.notes?.trim() || undefined };
+}
+
+/** Add text to the end of a session's notes (skipped when the notes already hold it). */
+export function appendSessionNotes(sessionId: string, text?: string) {
+  const add = text?.trim();
+  if (!add) return false;
+  let changed = false;
+  useStore.getState().updateInfoSession(sessionId, (s) => {
+    const cur = s.notes?.trim() ?? "";
+    if (cur.includes(add)) return {};
+    changed = true;
+    return { notes: cur ? `${cur}\n\n${add}` : add };
+  });
+  return changed;
 }
 
 const nameKey = (n: string) => n.toLowerCase().replace(/[^a-z]+/g, " ").trim();
@@ -236,10 +271,10 @@ export async function readLinkedIn(text: string, session: InfoSession): Promise<
 }
 
 /**
- * A pasted LinkedIn profile goes straight into the tracker as someone you met at this session (no review step: you
- * picked them), with the profile kept for prep and the thank-you. Returns the contact.
+ * Someone you add by hand (the form, or a pasted LinkedIn profile) goes straight into the tracker as met at this session
+ * (no review step: you picked them), with the profile kept for prep and the thank-you. Returns the contact.
  */
-export function addFromLinkedIn(sessionId: string, person: Extracted, profileText: string) {
+export function addPersonNow(sessionId: string, person: Extracted, profileText?: string) {
   const st = useStore.getState();
   const k = nameKey(person.name);
   const s0 = st.infoSessions.find((x) => x.id === sessionId);
@@ -249,12 +284,13 @@ export function addFromLinkedIn(sessionId: string, person: Extracted, profileTex
   st.updateInfoSession(sessionId, (s) => {
     // Someone already waiting for review under that name is replaced by the richer profile version.
     const pending = (s.pending ?? []).filter((p) => nameKey(p.name) !== k);
-    pending.push({ ...person, profile: profileText.trim().slice(0, PROFILE_MAX), from: "manual" });
+    pending.push({ ...person, ...(profileText?.trim() ? { profile: profileText.trim().slice(0, PROFILE_MAX) } : {}), from: "manual" });
     index = pending.length - 1;
     return { pending };
   });
   return confirmPerson(sessionId, index);
 }
+export const addFromLinkedIn = (sessionId: string, person: Extracted, profileText: string) => addPersonNow(sessionId, person, profileText);
 
 /** The session a capture belongs to: the one it was sent for, else the latest that started before it and ended ≤ 12 h earlier. */
 export function sessionForCapture(item: Pick<CaptureItem, "at" | "sessionId">, sessions: InfoSession[]) {
@@ -348,13 +384,17 @@ export function pullCaptures(): Promise<{ added: number; unsorted: number; items
         items++;
         const session = sessionForCapture(it, sessions);
         let people: Extracted[] = [];
+        let notes: string | undefined;
         let error: string | undefined;
         try {
-          people = await extractPeople({ image: it.image, text: it.text }, session);
+          ({ people, notes } = await extractPeople({ image: it.image, text: it.text }, session));
         } catch (e) {
           error = (e as Error).message;
         }
-        if (session && !error) added += addPending(session.id, people, it.id);
+        if (session && !error) {
+          added += addPending(session.id, people, it.id);
+          appendSessionNotes(session.id, notes);
+        }
         else {
           unsorted++;
           await setUnsorted((l) => [...l, { id: it.id, at: it.at, via: it.via, text: it.text, image: it.image, people, error }]);
@@ -376,7 +416,7 @@ export async function retryUnsorted(id: string, sessionId?: string) {
   if (!u) return;
   const session = useStore.getState().infoSessions.find((s) => s.id === sessionId);
   try {
-    const people = await extractPeople({ image: u.image, text: u.text }, session);
+    const { people } = await extractPeople({ image: u.image, text: u.text }, session);
     await setUnsorted((l) => l.map((x) => (x.id === id ? { ...x, people, error: undefined } : x)));
   } catch (e) {
     await setUnsorted((l) => l.map((x) => (x.id === id ? { ...x, error: (e as Error).message } : x)));
@@ -555,12 +595,33 @@ export function sessionWhenWord(start: string, sendAt: Date) {
   return n < 14 ? "last week" : "recently";
 }
 
-/** Your note about them: the part of the comment after this session's "Met at … M/D". */
-function noteFor(c: Contact, s: InfoSession) {
+/** Your note about them: the part of the comment after this session's "Met at … M/D" (what the thank-you mentions). */
+export function noteFor(c: Contact, s: InfoSession) {
   const line = `Met at ${cleanTitle(s)} ${sessionDay(s)}`;
   const i = c.comment.indexOf(line);
   if (i < 0) return "";
   return c.comment.slice(i + line.length).replace(/^\s*[—–-]\s*/, "").split(" · ")[0].trim();
+}
+
+/** Change your note about someone for this session: rewrites only their "Met at … M/D — note" part of the comment. */
+export function setNoteFor(sessionId: string, contactId: string, note: string) {
+  const st = useStore.getState();
+  const s = st.infoSessions.find((x) => x.id === sessionId);
+  const c = st.contacts.find((x) => x.id === contactId);
+  if (!s || !c) return;
+  // " · " separates comment parts, so it can't appear inside the note.
+  const clean = note.replace(/\s+/g, " ").replace(/ · /g, ", ").trim();
+  const line = `Met at ${cleanTitle(s)} ${sessionDay(s)}`;
+  const part = line + (clean ? ` — ${clean}` : "");
+  const i = c.comment.indexOf(line);
+  let comment: string;
+  if (i < 0) comment = [c.comment, part].filter(Boolean).join(" · ");
+  else {
+    const after = c.comment.slice(i + line.length);
+    const j = after.indexOf(" · ");
+    comment = c.comment.slice(0, i) + part + (j < 0 ? "" : after.slice(j));
+  }
+  if (comment !== c.comment) st.updateContact(c.id, { comment });
 }
 
 export type ThankYouWhen = "tonight" | "next_week";

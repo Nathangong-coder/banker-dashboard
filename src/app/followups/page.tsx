@@ -6,10 +6,10 @@ import Link from "next/link";
 import { Bell, CalendarClock, CalendarPlus, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Smartphone, Trash2, UserPlus, UserX, X } from "lucide-react";
 import { bankKey, useStore } from "@/lib/store";
 import { isVpPlus } from "@/lib/seniority";
-import { nextAction, pendingFollowUpDraft, rollupBanks, type BankRollup, type NextAction } from "@/lib/followups";
+import { nextAction, pendingFollowUpDraft, rollupBanks, sendLabel, type BankRollup, type NextAction } from "@/lib/followups";
 import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
 import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
-import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
+import { connectGmail, deleteDraft, gmailConnected, upsertDraft } from "@/lib/gmail";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
@@ -24,7 +24,7 @@ import { FilterBar, useContactFilter, type Filters } from "@/components/Contacts
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
 import { FOLLOW_UP_SPREAD } from "@/lib/sendWindow";
-import { earlySends, fixEarlySends, lateSends, markServerConnected, moveLateSends, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
+import { cancelSend, earlySends, fixEarlySends, gmailScheduledOverlap, lateSends, markServerConnected, moveLateSends, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
 import { AutoSendCard } from "@/components/AutoSend";
 import { repliedToSchedule, ScheduleCallsTable } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
@@ -329,10 +329,12 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
       // Re-read: drafting just recorded each followUpDraft.
       const ids = new Set(list.map(({ c }) => c.id));
       const why = new Map<string, string>();
-      const n = await queueSends(useStore.getState().contacts.filter((c) => ids.has(c.id)), why);
+      const overlap: string[] = [];
+      const n = await queueSends(useStore.getState().contacts.filter((c) => ids.has(c.id)), why, overlap);
+      if (overlap.length) toast.info(`Left out, already scheduled in Gmail: ${overlap.slice(0, 5).join(", ")}${overlap.length > 5 ? "…" : ""}.`);
       if (n) toast.ok(`${n} follow-up${n > 1 ? "s" : ""} drafted and scheduled. Each goes out ${windowLabel(windowOf(settings))}, even with the dashboard closed.`);
       if (why.size) toast.info(movedNote(why));
-      const held = list.length - n;
+      const held = list.length - n - overlap.length;
       if (held > 0) toast.info(`${held} not scheduled: VP or above (your rule), or no Gmail draft yet. They're still in the list.`);
     } catch (e) {
       failed.push((e as Error).message);
@@ -346,7 +348,9 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     setBusy(only?.length === 1 ? only[0].id : "schedule-drafted");
     try {
       const why = new Map<string, string>();
-      const n = await queueSends(only ?? schedulable.map(({ c }) => c), why);
+      const overlap: string[] = [];
+      const n = await queueSends(only ?? schedulable.map(({ c }) => c), why, overlap);
+      if (overlap.length) toast.info(`Left out, already scheduled in Gmail: ${overlap.slice(0, 5).join(", ")}${overlap.length > 5 ? "…" : ""}.`);
       toast.ok(`${n} email${n > 1 ? "s" : ""} scheduled for their send slots.`);
       if (why.size) toast.info(movedNote(why));
     } catch (e) {
@@ -644,6 +648,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           </Notice>
         )}
         <EarlySendsBanner />
+        <DoubleSendsBanner />
         <LateSendsBanner />
         {replaceCount > 0 && (
           <Notice
@@ -1250,6 +1255,52 @@ function movedNote(why: Map<string, string>) {
   const names = new Map(useStore.getState().contacts.map((c) => [c.id, c.name]));
   const list = [...why].slice(0, 3).map(([id, w]) => `${names.get(id) ?? id}: ${w}`);
   return `${why.size} not on the first open day. ${list.join(" · ")}${why.size > 3 ? ` (+${why.size - 3} more)` : ""}`;
+}
+
+/**
+ * People with an email queued in Coverage AND one waiting in Gmail's Schedule send: two emails would go out. Checked
+ * against Gmail when this opens (if Gmail is connected this session), with a one-click fix that cancels Coverage's.
+ */
+function DoubleSendsBanner() {
+  const contacts = useStore((s) => s.contacts);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!gmailConnected()) return;
+    const queued = useStore.getState().contacts.filter((c) => c.serverSend && new Date(c.serverSend.sendAt) > new Date());
+    void gmailScheduledOverlap(queued).catch(() => undefined);
+  }, []);
+  const now = new Date();
+  const both = contacts.filter((c) => c.serverSend && new Date(c.serverSend.sendAt) > now && c.scheduledAt && new Date(c.scheduledAt) > now);
+  if (!both.length) return null;
+  return (
+    <Notice
+      tone="red"
+      icon={<Clock />}
+      action={
+        <Button
+          size="sm"
+          variant="danger"
+          loading={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              for (const c of both) await cancelSend(c);
+              toast.ok(`Cancelled Coverage's send for ${both.length}. Their Gmail Schedule-send email still goes out.`);
+            } catch (e) {
+              toast.err((e as Error).message);
+            }
+            setBusy(false);
+          }}
+        >
+          Cancel Coverage&apos;s {both.length}
+        </Button>
+      }
+    >
+      <b>{both.length}</b> {both.length > 1 ? "people have" : "person has"} an email queued here and another in Gmail&apos;s Schedule send:{" "}
+      {both.slice(0, 6).map((c) => `${c.name} (Gmail ${sendLabel(c.scheduledAt!)})`).join(", ")}
+      {both.length > 6 ? ` +${both.length - 6} more` : ""}.
+    </Notice>
+  );
 }
 
 /** Queued sends set for a later day than they need to be (e.g. Tue 10/27 when Thu 10/22 is allowed), with a fix. */

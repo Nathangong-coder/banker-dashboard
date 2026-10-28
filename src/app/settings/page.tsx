@@ -347,7 +347,7 @@ export default function SettingsPage() {
             <Field label="First follow-up after (days)"><Input type="number" min={1} value={fu.firstAfterDays} onChange={(e) => setFu({ firstAfterDays: Number(e.target.value) || 1 })} /></Field>
             <Field label="Next follow-ups every (days)"><Input type="number" min={1} value={fu.nextAfterDays} onChange={(e) => setFu({ nextAfterDays: Number(e.target.value) || 1 })} /></Field>
             <Field label="Max follow-ups"><Input type="number" min={0} max={5} value={fu.maxFollowUps} onChange={(e) => setFu({ maxFollowUps: Number(e.target.value) || 0 })} /></Field>
-            <Field label="Suggest moving on after (days)"><Input type="number" min={1} value={fu.moveOnAfterDays} onChange={(e) => setFu({ moveOnAfterDays: Number(e.target.value) || 1 })} /></Field>
+            <Field label="Move on after (days, at most; otherwise the Friday of that week)"><Input type="number" min={1} value={fu.moveOnAfterDays} onChange={(e) => setFu({ moveOnAfterDays: Number(e.target.value) || 1 })} /></Field>
             <Field label="Live people per team" hint="Emailed, no reply yet. Counted per bank + office + team (SF Tech and NY Tech are separate)"><Input type="number" min={1} max={20} value={fu.livePerBank} onChange={(e) => setFu({ livePerBank: Number(e.target.value) || 1 })} /></Field>
           </div>
         </Card>

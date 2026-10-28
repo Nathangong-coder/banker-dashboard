@@ -8,7 +8,7 @@ import { locationForRegion, locationTeamOptions, normLocation, normTeam } from "
 import { reconcileTitle } from "./titles";
 import { callApi } from "./api";
 import { canReadSilently, canWriteInPlace, ensureWritePermission, pickWorkbook, readFile, readHandle, writeToHandle } from "./files";
-import { chunk, download, guessDomain, linkedinSlug, splitName, uid } from "./util";
+import { chunk, download, guessDomain, linkedinSlug, personName, splitName, uid } from "./util";
 import { canonBank, cleanBankName } from "./banks";
 import { tabLink, tabLinkPatches } from "./sheetLinks";
 import { computeTabChanges, describeTabChanges, type TabChanges } from "./tabChanges";
@@ -394,7 +394,7 @@ export interface NewContact {
 /** Add one person by hand from the contacts list; with a workbook loaded they get a row on the bank's tab. */
 export function addManualContact(input: NewContact, toSheet: boolean, row?: CellRef): Contact {
   const s = useStore.getState();
-  const name = input.name.trim().replace(/\s+/g, " ");
+  const name = personName(input.name);
   const bank = input.bank.trim();
   const linkedin = input.linkedin.trim();
   const email = input.email.trim();

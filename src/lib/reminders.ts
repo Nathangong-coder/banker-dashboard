@@ -23,7 +23,8 @@ export function upcomingDigests(contacts: Contact[], banks: Record<string, BankM
   for (const c of contacts) {
     const a = nextAction(c, s, banks[`${c.bank}|${c.region}`]);
     // No sent date: there's nothing to time a reminder from (sync with Gmail or fill in the Contacted column).
-    if ((a.kind !== "follow_up" && a.kind !== "move_on") || a.unknownDate) continue;
+    // Moving on is automatic (contactUpkeep.ts), so it never goes in a reminder.
+    if (a.kind !== "follow_up" || a.unknownDate) continue;
     const due = a.due && a.due > today ? new Date(a.due) : new Date(today);
     if (due > limit) continue;
     due.setHours(9, 0, 0, 0);
@@ -129,7 +130,7 @@ export function relationshipItem(c: Contact, day: string, horizonEnd: Date): Dig
  */
 export function nightPlan(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], days = 14) {
   const out: Record<string, { items: DigestItem[]; queued: number }> = {};
-  const actions = contacts.map((c) => ({ c, a: nextAction(c, s, banks[`${c.bank}|${c.region}`]) })).filter(({ a }) => (a.kind === "follow_up" || a.kind === "move_on") && !a.unknownDate && a.due);
+  const actions = contacts.map((c) => ({ c, a: nextAction(c, s, banks[`${c.bank}|${c.region}`]) })).filter(({ a }) => a.kind === "follow_up" && !a.unknownDate && a.due);
   for (let i = 0; i < days; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);

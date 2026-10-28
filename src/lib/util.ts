@@ -10,8 +10,27 @@ export function uid(prefix = "id") {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 }
 
+/** Name suffixes / credentials that can follow a comma ("John Smith, CFA"): not a "Last, First" name. */
+const NAME_SUFFIX = /^(jr|sr|ii|iii|iv|v|cfa|cpa|mba|phd|ph\.?d|jd|md|esq|caia|frm|pe)\.?$/i;
+
+/**
+ * A person's name as First Last: "Zhu, Kevin" (Outlook / Gmail directory order) → "Kevin Zhu". "John Smith, CFA" and
+ * "Smith, Jr." are left alone. Spaces are collapsed.
+ */
+export function personName(raw: string): string {
+  // "Maggie Han — Analyst, IBD" (a title pasted after a spaced dash): the name is the part before it.
+  const s = raw.replace(/\s+/g, " ").trim().split(/ [—–] /)[0].trim();
+  if (/[—–@\d]/.test(s)) return s;
+  const m = s.match(/^([^,]+?)\s*,\s*([^,]+)$/);
+  if (!m) return s;
+  const [last, first] = [m[1].trim(), m[2].trim()];
+  const words = first.replace(/\(.*?\)/g, "").trim().split(" ").filter(Boolean);
+  if (!words.length || words.length > 3 || last.split(" ").length > 3 || words.some((w) => NAME_SUFFIX.test(w))) return s;
+  return `${first} ${last}`;
+}
+
 export function splitName(full: string): { first: string; last: string } {
-  const cleaned = full.replace(/\(.*?\)/g, "").replace(/,.*$/, "").trim().replace(/\s+/g, " ");
+  const cleaned = personName(full).replace(/\(.*?\)/g, "").replace(/,.*$/, "").trim().replace(/\s+/g, " ");
   const parts = cleaned.split(" ").filter(Boolean);
   if (parts.length === 0) return { first: "", last: "" };
   if (parts.length === 1) return { first: parts[0], last: "" };

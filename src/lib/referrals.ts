@@ -5,6 +5,7 @@ import { callApi } from "./api";
 import { aiReady } from "./keys";
 import { canonBank } from "./banks";
 import { latestIso } from "./util";
+import { autoMovedOn } from "./contactUpkeep";
 import type { TrackResult } from "./replyTracking";
 import type { Contact } from "./types";
 
@@ -66,6 +67,13 @@ export function applyTracking(states: Record<string, TrackStateWire>) {
     if (r.repliedAt && !c.repliedAt) p.repliedAt = r.repliedAt;
     const status = r.repliedAt ? "replied" : r.firstSentAt ? (r.outreachCount > 1 ? "followed_up" : "sent") : undefined;
     if (status && (RANK[status] ?? 0) > (RANK[c.status] ?? 0) && c.status !== "ignored") p.status = status;
+    // Moved on for no reply, then they wrote back: live again.
+    if (r.repliedAt && autoMovedOn(c)) {
+      p.status = "replied";
+      p.outcome = undefined;
+    }
+    // A follow-up that went out by itself (Gmail Schedule send) moves the follow-up clock, not only the count.
+    if (!r.repliedAt && le && r.outreachCount - 1 > c.followUps) p.lastTouchAt = le;
     if (!r.repliedAt && r.outreachCount > 1 && r.outreachCount - 1 > c.followUps) p.followUps = r.outreachCount - 1;
     const aliases = r.aliases.filter((a) => a !== c.email.toLowerCase() && !(c.aliases ?? []).includes(a));
     if (aliases.length) p.aliases = [...(c.aliases ?? []), ...aliases];

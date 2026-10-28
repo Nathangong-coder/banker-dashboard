@@ -372,6 +372,12 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   and `{{session_when}}` (`sessionWhenWord`, as of the send day: today / yesterday / on Monday / last week); the perspective
   clause is an AI slot rephrasing the note, inserted as typed without AI, removed with no note. Saved copies still on
   `INFO_SESSION_BODY_V1` are upgraded by `ensureTemplate`.
+- **Adding by hand (owner, 2026-10-27):** panel → People: "Add person" (`InfoSessionDetail#AddPersonForm`: name, title,
+  firm, email, LinkedIn, what they said → `addPersonNow`, straight into the tracker + email lookup), Paste LinkedIn,
+  "Paste a list", photo. Typed text that isn't about one person is never dropped: the extract route returns `notes`
+  and `namesFromText` (no AI) sends lines that don't start with a name (`looksLikeName`) there; both go to
+  `appendSessionNotes` (also for phone captures). Each person row expands to edit "what they said" =
+  `noteFor` / `setNoteFor` (only their "Met at … M/D — note" part of the Comment), which the thank-you uses.
 - **9 PM text:** `reminders.ts#relationshipItem` labels anyone met at a session that day, still new/drafted, nothing sent or queued,
   `LABELS.infoSession` ("Info session thank-you", ranked right after call thank-yous). `check:night` covers both cases.
 
@@ -923,6 +929,31 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - `FirmPanel` (collapsible right column on /drafts, xl screens; open/closed state in localStorage) shows `FirmSummary` for the banks
   of the selected contacts (or the bank filter): who has already been contacted and when, the live-cap warning, the not-yet list, and
   optional sheet rows. The draft preview modal shows a compact `FirmSummary`. Rows in the drafts table show "N already contacted here".
+
+## Automatic move-on, names, referral / live / awaiting (owner, 2026-10-27; `npm run check:moveon`)
+
+- **Move-on is automatic, never a to-do:** `followups.ts#moveOnDate` = the Friday of the week of your last follow-up
+  (Fri–Sun sends → next Friday; never later than `moveOnAfterDays`), timed from `lastEmailOf` (Gmail's `lastEmailedAt`
+  counts). `nextAction` returns `move_on` with `isDue: false` ("Moves on Fri 10/30 unless they reply"); reminders and the
+  9 PM text no longer list it. `lib/contactUpkeep.ts#upkeepPatches` (Shell `useContactUpkeep`: on load, after changes,
+  every 10 min) sets status `ignored` + `outcome {kind: "no_reply"}` (sheet "Moved on (no reply)"); a later reply revives
+  them (`gmailSync#patchFrom`, `referrals.ts#applyTracking`). Skipped: a reply, a call, a referral, a queued email, a
+  paused bank. Server tracking now also moves `lastTouchAt` when it raises the follow-up count.
+- **Status write-back** compares the CELL (not `sheetStatus`) by meaning incl. the follow-up count: "Followed up (1x)"
+  stayed after #2 at Houlihan Lokey because both read as followed_up.
+- **Names:** `util.ts#personName` ("Zhu, Kevin" → "Kevin Zhu"; "Maggie Han — Analyst, IBD" → "Maggie Han"; "Smith, CFA"
+  kept) in the parser, `splitName`, `addManualContact`, `samePerson`, the upkeep pass and the sheet's Name cell.
+- **Contacts table:** First emailed / Last emailed / Next columns, "N× followed up", status filters "Moving on" / "Moved on".
+- **Gmail Schedule send overlap:** `serverSync.ts#gmailScheduledOverlap` (in:scheduled recipients, `gmail.ts#scheduledByRecipient`)
+  runs in `queueSends` and `applySchedule` (those people are left out and get `scheduledAt`); Follow-ups `DoubleSendsBanner`
+  lists anyone queued in both, with "Cancel Coverage's".
+- **Referral / live / awaiting** (`bankWork.ts#liveKind`): referral = they referred you (/drafts warns on every other row at
+  that firm); live = a call / logged chat, or a reply in the last 7 days; awaiting = emailed or queued, no reply, not moved
+  on. `officeSlots` per office (`officesFor`: the plan's desks at that bank, not-offered dropped, the office cap ignored, else
+  `DESK_PRESETS` where offered): maxed = referral or live there, or `livePerBank` awaiting. /coverage defaults to the
+  ranked list (prefs key `coverage:view`), columns Referral / Live / Awaiting / Offices, and an "Offices to fill" card;
+  /firms has a "Now" column (Restart when everyone moved on). The 9 PM text adds `LABELS.fillOffices`, one line per bank
+  (`lib/officeGaps.ts`, ≤ 20, applications first).
 
 ## Follow-up logic (`src/lib/followups.ts`)
 

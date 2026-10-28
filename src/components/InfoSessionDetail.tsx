@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, ClipboardPaste, Coffee, ExternalLink, ImagePlus, MapPin, Plus, Search, Send, Star, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ClipboardPaste, Coffee, ExternalLink, ImagePlus, List, MapPin, MessageSquareText, Search, Send, Star, Trash2, UserPlus, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { emailVerified } from "@/lib/outreach";
 import { cn, fmtDate } from "@/lib/util";
@@ -12,14 +12,18 @@ import { enrichContacts } from "@/lib/actions";
 import {
   addFromLinkedIn,
   addPending,
+  addPersonNow,
+  appendSessionNotes,
   confirmPerson,
   draftThankYous,
   extractPeople,
   findEmails,
   imageToDataUrl,
+  noteFor,
   peopleOf,
   readLinkedIn,
   serverOn,
+  setNoteFor,
   thankYouList,
   timingOf,
   unlinkPerson,
@@ -222,7 +226,7 @@ export function InfoSessionDetail({ session, onClose }: { session: InfoSession; 
             ) : (
               <ul>
                 {people.map((c) => (
-                  <PersonRow key={c.id} c={c} firm={session.firm} onUnlink={() => unlinkPerson(session.id, c.id)} />
+                  <PersonRow key={c.id} c={c} session={session} onUnlink={() => unlinkPerson(session.id, c.id)} />
                 ))}
               </ul>
             )}
@@ -233,7 +237,7 @@ export function InfoSessionDetail({ session, onClose }: { session: InfoSession; 
                 </Button>
               </div>
             )}
-            <AddPeople session={session} onAdded={() => setTab("review")} />
+            <AddPeople session={session} onAdded={() => setTab("review")} onNotes={() => setTab("notes")} />
           </>
         )}
         {tab === "review" && <Review session={session} />}
@@ -259,31 +263,70 @@ function Count({ label, n, accent }: { label: string; n: number; accent?: boolea
   );
 }
 
-function PersonRow({ c, firm, onUnlink }: { c: Contact; firm: string; onUnlink: () => void }) {
+/** Someone you met: click to write what they said (the thank-you brings it up, and it's kept in their Comment). */
+function PersonRow({ c, session, onUnlink }: { c: Contact; session: InfoSession; onUnlink: () => void }) {
+  const firm = session.firm;
   const sent = !!c.sentAt;
   const queued = !sent && !!c.serverSend;
+  const note = noteFor(c, session);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(note);
+  const save = () => draft.trim() !== note && setNoteFor(session.id, c.id, draft);
   return (
-    <li className="group flex items-center gap-3 border-b border-line px-5 py-2.5 hover:bg-subtle">
-      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-chart-soft text-[11.5px] font-medium text-ink-2">{initials(c.name)}</span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[13.5px] font-medium text-ink">{c.name}</div>
-        <div className="truncate text-[12px] text-muted">
-          {[c.position, c.bank !== firm ? c.bank : ""].filter(Boolean).join(" · ")}
-          {c.position || c.bank !== firm ? " · " : ""}
-          <EmailLine c={c} />
-        </div>
-      </div>
-      <span className="shrink-0 group-hover:hidden">
-        {c.repliedAt ? <Badge tone="green">Replied</Badge> : sent ? <Badge tone="blue">Thanked</Badge> : queued ? <Badge tone="blue">Queued</Badge> : c.email && emailVerified(c) ? <Badge tone="green">Ready</Badge> : null}
-      </span>
-      <span className="hidden shrink-0 items-center gap-1 group-hover:flex">
-        <Link href={`/prep?id=${encodeURIComponent(c.id)}`} title="Coffee chat prep" className="grid size-7 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink">
-          <Coffee className="size-3.5" />
-        </Link>
-        <button type="button" title="Take off this session (the contact stays)" aria-label={`Take ${c.name} off this session`} onClick={onUnlink} className="grid size-7 place-items-center rounded-md text-muted hover:bg-hover hover:text-red">
-          <X className="size-3.5" />
+    <li className="border-b border-line">
+      <div className="group flex items-center gap-3 px-5 py-2.5 hover:bg-subtle">
+        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-chart-soft text-[11.5px] font-medium text-ink-2">{initials(c.name)}</span>
+        <button
+          type="button"
+          onClick={() => {
+            if (open) save();
+            else setDraft(note);
+            setOpen(!open);
+          }}
+          className="min-w-0 flex-1 text-left"
+          title="What they said"
+        >
+          <div className="truncate text-[13.5px] font-medium text-ink">{c.name}</div>
+          <div className="truncate text-[12px] text-muted">
+            {[c.position, c.bank !== firm ? c.bank : ""].filter(Boolean).join(" · ")}
+            {c.position || c.bank !== firm ? " · " : ""}
+            <EmailLine c={c} />
+          </div>
+          {!open && (
+            <div className={cn("mt-0.5 truncate text-[12px]", note ? "text-ink-2" : "text-muted/80 italic")}>
+              <MessageSquareText className="mr-1 inline size-3 align-[-2px]" />
+              {note || "Add what they said"}
+            </div>
+          )}
         </button>
-      </span>
+        <span className="shrink-0 group-hover:hidden">
+          {c.repliedAt ? <Badge tone="green">Replied</Badge> : sent ? <Badge tone="blue">Thanked</Badge> : queued ? <Badge tone="blue">Queued</Badge> : c.email && emailVerified(c) ? <Badge tone="green">Ready</Badge> : null}
+        </span>
+        <span className="hidden shrink-0 items-center gap-1 group-hover:flex">
+          <Link href={`/prep?id=${encodeURIComponent(c.id)}`} title="Coffee chat prep" className="grid size-7 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink">
+            <Coffee className="size-3.5" />
+          </Link>
+          <button type="button" title="Take off this session (the contact stays)" aria-label={`Take ${c.name} off this session`} onClick={onUnlink} className="grid size-7 place-items-center rounded-md text-muted hover:bg-hover hover:text-red">
+            <X className="size-3.5" />
+          </button>
+        </span>
+      </div>
+      {open && (
+        <div className="bg-subtle px-5 pb-3">
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={save}
+            rows={3}
+            autoFocus
+            placeholder="What they said that you'd bring up: their take on TMT, how they got into banking, advice they gave…"
+            aria-label={`What ${c.name} said`}
+          />
+          <p className="mt-1 text-[11.5px] text-muted">
+            {sent ? "Kept in their Comment for your follow-ups." : "The thank-you mentions this (\"I especially liked your perspective on…\"). Saved in their Comment."}
+          </p>
+        </div>
+      )}
     </li>
   );
 }
@@ -392,10 +435,11 @@ function PendingEditor({ session, person: p, index }: { session: InfoSession; pe
   );
 }
 
-/** "+ Add names or a photo": collapsed to one link until used. */
-function AddPeople({ session, onAdded }: { session: InfoSession; onAdded?: () => void }) {
+/** "Add person / Paste LinkedIn / Paste a list / Upload a photo": collapsed to one row of buttons until used. */
+function AddPeople({ session, onAdded, onNotes }: { session: InfoSession; onAdded?: () => void; onNotes?: () => void }) {
   const [open, setOpen] = useState(false);
   const [pasting, setPasting] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<"text" | "photo" | null>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -403,13 +447,15 @@ function AddPeople({ session, onAdded }: { session: InfoSession; onAdded?: () =>
   const read = async (input: { text?: string; image?: string }, what: "text" | "photo") => {
     setBusy(what);
     try {
-      const people = await extractPeople(input, session);
+      const { people, notes } = await extractPeople(input, session);
       const n = addPending(session.id, people, "manual");
-      if (!people.length) toast.info("No names found in that.");
-      else {
-        toast.ok(`${n} ${n === 1 ? "person" : "people"} to review${people.length > n ? ` (${people.length - n} already here)` : ""}.`);
-        onAdded?.();
-      }
+      // Lines that weren't about one person (what was said, tips) are kept as the session's notes, not dropped.
+      const noted = appendSessionNotes(session.id, notes);
+      if (people.length) toast.ok(`${n} ${n === 1 ? "person" : "people"} to review${people.length > n ? ` (${people.length - n} already here)` : ""}${noted ? ". The rest went to Notes" : ""}.`);
+      else if (noted) toast.ok("No names in that, so it was saved to the session's Notes.");
+      else toast.info("No names found in that.");
+      if (people.length) onAdded?.();
+      else if (noted) onNotes?.();
       if (what === "text") {
         setText("");
         setOpen(false);
@@ -440,15 +486,19 @@ function AddPeople({ session, onAdded }: { session: InfoSession; onAdded?: () =>
     />
   );
 
+  if (adding) return <AddPersonForm session={session} onDone={() => setAdding(false)} />;
   if (pasting) return <PasteLinkedIn session={session} onDone={() => setPasting(false)} />;
   if (!open)
     return (
       <div className="flex flex-wrap gap-1 px-3 py-2.5">
+        <Button size="sm" variant="ghost" icon={<UserPlus className="size-3.5" />} onClick={() => setAdding(true)} title="Name, title, email, what they said: straight into your tracker">
+          Add person
+        </Button>
         <Button size="sm" variant="ghost" icon={<ClipboardPaste className="size-3.5" />} onClick={() => setPasting(true)} title="Copy their LinkedIn profile page and paste it: they go straight into your tracker">
           Paste LinkedIn
         </Button>
-        <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setOpen(true)}>
-          Type names
+        <Button size="sm" variant="ghost" icon={<List className="size-3.5" />} onClick={() => setOpen(true)} title="Several people at once, one per line. Lines that aren't people go to Notes">
+          Paste a list
         </Button>
         <Button size="sm" variant="ghost" icon={<ImagePlus className="size-3.5" />} loading={busy === "photo"} onClick={() => file.current?.click()} title="Name tags, a sign-in sheet or a Zoom participant list">
           Upload a photo
@@ -463,12 +513,12 @@ function AddPeople({ session, onAdded }: { session: InfoSession; onAdded?: () =>
         onChange={(e) => setText(e.target.value)}
         rows={3}
         autoFocus
-        placeholder={"One per line, e.g.\nJane Doe, Analyst, TMT, went to UCLA\nJohn Smith - Associate"}
+        placeholder={"One per line, e.g.\nJane Doe, Analyst, TMT, went to UCLA\nJohn Smith - Associate\nLines that aren't a person (what was said) go to Notes"}
         aria-label="Names to add"
       />
       <div className="mt-2 flex items-center gap-2">
         <Button size="sm" variant="brass" disabled={!text.trim()} loading={busy === "text"} onClick={() => read({ text }, "text")}>
-          Read names
+          Read list
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
           Cancel
@@ -476,6 +526,80 @@ function AddPeople({ session, onAdded }: { session: InfoSession; onAdded?: () =>
         {picker}
       </div>
     </div>
+  );
+}
+
+/** One person by hand, every field yours: added straight to the tracker as met here, then their email is looked up. Stays open for the next. */
+function AddPersonForm({ session, onDone }: { session: InfoSession; onDone: () => void }) {
+  const empty = { name: "", title: "", firm: "", email: "", linkedin: "", note: "" };
+  const [f, setF] = useState(empty);
+  const [busy, setBusy] = useState(false);
+  const [added, setAdded] = useState<string[]>([]);
+  const set = (k: keyof typeof empty) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const email = f.email.trim();
+  const link = f.linkedin.trim();
+  const error =
+    email && !/^\S+@\S+\.\S+$/.test(email) ? "That email doesn't look right." : link && !/linkedin\.com\/in\//i.test(link) ? "The LinkedIn link should look like linkedin.com/in/…" : "";
+
+  const add = async () => {
+    setBusy(true);
+    try {
+      const { contact, created } = addPersonNow(session.id, {
+        name: f.name.trim().replace(/\s+/g, " "),
+        title: f.title.trim() || undefined,
+        firm: f.firm.trim() || undefined,
+        email: email.toLowerCase() || undefined,
+        linkedin: link || undefined,
+        note: f.note.trim() || undefined,
+      });
+      setF(empty);
+      setAdded((a) => [...a, contact.name]);
+      toast.ok(`${created ? "Added" : "Linked"} ${contact.name}.`);
+      if (!contact.email) {
+        const r = await enrichContacts([contact.id]).catch((e: Error) => ({ found: 0, attempted: 1, errors: [e.message] }));
+        if (r.found) toast.ok(`Found ${contact.name}'s email.`);
+        else toast.info(`No email found for ${contact.name} yet${r.errors[0] ? `: ${r.errors[0]}` : ""}. Add it in the tracker if you have it.`);
+      }
+    } catch (e) {
+      toast.err((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      className="space-y-2 px-5 py-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (f.name.trim() && !error && !busy) add();
+      }}
+    >
+      <div className="grid grid-cols-2 gap-2">
+        <Input value={f.name} onChange={set("name")} placeholder="Full name" aria-label="Name" autoFocus required />
+        <Input value={f.title} onChange={set("title")} placeholder="Title (Analyst…)" aria-label="Title" />
+        <Input value={f.firm} onChange={set("firm")} placeholder={session.firm} aria-label="Firm" title="Leave blank for the session's firm" />
+        <Input value={f.email} onChange={set("email")} placeholder="Email (if you got it)" aria-label="Email" type="email" />
+        <Input className="col-span-2" value={f.linkedin} onChange={set("linkedin")} placeholder="LinkedIn URL (optional, helps find their email)" aria-label="LinkedIn URL" />
+      </div>
+      <Textarea
+        value={f.note}
+        onChange={set("note")}
+        rows={3}
+        placeholder="What they said that you'd bring up in your email: their take on a deal, how they got into banking, advice…"
+        aria-label="What they said"
+      />
+      {error && <p className="text-[12px] text-red">{error}</p>}
+      <div className="flex items-center gap-2">
+        <Button type="submit" size="sm" variant="brass" disabled={!f.name.trim() || !!error} loading={busy}>
+          Add to tracker
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onDone}>
+          {added.length ? "Done" : "Cancel"}
+        </Button>
+        {added.length > 0 && <span className="truncate text-[12px] text-muted">Added: {added.join(", ")}</span>}
+      </div>
+    </form>
   );
 }
 
@@ -553,7 +677,9 @@ function Notes({ session }: { session: InfoSession }) {
         placeholder="What they said about recruiting, the culture, who to follow up with…"
         aria-label="Session notes"
       />
-      <p className="mt-1.5 text-[12px] text-muted">Saved when you click away.</p>
+      <p className="mt-1.5 text-[12px] text-muted">
+        Saved when you click away. Something one person said goes on their row under People: that&apos;s what their thank-you brings up.
+      </p>
     </div>
   );
 }

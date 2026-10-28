@@ -6,6 +6,8 @@ import { ChevronDown, ChevronRight, Star, Trophy, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { firmScore, firmStats, gotReplied, overallReplyRate, wasEmailed, type FirmScore, type FirmStats } from "@/lib/firmScore";
 import { tierIndex } from "@/lib/segments";
+import { liveKind } from "@/lib/bankWork";
+import { autoMovedOn } from "@/lib/contactUpkeep";
 import type { FirmRating } from "@/lib/coverage";
 import type { Contact } from "@/lib/types";
 import { cn, fmtDate, relDays } from "@/lib/util";
@@ -214,6 +216,9 @@ export default function FirmsPage() {
               <thead className="bg-subtle text-left text-[11px] uppercase tracking-wide text-muted">
                 <tr className="border-b border-line">
                   <th className="px-4 py-2 font-medium">Firm</th>
+                  <th className="px-2 py-2 font-medium" title="Referral = someone referred you (careful with every email here). Live = chatted, or replied in the last 7 days. Awaiting = emailed, no reply, not moved on.">
+                    Now
+                  </th>
                   <th className="px-2 py-2 font-medium">Score</th>
                   <th className="px-2 py-2 font-medium">Your stars</th>
                   <th className="px-2 py-2 text-right font-medium">Emailed</th>
@@ -254,6 +259,9 @@ export default function FirmsPage() {
                           </div>
                         </td>
                         <td className="px-2 py-2.5">
+                          <NowCell contacts={r.contacts} />
+                        </td>
+                        <td className="px-2 py-2.5">
                           {r.result ? (
                             <span title={r.result.parts.map((p) => `${p.label}: ${p.points}/${p.max}`).join("\n")}>
                               <Badge tone={scoreTone(r.result.score)} className="num text-[12.5px]">
@@ -282,7 +290,7 @@ export default function FirmsPage() {
                       </tr>
                       {isOpen && (
                         <tr className="border-b border-line bg-subtle">
-                          <td colSpan={9} className="px-4 py-4">
+                          <td colSpan={10} className="px-4 py-4">
                             <FirmDetail row={r} />
                           </td>
                         </tr>
@@ -458,3 +466,41 @@ const talked = (c: Contact) => !!c.repliedAt || !!c.call || ["replied", "call_sc
 
 const ORDER: Record<Contact["status"], number> = { call_scheduled: 0, replied: 1, done: 2, followed_up: 3, sent: 4, drafted: 5, new: 6, ignored: 7 };
 const order = (c: Contact) => ORDER[c.status];
+
+/**
+ * Where the firm stands today: referral (⚠, careful with later emails), live, awaiting. Emailed before but nobody in any
+ * of the three (everyone moved on) = "Restart": find new people there.
+ */
+function NowCell({ contacts }: { contacts: Contact[] }) {
+  const kinds = contacts.map((c) => liveKind(c));
+  const n = (k: string) => kinds.filter((x) => x === k).length;
+  const [referral, live, awaiting] = [n("referral"), n("live"), n("awaiting")];
+  const movedOn = contacts.filter(autoMovedOn).length;
+  if (!referral && !live && !awaiting)
+    return contacts.some(wasEmailed) ? (
+      <Badge tone="red" className="px-1.5 py-0 text-[10.5px]">
+        Restart{movedOn ? ` · ${movedOn} moved on` : ""}
+      </Badge>
+    ) : (
+      <span className="text-[12px] text-muted">—</span>
+    );
+  return (
+    <span className="flex flex-wrap gap-1">
+      {referral > 0 && (
+        <Badge tone="amber" className="px-1.5 py-0 text-[10.5px]">
+          ⚠ Referral {referral}
+        </Badge>
+      )}
+      {live > 0 && (
+        <Badge tone="green" className="px-1.5 py-0 text-[10.5px]">
+          Live {live}
+        </Badge>
+      )}
+      {awaiting > 0 && (
+        <Badge tone="blue" className="px-1.5 py-0 text-[10.5px]">
+          Awaiting {awaiting}
+        </Badge>
+      )}
+    </span>
+  );
+}

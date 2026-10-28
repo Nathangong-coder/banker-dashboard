@@ -23,7 +23,7 @@ import type {
 } from "./types";
 import { mergeReferral, referralDate } from "./checkboxes";
 import { applyPatches, blankTablesPatches, contactPatches, followUpsFromSheet, statusFromSheet, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, tableBody, type ContactTable, type Patches } from "./workbook";
-import { contactId, latestIso } from "./util";
+import { contactId, latestIso, personName } from "./util";
 import { isPlace, splitLocationTeam } from "./locationTeam";
 import { DEFAULT_HOOKS, LEGACY_TECH_HOOK_TEXT, TECH_HOOK_TEXT } from "./hooks";
 import { OUTREACH_EXPERIMENTS } from "./outreach";
@@ -217,7 +217,7 @@ const norm = (x?: string) => (x ?? "").trim().toLowerCase();
 /** A re-imported row is the same person when the name, email or LinkedIn profile matches. */
 function samePerson(a: Contact, b: Contact) {
   return (
-    norm(a.name) === norm(b.name) ||
+    norm(personName(a.name)) === norm(personName(b.name)) ||
     (!!a.email && norm(a.email) === norm(b.email)) ||
     (!!a.linkedin && norm(a.linkedin).replace(/\/+$/, "") === norm(b.linkedin).replace(/\/+$/, ""))
   );

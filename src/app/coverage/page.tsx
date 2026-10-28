@@ -12,6 +12,9 @@ import {
   bankUrgency,
   bankWork,
   isLive,
+  liveKind,
+  officeSlots,
+  officesFor,
   offeredAt,
   onDesk,
   stageKey,
@@ -21,6 +24,7 @@ import {
   type BankTodo,
   type BankWork,
   type DeskFilter,
+  type OfficeSlot,
   type Urgency,
 } from "@/lib/bankWork";
 import { coverageInsights, type Insight } from "@/lib/insights";
@@ -59,7 +63,7 @@ const OFFICES = ["SF", "LA", "NY", "Chicago", "Texas"];
  * One bank, seen through the office / group filter: `people` are the contacts on it, `unsorted` have no team set.
  * `stage` = your hand-set stage when there is one (`manual`), else `auto` (what the contacts imply).
  */
-type Row = { r: CoverageRow; w: BankWork; u: Urgency; people: Contact[]; unsorted: Contact[]; stage: BankStage; auto: BankStage; manual: boolean; stageKey: string };
+type Row = { r: CoverageRow; w: BankWork; u: Urgency; people: Contact[]; unsorted: Contact[]; stage: BankStage; auto: BankStage; manual: boolean; stageKey: string; slots: OfficeSlot[] };
 
 /** Move a bank to a stage by hand; picking the stage its contacts already imply (or null) goes back to automatic. */
 function setStage(x: Row, to: BankStage | null) {
@@ -72,7 +76,7 @@ function setStage(x: Row, to: BankStage | null) {
 }
 
 const NO_RATINGS: Record<string, FirmRating> = {};
-const PREFS = "coverage:board";
+const PREFS = "coverage:view";
 
 function urgencyTone(n: number) {
   if (n >= 65) return "red" as const;
@@ -84,9 +88,9 @@ function urgencyTone(n: number) {
 function loadPrefs(): { layout: Layout; desk: DeskFilter } {
   try {
     const p = JSON.parse(localStorage.getItem(PREFS) ?? "{}");
-    return { layout: p.layout === "list" ? "list" : "board", desk: { office: p.desk?.office ?? "", team: p.desk?.team ?? "" } };
+    return { layout: p.layout === "board" ? "board" : "list", desk: { office: p.desk?.office ?? "", team: p.desk?.team ?? "" } };
   } catch {
-    return { layout: "board", desk: { office: "", team: "" } };
+    return { layout: "list", desk: { office: "", team: "" } };
   }
 }
 
@@ -159,7 +163,9 @@ export default function CoveragePage() {
       const key = stageKey(r.key, f);
       const set = coverage.stages?.[key] as BankStage | undefined;
       const manual = !!set && BANK_STAGES.includes(set) && set !== auto;
-      out.push({ r, w, u: bankUrgency(r, w, { stars: ratings[r.key]?.stars }), people: matched, unsorted, stage: manual ? set! : auto, auto, manual, stageKey: key });
+      const offices = pe ? [] : officesFor(r.name, r.desks, DESK_PRESETS, r.specialty?.teams).filter((o) => !f.office || o.office === f.office);
+      const slots = officeSlots(r.allContacts, offices, Math.max(1, settings.followUp.livePerBank));
+      out.push({ r, w, u: bankUrgency(r, w, { stars: ratings[r.key]?.stars }), people: matched, unsorted, stage: manual ? set! : auto, auto, manual, stageKey: key, slots });
     }
     return out;
   }, [visible, desk, pe, contacts, banks, settings.followUp, ratings, coverage.stages]);
@@ -195,7 +201,12 @@ export default function CoveragePage() {
 
   const totals = useMemo(() => {
     const people = ranked.flatMap((x) => x.people);
+    const kinds = people.map((c) => liveKind(c));
     return {
+      referralPeople: kinds.filter((k) => k === "referral").length,
+      livePeople: kinds.filter((k) => k === "live").length,
+      awaiting: kinds.filter((k) => k === "awaiting").length,
+      toFill: ranked.flatMap((x) => x.slots.filter((o) => !o.full).map((o) => ({ x, o }))),
       banks: ranked.length,
       reached: ranked.filter((x) => x.w.emailed > 0).length,
       live: people.filter(isLive).length,
@@ -273,7 +284,11 @@ export default function CoveragePage() {
           ring={totals.banks ? totals.reached / totals.banks : 0}
           sub={`of ${totals.banks} ${deskLabel ? "that hire there" : "you're tracking"}`}
         />
-        <Kpi label="Live contacts" value={totals.live} sub={totals.drafts ? `emailed, waiting on a reply · ${totals.drafts} draft${totals.drafts > 1 ? "s" : ""} not sent` : "emailed, waiting on a reply"} />
+        <Kpi
+          label="Live"
+          value={totals.livePeople}
+          sub={`chatted, or replied this week · ${totals.referralPeople} referral${totals.referralPeople === 1 ? "" : "s"} · ${totals.awaiting} awaiting a reply`}
+        />
         <Kpi
           label="Outstanding"
           value={totals.outstanding}
@@ -282,6 +297,8 @@ export default function CoveragePage() {
         />
         <Kpi label="Referrals" value={totals.referrals} sub={totals.referrals ? `at ${totals.referralFirms} ${noun}${totals.referralFirms > 1 ? "s" : ""}` : "none yet"} tone={totals.referrals ? "good" : undefined} />
       </div>
+
+      {!pe && <OfficesToFill list={totals.toFill} cap={Math.max(1, settings.followUp.livePerBank)} />}
 
       <Insights items={insights} scoped={active.length > 0} />
 
@@ -436,13 +453,18 @@ export default function CoveragePage() {
                     <th className="px-2 py-2 font-medium" title="0–100: prestige, applications, coverage gap and to-dos">
                       Urgency
                     </th>
-                    <th className="px-2 py-2 text-right font-medium">Contacts</th>
-                    <th className="px-2 py-2 text-right font-medium">Emailed</th>
-                    <th className="px-2 py-2 text-right font-medium" title="Emailed, no reply yet (drafts don't count)">
+                    <th className="px-2 py-2 text-right font-medium" title="They referred you: be careful with every email to this firm from now on">
+                      Referral
+                    </th>
+                    <th className="px-2 py-2 text-right font-medium" title="Chatted with you (call booked or had, a logged chat), or replied in the last 7 days">
                       Live
                     </th>
-                    <th className="px-2 py-2 text-right font-medium">Replied</th>
-                    <th className="px-2 py-2 text-right font-medium">Referrals</th>
+                    <th className="px-2 py-2 text-right font-medium" title="Emailed or queued, no reply, not moved on yet">
+                      Awaiting
+                    </th>
+                    <th className="px-2 py-2 font-medium" title={`Maxed out = someone referral / live there, or ${Math.max(1, settings.followUp.livePerBank)} awaiting a reply`}>
+                      Offices
+                    </th>
                     <th className="px-2 py-2 font-medium">Outstanding</th>
                     <th className="px-4 py-2 font-medium">Next step</th>
                     <th className="w-16" />
@@ -455,7 +477,7 @@ export default function CoveragePage() {
                   return (
                     <tbody key={s.id}>
                       <tr className="border-b border-line bg-subtle/70">
-                        <td colSpan={10} className="px-4 py-2">
+                        <td colSpan={9} className="px-4 py-2">
                           <button
                             type="button"
                             className="flex items-center gap-2 text-left"
@@ -868,6 +890,10 @@ function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggl
   const { r, w, u } = x;
   const offices = w.offices.filter((o) => o.region !== "Other");
   const chips = outstandingChips(w);
+  const kinds = x.r.allContacts.map((c) => ({ c, k: liveKind(c) }));
+  const ofKind = (k: string) => kinds.filter((y) => y.k === k).map((y) => y.c);
+  const [referral, live, awaiting] = [ofKind("referral"), ofKind("live"), ofKind("awaiting")];
+  const names = (list: Contact[]) => list.map((c) => c.name).join(", ");
   return (
     <tr className={cn("group cursor-pointer border-b border-line hover:bg-subtle", open && "bg-subtle")} onClick={onToggle}>
       <td className="px-4 py-2.5">
@@ -907,11 +933,24 @@ function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggl
           </Badge>
         </span>
       </td>
-      <td className="num px-2 py-2.5 text-right">{w.contacts || <span className="text-muted">0</span>}</td>
-      <td className="num px-2 py-2.5 text-right">{w.emailed}</td>
-      <td className="num px-2 py-2.5 text-right">{w.live}</td>
-      <td className={cn("num px-2 py-2.5 text-right", w.replied && "text-green")}>{w.replied}</td>
-      <td className={cn("num px-2 py-2.5 text-right", w.referrals && "font-medium text-green")}>{w.referrals}</td>
+      <td className="px-2 py-2.5 text-right" title={referral.length ? `${names(referral)} referred you. Careful with every email here: name them, go only through them, or ask them first.` : undefined}>
+        {referral.length ? (
+          <Badge tone="amber" className="num">
+            ⚠ {referral.length}
+          </Badge>
+        ) : (
+          <span className="num text-muted">0</span>
+        )}
+      </td>
+      <td className={cn("num px-2 py-2.5 text-right", live.length ? "font-medium text-green" : "text-muted")} title={names(live) || undefined}>
+        {live.length}
+      </td>
+      <td className={cn("num px-2 py-2.5 text-right", !awaiting.length && "text-muted")} title={names(awaiting) || undefined}>
+        {awaiting.length}
+      </td>
+      <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
+        <OfficeChips name={r.name} slots={x.slots} />
+      </td>
       <td className="px-2 py-2.5">
         <div className="flex max-w-[230px] flex-wrap gap-1">
           {chips.length ? (
@@ -932,6 +971,89 @@ function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggl
         <StageMenu x={x} onHide={onHide} />
       </td>
     </tr>
+  );
+}
+
+/** One chip per office: green when maxed out (referral / live / the cap awaiting), red with a Find link when not. */
+function OfficeChips({ name, slots }: { name: string; slots: OfficeSlot[] }) {
+  const cap = useStore((s) => Math.max(1, s.settings.followUp.livePerBank));
+  if (!slots.length) return <span className="text-[12px] text-muted">—</span>;
+  return (
+    <div className="flex max-w-[240px] flex-wrap gap-1">
+      {slots.map((o) =>
+        o.full ? (
+          <Badge key={o.office} tone="green" className="px-1.5 py-0 text-[10.5px]">
+            {o.office} {o.referral.length ? "referral" : o.live.length ? "live" : `${o.awaiting.length}/${cap}`}
+          </Badge>
+        ) : (
+          <Link
+            key={o.office}
+            href={`/find?banks=${encodeURIComponent(name)}&desk=${encodeURIComponent(`${o.office}|${o.team}`)}`}
+            title={`${o.office}: ${o.awaiting.length} of ${cap} awaiting, nobody live. Find people here.`}
+          >
+            <Badge tone="red" className="px-1.5 py-0 text-[10.5px]">
+              {o.office} {o.awaiting.length}/{cap}
+            </Badge>
+          </Link>
+        ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * Every office that isn't maxed out (fewer than the cap awaiting a reply and nobody referral / live), most urgent bank
+ * first: HL LA shows even when HL SF and NY are full. Moved-on people free their slot, so a bank whose people all went
+ * quiet shows up here to restart.
+ */
+function OfficesToFill({ list, cap }: { list: { x: Row; o: OfficeSlot }[]; cap: number }) {
+  const [all, setAll] = useState(false);
+  if (!list.length)
+    return (
+      <Card className="px-4 py-3 text-[13px] text-ink-2">
+        Every office you&apos;re recruiting for is maxed out: someone live or referral there, or {cap} awaiting a reply.
+      </Card>
+    );
+  const byBank = new Map<string, { x: Row; offices: OfficeSlot[] }>();
+  for (const { x, o } of list) {
+    const b = byBank.get(x.r.key) ?? { x, offices: [] };
+    b.offices.push(o);
+    byBank.set(x.r.key, b);
+  }
+  const banks = [...byBank.values()].sort((a, b) => b.x.u.score - a.x.u.score);
+  const shown = all ? banks : banks.slice(0, 12);
+  return (
+    <Card>
+      <CardHeader
+        title={`Offices to fill · ${list.length}`}
+        sub={`Fewer than ${cap} waiting on a reply and nobody live there. People who didn't answer your last follow-up by the end of that week are moved on automatically, which frees their slot.`}
+      />
+      <ul className="divide-y divide-line">
+        {shown.map(({ x, offices }) => (
+          <li key={x.r.key} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[13px]">
+            <span className="min-w-[160px] font-medium text-ink">{x.r.name}</span>
+            {x.r.applied?.length ? <Badge tone="green" className="px-1.5 py-0 text-[10.5px]">Applied</Badge> : null}
+            <span className="flex flex-wrap gap-1.5">
+              {offices.map((o) => (
+                <Link
+                  key={o.office}
+                  href={`/find?banks=${encodeURIComponent(x.r.name)}&desk=${encodeURIComponent(`${o.office}|${o.team}`)}`}
+                  className="inline-flex items-center gap-1 rounded-md border border-line-2 px-2 py-0.5 text-[12px] text-ink-2 hover:border-brass-strong hover:text-ink"
+                  title={o.awaiting.length ? `Awaiting: ${o.awaiting.map((c) => c.name).join(", ")}` : "Nobody emailed here, or everyone moved on"}
+                >
+                  {o.office} · {o.awaiting.length}/{cap} <ArrowRight className="size-3" />
+                </Link>
+              ))}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {banks.length > 12 && (
+        <button type="button" className="w-full border-t border-line px-4 py-2 text-left text-[12.5px] text-navy hover:underline" onClick={() => setAll(!all)}>
+          {all ? "Show fewer" : `Show all ${banks.length} banks`}
+        </button>
+      )}
+    </Card>
   );
 }
 

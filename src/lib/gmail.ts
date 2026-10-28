@@ -592,6 +592,25 @@ export async function outgoingQueue(clientId: string, max = 100): Promise<Outgoi
   return out;
 }
 
+/** Everyone with an email waiting in Gmail's Schedule send (To / Cc), and when the earliest one goes out. */
+export async function scheduledByRecipient(clientId: string, max = 100): Promise<Map<string, string>> {
+  const scheduled = await listMessages(clientId, "in:scheduled", max);
+  const out = new Map<string, string>();
+  for (let i = 0; i < scheduled.length; i += 8)
+    await Promise.all(
+      scheduled.slice(i, i + 8).map(async (s) => {
+        const m = await gapi<MsgMeta>(clientId, `/messages/${s.id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc`).catch(() => null);
+        if (!m) return;
+        const at = new Date(when(m)).toISOString();
+        for (const e of [...addrs(header(m, "To")), ...addrs(header(m, "Cc"))]) {
+          const k = e.toLowerCase();
+          if (!out.has(k) || at < out.get(k)!) out.set(k, at);
+        }
+      }),
+    );
+  return out;
+}
+
 /* Labelling in Gmail needs the "modify" permission, asked for separately (only when you click "Label them in Gmail"). */
 const MODIFY = "https://www.googleapis.com/auth/gmail.modify";
 let modifyToken: { value: string; exp: number } | null = null;

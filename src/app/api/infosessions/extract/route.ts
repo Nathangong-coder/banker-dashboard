@@ -45,6 +45,12 @@ const People = z.object({
       }),
     )
     .max(80),
+  notes: z
+    .string()
+    .describe(
+      "Everything in the student's typed text that is NOT about one specific person (what the speakers said, recruiting timeline, tips, impressions), " +
+        "kept in the student's own words, one point per line. Empty for photos and when every line is about a person.",
+    ),
 });
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -87,7 +93,8 @@ export async function POST(req: Request) {
       "Return real people only (the bankers / recruiters / alumni the student met). Skip: the student, slide text, company or group names, " +
         "headings, room names, generic labels like 'Host' or 'Guest', and phone numbers. In a participant list, the student's own entry is often marked '(me)'.",
       "Never invent or guess an email or LinkedIn URL: only copy ones that are literally written. If a typed line says something about a person " +
-        "(\"Jane Doe - TMT analyst, went to UCLA\"), put the title in title and the rest in note.",
+        "(\"Jane Doe - TMT analyst, went to UCLA\"), put the title in title and the rest in note. Typed lines that aren't about one person " +
+        "(\"they said the SA class is 12 people\") are not people: put them in notes.",
       input.text?.trim() ? `THE STUDENT'S TEXT\n${input.text.trim()}` : "",
     ]
       .filter(Boolean)
@@ -129,7 +136,7 @@ export async function POST(req: Request) {
         seen.add(key);
         return true;
       });
-    return aiJson(req, { people });
+    return aiJson(req, { people, notes: input.text?.trim() ? output.notes.trim().slice(0, 4000) || undefined : undefined });
   } catch (e) {
     return aiErrorResponse(req, e);
   }

@@ -338,3 +338,62 @@ export function offeredAt(bank: string, f: DeskFilter, specialty?: string[]): bo
   if (f.office) return officeInfo(bank, f.office)?.hires !== false;
   return !specialty?.length || specialty.some((t) => teamMatches(f.team, t));
 }
+
+/* ---------------- referral / live / awaiting, and offices to fill (owner, 2026-10-27) ---------------- */
+
+/**
+ * Where someone stands, for coverage:
+ * - referral: they referred you. Every later email to that firm needs care (name them, go only through them, …).
+ * - live: you've chatted (a call booked or had, a logged chat) or they replied in the last 7 days.
+ * - awaiting: emailed (or queued to go out), no reply, not moved on. At most `followUp.livePerBank` per office.
+ * Moved-on people (no reply after the last follow-up, bounced, left, said no) and older replies with no chat are none.
+ */
+export type LiveKind = "referral" | "live" | "awaiting";
+
+export function liveKind(c: Contact, now = Date.now()): LiveKind | undefined {
+  if (c.referral) return "referral";
+  if (c.status === "ignored") return undefined;
+  if (c.call || c.chats?.length || c.status === "call_scheduled" || c.status === "done") return "live";
+  const heard = [c.lastHeardAt, c.repliedAt].filter((x): x is string => !!x).sort().pop();
+  if (heard && now - Date.parse(heard) <= 7 * DAY) return "live";
+  if (gotReply(c)) return undefined;
+  if (wasEmailed(c)) return "awaiting";
+  const q = queuedAt(c);
+  return q && Date.parse(q) > now ? "awaiting" : undefined;
+}
+
+export interface OfficeSlot {
+  office: string;
+  /** The group you recruit for there (for the Find people link). */
+  team: string;
+  referral: Contact[];
+  live: Contact[];
+  awaiting: Contact[];
+  /** Maxed out: someone referral / live there, or `cap` people awaiting a reply. */
+  full: boolean;
+  /** People to add to max it out (0 when full). */
+  open: number;
+}
+
+/** Each office you're recruiting for at a bank, and whether it's maxed out. Contacts count by office, any team. */
+export function officeSlots(contacts: Contact[], offices: { office: string; team: string }[], cap: number, now = Date.now()): OfficeSlot[] {
+  return offices.map(({ office, team }) => {
+    const here = contacts.filter((c) => locationMatches(office, c));
+    const by = (k: LiveKind) => here.filter((c) => liveKind(c, now) === k);
+    const [referral, live, awaiting] = [by("referral"), by("live"), by("awaiting")];
+    const full = referral.length > 0 || live.length > 0 || awaiting.length >= cap;
+    return { office, team, referral, live, awaiting, full, open: full ? 0 : cap - awaiting.length };
+  });
+}
+
+/**
+ * The offices to count at a bank: the plan's desks that apply there (not ones it doesn't hire into), else your usual
+ * desks (DESK_PRESETS) where the bank hires. Desks over the per-bank office cap still count (owner: "HL LA even if
+ * HL SF and HL NY are maxed out").
+ */
+export function officesFor(bank: string, desks: { target: { location: string; team: string }; state: string }[], presets: { location: string; team: string }[], specialty?: string[]) {
+  const fromPlan = desks.filter((d) => d.state !== "not_offered").map((d) => d.target);
+  const list = fromPlan.length ? fromPlan : presets.filter((p) => offeredAt(bank, { office: p.location, team: p.team }, specialty));
+  const seen = new Set<string>();
+  return list.filter((d) => !seen.has(d.location) && !!seen.add(d.location)).map((d) => ({ office: d.location, team: d.team }));
+}

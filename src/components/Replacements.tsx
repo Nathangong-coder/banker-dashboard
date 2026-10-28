@@ -13,7 +13,7 @@ import { Badge, Button, Empty, Menu } from "./ui";
 import { Cell, ListTable, NameCell, Row, RowActions } from "./FollowupsUi";
 
 const enc = encodeURIComponent;
-const WHY: Record<NonNullable<Contact["outcome"]>["kind"], string> = { bounced: "Email bounced", left: "Left the firm", declined: "Said no" };
+const WHY: Record<NonNullable<Contact["outcome"]>["kind"], string> = { bounced: "Email bounced", left: "Left the firm", declined: "Said no", no_reply: "No reply: moved on" };
 
 /** Failed outreach still open: `suspected` = a reply that looks like a no (to confirm), `failed` = confirmed (desk needs someone new). */
 export function replacementLists(contacts: Contact[]) {

@@ -28,27 +28,52 @@ export function nextAction(c: Contact, s: Settings["followUp"], bank?: BankMeta)
   if (c.status === "drafted") return { kind: "send", isDue: true, label: "Send draft" };
 
   // A scheduled send whose time has passed went out then (until a Gmail sync confirms the exact time).
-  const sent = c.sentAt ?? (c.scheduledAt && new Date(c.scheduledAt) <= now ? c.scheduledAt : undefined);
-  const last = c.lastTouchAt ?? sent;
+  // Gmail's latest sent date counts too: the server's tracking updates it when a follow-up you scheduled in Gmail goes out.
+  const last = lastEmailOf(c, now);
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
   // No date: not "due" (that flooded the list with everyone ever emailed). Sync with Gmail or add the date to the
   // Contacted column to time it.
   if (!last) return { kind: "follow_up", isDue: false, label: "Sent date unknown", unknownDate: true };
 
-  let due: Date;
-  let kind: ActionKind;
-  if (c.followUps < s.maxFollowUps) {
-    due = addDays(last, c.followUps === 0 ? s.firstAfterDays : s.nextAfterDays);
-    kind = "follow_up";
-  } else {
-    due = addDays(last, s.moveOnAfterDays);
-    kind = "move_on";
+  if (c.followUps >= s.maxFollowUps) {
+    // Automatic (contactUpkeep.ts moves them on), so never a to-do: the label says when it happens.
+    const due = moveOnDate(c, s)!;
+    return { kind: "move_on", due, isDue: false, label: `Moves on ${dayLabel(due)} unless they reply` };
   }
+  let due = addDays(last, c.followUps === 0 ? s.firstAfterDays : s.nextAfterDays);
   if (c.snoozeUntil && new Date(c.snoozeUntil) > due) due = new Date(c.snoozeUntil);
-  const label = kind === "follow_up" ? `Follow-up #${c.followUps + 1}` : "Move on?";
-  return { kind, due, isDue: due <= endOfToday, label };
+  return { kind: "follow_up", due, isDue: due <= endOfToday, label: `Follow-up #${c.followUps + 1}` };
 }
+
+/** Your latest email to them before a reply (Gmail's latest sent date when synced, else the sheet's dates). */
+export function lastEmailOf(c: Pick<Contact, "lastEmailedAt" | "lastTouchAt" | "sentAt" | "scheduledAt">, now = new Date()) {
+  const sent = c.sentAt ?? (c.scheduledAt && new Date(c.scheduledAt) <= now ? c.scheduledAt : undefined);
+  return latestIso(c.lastEmailedAt, c.lastTouchAt ?? sent);
+}
+
+/**
+ * When someone who got your last follow-up and never replied is moved on (owner, 2026-10-27): the end of that work week
+ * (a Tuesday final check-in → Friday night), or the next Friday when it went out Friday–Sunday; never later than
+ * `moveOnAfterDays` after it. Undefined until the follow-ups are used up or with no date.
+ */
+export function moveOnDate(c: Pick<Contact, "followUps" | "lastEmailedAt" | "lastTouchAt" | "sentAt" | "scheduledAt" | "snoozeUntil">, s: Settings["followUp"], now = new Date()) {
+  if (c.followUps < s.maxFollowUps) return undefined;
+  const last = lastEmailOf(c, now);
+  if (!last) return undefined;
+  const d = new Date(last);
+  const dow = d.getDay();
+  const friday = new Date(d);
+  friday.setDate(d.getDate() + (dow >= 1 && dow <= 4 ? 5 - dow : dow === 5 ? 7 : dow === 6 ? 6 : 5));
+  friday.setHours(23, 59, 59, 999);
+  const cap = addDays(last, s.moveOnAfterDays);
+  let due = cap < friday ? cap : friday;
+  if (c.snoozeUntil && new Date(c.snoozeUntil) > due) due = new Date(c.snoozeUntil);
+  return due;
+}
+
+/** "Fri 10/30". */
+export const dayLabel = (d: Date | string) => new Date(d).toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" });
 
 /**
  * The earliest follow-up #`step` may go out: `firstAfterDays` (step 1) or `nextAfterDays`, minus FOLLOW_UP_SPREAD, after your last email to them

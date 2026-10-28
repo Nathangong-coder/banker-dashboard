@@ -2,7 +2,7 @@
 
 import type { Workbook, CellValue } from "exceljs";
 import type { CellRef, CellStyle, Contact, ContactField, Region, SheetFormat, SheetSnapshot, Status } from "./types";
-import { contactId, latestIso, splitName } from "./util";
+import { contactId, latestIso, personName, splitName } from "./util";
 import { DEFAULT_TIERS, canonBank, cleanBankName, normalizeTier, type TargetBank } from "./banks";
 import { DEFAULT_TEAMS, isPlace, joinLocationTeam, readLocationTeam, splitLocationTeam } from "./locationTeam";
 import { isInternalLink, readInternalLinks, renameLinks, writeInternalLinks, type InternalLinks } from "./sheetLinks";
@@ -133,7 +133,7 @@ export const STATUS_TO_SHEET: Record<Status, (c: Contact) => string> = {
   replied: () => "Replied",
   call_scheduled: () => "Call scheduled",
   done: () => "Done",
-  ignored: (c) => (c.outcome?.confirmed ? { bounced: "Bounced", left: "Left firm", declined: "Declined" }[c.outcome.kind] : "Moved on"),
+  ignored: (c) => (c.outcome?.confirmed ? { bounced: "Bounced", left: "Left firm", declined: "Declined", no_reply: "Moved on (no reply)" }[c.outcome.kind] : "Moved on"),
 };
 
 /**
@@ -421,7 +421,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
             sheet: ws.name,
             row: r,
             bank: get(r, cols.company)?.v || bank,
-            name: name.trim(),
+            name: personName(name),
             email: validEmail,
             date: parseLastContacted(get(r, cc.date)?.v),
             conversation: get(r, cc.conversation)?.v ?? "",
@@ -451,7 +451,7 @@ export function parseSnapshots(snapshots: SheetSnapshot[]): Omit<ParsedWorkbook,
         }
         contacts.push({
           id: contactId(ws.name, r),
-          name: name.trim(),
+          name: personName(name),
           firstName: first,
           lastName: last,
           bank: company || bank,
@@ -579,11 +579,20 @@ export function contactPatches(contacts: Contact[], snapshots: SheetSnapshot[]):
     if (!ref) continue;
     const { cols, row, sheet } = ref;
     if (c.email) put(sheet, row, cols.email, { v: c.email, link: `mailto:${c.email}` });
+    const cellAt = (col?: number) => (col ? (snap.get(sheet)?.cells[`${row}:${col}`]?.v ?? "") : "");
+    // Status, compared by meaning with what the cell says now: the follow-up count counts too ("Followed up (1x)" once
+    // stayed after the second follow-up, since both read as followed up), and an automatic move-on says "no reply".
     const statusText = STATUS_TO_SHEET[c.status](c);
-    if (statusText && c.status !== statusFromSheet(c.sheetStatus)) put(sheet, row, cols.status, { v: statusText });
+    const statusCell = cellAt(cols.status);
+    const statusOff =
+      c.status !== statusFromSheet(statusCell) ||
+      (c.status === "followed_up" && c.followUps !== followUpsFromSheet(statusCell)) ||
+      (c.outcome?.kind === "no_reply" && c.outcome.confirmed && c.status === "ignored" && !/no reply|no response/i.test(statusCell));
+    if (statusText && statusOff) put(sheet, row, cols.status, { v: statusText });
+    // A name the sheet has as "Zhu, Kevin" (or "Maggie Han — Analyst, IBD") is written First Last.
+    if (cols.name && c.source === "sheet" && /[,—–]/.test(cellAt(cols.name)) && cellAt(cols.name) !== c.name && personName(cellAt(cols.name)) === c.name) put(sheet, row, cols.name, { v: c.name });
     // Location/team and position edits made in the dashboard write back for everyone. Compared by meaning
     // ("SF/Tech" already says SF + Tech), so untouched cells aren't rewritten in the new format.
-    const cellAt = (col?: number) => (col ? (snap.get(sheet)?.cells[`${row}:${col}`]?.v ?? "") : "");
     const onSheet = readLocationTeam(cellAt(cols.location), cols.team ? cellAt(cols.team) : undefined);
     if (cols.team) {
       if (c.location && c.location !== onSheet.location) put(sheet, row, cols.location, { v: c.location });

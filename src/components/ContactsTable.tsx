@@ -9,6 +9,8 @@ import { cn } from "@/lib/util";
 import { teamGuess, teamOf } from "@/lib/locationTeam";
 import { hasDashboardWork } from "@/lib/workbook";
 import { useFirmKinds } from "./useFirmKinds";
+import { dayLabel, lastEmailOf, nextAction } from "@/lib/followups";
+import { autoMovedOn } from "@/lib/contactUpkeep";
 import { Badge, Button, Card, Checkbox, Empty, Input, Modal, Select, StatusBadge, toast } from "./ui";
 import { ContactModal } from "./ContactModal";
 import { AddContactModal } from "./AddContact";
@@ -28,9 +30,13 @@ export interface Filters {
 }
 
 export const NO_TEAM = "__none";
+/** Status filter values beyond the statuses: about to be moved on (last follow-up sent, no reply), and moved on for no reply. */
+export const MOVING_ON = "__moving";
+export const MOVED_ON = "__movedon";
 
 export function useContactFilter(contacts: Contact[], f: Filters) {
   const kind = useFirmKinds();
+  const fu = useStore((s) => s.settings.followUp);
   return useMemo(() => {
     const q = f.q.toLowerCase();
     return contacts.filter(
@@ -38,13 +44,14 @@ export function useContactFilter(contacts: Contact[], f: Filters) {
         (!q || `${c.name} ${c.bank} ${c.position} ${c.comment} ${c.email}`.toLowerCase().includes(q)) &&
         (!f.bank || c.bank === f.bank) &&
         (!f.region || c.region === f.region) &&
-        (!f.status || c.status === f.status) &&
+        (!f.status ||
+          (f.status === MOVING_ON ? nextAction(c, fu).kind === "move_on" : f.status === MOVED_ON ? autoMovedOn(c) : c.status === f.status)) &&
         (!f.email || (f.email === "noemail" ? !c.email : !!c.email)) &&
         (!f.team || (f.team === NO_TEAM ? !teamOf(c) : teamOf(c).toLowerCase() === f.team.toLowerCase())) &&
         (!f.firm || kind(c.bank) === f.firm) &&
         (!f.where || (f.where === "sheet" ? !!c.ref : !c.ref)),
     );
-  }, [contacts, f, kind]);
+  }, [contacts, f, kind, fu]);
 }
 
 export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: Filters) => void; contacts: Contact[]; extra?: ReactNode }) {
@@ -89,6 +96,8 @@ export function FilterBar({ f, setF, contacts, extra }: { f: Filters; setF: (f: 
             {STATUS_LABEL[s]}
           </option>
         ))}
+        <option value={MOVING_ON}>Moving on (last follow-up sent)</option>
+        <option value={MOVED_ON}>Moved on (no reply)</option>
       </Select>
       <Select className="h-8" value={f.where ?? ""} onChange={(e) => setF({ ...f, where: e.target.value as Filters["where"] })} aria-label="In the spreadsheet">
         <option value="">In sheet or not</option>
@@ -191,6 +200,9 @@ export function ContactsTable({
                 <th className="px-2 py-2 font-medium">Position</th>
                 <th className="px-2 py-2 font-medium">Email</th>
                 <th className="px-2 py-2 font-medium">Status</th>
+                <th className="px-2 py-2 font-medium">First emailed</th>
+                <th className="px-2 py-2 font-medium">Last emailed</th>
+                <th className="px-2 py-2 font-medium">Next</th>
                 <th className="px-2 py-2 font-medium">Notes</th>
               </tr>
             </thead>
@@ -241,9 +253,11 @@ export function ContactsTable({
                       <span className="text-[12px] text-red/80">missing</span>
                     )}
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-2 py-2 whitespace-nowrap">
                     <StatusBadge status={c.status} />
+                    {c.followUps > 0 && <span className="ml-1 num text-[11px] text-muted">{c.followUps}× followed up</span>}
                   </td>
+                  <EmailDates c={c} />
                   <td className="max-w-[280px] truncate px-2 py-2 text-[12px] text-muted" title={c.comment}>
                     {c.comment}
                   </td>
@@ -265,6 +279,29 @@ export function ContactsTable({
       />
       <AddContactModal open={adding} onClose={() => setAdding(false)} defaultBank={f.bank || undefined} />
     </Card>
+  );
+}
+
+/** First / last email and what happens next: "Follow-up #2 · Thu 10/29", "Moves on Fri 10/30", "Moved on Fri 10/23 (no reply)". */
+function EmailDates({ c }: { c: Contact }) {
+  const fu = useStore((s) => s.settings.followUp);
+  const banks = useStore((s) => s.banks);
+  const last = c.sentAt ? lastEmailOf(c) : undefined;
+  const a = nextAction(c, fu, banks[`${c.bank}|${c.region}`]);
+  let next: ReactNode = null;
+  if (autoMovedOn(c)) next = <Badge tone="neutral">Moved on {dayLabel(c.outcome!.at)} · no reply</Badge>;
+  else if (c.outcome?.confirmed) next = <span className="text-[12px] text-muted">{c.outcome.kind === "bounced" ? "Bounced" : c.outcome.kind === "left" ? "Left firm" : "Said no"}</span>;
+  else if (a.kind === "move_on" && a.due) next = <Badge tone="amber">Moves on {dayLabel(a.due)}</Badge>;
+  else if (a.kind === "follow_up" && a.due) next = <span className={cn("text-[12px]", a.isDue ? "font-medium text-red" : "text-ink-2")}>{a.label} · {a.isDue ? "due now" : dayLabel(a.due)}</span>;
+  else if (a.kind === "scheduled" && a.due) next = <span className="text-[12px] text-ink-2">Scheduled {dayLabel(a.due)}</span>;
+  else if (a.kind === "send") next = <span className="text-[12px] text-ink-2">Send draft</span>;
+  else if (c.repliedAt) next = <span className="text-[12px] text-green">Replied {dayLabel(c.repliedAt)}</span>;
+  return (
+    <>
+      <td className="num px-2 py-2 text-[12px] whitespace-nowrap text-ink-2">{c.sentAt ? dayLabel(c.sentAt) : <span className="text-muted">—</span>}</td>
+      <td className="num px-2 py-2 text-[12px] whitespace-nowrap text-ink-2">{last && last !== c.sentAt ? dayLabel(last) : <span className="text-muted">—</span>}</td>
+      <td className="px-2 py-2 whitespace-nowrap">{next}</td>
+    </>
   );
 }
 

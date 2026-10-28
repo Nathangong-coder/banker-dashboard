@@ -12,6 +12,9 @@ import type { Contact } from "./types";
 import { applyTracking, readReplies, trackList, type TrackStateWire } from "./referrals";
 import { rulesOf } from "./jobReview";
 import type { ApplyState } from "./apply";
+import { googleClientId } from "./keys";
+import { scheduledByRecipient } from "./gmail";
+import { officeGapItems, officeGaps } from "./officeGaps";
 
 /**
  * The browser half of automatic sending (server half: app/api/server). The browser keeps the source of truth and
@@ -115,6 +118,19 @@ let inflight: Promise<ServerStatus | null> | null = null;
 let pendingAck: { contactId: string; ids: string[] }[] = [];
 
 /** Push the queue + digest plan, pull results. No-op until Gmail has been connected for the server. */
+/** Every text night also lists the offices that aren't maxed out (lib/officeGaps.ts), after the people. */
+function withOfficeGaps(plan: ReturnType<typeof nightPlan>, st: ReturnType<typeof useStore.getState>) {
+  let items: ReturnType<typeof officeGapItems> = [];
+  try {
+    const cap = Math.max(1, st.settings.followUp.livePerBank);
+    items = officeGapItems(officeGaps({ contacts: st.contacts, tables: st.tables, targets: st.targets, coverage: st.coverage, banks: st.banks, followUp: st.settings.followUp }), cap);
+  } catch {
+    /* coverage couldn't be built: the people still go out */
+  }
+  if (!items.length) return plan;
+  return Object.fromEntries(Object.entries(plan).map(([day, d]) => [day, { ...d, items: [...d.items, ...items] }]));
+}
+
 export function syncServer(): Promise<ServerStatus | null> {
   if (inflight) return inflight;
   inflight = (async () => {
@@ -126,7 +142,7 @@ export function syncServer(): Promise<ServerStatus | null> {
     const body = {
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles",
       whatsapp: whatsappOn ? { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } : null,
-      digests: whatsappOn ? nightPlan(st.contacts, st.banks, st.settings.followUp) : {},
+      digests: whatsappOn ? withOfficeGaps(nightPlan(st.contacts, st.banks, st.settings.followUp), st) : {},
       // People you're talking to, so the server can match today's Google Calendar events to them for thank-you reminders.
       people: whatsappOn ? calendarPeople(st.contacts) : [],
       // Everyone the server should watch in Gmail for replies, thank-yous and intros (used only with read access).
@@ -208,8 +224,32 @@ export function notBeforeOf(c: Contact) {
   return earliestSend(c, useStore.getState().settings.followUp, step);
 }
 
-export async function queueSends(contacts: Contact[], why = new Map<string, string>()) {
+/**
+ * People who already have an email waiting in Gmail's Schedule send: Coverage must not queue a second one to them.
+ * Their `scheduledAt` is recorded (so they show as scheduled, not due). Gmail isn't asked when it isn't reachable.
+ */
+export async function gmailScheduledOverlap(contacts: Contact[]) {
   const st = useStore.getState();
+  const clientId = googleClientId(st.settings);
+  if (!clientId || !contacts.length) return new Map<string, string>();
+  const sched = await scheduledByRecipient(clientId).catch(() => null);
+  const out = new Map<string, string>();
+  if (!sched) return out;
+  for (const c of contacts) {
+    const at = [c.email, ...(c.aliases ?? [])].map((e) => e && sched.get(e.toLowerCase())).find(Boolean);
+    if (!at) continue;
+    out.set(c.id, at);
+    if (c.scheduledAt !== at) st.updateContact(c.id, { scheduledAt: at }, { at: new Date().toISOString(), type: "note", note: "Already scheduled in Gmail (Schedule send): Coverage didn't queue another" });
+  }
+  return out;
+}
+
+export async function queueSends(contacts: Contact[], why = new Map<string, string>(), overlap: string[] = []) {
+  const st = useStore.getState();
+  // Never two emails at once: anyone with a Gmail Schedule-send email waiting is left out (owner, 2026-10-27).
+  const inGmail = await gmailScheduledOverlap(contacts);
+  for (const c of contacts) if (inGmail.has(c.id)) overlap.push(c.name);
+  contacts = contacts.filter((c) => !inGmail.has(c.id));
   const ids = new Set(contacts.map((c) => c.id));
   // Your rule: no VP and above (unless one of your exception ties applies). Never sent automatically.
   const ready = contacts
@@ -330,9 +370,14 @@ export async function applySchedule(plan: Map<string, Date>) {
   const st = useStore.getState();
   const skipped: string[] = [];
   let n = 0;
+  const inGmail = await gmailScheduledOverlap(st.contacts.filter((c) => plan.has(c.id)));
   for (const [id, at] of plan) {
     const c = st.contacts.find((x) => x.id === id);
     if (!c) continue;
+    if (inGmail.has(c.id)) {
+      skipped.push(`${c.name} (already scheduled in Gmail)`);
+      continue;
+    }
     const w = vpPlusWarning(c, st.settings.outreach);
     if (w && !w.tie) {
       skipped.push(`${c.name} (VP+)`);

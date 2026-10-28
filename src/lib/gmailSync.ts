@@ -7,6 +7,7 @@ import { domainOf, offSheetPeople, personalDomain, type OffSheetPerson } from ".
 import { googleClientId } from "./keys";
 import type { Contact } from "./types";
 import { pool } from "./util";
+import { autoMovedOn } from "./contactUpkeep";
 
 export interface SyncSummary {
   checked: number;
@@ -55,6 +56,11 @@ function patchFrom(c: Contact, r: SyncResult): Partial<Contact> | null {
   if (r.repliedAt && (!r.firstSentAt || r.repliedAt > r.firstSentAt)) {
     p.repliedAt = r.repliedAt;
     if (!["call_scheduled", "done", "ignored"].includes(c.status)) p.status = "replied";
+    // Moved on for no reply, then they wrote back: they're live again.
+    if (autoMovedOn(c)) {
+      p.status = "replied";
+      p.outcome = undefined;
+    }
   }
   // Never follow up after a bounce or an out-of-office saying they left; the desk needs someone new.
   if ((r.bouncedAt || r.leftNote) && !r.repliedAt && !["replied", "call_scheduled", "done"].includes(c.status)) {
@@ -83,7 +89,7 @@ export function syncAllWithGmail(opts: { interactive: boolean; onProgress?: (don
     const now = Date.now();
     const list = s.contacts.filter(
       (c) =>
-        c.status !== "ignored" &&
+        (c.status !== "ignored" || autoMovedOn(c)) &&
         (c.email || (c.firstName && c.lastName && (!c.gmailCheckedAt || now - new Date(c.gmailCheckedAt).getTime() > NAME_LOOKUP_EVERY_MS))),
     );
     await pool(

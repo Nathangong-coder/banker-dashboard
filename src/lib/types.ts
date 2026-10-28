@@ -100,7 +100,7 @@ export interface Contact {
    * said no. Bounced / left are set by Gmail sync; a "no" is only suggested until you confirm it (`confirmed`). The desk
    * then needs a new contact (Follow-ups → "Needs a new contact"); `replaced` hides it once handled.
    */
-  outcome?: { kind: "bounced" | "left" | "declined"; at: string; note?: string; confirmed: boolean; replaced?: boolean };
+  outcome?: { kind: "bounced" | "left" | "declined" | "no_reply"; at: string; note?: string; confirmed: boolean; replaced?: boolean };
   /** Their phone (from their email signature, or typed), for the call invite. */
   phone?: string;
   /** The call on your calendar (Follow-ups → Schedule calls). */

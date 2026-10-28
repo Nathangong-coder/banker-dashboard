@@ -27,6 +27,7 @@
     "check:tracking": "tsx scripts/check-tracking.mts",
     "check:offsheet": "tsx scripts/check-offsheet.mts",
     "check:mentions": "tsx scripts/check-mentions.mts",
+    "check:moveon": "tsx scripts/check-moveon.mts",
     "check:jobs": "tsx scripts/check-jobs.mts",
     "check:sync": "tsx scripts/check-sync.mts",
     "check:agent": "node scripts/check-agent.mjs"
