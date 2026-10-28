@@ -32,34 +32,54 @@ export async function syncPixelKey(ask) {
 
 const push = (arr, item) => [...(Array.isArray(arr) ? arr : []), item].slice(-OUTBOX_MAX);
 
-/** Hand queued sends / seen times to the dashboard; whatever it takes leaves the outbox. Stops quietly with no dashboard tab. */
-export function flushOutbox(ask) {
-  return locked(async () => {
-    const { pixelOutbox = [], pixelSeenOutbox = [] } = await chrome.storage.local.get(["pixelOutbox", "pixelSeenOutbox"]);
-    const sent = [];
-    for (const m of pixelOutbox) {
-      try {
-        await ask("pixelSent", m);
-        sent.push(m.id);
-      } catch (e) {
-        // A bad entry (the dashboard refused it) is dropped; an unreachable dashboard ends the run.
-        if (/reach|answer|Reload/i.test(String(e?.message))) break;
-        sent.push(m.id);
+const MAX_AGE_MS = 30 * 24 * 3600_000;
+const fresh = (at) => Date.now() - Date.parse(at) < MAX_AGE_MS;
+
+/**
+ * Hand queued sends / seen times to the dashboard. The lock is held only for storage reads and writes, never across
+ * dashboard calls. Items leave the outbox only when the dashboard took them (by id, seen by id+at), or when they fail
+ * the extension's own checks (bad id, older than 30 days). Any dashboard error keeps them for the next try.
+ * The dashboard side is idempotent (registerTrackedIn merges by id, addSeen skips known times).
+ */
+export async function flushOutbox(ask) {
+  const snap = await locked(async () => {
+    const S = await chrome.storage.local.get(["pixelOutbox", "pixelSeenOutbox"]);
+    const sends = (S.pixelOutbox ?? []).filter((m) => m && ID_RE.test(String(m.id)) && iso(m.at) && fresh(m.at));
+    const seen = (S.pixelSeenOutbox ?? []).filter((x) => x && ID_RE.test(String(x.id)) && iso(x.at) && fresh(x.at));
+    await chrome.storage.local.set({ pixelOutbox: sends, pixelSeenOutbox: seen });
+    return { sends, seen };
+  });
+  const sentIds = new Set();
+  const seenKeys = new Set();
+  let down = false;
+  for (const m of snap.sends) {
+    try {
+      await ask("pixelSent", m);
+      sentIds.add(m.id);
+    } catch (e) {
+      if (/reach|answer|Reload/i.test(String(e?.message))) {
+        down = true;
+        break;
       }
     }
-    let seen = 0;
-    for (let i = 0; i < pixelSeenOutbox.length; i += 200) {
+  }
+  // Seen times only mean something once their email is registered: skip them if a send is still waiting.
+  if (!down && sentIds.size === snap.sends.length) {
+    for (let i = 0; i < snap.seen.length; i += 200) {
+      const batch = snap.seen.slice(i, i + 200);
       try {
-        await ask("pixelSeen", { items: pixelSeenOutbox.slice(i, i + 200) });
-        seen = Math.min(i + 200, pixelSeenOutbox.length);
+        await ask("pixelSeen", { items: batch });
+        for (const x of batch) seenKeys.add(x.id + "|" + x.at);
       } catch {
         break;
       }
     }
-    const now = await chrome.storage.local.get(["pixelOutbox", "pixelSeenOutbox"]);
+  }
+  await locked(async () => {
+    const S = await chrome.storage.local.get(["pixelOutbox", "pixelSeenOutbox"]);
     await chrome.storage.local.set({
-      pixelOutbox: (now.pixelOutbox ?? []).filter((m) => !sent.includes(m.id)),
-      pixelSeenOutbox: (now.pixelSeenOutbox ?? []).slice(seen),
+      pixelOutbox: (S.pixelOutbox ?? []).filter((m) => !sentIds.has(m.id)),
+      pixelSeenOutbox: (S.pixelSeenOutbox ?? []).filter((x) => !seenKeys.has(x.id + "|" + x.at)),
     });
   });
 }
