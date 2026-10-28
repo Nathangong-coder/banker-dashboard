@@ -2,6 +2,7 @@ import { z } from "zod";
 import { HttpError, errorResponse } from "@/lib/server/http";
 import { DIGEST_DAY, DIGEST_ERR, authAccount, db, dropSends, getSends, putSend, saveAccount, seal, type QueuedSend } from "@/lib/server/accounts";
 import { ensureTick, queueSendJob } from "@/lib/server/jobs";
+import { ackHits, readHits } from "@/lib/server/opens";
 import { ackTexts, pruneTracked, trackAccount, trackStates } from "@/lib/server/gmailTrack";
 
 const Item = z.object({ contactId: z.string().max(200), name: z.string().max(200), email: z.string().max(320).optional(), label: z.string().max(60) });
@@ -45,6 +46,8 @@ const Body = z.object({
   trackAck: z.array(z.object({ contactId: z.string().max(200), ids: z.array(z.string().max(100)).max(50) })).max(400).default([]),
   /** Every send the dashboard wants queued. Queued sends missing from this list are cancelled. */
   sends: z.array(z.object({ draftId: z.string().min(5).max(200), contactId: z.string().max(200), name: z.string().max(200), step: z.number().int().min(0).max(10), sendAt: z.string().datetime() })).max(400),
+  /** Pixel hits (`id|at`) the dashboard has stored; dropped from the server. */
+  opensAck: z.array(z.string().max(80)).max(2000).default([]),
   /** Finished sends the dashboard has applied (removed from the server). */
   ack: z.array(z.string().max(200)).max(400).default([]),
 });
@@ -93,6 +96,9 @@ export async function POST(req: Request) {
       tracking = await trackStates(a.id);
     }
 
+    await ackHits(a.id, b.opensAck);
+    const { hits: opens, more: moreOpens } = await readHits(a.id, 500);
+
     const after = await getSends(a.id);
     const [lastDigestDay, lastDigestError] = await Promise.all([db().get<string>(DIGEST_DAY(a.id)), db().get<string>(DIGEST_ERR(a.id))]);
     return Response.json({
@@ -105,6 +111,8 @@ export async function POST(req: Request) {
       lastDigestDay,
       lastDigestError,
       sends: Object.values(after),
+      opens,
+      moreOpens,
     });
   } catch (e) {
     return errorResponse(e);
