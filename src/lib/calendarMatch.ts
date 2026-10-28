@@ -11,6 +11,14 @@ export interface MatchPerson {
   contactId: string;
   name: string;
   email?: string;
+  /**
+   * They've written back, met you, or have a call you sent the invite for. A first name alone only picks someone engaged:
+   * "Market Research - James <> Nathan" (no guests, a friend) landed on James Nichols, whom you never emailed
+   * (owner, 2026-10-28). Undefined = engaged (the server's list is only people who replied or have a call).
+   */
+  engaged?: boolean;
+  /** Event ids marked "Not them". */
+  notEvents?: string[];
 }
 
 export interface MatchEvent {
@@ -34,7 +42,8 @@ export function couldBeWith(e: Pick<MatchEvent, "attendees">, p: Pick<MatchPerso
   return e.attendees.some((a) => a.toLowerCase() === mine);
 }
 
-export function matchEvent<P extends MatchPerson>(e: MatchEvent, people: P[], self?: { firstName?: string }): P | null {
+export function matchEvent<P extends MatchPerson>(e: MatchEvent & { id?: string }, people: P[], self?: { firstName?: string }): P | null {
+  if (e.id) people = people.filter((p) => !p.notEvents?.includes(e.id!));
   const emails = new Set(e.attendees.map((a) => a.toLowerCase()));
   const byEmail = people.find((p) => p.email && emails.has(p.email.toLowerCase()));
   if (byEmail) return byEmail;
@@ -50,7 +59,7 @@ export function matchEvent<P extends MatchPerson>(e: MatchEvent, people: P[], se
   const me = norm(self?.firstName ?? "");
   const byFirst = people.filter((p) => {
     const first = norm(p.name).split(" ")[0];
-    return first.length > 1 && first !== me && hasWord(title, first);
+    return p.engaged !== false && first.length > 1 && first !== me && hasWord(title, first);
   });
   return byFirst.length === 1 ? byFirst[0] : null;
 }

@@ -112,6 +112,8 @@ export function bankKey(name: string, region: Region) {
 
 export interface OffSheetState {
   scannedAt?: string;
+  /** Last scan the server did (api/server/sent), so the next one starts there. */
+  serverAt?: string;
   /** Gmail message ids already read, so a scan only fetches new sent mail. */
   seen: string[];
   recipients: SentRecipient[];

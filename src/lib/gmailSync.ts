@@ -3,10 +3,10 @@
 import { useStore } from "./store";
 import { detectSentFont, draftExists, findEmailByName, gmailConnected, sentRecipients, syncContact, type SyncResult } from "./gmail";
 import { STARTER_TARGETS, canonBank } from "./banks";
-import { domainOf, offSheetPeople, personalDomain, type OffSheetPerson } from "./offSheet";
+import { domainOf, offSheetPeople, personalDomain, trackerHits, type OffSheetPerson, type SentRecipient } from "./offSheet";
 import { googleClientId } from "./keys";
 import type { Contact } from "./types";
-import { pool } from "./util";
+import { latestIso, pool } from "./util";
 import { autoMovedOn } from "./contactUpkeep";
 
 export interface SyncSummary {
@@ -222,7 +222,7 @@ export async function autoTagFontsFromGmail(onProgress?: (done: number, total: n
 
 /* ------------------------------------------------------------------ bankers emailed, not in the tracker */
 
-const OFF_SHEET_EVERY_MS = 6 * 3600_000;
+const OFF_SHEET_EVERY_MS = 3 * 3600_000;
 const OFF_SHEET_DAYS = 120;
 let scanning: Promise<number> | null = null;
 
@@ -237,35 +237,121 @@ export function offSheetList() {
   return offSheetPeople(s.offSheet.recipients, s.contacts, { me: [s.settings.profile.email].filter(Boolean), banks: bankNames(), ignored: s.offSheet.ignored });
 }
 
+/** "YYYY/MM/DD" for Gmail's after: (the day before, so nothing on the boundary is missed). */
+const gmailDay = (t: number) => {
+  const d = new Date(t - 86_400_000);
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+};
+
 /**
- * Read the recipients of your sent mail (last 120 days; only messages not read before) so lib/offSheet.ts can list
- * bankers you emailed who aren't in the tracker. Runs after a Gmail sync at most every 6 h, or on demand.
+ * The server's read of your sent mail (api/server/sent: To, Cc and Bcc, no popup), since the last server scan or 120
+ * days. Null when the server has no read access (or isn't connected), so the browser scan runs instead.
+ */
+async function serverRecipients(sinceMs: number): Promise<SentRecipient[] | null> {
+  if (!useStore.getState().settings.server?.id) return null;
+  const { serverCall } = await import("./serverSync");
+  const out: SentRecipient[] = [];
+  const have = new Set<string>();
+  let page: string | undefined;
+  for (let round = 0; round < 12; round++) {
+    const r = await serverCall<{ read: boolean; recipients: (SentRecipient & { id: string })[]; next?: string | null }>("/api/server/sent", { after: gmailDay(sinceMs), page });
+    if (!r.read) return round ? out : null;
+    for (const x of r.recipients) {
+      const k = `${x.id}|${x.email}`;
+      if (have.has(k)) continue;
+      have.add(k);
+      out.push({ email: x.email, name: x.name, at: x.at, subject: x.subject, threadId: x.threadId });
+    }
+    if (r.next === null || r.next === undefined) break;
+    page = r.next || undefined;
+  }
+  return out;
+}
+
+/**
+ * Read the recipients of your sent mail (last 120 days) so lib/offSheet.ts can list bankers you emailed who aren't in
+ * the tracker. The server reads it when it has Gmail read access (To / Cc / Bcc, no popup: the browser-only scan
+ * missed the Tidal and Mizuho thank-yous, owner 2026-10-28); else this tab's Gmail token (only messages not read
+ * before). Runs on load / after a Gmail sync at most every 6 h, or on demand. Bankers at a firm the tracker already
+ * has an address for (same domain) are added to the tracker right away; the rest wait on Follow-ups → Not in tracker.
  */
 export function scanOffSheet(opts: { interactive: boolean; force?: boolean }): Promise<number> {
   if (scanning) return scanning;
   scanning = (async () => {
     const s = useStore.getState();
-    const clientId = googleClientId(s.settings);
-    if (!clientId || (!opts.interactive && !gmailConnected(clientId))) return 0;
     if (!opts.force && s.offSheet.scannedAt && Date.now() - Date.parse(s.offSheet.scannedAt) < OFF_SHEET_EVERY_MS) return offSheetList().length;
     const since = new Date(Date.now() - OFF_SHEET_DAYS * 86_400_000);
-    const day = `${since.getFullYear()}/${String(since.getMonth() + 1).padStart(2, "0")}/${String(since.getDate()).padStart(2, "0")}`;
-    const { recipients, read } = await sentRecipients(clientId, day, new Set(s.offSheet.seen));
     const me = [s.settings.profile.email].filter(Boolean);
-    // Only work addresses are worth keeping (friends, classmates and no-reply addresses never are).
-    const keep = recipients.filter((r) => !personalDomain(domainOf(r.email), me));
-    const cur = useStore.getState().offSheet;
     const cutoff = since.getTime();
+    const fromServer = await serverRecipients(s.offSheet.serverAt ? Math.max(cutoff, Date.parse(s.offSheet.serverAt) - 2 * 86_400_000) : cutoff).catch(() => null);
+    let fresh: SentRecipient[];
+    let read: string[] = [];
+    if (fromServer) fresh = fromServer;
+    else {
+      const clientId = googleClientId(s.settings);
+      if (!clientId || (!opts.interactive && !gmailConnected(clientId))) return offSheetList().length;
+      const r = await sentRecipients(clientId, gmailDay(cutoff + 86_400_000), new Set(s.offSheet.seen));
+      fresh = r.recipients;
+      read = r.read;
+    }
+    // Only work addresses are worth keeping (friends, classmates and no-reply addresses never are).
+    const keep = fresh.filter((r) => !personalDomain(domainOf(r.email), me));
+    const cur = useStore.getState().offSheet;
+    const seenKey = new Set(cur.recipients.map((r) => `${r.email}|${r.at}`));
     useStore.getState().setOffSheet({
       scannedAt: new Date().toISOString(),
+      ...(fromServer ? { serverAt: new Date().toISOString() } : {}),
       seen: [...cur.seen, ...read].slice(-4000),
-      recipients: [...cur.recipients.filter((r) => r.at >= cutoff), ...keep].slice(-4000),
+      recipients: [...cur.recipients.filter((r) => r.at >= cutoff), ...keep.filter((r) => !seenKey.has(`${r.email}|${r.at}`))].slice(-4000),
     });
+    recordTrackerHits();
+    await autoAddOffSheet();
     return offSheetList().length;
   })().finally(() => {
     scanning = null;
   });
   return scanning;
+}
+
+/**
+ * Emails to people already in the tracker by name but not by this address (lib/offSheet.ts#trackerHits): their email
+ * (or a second address) and sent dates are filled in, so follow-ups and the live count see them.
+ */
+export function recordTrackerHits() {
+  const s = useStore.getState();
+  const hits = trackerHits(s.offSheet.recipients, s.contacts, { banks: bankNames() });
+  for (const h of hits) {
+    const c = s.contacts.find((x) => x.id === h.contactId);
+    if (!c) continue;
+    const p: Partial<Contact> = c.email ? { aliases: [...new Set([...(c.aliases ?? []), h.email])].slice(0, 6) } : { email: h.email, emailSource: "gmail" };
+    if (!c.sentAt) {
+      p.sentAt = h.firstAt;
+      if (c.status === "new" || c.status === "drafted") p.status = "sent";
+      p.threadId = c.threadId ?? h.threadId;
+    }
+    p.lastEmailedAt = latestIso(c.lastEmailedAt, h.lastAt);
+    if (!c.repliedAt) p.lastTouchAt = latestIso(c.lastTouchAt, h.lastAt);
+    s.updateContact(c.id, p, { at: new Date().toISOString(), type: "note", note: `Gmail: emailed at ${h.email} ${new Date(h.firstAt).toLocaleDateString()}${c.email ? " (another address of theirs)" : " (email added)"}` });
+  }
+  return hits.length;
+}
+
+/**
+ * Bankers you emailed at a firm the tracker already has people at (their address is on that firm's domain: Grace He
+ * and Zach Righellis at mizuhogroup.com, owner 2026-10-28) go straight into the tracker with their dates. Domains only
+ * guessed from a bank's name, and other companies, stay on the review list.
+ */
+export async function autoAddOffSheet() {
+  const s = useStore.getState();
+  const known = new Set(s.contacts.map((c) => (c.email ? domainOf(c.email) : "")).filter(Boolean));
+  const sure = offSheetList().filter((p) => p.bankDomain && known.has(domainOf(p.email)) && !s.offSheet.ignored.includes(p.email));
+  for (const p of sure.slice(0, 25)) await addOffSheet(p).catch(() => undefined);
+  if (sure.length) {
+    const { toast } = await import("@/components/ui");
+    const names = sure.slice(0, 4).map((p) => `${p.name || p.email} (${p.bank})`).join(", ");
+    toast.ok(`Added ${sure.length} banker${sure.length > 1 ? "s" : ""} you emailed to the tracker: ${names}${sure.length > 4 ? "…" : ""}`);
+  }
+  return sure.length;
 }
 
 /** Not a banker to track: hidden from the list from now on. */

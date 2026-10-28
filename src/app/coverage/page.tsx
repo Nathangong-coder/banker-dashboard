@@ -28,7 +28,8 @@ import {
   type Urgency,
 } from "@/lib/bankWork";
 import { coverageInsights, type Insight } from "@/lib/insights";
-import { STARTER_TARGETS } from "@/lib/banks";
+import { STARTER_TARGETS, canonBank } from "@/lib/banks";
+import type { OffSheetPerson } from "@/lib/offSheet";
 import { regionInfo, type Contact } from "@/lib/types";
 import { DEFAULT_TEAMS, teamOf } from "@/lib/locationTeam";
 import { parseWorkbook } from "@/lib/workbook";
@@ -36,9 +37,10 @@ import { ensureBankTabs } from "@/lib/actions";
 import { isPrivateEquity } from "@/lib/bankTabs";
 import { cn, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, Kpi, Menu, PageHeader, Segmented, Select, StatusBadge, toast } from "@/components/ui";
+import { markHandled, notThem } from "@/components/CalendarActions";
 import { DeskChecklist, DeskChips, OfficePicker, RecruitingPlan, SpecialtyPicker } from "@/components/RecruitingPlan";
 
-type Layout = "board" | "list";
+type Layout = "board" | "list" | "nolive";
 type Show = "all" | "todo" | "applied";
 type Sort = "urgency" | "todo" | "contacts" | "name";
 const SORTS: { id: Sort; label: string }[] = [
@@ -63,7 +65,7 @@ const OFFICES = ["SF", "LA", "NY", "Chicago", "Texas"];
  * One bank, seen through the office / group filter: `people` are the contacts on it, `unsorted` have no team set.
  * `stage` = your hand-set stage when there is one (`manual`), else `auto` (what the contacts imply).
  */
-type Row = { r: CoverageRow; w: BankWork; u: Urgency; people: Contact[]; unsorted: Contact[]; stage: BankStage; auto: BankStage; manual: boolean; stageKey: string; slots: OfficeSlot[] };
+type Row = { r: CoverageRow; w: BankWork; u: Urgency; people: Contact[]; unsorted: Contact[]; stage: BankStage; auto: BankStage; manual: boolean; stageKey: string; slots: OfficeSlot[]; liveHere: number };
 
 /** Move a bank to a stage by hand; picking the stage its contacts already imply (or null) goes back to automatic. */
 function setStage(x: Row, to: BankStage | null) {
@@ -88,7 +90,7 @@ function urgencyTone(n: number) {
 function loadPrefs(): { layout: Layout; desk: DeskFilter } {
   try {
     const p = JSON.parse(localStorage.getItem(PREFS) ?? "{}");
-    return { layout: p.layout === "board" ? "board" : "list", desk: { office: p.desk?.office ?? "", team: p.desk?.team ?? "" } };
+    return { layout: p.layout === "board" || p.layout === "nolive" ? p.layout : "list", desk: { office: p.desk?.office ?? "", team: p.desk?.team ?? "" } };
   } catch {
     return { layout: "list", desk: { office: "", team: "" } };
   }
@@ -165,7 +167,9 @@ export default function CoveragePage() {
       const manual = !!set && BANK_STAGES.includes(set) && set !== auto;
       const offices = pe ? [] : officesFor(r.name, r.desks, DESK_PRESETS, r.specialty?.teams).filter((o) => !f.office || o.office === f.office);
       const slots = officeSlots(r.allContacts, offices, Math.max(1, settings.followUp.livePerBank));
-      out.push({ r, w, u: bankUrgency(r, w, { stars: ratings[r.key]?.stars }), people: matched, unsorted, stage: manual ? set! : auto, auto, manual, stageKey: key, slots });
+      // Referral or live anywhere at the bank (the "No one live" tab lists the rest).
+      const liveHere = matched.filter((c) => liveKind(c) === "referral" || liveKind(c) === "live").length;
+      out.push({ r, w, u: bankUrgency(r, w, { stars: ratings[r.key]?.stars }), people: matched, unsorted, stage: manual ? set! : auto, auto, manual, stageKey: key, slots, liveHere });
     }
     return out;
   }, [visible, desk, pe, contacts, banks, settings.followUp, ratings, coverage.stages]);
@@ -184,9 +188,10 @@ export default function CoveragePage() {
       (x) =>
         (!tier || x.r.tier === tier) &&
         (!ql || x.r.name.toLowerCase().includes(ql)) &&
-        (show === "all" || (show === "todo" && x.w.outstanding > 0) || (show === "applied" && !!x.r.applied?.length)),
+        (show === "all" || (show === "todo" && x.w.outstanding > 0) || (show === "applied" && !!x.r.applied?.length)) &&
+        (layout !== "nolive" || !x.liveHere),
     );
-  }, [ranked, tier, q, show]);
+  }, [ranked, tier, q, show, layout]);
   const sorted = useMemo(() => {
     const byName = (a: Row, b: Row) => a.r.name.localeCompare(b.r.name);
     const cmp: Record<Sort, (a: Row, b: Row) => number> = {
@@ -355,9 +360,15 @@ export default function CoveragePage() {
                   <List className="size-3.5" /> Ranked list
                 </span>,
               ],
+              [
+                "nolive",
+                <span key="n" className="flex items-center gap-1.5" title="Banks where nobody is referral or live (chatted, or replied in the last 7 days)">
+                  No one live <span className="num text-muted">{ranked.filter((x) => !x.liveHere).length}</span>
+                </span>,
+              ],
             ]}
           />
-          {layout === "list" && (
+          {layout !== "board" && (
             <Select className="h-8" value={stageFilter} onChange={(e) => setStageFilter(e.target.value as BankStage | "")} aria-label="Stage">
               <option value="">Every stage</option>
               {STAGES.map((s) => (
@@ -441,9 +452,11 @@ export default function CoveragePage() {
           </div>
         </div>
       ) : (
+        <>
+        {layout === "nolive" && <NoLiveSummary rows={sorted} />}
         <Card>
           {sorted.length === 0 ? (
-            <Empty title={`No ${noun}s here`}>Nothing matches these filters.</Empty>
+            <Empty title={layout === "nolive" ? "Someone's live at every bank" : `No ${noun}s here`}>{layout === "nolive" ? "Every bank listed has a referral or someone live (chatted, or replied this week)." : "Nothing matches these filters."}</Empty>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[960px] text-[13px]">
@@ -529,6 +542,7 @@ export default function CoveragePage() {
             </div>
           )}
         </Card>
+        </>
       )}
       <p className="-mt-2 text-[12px] text-muted">
         Urgency = prestige (25: tier, or your stars on Firms) + applications (25: full while one is in) + coverage gap (30: nobody found = full, waiting at your
@@ -974,6 +988,35 @@ function BankRow({ x, open, onToggle, onHide }: { x: Row; open: boolean; onToggl
   );
 }
 
+/**
+ * The "No one live" tab's summary (owner, 2026-10-28): of the banks with nobody referral / live, which still have
+ * emails out (wait, or add a second person) and which have nothing in flight at all (restart: find people, email).
+ */
+function NoLiveSummary({ rows }: { rows: Row[] }) {
+  if (!rows.length) return null;
+  const waiting = rows.filter((x) => x.slots.some((o) => o.awaiting.length) || x.people.some((c) => liveKind(c) === "awaiting"));
+  const restart = rows.filter((x) => !waiting.includes(x));
+  const names = (list: Row[]) => list.slice(0, 8).map((x) => x.r.name).join(", ") + (list.length > 8 ? ` +${list.length - 8} more` : "");
+  return (
+    <Card className="px-4 py-3 text-[13px] text-ink-2">
+      <p>
+        <span className="font-medium text-ink">{rows.length} banks with no one live.</span> Live = a referral, a chat (booked, had or logged), or a reply in the last 7 days.
+      </p>
+      {restart.length > 0 && (
+        <p className="mt-1">
+          <span className="font-medium text-red">Nothing in flight at {restart.length}:</span> {names(restart)}. Find people and start emailing.
+        </p>
+      )}
+      {waiting.length > 0 && (
+        <p className="mt-1">
+          <span className="font-medium text-ink">Waiting on replies at {waiting.length}:</span> {names(waiting)}.
+        </p>
+      )}
+      <p className="mt-1 text-[12px] text-muted">Talking to someone the dashboard doesn&apos;t see (a text, LinkedIn)? Open the bank and use ⋯ on that person → Mark live.</p>
+    </Card>
+  );
+}
+
 /** One chip per office: green when maxed out (referral / live / the cap awaiting), red with a Find link when not. */
 function OfficeChips({ name, slots }: { name: string; slots: OfficeSlot[] }) {
   const cap = useStore((s) => Math.max(1, s.settings.followUp.livePerBank));
@@ -1084,7 +1127,28 @@ function BankDetail({ x }: { x: Row }) {
               {w.todos.map((t, i) => (
                 <li key={i} className="flex items-center gap-2 px-3 py-2 text-[12.5px]">
                   <span className={cn("size-1.5 shrink-0 rounded-full", t.kind === "reply" || t.kind === "thank" ? "bg-red" : t.outstanding ? "bg-brass" : "bg-line-2")} />
-                  <span className="min-w-0 flex-1 text-ink">{t.label}</span>
+                  <span className="min-w-0 flex-1 text-ink">
+                    {t.label}
+                    {/* Already done outside what the dashboard sees (a text, LinkedIn, an email it missed): settle it here. */}
+                    {(t.kind === "thank" || t.kind === "reply" || t.kind === "check_in") && (
+                      <span className="mt-1 flex flex-wrap gap-1">
+                        {t.people.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="rounded border border-line-2 px-1.5 py-0.5 text-[11px] text-ink-2 hover:border-brass-strong hover:text-ink"
+                            title={`You already ${t.kind === "check_in" ? "checked in with" : t.kind === "thank" ? "thanked" : "answered"} ${c.name} (a text, LinkedIn, an email the dashboard missed)`}
+                            onClick={() => {
+                              markHandled(c.id);
+                              toast.ok(`${c.name}: marked done.`);
+                            }}
+                          >
+                            ✓ {c.firstName || c.name} done
+                          </button>
+                        ))}
+                      </span>
+                    )}
+                  </span>
                   {t.href && (
                     <Link href={t.href} className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-navy hover:underline">
                       Open <ArrowRight className="size-3" />
@@ -1137,6 +1201,7 @@ function BankDetail({ x }: { x: Row }) {
                   <th className="px-2 py-1.5 font-medium">Office · team</th>
                   <th className="px-2 py-1.5 font-medium">Status</th>
                   <th className="px-3 py-1.5 font-medium">Last</th>
+                  <th className="w-8" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -1145,11 +1210,7 @@ function BankDetail({ x }: { x: Row }) {
                     <td className="px-3 py-1.5">
                       <div className="flex items-center gap-1.5">
                         <span className="font-medium">{c.name}</span>
-                        {c.referral && (
-                          <Badge tone="green" className="px-1 py-0 text-[10px]">
-                            Referral
-                          </Badge>
-                        )}
+                        <KindBadge c={c} />
                       </div>
                       <div className="truncate text-[11px] text-muted">{c.position || (c.email ? c.email : "no email")}</div>
                     </td>
@@ -1158,6 +1219,9 @@ function BankDetail({ x }: { x: Row }) {
                       <StatusBadge status={c.status} />
                     </td>
                     <td className="px-3 py-1.5 text-[11.5px] text-muted">{lastTouch(c)}</td>
+                    <td className="px-1 py-1.5">
+                      <PersonMenu c={c} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1166,6 +1230,7 @@ function BankDetail({ x }: { x: Row }) {
         ) : (
           <p className="text-[12.5px] text-muted">Nobody found here yet.</p>
         )}
+        <OffSheetHere bank={r.name} />
         {x.unsorted.length > 0 && <p className="mt-1.5 text-[11.5px] text-muted">{x.unsorted.length} more at this office with no team set: {x.unsorted.map((c) => c.name).join(", ")}.</p>}
         <div className="mt-2 flex flex-wrap gap-3 text-[12px]">
           <Link href={`/find?banks=${encodeURIComponent(r.name)}`} className="font-medium text-navy hover:underline">
@@ -1181,6 +1246,101 @@ function BankDetail({ x }: { x: Row }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** People you emailed at this bank who aren't in the tracker yet (from your sent mail), with Add. */
+function OffSheetHere({ bank }: { bank: string }) {
+  const off = useStore((s) => s.offSheet);
+  const contacts = useStore((s) => s.contacts);
+  const [list, setList] = useState<OffSheetPerson[]>([]);
+  useEffect(() => {
+    let live = true;
+    void import("@/lib/gmailSync").then((m) => live && setList(m.offSheetList().filter((p) => canonBank(p.bank) === canonBank(bank))));
+    return () => {
+      live = false;
+    };
+  }, [off, contacts, bank]);
+  if (!list.length) return null;
+  return (
+    <div className="mt-2 rounded-md border border-amber/40 bg-amber-soft/40 px-3 py-2 text-[12px]">
+      <span className="font-medium text-ink">Emailed, not in the tracker:</span>
+      <span className="ml-1 inline-flex flex-wrap gap-1.5">
+        {list.map((p) => (
+          <button
+            key={p.email}
+            type="button"
+            className="rounded border border-line-2 bg-panel px-1.5 py-0.5 text-ink-2 hover:border-brass-strong hover:text-ink"
+            title={`${p.email} · last ${fmtDate(p.lastAt)} · "${p.subject}"`}
+            onClick={() =>
+              void import("@/lib/gmailSync").then(async (m) => {
+                await m.addOffSheet(p);
+                toast.ok(`${p.name || p.email} added to the tracker.`);
+              })
+            }
+          >
+            + {p.name || p.email}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/** Referral / live / awaiting, and "set by you" when you marked it. */
+function KindBadge({ c }: { c: Contact }) {
+  const k = liveKind(c);
+  if (!k && c.liveMark !== "off") return null;
+  const by = c.liveMark ? " (set by you)" : "";
+  if (!k) return <Badge className="px-1 py-0 text-[10px]">Not live{by}</Badge>;
+  return (
+    <Badge tone={k === "referral" ? "amber" : k === "live" ? "green" : "neutral"} className="px-1 py-0 text-[10px]">
+      {k === "referral" ? "⚠ Referral" : k === "live" ? "Live" : "Awaiting"}
+      {by}
+    </Badge>
+  );
+}
+
+/**
+ * ⋯ per person (owner, 2026-10-28: "let me be more manual"): settle what the dashboard can't see, fix a calendar
+ * match that was someone else, set live by hand, move on now or bring them back.
+ */
+function PersonMenu({ c }: { c: Contact }) {
+  const update = useStore((s) => s.updateContact);
+  const note = (n: string) => ({ at: new Date().toISOString(), type: "note" as const, note: n });
+  const movedOn = c.status === "ignored";
+  return (
+    <Menu
+      label={`Actions for ${c.name}`}
+      items={[
+        { label: "Done by hand", hint: "Thanked / messaged them outside the dashboard (text, LinkedIn)", onClick: () => (markHandled(c.id), toast.ok(`${c.name}: marked done.`)) },
+        c.call &&
+          !c.call.invited && {
+            label: "Not them (calendar)",
+            hint: `The event on ${fmtDate(c.call.at)} was with someone else`,
+            onClick: () => (notThem(c.id), toast.ok(`Calendar event taken off ${c.name}.`)),
+          },
+        "divider",
+        c.liveMark !== "live" && { label: "Mark live", hint: "You're talking (e.g. by text)", onClick: () => update(c.id, { liveMark: "live" }, note("Marked live by hand")) },
+        c.liveMark !== "off" && { label: "Not live", hint: "Whatever the dates say", onClick: () => update(c.id, { liveMark: "off" }, note("Marked not live by hand")) },
+        c.liveMark && { label: "Live: automatic", onClick: () => update(c.id, { liveMark: undefined }) },
+        "divider",
+        !movedOn && {
+          label: "Move on now",
+          onClick: () => update(c.id, { status: "ignored", outcome: { kind: "no_reply", at: new Date().toISOString(), note: "Moved on by hand", confirmed: true } }, note("Moved on by hand")),
+        },
+        movedOn &&
+          (c.outcome?.kind === "no_reply" || !c.outcome) && {
+            label: "Bring back",
+            onClick: () =>
+              update(
+                c.id,
+                { status: c.repliedAt ? "replied" : c.followUps > 0 ? "followed_up" : c.sentAt ? "sent" : "new", outcome: undefined, snoozeUntil: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+                note("Brought back by hand"),
+              ),
+          },
+      ]}
+    />
   );
 }
 

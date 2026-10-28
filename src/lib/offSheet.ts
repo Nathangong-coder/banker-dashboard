@@ -177,3 +177,44 @@ export function offSheetPeople(
   }
   return [...byEmail.values()].sort((a, b) => Number(b.bankDomain) - Number(a.bankDomain) || b.lastAt.localeCompare(a.lastAt));
 }
+
+export interface TrackerHit {
+  contactId: string;
+  email: string;
+  firstAt: string;
+  lastAt: string;
+  threadId: string;
+}
+
+/**
+ * Sent mail to someone already in the tracker under their name but not this address (owner, 2026-10-28: three Tidal
+ * info-session thank-yous to people added from the session with no email): the address and dates to record. Only at
+ * the same firm (the domain is that bank's) and only when the address isn't theirs or an alias yet.
+ */
+export function trackerHits(recipients: SentRecipient[], contacts: Contact[], opts: { banks: string[] }): TrackerHit[] {
+  const map = bankDomains(contacts);
+  const byContact = new Map<string, TrackerHit>();
+  for (const r of [...recipients].sort((a, b) => a.at - b.at)) {
+    const email = r.email.toLowerCase();
+    const bank = bankForDomain(domainOf(email), map, opts.banks);
+    if (!bank) continue;
+    const name = cleanName(r.name) && !r.name.includes("@") ? cleanName(r.name) : nameFromAddress(email);
+    const local = email.split("@")[0].replace(/[^a-z]/g, "");
+    const shown = tokens(name);
+    const hits = contacts.filter((c) => {
+      if (!c.bank || canonBank(c.bank) !== canonBank(bank)) return false;
+      if (c.email?.toLowerCase() === email || c.aliases?.some((a) => a.toLowerCase() === email)) return false;
+      const f = tokens(c.firstName || c.name.split(" ")[0])[0];
+      const l = tokens(c.lastName || c.name.split(" ").slice(-1)[0]).join("");
+      if (!f || !l || l.length < 2) return false;
+      return (shown.includes(f) && shown.join("").includes(l)) || (local.includes(l) && (local.includes(f) || local.startsWith(f[0])));
+    });
+    // Two people at the firm fit: leave it for you.
+    if (hits.length !== 1) continue;
+    const at = new Date(r.at).toISOString();
+    const cur = byContact.get(hits[0].id);
+    if (cur && cur.email === email) cur.lastAt = at;
+    else if (!cur) byContact.set(hits[0].id, { contactId: hits[0].id, email, firstAt: at, lastAt: at, threadId: r.threadId });
+  }
+  return [...byContact.values()];
+}

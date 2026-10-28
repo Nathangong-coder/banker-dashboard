@@ -127,6 +127,15 @@ export interface Contact {
   lastEmailedAt?: string;
   /** Their latest email to you (Gmail sync). Newer than `lastEmailedAt` = you owe them a reply. */
   lastHeardAt?: string;
+  /**
+   * You got back to them outside what the dashboard can see (a text, LinkedIn, an email it missed): "Done by hand" on
+   * Bank coverage (owner, 2026-10-28). Settles a thank-you / reply owed up to then, and check-ins count from it.
+   */
+  handledAt?: string;
+  /** Set by hand on Bank coverage: "live" (you're talking, e.g. by text) or "off" (not live whatever the dates say). */
+  liveMark?: "live" | "off";
+  /** Calendar events that aren't with them ("Not them" on Bank coverage / Calendar): never matched to them again. */
+  notEvents?: string[];
   /** They referred you / did what they said they'd do (Follow-ups, /prep). Check-in reminders stop. */
   referral?: {
     at: string;

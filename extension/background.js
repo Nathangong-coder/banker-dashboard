@@ -49,16 +49,32 @@ const HANDSHAKE = "https://*.joinhandshake.com/*";
  * The open Coverage tab (or a new one), with its bridge answering. Tabs are found by asking each one: only the bridge
  * script answers, with its page's origin (the extension can't read other tabs' addresses, and doesn't need to).
  */
+// Every status report, plan and lookup goes through the dashboard tab, so finding it is on the hot path: it used to ask
+// every open tab, one after another, on every call (dozens of round trips with a full tab strip). Now the last tab
+// that answered is asked first, and a search asks all tabs at once (owner, 2026-10-28: "slow and memory intensive").
+let dashTabId = null;
 async function dashboardTab() {
   const dashboard = await getDashboard();
   const ping = (id) => chrome.tabs.sendMessage(id, { to: "dashboard", type: "ping" }).then((r) => r?.ok === true && r.origin === dashboard, () => false);
-  for (const t of await chrome.tabs.query({})) if (await ping(t.id)) return t;
-  const t = await chrome.tabs.create({ url: `${dashboard}/applications`, active: false });
-  for (let i = 0; i < 40; i++) {
-    await sleep(500);
-    if (await ping(t.id)) return t;
+  if (dashTabId === null) dashTabId = (await chrome.storage.session.get("dashTab")).dashTab ?? null;
+  if (dashTabId !== null && (await ping(dashTabId))) {
+    const t = await chrome.tabs.get(dashTabId).catch(() => null);
+    if (t) return t;
   }
-  throw new Error(`Couldn't reach Coverage at ${dashboard}. Open your dashboard in a tab and try again.`);
+  const tabs = (await chrome.tabs.query({})).filter((t) => !t.discarded && /^https?:/.test(t.url ?? "https:"));
+  const hits = await Promise.all(tabs.map((t) => ping(t.id)));
+  let found = tabs.find((_, i) => hits[i]);
+  if (!found) {
+    const t = await chrome.tabs.create({ url: `${dashboard}/applications`, active: false });
+    for (let i = 0; i < 40 && !found; i++) {
+      await sleep(500);
+      if (await ping(t.id)) found = t;
+    }
+  }
+  if (!found) throw new Error(`Couldn't reach Coverage at ${dashboard}. Open your dashboard in a tab and try again.`);
+  dashTabId = found.id;
+  await chrome.storage.session.set({ dashTab: found.id });
+  return found;
 }
 
 async function askDashboard(type, payload) {

@@ -195,6 +195,23 @@ function useContactUpkeep(ready: boolean) {
   }, [ready, contacts, fu, banks]);
 }
 
+/**
+ * Who you emailed that the tracker doesn't know (gmailSync.ts#scanOffSheet): 20 s after load, then hourly (the scan
+ * itself runs at most every 3 h). With the server's Gmail read access it needs no popup.
+ */
+function useSentScan(ready: boolean) {
+  useEffect(() => {
+    if (!ready) return;
+    const run = () => void import("@/lib/gmailSync").then((m) => m.scanOffSheet({ interactive: false })).catch(() => undefined);
+    const t = setTimeout(run, 20_000);
+    const i = setInterval(run, 60 * 60_000);
+    return () => {
+      clearTimeout(t);
+      clearInterval(i);
+    };
+  }, [ready]);
+}
+
 function useServerSync(ready: boolean) {
   const connected = useStore((s) => !!s.settings.server?.email);
   const contacts = useStore((s) => s.contacts);
@@ -258,6 +275,7 @@ export function Shell({ children }: { children: ReactNode }) {
   useExcelEdits(ready);
   useServerSync(ready);
   useContactUpkeep(ready);
+  useSentScan(ready && mode !== "demo");
   // The demo's made-up data never goes to the extension (it would fill real forms with it).
   useExtensionBridge(ready && mode !== "demo");
   useAccountLink(mode === "account");

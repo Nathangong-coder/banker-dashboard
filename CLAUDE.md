@@ -955,6 +955,25 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   /firms has a "Now" column (Restart when everyone moved on). The 9 PM text adds `LABELS.fillOffices`, one line per bank
   (`lib/officeGaps.ts`, ≤ 20, applications first).
 
+## Manual coverage controls, sent-mail scan by firm (owner, 2026-10-28; `check:moveon` covers it)
+
+- **Bank coverage, by hand:** expanded bank → each person's ⋯ (`coverage/page.tsx#PersonMenu`): Done by hand
+  (`contact.handledAt`: a text / LinkedIn / missed email settles thank-you, reply owed, check-in clock via
+  `reminders.ts#lastEmailed`; the server's `CalPerson.thankedAt` includes it), Not them (`CalendarActions#notThem`:
+  call off, status back, `notEvents` never matched again), Mark live / Not live (`liveMark`, beats `liveKind`), Move on
+  now / Bring back (snoozed a week so upkeep doesn't move them on again). Thank / reply / check-in to-dos have "✓ X done".
+  "No one live" tab (layout `nolive`): banks with no referral / live person + `NoLiveSummary` (nothing in flight vs waiting).
+- **Calendar:** a first name alone only matches someone `engaged` (replied, met, logged chat, invited by you, referral);
+  a no-guest event already on a non-engaged contact is re-matched and `wrongCalls` takes it off ("Market Research -
+  James <> Nathan" was a friend, not James Nichols).
+- **Sent-mail scan** (`gmailSync.ts#scanOffSheet`, Shell `useSentScan` 20 s after load + hourly, ≤ every 3 h): the server
+  reads To / Cc / Bcc of sent mail with the tracking read scope (`api/server/sent`, nothing stored, paged, 25 s budget),
+  else this tab's token (now Cc / Bcc too). The old scan only ran with a browser token and only read To, so Tidal and
+  Mizuho thank-yous were missed. Then `offSheet.ts#trackerHits` fills the email / sent dates of people already tracked
+  by name at that firm (Tidal people added from an info session with no email), and `autoAddOffSheet` adds bankers on a
+  domain the tracker already uses (mizuhogroup.com) straight to the tracker; name-guessed domains stay on Follow-ups →
+  Not in tracker and on the bank's row ("Emailed, not in the tracker").
+
 ## Follow-up logic (`src/lib/followups.ts`)
 
 - `nextAction(contact)`: `new` → reach out; `drafted` → send; `sent`/`followed_up` → follow-up #n after `firstAfterDays`/`nextAfterDays`

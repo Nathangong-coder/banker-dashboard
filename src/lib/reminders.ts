@@ -82,7 +82,8 @@ const startOf = (day: string) => new Date(`${day}T00:00:00`);
 /** Calls with them: the one on your calendar and any chat you logged (newest first). */
 const callTimes = (c: Contact) => [c.call?.at, ...(c.chats ?? []).map((x) => x.at)].filter((x): x is string => !!x).sort().reverse();
 /** The last email you sent them, as well as we know it (Gmail sync, else the outreach dates). */
-const lastEmailed = (c: Contact) => latestIso(c.lastEmailedAt, c.lastTouchAt ?? c.sentAt);
+// "Done by hand" (a text, LinkedIn) counts like an email: the thank-you / reply is settled and check-ins count from it.
+const lastEmailed = (c: Contact) => latestIso(latestIso(c.lastEmailedAt, c.lastTouchAt ?? c.sentAt), c.handledAt);
 
 /**
  * People who replied: tonight's thank-yous, thank-yous still owed for earlier calls, replies you owe, and a check-in

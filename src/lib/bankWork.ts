@@ -352,7 +352,9 @@ export type LiveKind = "referral" | "live" | "awaiting";
 
 export function liveKind(c: Contact, now = Date.now()): LiveKind | undefined {
   if (c.referral) return "referral";
-  if (c.status === "ignored") return undefined;
+  // Your call on Bank coverage beats the dates.
+  if (c.liveMark === "live") return "live";
+  if (c.liveMark === "off" || c.status === "ignored") return undefined;
   if (c.call || c.chats?.length || c.status === "call_scheduled" || c.status === "done") return "live";
   const heard = [c.lastHeardAt, c.repliedAt].filter((x): x is string => !!x).sort().pop();
   if (heard && now - Date.parse(heard) <= 7 * DAY) return "live";

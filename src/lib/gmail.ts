@@ -460,11 +460,12 @@ export async function sentRecipients(clientId: string, sinceDay: string, skip: S
   const worker = async () => {
     while (i < fresh.length) {
       const id = fresh[i++];
-      const m = await gapi<MsgMeta>(clientId, `/messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Subject`);
+      const m = await gapi<MsgMeta>(clientId, `/messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Subject`);
       read.push(id);
       // A message Schedule-send hasn't sent yet isn't an email to follow up on.
       if (m.labelIds?.includes("SCHEDULED") || when(m) > Date.now()) continue;
-      for (const a of parseAddresses(header(m, "To") ?? "")) out.push({ ...a, at: when(m), subject: header(m, "Subject") ?? "", threadId: m.threadId });
+      // Cc and Bcc too: a thank-you often Bcc's a second person (Kevin Zhu → Benjamin Hon at Mizuho).
+      for (const a of ["To", "Cc", "Bcc"].flatMap((h) => parseAddresses(header(m, h) ?? ""))) out.push({ ...a, at: when(m), subject: header(m, "Subject") ?? "", threadId: m.threadId });
     }
   };
   await Promise.all(Array.from({ length: 6 }, worker));

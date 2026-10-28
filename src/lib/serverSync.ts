@@ -196,7 +196,7 @@ function calendarPeople(contacts: Contact[]) {
       contactId: c.id,
       name: c.name,
       email: c.email || undefined,
-      thankedAt: c.lastEmailedAt,
+      thankedAt: latestIso(c.lastEmailedAt, c.handledAt),
       bank: c.bank || undefined,
       linkedin: /linkedin\.com\/in\//i.test(c.linkedin) ? c.linkedin.slice(0, 300) : undefined,
       loggedAt: c.chats?.reduce<string | undefined>((m, x) => (!m || x.at > m ? x.at : m), undefined),

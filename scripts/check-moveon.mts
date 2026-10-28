@@ -10,6 +10,10 @@ import { liveKind, officeSlots } from "../src/lib/bankWork";
 import { contactPatches, STATUS_TO_SHEET } from "../src/lib/workbook";
 import type { Contact, Settings } from "../src/lib/types";
 import type { SheetSnapshot } from "../src/lib/types";
+import { chatsIn, wrongCalls, type CalendarEvent } from "../src/lib/calendarDay";
+import { relationshipItem } from "../src/lib/reminders";
+import { LABELS } from "../src/lib/digestFormat";
+import { bankDomains, bankForDomain, offSheetPeople, trackerHits } from "../src/lib/offSheet";
 
 let failed = 0;
 const check = (what: string, ok: boolean, detail: unknown = "") => {
@@ -97,6 +101,34 @@ const slots = officeSlots(
 check("HL SF: 2 awaiting = maxed", slots[0].full, slots[0]);
 check("HL NY: live = maxed", slots[1].full, slots[1]);
 check("HL LA: 1 of 2 awaiting = to fill", !slots[2].full && slots[2].open === 1, slots[2]);
+
+// Owner, 2026-10-28: manual controls and better Gmail / Calendar matching
+const jn = person({ id: "jn", name: "James Nichols", firstName: "James", lastName: "Nichols", email: "jnichols@hl.com", status: "sent", followUps: 0, sentAt: local(2026, 10, 15) });
+const friend: CalendarEvent = { id: "ev1", title: "Market Research - James <> Nathan", start: local(2026, 10, 25, 18), end: local(2026, 10, 25, 19), allDay: false, attendees: [] };
+check("no-guest 'James <> Nathan' isn't pinned on James Nichols (never wrote back)", !chatsIn([friend], [jn], "Nathan")[0]?.contactId, chatsIn([friend], [jn], "Nathan"));
+const replied = { ...jn, repliedAt: local(2026, 10, 16), status: "replied" as const };
+check("…but it can be someone who replied", chatsIn([friend], [replied], "Nathan")[0]?.contactId === "jn");
+const stuck = { ...jn, status: "call_scheduled" as const, call: { at: friend.start, eventId: "ev1", link: "", invited: false } };
+const chats = chatsIn([friend], [stuck], "Nathan");
+const wrong = wrongCalls([friend], chats, [stuck]);
+check("an earlier wrong match comes off on the next sync", wrong[0]?.id === "jn" && wrong[0].patch.status === "sent", wrong);
+check("'Not them' events never match again", !chatsIn([friend], [{ ...replied, notEvents: ["ev1"] }], "Nathan")[0]?.contactId);
+const thankOwed = person({ id: "el", name: "Elixa Kim", firstName: "Elixa", status: "call_scheduled", followUps: 0, sentAt: local(2026, 10, 1), lastEmailedAt: local(2026, 10, 2), call: { at: local(2026, 10, 26, 10), eventId: "e", link: "", invited: true } });
+check("a call with no email since = thank-you owed", relationshipItem(thankOwed, "2026-10-27", new Date(2026, 9, 29))?.label === LABELS.thankOwed);
+check("…'Done by hand' settles it", !relationshipItem({ ...thankOwed, handledAt: local(2026, 10, 27, 9) }, "2026-10-27", new Date(2026, 9, 29)));
+check("Mark live wins", liveKind(person({ liveMark: "live", status: "replied", repliedAt: local(2026, 9, 1) }), t) === "live");
+check("Not live wins", liveKind(person({ liveMark: "off", sentAt: local(2026, 10, 20) }), t) === undefined);
+const mz = person({ id: "kz", name: "Kevin Zhu", firstName: "Kevin", lastName: "Zhu", bank: "Mizuho", email: "kevinzhu@mizuhogroup.com" });
+check("mizuhogroup.com reads as Mizuho", bankForDomain("mizuhogroup.com", bankDomains([]), ["Mizuho"]) === "Mizuho");
+const sent = (email: string, name: string) => ({ email, name, at: Date.parse(local(2026, 10, 27, 9)), subject: "Thank you", threadId: "t" });
+const off = offSheetPeople([sent("gracehe@mizuhogroup.com", ""), sent("zachrighellis@mizuhogroup.com", "Zach Righellis")], [mz], { me: [], banks: ["Mizuho"] });
+check("Grace He + Zach Righellis listed at Mizuho", off.length === 2 && off.every((p) => p.bank === "Mizuho" && p.bankDomain), off);
+const tidal = ["Rohan Baronia", "Rachel Horlick", "Jake Wolfson"].map((n, i) =>
+  person({ id: `td${i}`, name: n, firstName: n.split(" ")[0], lastName: n.split(" ")[1], bank: "Tidal Partners", email: "", status: "new", followUps: 0 }),
+);
+const hits = trackerHits([sent("rbaronia@tidalpartners.com", ""), sent("rhorlick@tidalpartners.com", "Rachel Horlick"), sent("jwolfson@tidalpartners.com", "")], tidal, { banks: ["Tidal Partners"] });
+check("Tidal thank-yous to people added with no email: all three recorded", hits.length === 3 && hits.find((h) => h.contactId === "td0")?.email === "rbaronia@tidalpartners.com", hits);
+check("…and not listed as 'not in tracker'", !offSheetPeople([sent("rbaronia@tidalpartners.com", "")], tidal, { me: [], banks: ["Tidal Partners"] }).length);
 
 if (failed) {
   console.log(`\n${failed} check(s) failed`);

@@ -33,28 +33,37 @@ export interface CalendarChat extends CalendarEvent {
  */
 export function chatsIn(events: CalendarEvent[], contacts: Contact[], myFirstName?: string): CalendarChat[] {
   const byEvent = new Map(contacts.filter((c) => c.call?.eventId).map((c) => [c.call!.eventId, c]));
-  const people = contacts.map((c) => ({ contactId: c.id, name: c.name, email: c.email || undefined }));
+  const people = contacts.map((c) => ({ contactId: c.id, name: c.name, email: c.email || undefined, engaged: engaged(c), notEvents: c.notEvents }));
   const out: CalendarChat[] = [];
   for (const e of events) {
     if (e.allDay || isInfoSessionTitle(e.title)) continue;
     // An event already on a contact, unless its guest list says it's someone else (a wrong match from an earlier sync).
     const own = byEvent.get(e.id);
-    if (own && couldBeWith(e, own)) {
+    // With no guest list, an earlier first-name match only holds for someone engaged (else it's matched again below).
+    if (own && couldBeWith(e, own) && !own.notEvents?.includes(e.id) && (e.attendees.length || engaged(own) || fullNameIn(e.title, own.name))) {
       out.push({ ...e, contactId: own.id });
       continue;
     }
-    const byEmail = matchEvent({ summary: "", description: "", attendees: e.attendees }, people);
+    const byEmail = matchEvent({ id: e.id, summary: "", description: "", attendees: e.attendees }, people);
     if (byEmail) {
       out.push({ ...e, contactId: byEmail.contactId });
       continue;
     }
     // A big meeting (class, club, team call) isn't a coffee chat even if its title says "call".
     if (!looksLikeChat(e.title) || e.attendees.length > 3) continue;
-    const p = matchEvent({ summary: e.title, description: "", attendees: e.attendees }, people, { firstName: myFirstName });
+    const p = matchEvent({ id: e.id, summary: e.title, description: "", attendees: e.attendees }, people, { firstName: myFirstName });
     out.push({ ...e, contactId: p?.contactId });
   }
   return out;
 }
+
+/** Wrote back, met you (session / logged chat), or got an invite you sent: a first-name match can be them. */
+export const engaged = (c: Contact) => !!(c.repliedAt || c.lastHeardAt || c.chats?.length || c.metAt?.length || c.call?.invited || c.referral || c.referredBy);
+
+const fullNameIn = (title: string, name: string) => {
+  const n = name.toLowerCase().split(/\s+/).filter(Boolean);
+  return n.length >= 2 && title.toLowerCase().includes(n.join(" "));
+};
 
 /** Statuses a call moves up to "call scheduled" (same as logging a chat on /log). */
 export const BEFORE_CALL: Status[] = ["new", "drafted", "sent", "followed_up", "replied"];
