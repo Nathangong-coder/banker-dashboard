@@ -19,8 +19,10 @@ import type {
   SheetSnapshot,
   Status,
   Template,
+  TrackingState,
   WorkbookMeta,
 } from "./types";
+import type { RawHit, TrackedMessage } from "./opens";
 import { mergeReferral, referralDate } from "./checkboxes";
 import { applyPatches, blankTablesPatches, contactPatches, followUpsFromSheet, statusFromSheet, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, tableBody, type ContactTable, type Patches } from "./workbook";
 import { contactId, latestIso, personName } from "./util";
@@ -155,6 +157,17 @@ interface State {
   /** Job applications (app/applications): tracked jobs, your application info, writing samples, extra resumes. */
   apply: ApplyState;
   setApply: (fn: (a: ApplyState) => ApplyState) => void;
+  /** Open tracking (lib/trackingActions.ts): pixel key, tracked emails and their hits, recipient domains' mail host. */
+  tracking: TrackingState;
+  /** Add a tracked email, or fill in one already known by id (a stub made by its hits): its hits and seen times stay. */
+  registerTracked: (m: TrackedMessage) => void;
+  /** Merge pixel hits from the server (deduped by id + time); a hit for an unknown id makes a stub entry. */
+  addHits: (hits: RawHit[]) => void;
+  /** You had this tracked email on screen at `at` (opens then are yours, not theirs). */
+  addSeen: (id: string, at: string) => void;
+  setTrackingKey: (key: string, base: string, account?: string) => void;
+  /** Change tracked emails in place (sent dates, Gmail draft ids, MX answers). */
+  updateTracking: (fn: (t: TrackingState) => TrackingState) => void;
   /** Merge sessions read from the calendar (by id): calendar fields refresh, your fields (people, notes, attended…) stay. */
   upsertInfoSessions: (list: InfoSession[]) => void;
   updateInfoSession: (id: string, patch: Partial<InfoSession> | ((s: InfoSession) => Partial<InfoSession>)) => void;
@@ -212,6 +225,51 @@ interface State {
 }
 
 const now = () => new Date().toISOString();
+
+const EMPTY_TRACKING: TrackingState = { messages: [], mx: {} };
+const hitKey = (h: RawHit) => `${h.id}|${h.at}`;
+
+/** Store helper (exported for checks): add a tracked email, or merge into the entry with the same id. */
+export function registerTrackedIn(t: TrackingState, m: TrackedMessage): TrackingState {
+  const prev = t.messages.find((x) => x.id === m.id);
+  if (!prev) return { ...t, messages: [...t.messages, m] };
+  const hits = [...prev.hits];
+  const have = new Set(hits.map(hitKey));
+  for (const h of m.hits) if (!have.has(hitKey(h))) hits.push(h);
+  const merged: TrackedMessage = {
+    ...prev,
+    ...Object.fromEntries(Object.entries(m).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && !v.length))),
+    // A stub made from hits has the first hit's time as createdAt: the real one is earlier.
+    createdAt: m.createdAt && m.createdAt < prev.createdAt ? m.createdAt : prev.createdAt,
+    hits: hits.sort((a, b) => a.at.localeCompare(b.at)),
+    seen: [...new Set([...prev.seen, ...m.seen])],
+  };
+  return { ...t, messages: t.messages.map((x) => (x.id === m.id ? merged : x)) };
+}
+
+/** Store helper (exported for checks): merge hits by `${id}|${at}`; an unknown id gets a stub entry (filled in later by registerTrackedIn). */
+export function addHitsIn(t: TrackingState, hits: RawHit[]): TrackingState {
+  if (!hits.length) return t;
+  const byId = new Map<string, RawHit[]>();
+  for (const h of hits) (byId.get(h.id) ?? byId.set(h.id, []).get(h.id)!).push(h);
+  let changed = false;
+  const messages = t.messages.map((m) => {
+    const add = byId.get(m.id);
+    if (!add) return m;
+    byId.delete(m.id);
+    const have = new Set(m.hits.map(hitKey));
+    const fresh = add.filter((h) => !have.has(hitKey(h)) && have.add(hitKey(h)));
+    if (!fresh.length) return m;
+    changed = true;
+    return { ...m, hits: [...m.hits, ...fresh].sort((a, b) => a.at.localeCompare(b.at)) };
+  });
+  for (const [id, list] of byId) {
+    const uniq = [...new Map(list.map((h) => [hitKey(h), h])).values()].sort((a, b) => a.at.localeCompare(b.at));
+    messages.push({ id, to: [], subject: "", kind: "gmail", source: "gmail", createdAt: uniq[0].at, hits: uniq, seen: [] });
+    changed = true;
+  }
+  return changed ? { ...t, messages } : t;
+}
 
 type GridState = Pick<State, "patches" | "contacts" | "tables" | "banks">;
 
@@ -311,6 +369,16 @@ export const useStore = create<State>()(
       setOffSheet: (patch) => set({ offSheet: { ...get().offSheet, ...patch } }),
       apply: EMPTY_APPLY,
       setApply: (fn) => set({ apply: fn(get().apply) }),
+      tracking: EMPTY_TRACKING,
+      registerTracked: (m) => set({ tracking: registerTrackedIn(get().tracking, m) }),
+      addHits: (hits) => set({ tracking: addHitsIn(get().tracking, hits) }),
+      addSeen: (id, at) => {
+        const t = get().tracking;
+        if (!t.messages.some((m) => m.id === id && !m.seen.includes(at))) return;
+        set({ tracking: { ...t, messages: t.messages.map((m) => (m.id === id ? { ...m, seen: [...m.seen, at].slice(-200) } : m)) } });
+      },
+      setTrackingKey: (key, base, account) => set({ tracking: { ...get().tracking, key, base, account } }),
+      updateTracking: (fn) => set({ tracking: fn(get().tracking) }),
       upsertInfoSessions: (list) => {
         const byId = new Map(get().infoSessions.map((s) => [s.id, s]));
         for (const s of list) {
@@ -621,7 +689,7 @@ export const useStore = create<State>()(
     },
     {
       name: LEGACY_STORE_KEY,
-      version: 10,
+      version: 11,
       // Nothing is read or written until Shell picks a namespace (useNamespace): writing before that could overwrite a
       // browser's only copy of its data with an empty store.
       storage: createJSONStorage(() => memoryStorage),
@@ -637,6 +705,7 @@ export const useStore = create<State>()(
           // New settings fields added in later versions get their defaults.
           settings: deepMerge(DEFAULT_SETTINGS, p.settings ?? {}) as Settings,
           // So do application-profile fields added later.
+          tracking: { ...EMPTY_TRACKING, ...p.tracking, messages: p.tracking?.messages ?? [], mx: p.tracking?.mx ?? {} },
           apply: { ...EMPTY_APPLY, ...p.apply, profile: { ...EMPTY_APPLY.profile, ...p.apply?.profile }, finder: { ...EMPTY_APPLY.finder, ...p.apply?.finder } },
         };
       },
@@ -646,7 +715,7 @@ export const useStore = create<State>()(
 
 /** The store's starting state (empty, with its actions), for switching between users / the demo. */
 const INITIAL = useStore.getState();
-export const STORE_VERSION = 10;
+export const STORE_VERSION = 11;
 
 /**
  * Show `ns`'s data: the store is emptied (without writing anywhere), pointed at that namespace's IndexedDB key, and
@@ -829,6 +898,7 @@ function migrateState(p: Record<string, unknown>, version: number) {
       return body === t.body ? t : { ...t, body };
     });
   }
+  if (version < 11 && p && !p.tracking) p.tracking = { messages: [], mx: {} };
   if (version < 10 && p?.settings) {
     const settings = p.settings as Settings;
     settings.emailBases = settings.emailBases?.map((b) => {

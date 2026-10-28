@@ -9,6 +9,7 @@ import { blobs, useStore } from "@/lib/store";
 import { canonBank } from "@/lib/banks";
 import { callApi } from "@/lib/api";
 import { connectGmail, deleteDraft, upsertDraft } from "@/lib/gmail";
+import { notePixelDraft, pixelFor, trackedKindOf } from "@/lib/trackingActions";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, ruleAssign, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type Contact, type RequiredFact, type Template } from "@/lib/types";
 import { chunk, cn, pool } from "@/lib/util";
@@ -237,6 +238,7 @@ function DraftsInner() {
           // Drafts written before the sign-off / signature split get the current ending (never touches sent mail).
           const body = normalizeBody(withSignature(c.draft!.body, settings.profile));
           // Already in Gmail → update that draft in place (or recreate it if it was deleted), never a duplicate.
+          const pixel = await pixelFor({ to: c.email, subject: c.draft!.subject, ...trackedKindOf(t, c), contactId: c.id, gmailDraftId: c.draft!.gmailDraftId });
           const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, {
             to: c.email,
             subject: c.draft!.subject,
@@ -244,7 +246,9 @@ function DraftsInner() {
             // Resume on first cold emails only.
             attachment: t?.kind === "initial" && t.attachResume && resume ? resume : undefined,
             font: EMAIL_FONTS[trial.font]?.css,
+            pixel,
           });
+          notePixelDraft(pixel, r);
           ok++;
           const st = useStore.getState();
           st.updateContact(c.id, { draft: { ...c.draft!, body, gmailDraftId: r.id }, trial });
@@ -581,7 +585,9 @@ function DraftEditor({ c, onClose }: { c: Contact; onClose: () => void }) {
       const t = templates.find((x) => x.id === c.templateId);
       const resume = t?.kind === "initial" && t.attachResume ? await blobs.resume() : undefined;
       const trial = assignTrial(c, settings, trialTally(useStore.getState().contacts));
-      const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, { to: c.email, subject, body, attachment: resume, font: EMAIL_FONTS[trial.font]?.css });
+      const pixel = await pixelFor({ to: c.email, subject, ...trackedKindOf(t, c), contactId: c.id, gmailDraftId: c.draft!.gmailDraftId });
+      const r = await upsertDraft(googleClientId(settings), c.draft!.gmailDraftId, { to: c.email, subject, body, attachment: resume, font: EMAIL_FONTS[trial.font]?.css, pixel });
+      notePixelDraft(pixel, r);
       update(c.id, { draft: { ...c.draft!, subject, body, gmailDraftId: r.id }, trial });
       if (c.status === "new") setStatus([c.id], "drafted", "Gmail draft created");
       toast.ok(c.draft!.gmailDraftId ? "Gmail draft updated." : "Draft created in Gmail.");

@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { connectGmail, gmailConnected, latestFrom, upsertDraft, type TheirMessage } from "@/lib/gmail";
+import { notePixelDraft, pixelFor } from "@/lib/trackingActions";
 import { busyTimes, calendarConnected, createCallEvent } from "@/lib/gcal";
 import { COMMON_ZONES, dateTimeLabel, formatWindows, freeWindows, narrowTo, phonesIn, tzLabel, ymdIn, type AskedFor, type Window } from "@/lib/availability";
 import { fillScheduling, schedulingOf } from "@/lib/scheduling";
@@ -184,14 +185,17 @@ export function AvailabilityReply({ c, onClose }: { c: Contact; onClose: () => v
     setSaving(true);
     try {
       const subject = r.msg?.subject ? (/^re:/i.test(r.msg.subject) ? r.msg.subject : `Re: ${r.msg.subject}`) : `Re: ${c.draft?.subject ?? "Coffee chat"}`;
-      await upsertDraft(r.clientId, undefined, {
+      const pixel = await pixelFor({ to: c.email, subject, kind: "reply", contactId: c.id });
+      const d = await upsertDraft(r.clientId, undefined, {
         to: c.email,
         subject,
         body: signature ? withSignature(text, settings.profile) : text,
         threadId: r.msg?.threadId ?? c.threadId,
         inReplyTo: r.msg?.messageId ?? c.lastMessageId,
         font: EMAIL_FONTS[c.trial?.font ?? settings.emailStyle.font]?.css,
+        pixel,
       });
+      notePixelDraft(pixel, d);
       updateContact(
         c.id,
         { ...(r.parsed?.phone && !c.phone ? { phone: r.parsed.phone } : {}) },

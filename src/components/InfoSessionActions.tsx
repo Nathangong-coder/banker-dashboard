@@ -23,6 +23,7 @@ import { planSends, windowOf } from "@/lib/sendWindow";
 import { fillPlaceholders, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { normalizeBody, normalizeSubject, withSignature } from "@/lib/emailFormat";
 import { connectGmail, upsertDraft } from "@/lib/gmail";
+import { notePixelDraft, pixelFor } from "@/lib/trackingActions";
 import { INFO_SESSION_BODY_V1, INFO_SESSION_TEMPLATE } from "@/lib/defaults";
 import { EMAIL_FONTS, type Contact, type InfoSession, type SessionPerson, type Template } from "@/lib/types";
 
@@ -699,13 +700,16 @@ export async function draftThankYous(sessionId: string, when: ThankYouWhen, onPr
       }
       subject = normalizeSubject(subject);
       body = normalizeBody(body);
+      const pixel = await pixelFor({ to: c.email, subject, kind: "thank-you", contactId: c.id, gmailDraftId: c.draft?.gmailDraftId });
       const r = await upsertDraft(clientId, c.draft?.gmailDraftId, {
         to: c.email,
         subject,
         body,
         attachment: resume ?? undefined,
         font: EMAIL_FONTS[settings.emailStyle.font]?.css,
+        pixel,
       });
+      notePixelDraft(pixel, r);
       const createdAt = new Date().toISOString();
       const st = useStore.getState();
       st.updateContact(

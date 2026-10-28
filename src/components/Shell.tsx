@@ -214,6 +214,9 @@ function useSentScan(ready: boolean) {
 
 function useServerSync(ready: boolean) {
   const connected = useStore((s) => !!s.settings.server?.email);
+  // Open tracking reads its pixel hits through the same sync, with or without automatic sending.
+  const tracking = useStore((s) => !!s.settings.tracking?.on || s.tracking.messages.length > 0);
+  const syncing = connected || tracking;
   const contacts = useStore((s) => s.contacts);
   const settings = useStore((s) => s.settings);
   // Changes sync a few seconds later, but at most every 2 minutes (each sync is several Redis commands plus Gmail
@@ -223,7 +226,7 @@ function useServerSync(ready: boolean) {
     .map((c) => `${c.serverSend!.draftId}@${c.serverSend!.sendAt}`)
     .join(",");
   useEffect(() => {
-    if (!ready || !connected) return;
+    if (!ready || !syncing) return;
     const run = () => {
       lastServerSync.at = Date.now();
       lastServerSync.sends = sends;
@@ -232,12 +235,12 @@ function useServerSync(ready: boolean) {
     const wait = sends !== lastServerSync.sends ? 4000 : Math.max(4000, lastServerSync.at + 120_000 - Date.now());
     const t = setTimeout(run, wait);
     return () => clearTimeout(t);
-  }, [ready, connected, contacts, sends, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
+  }, [ready, syncing, contacts, sends, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
   useEffect(() => {
-    if (!ready || !connected) return;
+    if (!ready || !syncing) return;
     const i = setInterval(() => document.visibilityState === "visible" && syncServer().catch(() => undefined), 10 * 60_000);
     return () => clearInterval(i);
-  }, [ready, connected]);
+  }, [ready, syncing]);
   // Chats → their Google Docs (lib/chatDocs.ts): a Drive search for chats with no doc, at most once a day each.
   useEffect(() => {
     if (!ready || !connected) return;

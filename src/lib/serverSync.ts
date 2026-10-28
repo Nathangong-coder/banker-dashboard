@@ -15,6 +15,8 @@ import type { ApplyState } from "./apply";
 import { googleClientId } from "./keys";
 import { scheduledByRecipient } from "./gmail";
 import { officeGapItems, officeGaps } from "./officeGaps";
+import type { RawHit } from "./opens";
+import { matchTrackedSends, refreshMx } from "./trackingActions";
 
 /**
  * The browser half of automatic sending (server half: app/api/server). The browser keeps the source of truth and
@@ -114,6 +116,55 @@ function applyFinished(list: Finished[]) {
 }
 
 let inflight: Promise<ServerStatus | null> | null = null;
+/** Pixel hits stored from the last answer (`id|at`): the next sync acks them so the server drops them. */
+let pendingOpensAck: string[] = [];
+/** Pages of opens read per sync at most (500 each). */
+const MAX_OPEN_PAGES = 10;
+type OpensWire = { opens?: RawHit[]; moreOpens?: boolean };
+
+/** Open tracking needs the server's hits while it's on, and while there are tracked emails whose opens may still come. */
+const wantsOpens = (st: ReturnType<typeof useStore.getState>) => !!st.settings.tracking?.on || st.tracking.messages.length > 0;
+
+/** One sync call that also acks the opens stored last time; stores the opens it returns (acked next call). */
+async function callWithOpens<T extends OpensWire>(body: Record<string, unknown>): Promise<T> {
+  const r = await call<T>("/api/server/sync", { ...body, opensAck: pendingOpensAck });
+  pendingOpensAck = [];
+  if (r.opens?.length) {
+    useStore.getState().addHits(r.opens);
+    pendingOpensAck = r.opens.map((h) => `${h.id}|${h.at}`);
+  }
+  return r;
+}
+
+/** More opens waiting on the server: keep reading (each call acks the previous page). */
+async function drainOpens(r: OpensWire, body: Record<string, unknown>) {
+  for (let i = 0; r.moreOpens && i < MAX_OPEN_PAGES; i++) r = await callWithOpens<OpensWire>(body);
+}
+
+/** After a sync: sent dates for tracked emails, and Google-or-not for new recipient domains (never fails the sync). */
+async function trackingUpkeep() {
+  try {
+    matchTrackedSends();
+    await refreshMx();
+  } catch {
+    /* next sync tries again */
+  }
+}
+
+/**
+ * Open tracking without automatic sending (Google not connected for the server): read the pixel hits only. The same
+ * sync route, with the queue as it stands (no sends without Gmail access) and nothing else changed.
+ */
+async function syncOpensOnly() {
+  const st = useStore.getState();
+  const body = { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles", opens: true, sends: queuedSends(st.contacts), ack: [] };
+  const r = await callWithOpens<OpensWire>(body);
+  await drainOpens(r, body);
+  await trackingUpkeep();
+}
+
+const queuedSends = (contacts: Contact[]) =>
+  contacts.filter((c) => c.serverSend).map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt }));
 /** Reply texts read by the AI since the last sync: the server deletes them on the next one. */
 let pendingAck: { contactId: string; ids: string[] }[] = [];
 
@@ -136,7 +187,12 @@ export function syncServer(): Promise<ServerStatus | null> {
   inflight = (async () => {
     const st = useStore.getState();
     const srv = st.settings.server;
-    if (!srv?.id || !srv.email) return null;
+    if (!srv?.id) return null;
+    if (!srv.email) {
+      if (wantsOpens(st)) await syncOpensOnly().catch(() => undefined);
+      return null;
+    }
+    const opens = wantsOpens(st);
     const k = st.settings.keys;
     const whatsappOn = !!(k.whatsappPhone && k.whatsappApiKey) && st.settings.alerts?.whatsappDaily !== false;
     const body = {
@@ -149,13 +205,12 @@ export function syncServer(): Promise<ServerStatus | null> {
       track: trackList(st.contacts),
       jobRun: jobRunOf(st.apply),
       trackAck: pendingAck,
-      sends: st.contacts
-        .filter((c) => c.serverSend)
-        .map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt })),
+      sends: queuedSends(st.contacts),
       ack: [] as string[],
+      opens,
     };
     try {
-      let r = await call<ServerStatus & { sends: Finished[]; tracking?: Record<string, TrackStateWire> }>("/api/server/sync", body);
+      let r = await callWithOpens<ServerStatus & OpensWire & { sends: Finished[]; tracking?: Record<string, TrackStateWire> }>(body);
       pendingAck = [];
       if (r.tracking) {
         applyTracking(r.tracking);
@@ -165,7 +220,11 @@ export function syncServer(): Promise<ServerStatus | null> {
       const { ack, problems } = applyFinished(r.sends);
       if (ack.length) {
         const after = useStore.getState().contacts.filter((c) => c.serverSend);
-        r = await call("/api/server/sync", { ...body, trackAck: [], sends: after.map((c) => ({ draftId: c.serverSend!.draftId, contactId: c.id, name: c.name, step: c.serverSend!.step, sendAt: c.serverSend!.sendAt })), ack });
+        r = await callWithOpens({ ...body, trackAck: [], sends: queuedSends(after), ack });
+      }
+      if (opens) {
+        await drainOpens(r, { ...body, trackAck: [], sends: queuedSends(useStore.getState().contacts) });
+        await trackingUpkeep();
       }
       const status: ServerStatus = { email: r.email, whatsapp: r.whatsapp, calendar: r.calendar, gmailRead: r.gmailRead, docs: r.docs, lastDigestDay: r.lastDigestDay, lastDigestError: r.lastDigestError, syncedAt: new Date().toISOString(), error: problems.length ? problems.join("; ") : undefined };
       useServerStatus.setState({ status });

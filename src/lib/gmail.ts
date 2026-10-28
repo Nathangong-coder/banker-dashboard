@@ -139,6 +139,8 @@ export interface DraftInput {
    * from the web. Undefined = use the one saved in Settings → Email → Writing; null = none.
    */
   logo?: SignatureLogo | null;
+  /** Open-tracking pixel URL (lib/trackingActions.ts#pixelFor): a 1×1 image at the very end of the HTML part, never in the plain text. */
+  pixel?: string;
 }
 
 export interface SignatureLogo {
@@ -152,6 +154,13 @@ export interface SignatureLogo {
 }
 
 const LOGO_CID = "signature-logo@coverage";
+
+/** Put the tracking pixel after everything else (the logo included), inside the Gmail-style wrapper div. */
+export function withPixel(html: string, url?: string): string {
+  if (!url) return html;
+  const img = `<img src="${url.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0">`;
+  return html.endsWith("</div>") ? html.slice(0, -"</div>".length) + img + "</div>" : html + img;
+}
 
 /**
  * RFC 2822 message for a Gmail draft: multipart/alternative (plain text + Gmail-style HTML so lines use
@@ -173,7 +182,7 @@ export function buildMime(d: DraftInput): string {
     [`Content-Type: ${type}; charset="UTF-8"`, "Content-Transfer-Encoding: base64", "", wrap76(b64Text(content))].join("\r\n");
   // The logo only goes in when the body has the signature (a reply without one gets no logo either).
   const logo = d.logo && logoLineIndex(normalizeBody(body).split("\n"), d.logo.after) >= 0 ? d.logo : undefined;
-  const html = part("text/html", bodyToHtml(body, d.font, logo && { src: `cid:${LOGO_CID}`, width: logo.width, alt: logo.alt, link: logo.link, after: logo.after }));
+  const html = part("text/html", withPixel(bodyToHtml(body, d.font, logo && { src: `cid:${LOGO_CID}`, width: logo.width, alt: logo.alt, link: logo.link, after: logo.after }), d.pixel));
   const rel = `rel_${id}`;
   const htmlPart = logo
     ? [

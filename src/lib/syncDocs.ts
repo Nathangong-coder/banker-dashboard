@@ -2,7 +2,7 @@
  * Accounts (owner, 2026-10-25): the dashboard's saved state, cut into small JSON "docs" so the server can store it per
  * user and two tabs editing different things don't undo each other. Pure (no store, no browser), so check:sync can
  * run it. Last write wins per doc:
- * - one doc per contact (`c:`), job (`aj:`), found job (`af:`), info session (`is:`), bank (`b:`), spreadsheet cell
+ * - one doc per contact (`c:`), job (`aj:`), found job (`af:`), info session (`is:`), tracked email (`tm:`), bank (`b:`), spreadsheet cell
  *   edit (`p:`), and per key of the coverage maps (`cm:`);
  * - the order of each list is its own small doc (`o:`), so adding a contact in one tab and another in a second tab
  *   keeps both (items missing from the order go at the end);
@@ -17,6 +17,7 @@ const LISTS = [
   { path: ["apply", "jobs"], prefix: "aj:", id: "id" },
   { path: ["apply", "finder", "found"], prefix: "af:", id: "key" },
   { path: ["infoSessions"], prefix: "is:", id: "id" },
+  { path: ["tracking", "messages"], prefix: "tm:", id: "id" },
 ] as const;
 
 /** Coverage fields that are maps (canonBank key → value): one doc per key. */
@@ -82,8 +83,13 @@ export function toDocs(stateIn: Obj): Docs {
     }
     docs.apply = a;
   }
+  if (isObj(state.tracking)) {
+    const t: Obj = { ...state.tracking };
+    delete t.messages;
+    docs["s:tracking"] = t;
+  }
   for (const [k, v] of Object.entries(state)) {
-    if (["contacts", "infoSessions", "banks", "patches", "coverage", "apply"].includes(k) || v === undefined) continue;
+    if (["contacts", "infoSessions", "banks", "patches", "coverage", "apply", "tracking"].includes(k) || v === undefined) continue;
     docs[`s:${k}`] = v;
   }
   return docs;
@@ -93,7 +99,8 @@ export function fromDocs(docs: Docs): Obj {
   const state: Obj = {};
   for (const [k, v] of Object.entries(docs)) {
     if (v === undefined || v === null) continue;
-    if (k.startsWith("s:")) state[k.slice(2)] = v;
+    // s:tracking gets its messages list put back below: copy it so the doc itself isn't changed.
+    if (k.startsWith("s:")) state[k.slice(2)] = k === "s:tracking" ? plain(v) : v;
   }
   if (isObj(docs.apply)) state.apply = plain(docs.apply);
   if (isObj(docs.cov)) state.coverage = plain(docs.cov);
@@ -176,4 +183,4 @@ export function batches(changed: Record<string, string>, removed: string[], max 
 }
 
 /** Doc keys must stay small and printable-ish for Redis hash fields. */
-export const validDocKey = (k: string) => k.length > 0 && k.length <= 600 && /^(c:|aj:|af:|is:|b:|p:|cm:|o:|s:|bm:|apply$|cov$)/.test(k);
+export const validDocKey = (k: string) => k.length > 0 && k.length <= 600 && /^(c:|aj:|af:|is:|tm:|b:|p:|cm:|o:|s:|bm:|apply$|cov$)/.test(k);
