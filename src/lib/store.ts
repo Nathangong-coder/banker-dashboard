@@ -22,7 +22,7 @@ import type {
   TrackingState,
   WorkbookMeta,
 } from "./types";
-import type { RawHit, TrackedMessage } from "./opens";
+import { capHits, type RawHit, type TrackedMessage } from "./opens";
 import { mergeReferral, referralDate } from "./checkboxes";
 import { applyPatches, blankTablesPatches, contactPatches, followUpsFromSheet, statusFromSheet, hasDashboardWork, mergePatches, parseSnapshots, shiftTableRows, syncGridEdits, tableBody, type ContactTable, type Patches } from "./workbook";
 import { contactId, latestIso, personName } from "./util";
@@ -241,7 +241,7 @@ export function registerTrackedIn(t: TrackingState, m: TrackedMessage): Tracking
     ...Object.fromEntries(Object.entries(m).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && !v.length))),
     // A stub made from hits has the first hit's time as createdAt: the real one is earlier.
     createdAt: m.createdAt && m.createdAt < prev.createdAt ? m.createdAt : prev.createdAt,
-    hits: hits.sort((a, b) => a.at.localeCompare(b.at)),
+    hits: capHits(hits.sort((a, b) => a.at.localeCompare(b.at))),
     seen: [...new Set([...prev.seen, ...m.seen])],
   };
   return { ...t, messages: t.messages.map((x) => (x.id === m.id ? merged : x)) };
@@ -261,11 +261,11 @@ export function addHitsIn(t: TrackingState, hits: RawHit[]): TrackingState {
     const fresh = add.filter((h) => !have.has(hitKey(h)) && have.add(hitKey(h)));
     if (!fresh.length) return m;
     changed = true;
-    return { ...m, hits: [...m.hits, ...fresh].sort((a, b) => a.at.localeCompare(b.at)) };
+    return { ...m, hits: capHits([...m.hits, ...fresh].sort((a, b) => a.at.localeCompare(b.at))) };
   });
   for (const [id, list] of byId) {
     const uniq = [...new Map(list.map((h) => [hitKey(h), h])).values()].sort((a, b) => a.at.localeCompare(b.at));
-    messages.push({ id, to: [], subject: "", kind: "gmail", source: "gmail", createdAt: uniq[0].at, hits: uniq, seen: [] });
+    messages.push({ id, to: [], subject: "", kind: "gmail", source: "gmail", createdAt: uniq[0].at, hits: capHits(uniq), seen: [] });
     changed = true;
   }
   return changed ? { ...t, messages } : t;

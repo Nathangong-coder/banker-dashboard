@@ -152,10 +152,51 @@ notePixelDraft(px2, { id: "draft1" });
 check("…and updates it in place", useStore.getState().tracking.messages.length === 1 && useStore.getState().tracking.messages[0].subject === "Hi again");
 
 // Opens without automatic sending: a stale queued send must not block reading opens when the server has no Google.
-const { opensOnlySends } = await import("../src/lib/serverSync");
-const q = [{ draftId: "d1" }];
-check("no Google on the server: post an empty queue", opensOnlySends(q, false).length === 0);
-check("Google unknown / connected: post the real queue", opensOnlySends(q, undefined) === q && opensOnlySends(q, true) === q);
+// Reading opens never posts a send queue (so it can't cancel anything), and the route requires one otherwise.
+const { opensOnlyBody } = await import("../src/lib/serverSync");
+const { SyncBody } = await import("../src/lib/serverSyncBody");
+const ob = opensOnlyBody("America/New_York");
+check("opens-only body: no sends list, opensOnly set", !("sends" in ob) && ob.opensOnly === true && ob.opens === true, ob);
+check("opens-only body parses without sends", SyncBody.safeParse({ ...ob, opensAck: [] }).success);
+check("a normal body without sends is refused", !SyncBody.safeParse({ tz: "America/New_York", opens: true }).success);
+check("a normal body with sends parses", SyncBody.safeParse({ tz: "America/New_York", sends: [] }).success);
+const longAcct = "a".repeat(64);
+const longAck = `${await mintPixelId(longAcct, await keyFor(longAcct))}|2026-10-28T12:00:00.000Z`;
+check("opensAck: a 64-char account's id|at fits", longAck.length > 80 && SyncBody.safeParse({ ...ob, opensAck: [longAck] }).success, longAck.length);
+
+// Pixel route throttle + per-email hit cap (a replayed URL can't run up Redis or grow the synced doc).
+{
+  const { hitThrottle, capHits, HITS_FIRST, HITS_LAST } = await import("../src/lib/opens");
+  const allow = hitThrottle(20, 600_000, 3);
+  const t0 = 1_000_000;
+  const first = Array.from({ length: 25 }, (_, i) => allow("a", t0 + i));
+  check("throttle: 20 stored per id per window", first.filter(Boolean).length === 20 && !first[20] && !first[24]);
+  check("throttle: other ids unaffected", allow("b", t0));
+  check("throttle: a new window allows again", allow("a", t0 + 600_000));
+  allow("c", t0); allow("d", t0 + 1); allow("e", t0 + 2);
+  check("throttle: memory stays bounded (oldest id forgotten)", allow("e", t0 + 3));
+  const many = Array.from({ length: 500 }, (_, i): RawHit => ({ id: "z", at: new Date(Date.UTC(2026, 9, 28) + i * 1000).toISOString(), ua: UA_OLK_WIN, ipHash: "i", net: "other" }));
+  const capped = capHits(many);
+  check("capHits: first 50 + last 150", capped.length === HITS_FIRST + HITS_LAST && capped[0] === many[0] && capped[49] === many[49] && capped[50] === many[350] && capped.at(-1) === many[499]);
+  check("capHits: short lists unchanged", capHits(many.slice(0, 10)).length === 10);
+  let ct = addHitsIn({ messages: [], mx: {} }, many.slice(0, 300));
+  check("addHits: a stub is capped", ct.messages[0].hits.length === 200, ct.messages[0].hits.length);
+  ct = addHitsIn(ct, many.slice(300));
+  check("addHits: more hits keep the cap, newest kept", ct.messages[0].hits.length === 200 && ct.messages[0].hits.at(-1)?.at === many[499].at && ct.messages[0].hits[0].at === many[0].at);
+  ct = registerTrackedIn(ct, msg({ id: "z", hits: many.slice(0, 5) }));
+  check("registerTracked: merge keeps the cap", ct.messages[0].hits.length === 200);
+}
+
+// Only your own pixel ids count (someone else's tracked email opened in your Gmail).
+{
+  const { ownPixelId } = await import("../src/lib/pixel");
+  check("ownPixelId: own id", ownPixelId(id, ACCT) && twin.ownPixelId(id, ACCT));
+  check("ownPixelId: another account / a prefix of it / no account", !ownPixelId(id, "acct_OTHER") && !ownPixelId(id, "acct_ABC") && !ownPixelId(id, undefined) && !twin.ownPixelId(id, "acct_ABC") && !twin.ownPixelId(id, undefined));
+  const ext = await import("../extension/tracking.js");
+  const now = Date.now();
+  check("extension key: fresh within a day", ext.keyFresh({ key: "k", keyAt: now - 3600_000 }, now));
+  check("extension key: stale after a day, or with no time (from before keyAt)", !ext.keyFresh({ key: "k", keyAt: now - 25 * 3600_000 }, now) && !ext.keyFresh({ key: "k" }, now) && !ext.keyFresh(undefined, now));
+}
 
 // Email tracking page helpers (lib/trackingView.ts) and the thread reader's pixel stripping (lib/gmail.ts).
 {

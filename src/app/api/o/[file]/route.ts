@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { netOf, type RawHit } from "@/lib/opens";
+import { createHmac } from "node:crypto";
+import { hitThrottle, netOf, type RawHit } from "@/lib/opens";
 import { pixelKeyFor, verifyPixelId } from "@/lib/pixel";
 import { pushHit } from "@/lib/server/opens";
 
@@ -12,6 +12,8 @@ const HEADERS = {
   "Content-Length": String(GIF.length),
   "Cache-Control": "no-store, private",
 };
+/** Per server instance: a replayed pixel URL is answered but recorded at most 20 times per 10 minutes (no Redis cost). */
+const allow = hitThrottle(20, 10 * 60_000);
 const gif = () => new Response(new Uint8Array(GIF), { status: 200, headers: HEADERS });
 
 function safeDecode(s: string) {
@@ -30,7 +32,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ file: string }>
     const id = file.endsWith(".gif") ? file.slice(0, -4) : "";
     if (!secret || !id) return gif();
     const ok = await verifyPixelId(id, (acct) => pixelKeyFor(secret, acct));
-    if (!ok) return gif();
+    if (!ok || !allow(id)) return gif();
     const h = req.headers;
     const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || h.get("x-real-ip") || "";
     const ua = (h.get("user-agent") ?? "").slice(0, 300);
@@ -42,7 +44,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ file: string }>
       ua,
       ...(city ? { city: safeDecode(city).slice(0, 80) } : {}),
       ...(country ? { country: country.slice(0, 8) } : {}),
-      ipHash: createHash("sha256").update(ok.accountId + ip).digest("hex").slice(0, 16),
+      // Keyed with the server secret: the 16-hex value syncs to the dashboard and must not be reversible by trying every IPv4.
+      ipHash: createHmac("sha256", secret).update("ip:" + ok.accountId + ":" + ip).digest("hex").slice(0, 16),
       net: netOf(ip, ua),
     };
     await pushHit(ok.accountId, hit);

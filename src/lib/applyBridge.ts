@@ -15,6 +15,7 @@ import { reviewPending, summarize } from "./jobReviewRun";
 import { coverLetterFrom, letterPdf, templateFirm } from "./coverLetter";
 import { STARTER_TARGETS } from "./banks";
 import { openSummary } from "./opens";
+import { ownPixelId } from "./pixel";
 import { prepareTracking } from "./trackingActions";
 
 /**
@@ -824,7 +825,7 @@ function pixelSent(payload: unknown) {
   const p = (payload ?? {}) as { id?: unknown; to?: unknown; subject?: unknown; at?: unknown; scheduledFor?: unknown; threadId?: unknown };
   const st = useStore.getState();
   const account = st.tracking.account;
-  if (typeof p.id !== "string" || !PIXEL_ID.test(p.id) || !account || !p.id.startsWith(account + ".")) throw new Error("Bad pixel id.");
+  if (typeof p.id !== "string" || !PIXEL_ID.test(p.id) || !ownPixelId(p.id, account)) throw new Error("Bad pixel id.");
   if (!Array.isArray(p.to) || p.to.length > 20) throw new Error("Bad recipients.");
   const to = p.to.filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 200).toLowerCase());
   if (!isoOk(p.at)) throw new Error("Bad time.");
@@ -847,11 +848,14 @@ function pixelSent(payload: unknown) {
 function pixelSeen(payload: unknown) {
   const items = ((payload ?? {}) as { items?: unknown }).items;
   if (!Array.isArray(items)) throw new Error("Bad list.");
-  const add = useStore.getState().addSeen;
+  const st = useStore.getState();
+  const account = st.tracking.account ?? st.settings.server?.id;
+  const add = st.addSeen;
   let n = 0;
   for (const it of items.slice(0, 200)) {
     const x = it as { id?: unknown; at?: unknown };
-    if (typeof x?.id === "string" && PIXEL_ID.test(x.id) && isoOk(x.at)) {
+    // Only this account's ids: someone else's tracked email you opened must not become a row here.
+    if (typeof x?.id === "string" && PIXEL_ID.test(x.id) && ownPixelId(x.id, account) && isoOk(x.at)) {
       add(x.id, x.at);
       n++;
     }

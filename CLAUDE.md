@@ -770,10 +770,15 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `<base>/api/o/<acct>.<nonce>.<mac>.gif` (`lib/pixel.ts`: HMAC id keyed per account via `pixelKeyFor(SERVER_ENC_KEY)`; no PII
   in the URL). `buildMime` adds it (`upsertDraft`, so server sends via `run-send` carry it too); `trackingActions.ts`
   registers each message (`TrackedMessage`, `state.tracking.messages`).
-- **Server:** `api/o/[file]` answers the gif and records a hit (time, UA, Vercel city/country, `ipHash` = sha256, never the raw
-  IP, network class `netOf`) in a per-account Redis list, 30-day TTL, capped at 2000. `api/server/pixel` mints a key/base for the
+- **Server:** `api/o/[file]` answers the gif and records a hit (time, UA, Vercel city/country, `ipHash` = HMAC keyed with
+  `SERVER_ENC_KEY`, never the raw IP, network class `netOf`) in a per-account Redis list, 30-day TTL, capped at 2000. A replayed
+  URL is still answered but recorded ≤ 20 times per id per 10 min (`opens.ts#hitThrottle`, in memory per instance, no Redis);
+  the dashboard keeps ≤ 200 hits per email (`capHits`: first 50 + last 150). `api/server/pixel` mints a key/base for the
   extension. The sync response returns hits only when the body sends `opens: true` (R4: no Redis cost for non-users); the
-  dashboard acks (`opensAck`) and hits move into its own data. Last hit never lost: `addHits` for an unknown id makes a stub
+  dashboard acks (`opensAck`) and hits move into its own data. Further pages (and the no-automatic-sending path) post
+  `opensOnly: true` (`serverSync.ts#opensOnlyBody`, no `sends` list): the route only acks / reads hits. Without
+  `opensOnly`, `sends` is required (`lib/serverSyncBody.ts`). Ids not starting with your account id are ignored by the
+  bridge and the extension (`pixel.ts#ownPixelId`); the extension mints only with a key the dashboard confirmed ≤ 24 h ago. Last hit never lost: `addHits` for an unknown id makes a stub
   `TrackedMessage` that a later registration fills.
 - **Labels (`lib/opens.ts`, pure, `npm run check:opens`):** `person` / `scanner` / `apple-privacy` / `you`, plus a "possibly
   forwarded" hint (same message later loaded from a clearly different place). Every number is "at least": Outlook blocks images,

@@ -180,3 +180,34 @@ export function readingHeatmap(ms_: TrackedMessage[], mx: Mx, tzOf: (m: TrackedM
   }
   return heat;
 }
+
+/** Hits kept per tracked email: the first ones (when it was opened) and the latest ones (still being read). */
+export const HITS_FIRST = 50;
+export const HITS_LAST = 150;
+/** Caps a time-sorted hit list (a replayed pixel URL can't grow the synced doc without limit). */
+export function capHits(hits: RawHit[]): RawHit[] {
+  if (hits.length <= HITS_FIRST + HITS_LAST) return hits;
+  return [...hits.slice(0, HITS_FIRST), ...hits.slice(-HITS_LAST)];
+}
+
+/**
+ * In-memory limiter for the pixel route: at most `limit` stored hits per id per window, per server instance. Costs no
+ * Redis; a replayed URL still gets the same GIF, it just isn't recorded again. `now` is for checks.
+ */
+export function hitThrottle(limit = 20, windowMs = 10 * 60_000, maxIds = 5000) {
+  const seen = new Map<string, { start: number; n: number }>();
+  return (id: string, now = Date.now()): boolean => {
+    const cur = seen.get(id);
+    if (!cur || now - cur.start >= windowMs) {
+      if (!cur && seen.size >= maxIds) {
+        for (const [k, v] of seen) if (now - v.start >= windowMs) seen.delete(k);
+        if (seen.size >= maxIds) seen.delete(seen.keys().next().value as string);
+      }
+      seen.set(id, { start: now, n: 1 });
+      return true;
+    }
+    if (cur.n >= limit) return false;
+    cur.n++;
+    return true;
+  };
+}

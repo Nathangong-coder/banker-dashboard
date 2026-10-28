@@ -52,7 +52,7 @@ export function Explorer() {
         </div>
         {c.tracked > 0 && (
           <div className="num text-[10.5px] text-ink-2" title={`Open rate: ${c.opened} of ${c.tracked} tracked first emails seen opened (at least; some mail apps block images)`}>
-            opened {Math.round((c.opened / c.tracked) * 100)}% · {c.tracked}
+            opened ≥ {Math.round((c.opened / c.tracked) * 100)}% · {c.tracked}
           </div>
         )}
       </div>
@@ -65,7 +65,7 @@ export function Explorer() {
     <Card>
       <CardHeader
         title="What works for whom"
-        sub="Reply rate for everything you've sent, compared by one thing and split by the kind of banker. Darker = more replies; outlined = best in that row (5+ sent). “Opened” = open rate of first emails sent with open tracking on."
+        sub="Reply rate for everything you've sent, compared by one thing and split by the kind of banker. Darker = more replies; outlined = best in that row (5+ sent). “Opened ≥” = open rate (at least) of first emails sent with open tracking on."
         right={
           <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
             Compare

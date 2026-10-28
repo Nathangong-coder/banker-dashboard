@@ -127,9 +127,8 @@ const wantsOpens = (st: ReturnType<typeof useStore.getState>) => !!st.settings.t
 
 /** One sync call that also acks the opens stored last time; stores the opens it returns (acked next call). */
 async function callWithOpens<T extends OpensWire>(body: Record<string, unknown>): Promise<T> {
-  const r = await call<T & { email?: string | null }>("/api/server/sync", { ...body, opensAck: pendingOpensAck });
+  const r = await call<T>("/api/server/sync", { ...body, opensAck: pendingOpensAck });
   pendingOpensAck = [];
-  if (r.email !== undefined) serverGoogle = !!r.email;
   if (r.opens?.length) {
     useStore.getState().addHits(r.opens);
     pendingOpensAck = r.opens.map((h) => `${h.id}|${h.at}`);
@@ -137,9 +136,18 @@ async function callWithOpens<T extends OpensWire>(body: Record<string, unknown>)
   return r;
 }
 
-/** More opens waiting on the server: keep reading (each call acks the previous page). */
-async function drainOpens(r: OpensWire, body: Record<string, unknown>) {
-  for (let i = 0; r.moreOpens && i < MAX_OPEN_PAGES; i++) r = await callWithOpens<OpensWire>(body);
+/**
+ * The body for reading opens only. The route then skips the account save, the send queue, digests and Gmail tracking;
+ * there is no `sends` list at all, so a page of opens can never cancel a queued send.
+ */
+export function opensOnlyBody(tz: string) {
+  return { tz, opens: true, opensOnly: true } as const;
+}
+const localTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
+
+/** More opens waiting on the server: keep reading opens-only pages (each call acks the previous page). */
+async function drainOpens(r: OpensWire) {
+  for (let i = 0; r.moreOpens && i < MAX_OPEN_PAGES; i++) r = await callWithOpens<OpensWire>(opensOnlyBody(localTz()));
 }
 
 /** After a sync: sent dates for tracked emails, and Google-or-not for new recipient domains (never fails the sync). */
@@ -152,36 +160,10 @@ async function trackingUpkeep() {
   }
 }
 
-/** Does the server account have a Google connection? From the last sync answer (`email`); undefined = not asked yet. */
-let serverGoogle: boolean | undefined;
-
-/**
- * The queue to post when only reading opens. Without a Google connection on the server nothing can be queued there,
- * so an empty list cancels nothing, and a stale `contact.serverSend` must not make the route refuse the call ("Connect
- * Gmail for automatic sending first"), which would stop opens from ever arriving. Unknown → the real queue.
- */
-export function opensOnlySends<T>(queue: T[], google: boolean | undefined): T[] {
-  return google === false ? [] : queue;
-}
-const NO_GOOGLE = /Connect Gmail for automatic sending/i;
-
-/**
- * Open tracking without automatic sending (no Google email recorded here): read the pixel hits only, through the same
- * sync route with nothing else changed (whatsapp / digests left out = left as is).
- */
+/** Open tracking without automatic sending (no Google email recorded here): read the pixel hits only. */
 async function syncOpensOnly() {
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
-  const body = (google: boolean | undefined) => ({ tz, opens: true, sends: opensOnlySends(queuedSends(useStore.getState().contacts), google), ack: [] });
-  let r: OpensWire;
-  try {
-    r = await callWithOpens<OpensWire>(body(serverGoogle));
-  } catch (e) {
-    // The server says there's no Google connection: nothing can be queued there, so retry with an empty queue.
-    if (!NO_GOOGLE.test((e as Error).message)) throw e;
-    serverGoogle = false;
-    r = await callWithOpens<OpensWire>(body(false));
-  }
-  await drainOpens(r, body(serverGoogle));
+  const r = await callWithOpens<OpensWire>(opensOnlyBody(localTz()));
+  await drainOpens(r);
   await trackingUpkeep();
 }
 
@@ -245,7 +227,7 @@ export function syncServer(): Promise<ServerStatus | null> {
         r = await callWithOpens({ ...body, trackAck: [], sends: queuedSends(after), ack });
       }
       if (opens) {
-        await drainOpens(r, { ...body, trackAck: [], sends: queuedSends(useStore.getState().contacts) });
+        await drainOpens(r);
         await trackingUpkeep();
       }
       const status: ServerStatus = { email: r.email, whatsapp: r.whatsapp, calendar: r.calendar, gmailRead: r.gmailRead, docs: r.docs, lastDigestDay: r.lastDigestDay, lastDigestError: r.lastDigestError, syncedAt: new Date().toISOString(), error: problems.length ? problems.join("; ") : undefined };

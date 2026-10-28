@@ -48,3 +48,6 @@ export const pixelUrl = (base: string, id: string) => `${base}/api/o/${id}.gif`;
 
 /** Finds a pixel in HTML or in a Gmail image-proxy URL (`…#https://site/api/o/<id>.gif`); group 1 is the id. */
 export const PIXEL_PATH_RE = /\/api\/o\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]{12}\.[A-Za-z0-9_-]{11})\.gif/;
+
+/** Is this pixel id one of this account's? (Another Coverage user's tracked email opened in your Gmail isn't.) */
+export const ownPixelId = (id: string, accountId: string | undefined) => !!accountId && id.startsWith(accountId + ".");
