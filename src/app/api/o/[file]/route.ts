@@ -10,8 +10,7 @@ const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAE
 const HEADERS = {
   "Content-Type": "image/gif",
   "Content-Length": String(GIF.length),
-  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-  Pragma: "no-cache",
+  "Cache-Control": "no-store, private",
 };
 const gif = () => new Response(new Uint8Array(GIF), { status: 200, headers: HEADERS });
 

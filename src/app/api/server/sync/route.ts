@@ -47,6 +47,8 @@ const Body = z.object({
   /** Every send the dashboard wants queued. Queued sends missing from this list are cancelled. */
   sends: z.array(z.object({ draftId: z.string().min(5).max(200), contactId: z.string().max(200), name: z.string().max(200), step: z.number().int().min(0).max(10), sendAt: z.string().datetime() })).max(400),
   /** Pixel hits (`id|at`) the dashboard has stored; dropped from the server. */
+  /** Read pixel hits only when tracking is on (saves a Redis call per sync). */
+  opens: z.boolean().optional(),
   opensAck: z.array(z.string().max(80)).max(2000).default([]),
   /** Finished sends the dashboard has applied (removed from the server). */
   ack: z.array(z.string().max(200)).max(400).default([]),
@@ -97,7 +99,7 @@ export async function POST(req: Request) {
     }
 
     await ackHits(a.id, b.opensAck);
-    const { hits: opens, more: moreOpens } = await readHits(a.id, 500);
+    const { hits: opens, more: moreOpens } = b.opens ? await readHits(a.id, 500) : { hits: [], more: false };
 
     const after = await getSends(a.id);
     const [lastDigestDay, lastDigestError] = await Promise.all([db().get<string>(DIGEST_DAY(a.id)), db().get<string>(DIGEST_ERR(a.id))]);

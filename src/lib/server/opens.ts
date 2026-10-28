@@ -22,18 +22,16 @@ export async function readHits(acct: string, max: number): Promise<{ hits: RawHi
   return { hits: rows.slice(0, max), more: rows.length > max };
 }
 
-/** Drops hits the dashboard has stored (`id|at`): rewrite the list without them. */
-export async function ackHits(acct: string, keys: string[]) {
+/**
+ * Drops hits the dashboard has stored (`id|at`). They are always the oldest ones it was handed, so trim from the head
+ * (one LTRIM): a hit pushed meanwhile lands at the tail and is never lost. `afterRead` is for tests only.
+ */
+export async function ackHits(acct: string, keys: string[], afterRead?: () => Promise<void>) {
   if (!keys.length) return;
   const gone = new Set(keys);
-  const rows = ((await db().lrange(OPENS(acct), 0, -1)) ?? []) as RawHit[];
-  const keep = rows.filter((h) => !gone.has(hitKey(h)));
-  if (keep.length === rows.length) return;
-  const p = db().pipeline();
-  p.del(OPENS(acct));
-  if (keep.length) {
-    p.rpush(OPENS(acct), ...keep);
-    p.expire(OPENS(acct), TTL);
-  }
-  await p.exec();
+  const rows = ((await db().lrange(OPENS(acct), 0, keys.length - 1)) ?? []) as RawHit[];
+  let n = 0;
+  while (n < rows.length && gone.has(hitKey(rows[n]))) n++;
+  await afterRead?.();
+  if (n) await db().ltrim(OPENS(acct), n, -1);
 }
