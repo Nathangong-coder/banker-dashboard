@@ -38,6 +38,7 @@ import {
 } from "./sites/apply.js";
 import { captureLinkedInJob, isLinkedInWall, linkedinJobsUrl, readLinkedInJobs } from "./sites/linkedin.js";
 import { runFill } from "./agent/agent.js";
+import { GMAIL_ORIGIN, TRACKING_TYPES, flushOutbox, fromGmail, syncPixelKey } from "./tracking.js";
 import { captureHandshakeJob, clickApplyExternally, handshakeJobUrl, handshakePage, isHandshake, isHandshakeWall, readHandshakeJobs } from "./sites/handshake.js";
 
 const progress = (tabId, text) => chrome.runtime.sendMessage({ type: "autofill-progress", tabId, text }).catch(() => {});
@@ -1011,6 +1012,7 @@ async function fromDashboard(msg, sender) {
   const p = msg.payload ?? {};
   if (msg.type === "vaultSync") {
     syncAiKeys().catch(() => {});
+    syncPixelKey(askDashboard).then(() => flushOutbox(askDashboard)).catch(() => {});
     return syncVault();
   }
   if (msg.type === "fillJobs") return fillJobs({ jobs: cleanJobs(p.jobs), watch: p.watch === true });
@@ -1052,6 +1054,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   };
   // The dashboard bridge (a content script on the dashboard's own pages only).
   if (sender.tab && msg?.from === "dashboard") return reply(fromDashboard(msg, sender));
+  // Open tracking, from the Gmail content script: top frame of mail.google.com only (see tracking.js).
+  if (sender.tab && TRACKING_TYPES.has(msg?.type) && sender.frameId === 0 && sender.url && new URL(sender.url).origin === GMAIL_ORIGIN) return reply(fromGmail(msg, askDashboard));
   // Everything else: only the popup / options (extension pages, not a content script in some tab).
   if (sender.tab || !sender.url?.startsWith(chrome.runtime.getURL(""))) return false;
   if (msg?.type === "autofill" && Number.isInteger(msg.tabId)) return reply(autofill(msg.tabId, msg.confirmed === true));

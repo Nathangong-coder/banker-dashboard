@@ -10,7 +10,7 @@
 // The dashboard side is src/lib/applyBridge.ts. Messages are only exchanged with this same window.
 (() => {
   const CHANNEL = "coverage-ext";
-  const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault", "agentBrief", "pickOption", "accountInfo", "accountCreated", "verifyLink", "learnAnswer", "agentRun", "aiKeys"]);
+  const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault", "agentBrief", "pickOption", "accountInfo", "accountCreated", "verifyLink", "learnAnswer", "agentRun", "aiKeys", "pixelKey", "pixelSent", "pixelSeen", "pixelStatus"]);
   const COMMANDS = new Set(["fillJobs", "focusJob", "linkedinJobs", "handshakeJobs"]);
   const pending = new Map();
   // After the extension is reloaded or updated, this copy (already in the open tab) can't reach it any more: every
