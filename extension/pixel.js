@@ -21,3 +21,5 @@ export async function mintPixelId(accountId, key) {
 export const pixelUrl = (base, id) => `${base}/api/o/${id}.gif`;
 
 export const PIXEL_PATH_RE = /\/api\/o\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]{12}\.[A-Za-z0-9_-]{11})\.gif/;
+
+export const ownPixelId = (id, accountId) => !!accountId && typeof id === "string" && id.startsWith(accountId + ".");

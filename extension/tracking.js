@@ -3,7 +3,7 @@
 // - Sends / "seen" times from Gmail wait in an outbox in chrome.storage.local until a dashboard tab can take them.
 // No state lives in worker globals (the worker is stopped at will): everything is in chrome.storage.local.
 // `ask` is background.js#askDashboard, passed in so this file stays free of the rest of the worker.
-import { mintPixelId, pixelUrl, PIXEL_PATH_RE } from "./pixel.js";
+import { mintPixelId, ownPixelId, pixelUrl, PIXEL_PATH_RE } from "./pixel.js";
 
 export const GMAIL_ORIGIN = "https://mail.google.com";
 export const TRACKING_TYPES = new Set(["pixelMint", "pixelSent", "pixelSeen", "pixelStatus", "pixelIndex"]);
@@ -26,11 +26,19 @@ const locked = (fn) => {
 export async function syncPixelKey(ask) {
   const k = await ask("pixelKey", {});
   if (k && typeof k.key === "string" && typeof k.base === "string" && typeof k.accountId === "string" && /^https?:\/\//.test(k.base)) {
-    await chrome.storage.local.set({ pixel: { key: k.key.slice(0, 200), base: k.base.slice(0, 300).replace(/\/+$/, ""), accountId: k.accountId.slice(0, 60) } });
+    await chrome.storage.local.set({ pixel: { key: k.key.slice(0, 200), base: k.base.slice(0, 300).replace(/\/+$/, ""), accountId: k.accountId.slice(0, 60), keyAt: Date.now() } });
   } else {
     await chrome.storage.local.remove("pixel");
   }
 }
+
+/**
+ * A key the dashboard hasn't re-confirmed for a day isn't used: the dashboard may have turned tracking off since (the
+ * key is removed on the next hello, but Gmail may be used for a day without one). `now` is for checks.
+ */
+const KEY_MAX_AGE_MS = 24 * 3600_000;
+export const keyFresh = (pixel, now = Date.now()) =>
+  !!pixel && typeof pixel.keyAt === "number" && now - pixel.keyAt >= 0 && now - pixel.keyAt < KEY_MAX_AGE_MS;
 
 const push = (arr, item) => [...(Array.isArray(arr) ? arr : []), item].slice(-OUTBOX_MAX);
 
@@ -93,7 +101,7 @@ export async function fromGmail(msg, ask) {
   // still run the script until they're reloaded: no new ids, no new sends.
   const on = msg.type === "pixelMint" || msg.type === "pixelSent" ? await gmailTrackOn() : true;
   if (msg.type === "pixelMint") {
-    if (!pixel || !on) return { off: true };
+    if (!keyFresh(pixel) || !on) return { off: true };
     const id = await mintPixelId(pixel.accountId, pixel.key);
     return { url: pixelUrl(pixel.base, id), id };
   }
@@ -101,6 +109,8 @@ export async function fromGmail(msg, ask) {
     if (!on) return false;
     const to = (Array.isArray(msg.to) ? msg.to : []).filter((x) => typeof x === "string").map((x) => x.slice(0, 200));
     if (!ID_RE.test(String(msg.id)) || to.length > 20 || !iso(msg.at)) throw new Error("Bad message.");
+    // Not this account's id (another Coverage user's image): nothing to record.
+    if (pixel && !ownPixelId(msg.id, pixel.accountId)) return false;
     const item = { id: msg.id, to, subject: String(msg.subject ?? "").slice(0, 300), at: msg.at };
     if (iso(msg.scheduledFor)) item.scheduledFor = msg.scheduledFor;
     if (typeof msg.threadId === "string") item.threadId = msg.threadId.slice(0, 80);
@@ -114,7 +124,11 @@ export async function fromGmail(msg, ask) {
     return true;
   }
   if (msg.type === "pixelSeen") {
-    const items = (Array.isArray(msg.items) ? msg.items : []).slice(0, 200).filter((x) => x && ID_RE.test(String(x.id)) && iso(x.at)).map((x) => ({ id: x.id, at: x.at }));
+    // Views of someone else's tracked email (another Coverage user's image) are dropped when the account is known.
+    const items = (Array.isArray(msg.items) ? msg.items : [])
+      .slice(0, 200)
+      .filter((x) => x && ID_RE.test(String(x.id)) && iso(x.at) && (!pixel || ownPixelId(x.id, pixel.accountId)))
+      .map((x) => ({ id: x.id, at: x.at }));
     if (!items.length) return true;
     await locked(async () => {
       const { pixelSeenOutbox = [] } = await chrome.storage.local.get("pixelSeenOutbox");

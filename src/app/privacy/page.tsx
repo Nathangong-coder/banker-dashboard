@@ -237,13 +237,13 @@ export default function PrivacyPage() {
         server. When the person you emailed (or their mail program or security filter) loads that image, we record that it happened. This is{" "}
         <b>data about the people you email</b>, so please use it only for your own recruiting. Per open we keep: the time, which mail app it looks like
         (Outlook, Gmail, Apple Mail, other; phone or computer) and the browser / mail app identifier string their device sends (up to 300 characters), the approximate city and country our host derives from the connection, and a{" "}
-        <b>one-way hash</b> of the connection address (never the address itself) used only to tell whether two opens came from the same place. We
+        <b>one-way hash</b> of the connection address, keyed with a secret only our server has (never the address itself) used only to tell whether two opens came from the same place. We
         label each open (a person, a security scanner, Apple&apos;s privacy proxy, or you) as a best guess.
       </p>
       <p className="mt-3">
         <b>Where it&apos;s kept.</b> The server holds opens only until your signed-in dashboard picks them up, and at most 30 days after the latest open; then they live in your
-        own {SITE.name} data like everything else you save (and are deleted with it). The image address is a random ID signed with a key only the
-        server has; it contains no name or email address. Emails you view inside {SITE.name} are shown without loading remote images, and your own views
+        own {SITE.name} data like everything else you save (and are deleted with it). The image address is a random ID signed with a key tied to your
+        account (your dashboard and, if you use it, the extension hold that key to make new IDs); it contains no name or email address. Emails you view inside {SITE.name} are shown without loading remote images, and your own views
         are not counted. <b>Turning Track opens off</b> stops new tracking images being added; emails already sent keep the image they carry, and
         late opens on them are still collected for your dashboard while it holds tracked emails. In the extension&apos;s test build you can also track
         emails sent from Gmail itself (see the{" "}

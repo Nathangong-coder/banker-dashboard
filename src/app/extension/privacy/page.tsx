@@ -149,8 +149,10 @@ export default function ExtensionPrivacyPage() {
         <H2>5a. Gmail open tracking (test build only, off by default)</H2>
         <p>
           Not in the store version. If you turn on <b>Track opens of emails I send from Gmail</b> in the extension&apos;s settings (this asks for access to{" "}
-          <code>mail.google.com</code>), the extension reads Gmail&apos;s <b>compose window and your Sent list only</b>, to add {SITE.name}&apos;s tracking
-          image to the email you are sending and to show a check mark next to tracked and opened emails. It does not read your inbox or other
+          <code>mail.google.com</code>), the extension reads Gmail&apos;s <b>compose window and your Sent list</b>, to add {SITE.name}&apos;s tracking
+          image to the email you are sending and to show a check mark next to tracked and opened emails. In emails you open in Gmail it
+          also checks the <b>addresses of images</b> for {SITE.name} tracking images, so your own views of your tracked emails aren&apos;t counted
+          as opens (images from anyone else&apos;s {SITE.name} account are ignored). It does not read the text of your inbox or other
           messages. It sends your {SITE.name} dashboard the recipients, subject and a random tracking ID of each tracked email, and which of your own
           views of it to ignore; nothing goes to any other site. What a tracking image records about the recipient is described in the{" "}
           <Link href="/privacy" className="text-navy underline">
