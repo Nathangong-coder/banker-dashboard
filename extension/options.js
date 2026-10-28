@@ -131,7 +131,7 @@ function siteToggle(box, status, origin, flag, button, after) {
         if (after) after(ok);
       });
     } else {
-      chrome.storage.local.set({ [flag]: false }).then(() => after?.(false));
+      chrome.storage.local.set({ [flag]: false }).then(() => after?.(false, true));
       chrome.permissions.remove({ origins: [origin] }).catch(() => {});
       status.textContent = "Off.";
     }
@@ -142,11 +142,12 @@ siteToggle($("liOn"), $("liStatus"), "https://www.linkedin.com/*", "linkedinAgen
 siteToggle($("hsOn"), $("hsStatus"), "https://*.joinhandshake.com/*", "handshakeAgent", "Search Handshake");
 siteToggle($("anySiteOn"), $("agentStatus"), "<all_urls>", "anySite", "Fill selected");
 // Gmail open tracking: the worker registers / unregisters sites/gmail.js (extension/tracking.js#ensureGmailScript).
-siteToggle($("gmOn"), $("gmStatus"), "https://mail.google.com/*", "gmailTrack", "", (ok) => {
+siteToggle($("gmOn"), $("gmStatus"), "https://mail.google.com/*", "gmailTrack", "", (ok, turnedOff) => {
   chrome.runtime.sendMessage({ type: "gmailScript" }).then(
     (r) => {
       if (!r?.ok) $("gmStatus").textContent = `Couldn't turn it ${ok ? "on" : "off"}: ${r?.error ?? "no answer"}`;
       else if (r.result.on) $("gmStatus").textContent = "On. Reload your Gmail tab; emails you send from it now get the tracking image.";
+      else if (turnedOff) $("gmStatus").textContent = "Off: new emails aren't tracked anymore. Reload any open Gmail tabs to remove the ✓ marks.";
     },
     (e) => ($("gmStatus").textContent = e.message),
   );

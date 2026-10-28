@@ -89,12 +89,16 @@ export async function flushOutbox(ask) {
 /** Messages from the Gmail content script. `ask` talks to the dashboard tab; sender is checked by the caller. */
 export async function fromGmail(msg, ask) {
   const { pixel } = await chrome.storage.local.get("pixel");
+  // Turning the Options switch off (or removing the Gmail access) stops tracking at once, even in Gmail tabs that
+  // still run the script until they're reloaded: no new ids, no new sends.
+  const on = msg.type === "pixelMint" || msg.type === "pixelSent" ? await gmailTrackOn() : true;
   if (msg.type === "pixelMint") {
-    if (!pixel) return { off: true };
+    if (!pixel || !on) return { off: true };
     const id = await mintPixelId(pixel.accountId, pixel.key);
     return { url: pixelUrl(pixel.base, id), id };
   }
   if (msg.type === "pixelSent") {
+    if (!on) return false;
     const to = (Array.isArray(msg.to) ? msg.to : []).filter((x) => typeof x === "string").map((x) => x.slice(0, 200));
     if (!ID_RE.test(String(msg.id)) || to.length > 20 || !iso(msg.at)) throw new Error("Bad message.");
     const item = { id: msg.id, to, subject: String(msg.subject ?? "").slice(0, 300), at: msg.at };
@@ -152,18 +156,31 @@ export { PIXEL_PATH_RE };
 const GMAIL_MATCH = "https://mail.google.com/*";
 const GMAIL_SCRIPT_ID = "gmail-track";
 
-/** Register sites/gmail.js when allowed and turned on, otherwise make sure it isn't registered. Returns { on }. */
-export async function ensureGmailScript() {
+async function gmailTrackOn() {
   const allowed = await chrome.permissions.contains({ origins: [GMAIL_MATCH] }).catch(() => false);
   const { gmailTrack } = await chrome.storage.local.get("gmailTrack");
-  const on = allowed && gmailTrack === true;
+  return allowed && gmailTrack === true;
+}
+
+/** Register sites/gmail.js when allowed and turned on, otherwise make sure it isn't registered. Returns { on }. */
+export async function ensureGmailScript() {
+  const on = await gmailTrackOn();
   const registered = (await chrome.scripting.getRegisteredContentScripts({ ids: [GMAIL_SCRIPT_ID] }).catch(() => [])).length > 0;
   if (on && !registered) {
-    await chrome.scripting.registerContentScripts([
-      { id: GMAIL_SCRIPT_ID, matches: [GMAIL_MATCH], js: ["sites/gmail.js"], runAt: "document_idle", persistAcrossSessions: true },
-    ]);
+    try {
+      await chrome.scripting.registerContentScripts([
+        { id: GMAIL_SCRIPT_ID, matches: [GMAIL_MATCH], js: ["sites/gmail.js"], runAt: "document_idle", persistAcrossSessions: true },
+      ]);
+    } catch (e) {
+      // Two calls at once (onAdded + the Options message): "Duplicate script ID" just means the other one won.
+      const now = await chrome.scripting.getRegisteredContentScripts({ ids: [GMAIL_SCRIPT_ID] }).catch(() => []);
+      if (!now.length) throw e;
+    }
   } else if (!on && registered) {
-    await chrome.scripting.unregisterContentScripts({ ids: [GMAIL_SCRIPT_ID] });
+    await chrome.scripting.unregisterContentScripts({ ids: [GMAIL_SCRIPT_ID] }).catch(async (e) => {
+      const now = await chrome.scripting.getRegisteredContentScripts({ ids: [GMAIL_SCRIPT_ID] }).catch(() => []);
+      if (now.length) throw e;
+    });
   }
   return { on };
 }

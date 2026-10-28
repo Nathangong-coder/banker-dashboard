@@ -50,19 +50,48 @@
     });
   };
 
+  // The Options switch, read live: turned off, this tab stops adding images at once (the worker refuses too).
+  let enabled = true;
+  try {
+    chrome.storage.local.get("gmailTrack").then((v) => (enabled = v.gmailTrack === true), () => {});
+    chrome.storage.onChanged.addListener((c, area) => {
+      if (area === "local" && c.gmailTrack) enabled = c.gmailTrack.newValue === true;
+    });
+  } catch {
+    // storage not reachable from this page: the worker's own check still applies
+  }
+
   /* ---- 1. one pixel id per compose body, minted when it opens ---- */
-  /** @type {WeakMap<Element, {id?: string, url?: string, off?: boolean, pending?: boolean, sentAt?: number}>} */
+  // One id per compose body for as long as that body is on the page (never re-minted on a timer).
+  /** @type {WeakMap<Element, {id?: string, url?: string, off?: boolean, pending?: boolean, pressedAt?: number}>} */
   const composes = new WeakMap();
+  // Ids this page already reported as sent. A compose that comes back with one of them (Undo send) reuses it.
+  const reported = new Set();
+
+  /** A Coverage pixel already inside a compose body (Undo send brings the sent body back): [id, src] or null. */
+  function ownPixelIn(body) {
+    for (const img of body.querySelectorAll("img")) {
+      const id = pixelIdOf(img);
+      if (id && reported.has(id)) return [id, img.getAttribute("src")];
+    }
+    return null;
+  }
 
   function mintFor(body) {
     if (composes.has(body)) return;
+    const again = ownPixelIn(body);
+    if (again) {
+      // Undo send: the same email is back. Keep its id; nothing is reported until it really goes out again.
+      composes.set(body, { id: again[0], url: again[1] });
+      return;
+    }
     const st = { pending: true };
     composes.set(body, st);
     ask("pixelMint").then(
       (r) => {
         st.pending = false;
         if (r?.off) st.off = true;
-        else if (r && typeof r.id === "string" && typeof r.url === "string") Object.assign(st, { id: r.id, url: r.url });
+        else if (r && typeof r.id === "string" && typeof r.url === "string" && !st.id) Object.assign(st, { id: r.id, url: r.url });
       },
       () => composes.delete(body), // try again on the next change around it
     );
@@ -97,10 +126,51 @@
     return PIXEL_PATH_RE.exec(img.getAttribute("src") || "")?.[1] ?? null;
   }
 
+  // Sends waiting to be confirmed: Gmail removes the compose body once it really sent (or scheduled) the email.
+  // A body still there after the window means Gmail didn't send it ("Send without a subject?" → Cancel, an address it
+  // didn't recognize…): nothing is reported. Any press while one waits (the dialog's OK) extends the window.
+  const WAIT_MS = 10_000;
+  const MAX_WAIT_MS = 120_000;
+  const waiting = new Map(); // body → { msg, pressedAt, deadline }
+  let waitTimer = 0;
+
+  function extendWaits() {
+    const now = Date.now();
+    for (const w of waiting.values()) w.deadline = Math.min(Math.max(w.deadline, now + WAIT_MS), w.pressedAt + MAX_WAIT_MS);
+  }
+
+  function checkWaits() {
+    const now = Date.now();
+    for (const [body, w] of waiting) {
+      if (!body.isConnected) {
+        waiting.delete(body);
+        // Posting the same id again (a re-send after Undo send) updates that one record on the dashboard.
+        ask("pixelSent", w.msg).catch(() => {});
+        if (!reported.has(w.msg.id)) {
+          // The image loaded from your own browser when it went in: tell the dashboard that hit is you.
+          lastSeen.set(w.msg.id, now);
+          ask("pixelSeen", { items: [{ id: w.msg.id, at: w.msg.at }] }).catch(() => {});
+        }
+        reported.add(w.msg.id);
+      } else if (now > w.deadline) {
+        waiting.delete(body);
+      }
+    }
+    if (!waiting.size) {
+      clearInterval(waitTimer);
+      waitTimer = 0;
+    }
+  }
+
+  /** Runs synchronously inside Gmail's own Send press and never stops or delays it: it only adds the image. */
   function onSend(body, scheduledFor) {
     const st = composes.get(body);
-    if (!st?.id || !st.url) return; // tracking off (no key from the dashboard yet) or the id isn't back yet
-    if (st.sentAt && Date.now() - st.sentAt < 3000) return; // mouseup + click of the same press
+    if (!st || !enabled) return;
+    // A body that came back with an already-sent id (Undo send) keeps that id even if a fresh one was minted.
+    const again = ownPixelIn(body);
+    if (again) Object.assign(st, { id: again[0], url: again[1] });
+    if (!st.id || !st.url) return; // tracking off (no key from the dashboard yet) or the id isn't back yet
+    if (st.pressedAt && Date.now() - st.pressedAt < 3000) return; // mouseup + click of the same press
     const root = composeRoot(body);
     if (!root) return;
     const to = recipientsOf(root);
@@ -120,24 +190,15 @@
       img.setAttribute("style", "width:1px;height:1px;border:0;");
       body.appendChild(img);
     }
-    st.sentAt = Date.now();
-    const at = new Date().toISOString();
+    st.pressedAt = Date.now();
     const inPopout = Boolean(body.closest(SEL.dialog));
     const threadId = inPopout ? undefined : document.querySelector(SEL.threadId)?.getAttribute("data-legacy-thread-id") || undefined;
-    const msg = { id: st.id, to, subject: subjectOf(root), at };
+    const msg = { id: st.id, to, subject: subjectOf(root), at: new Date().toISOString() };
     if (scheduledFor) msg.scheduledFor = scheduledFor;
     if (threadId) msg.threadId = threadId;
-    ask("pixelSent", msg).catch(() => {});
-    // The image you just put in loads from your own browser: tell the dashboard that hit is you.
-    lastSeen.set(st.id, Date.now());
-    ask("pixelSeen", { items: [{ id: st.id, at }] }).catch(() => {});
-    // An inline reply box can stay on the page: give it a fresh id for a next email.
-    setTimeout(() => {
-      if (body.isConnected) {
-        composes.delete(body);
-        mintFor(body);
-      }
-    }, 5000);
+    // Read now (the compose is gone once it's sent), reported only when Gmail has removed the body.
+    waiting.set(body, { msg, pressedAt: st.pressedAt, deadline: st.pressedAt + WAIT_MS });
+    if (!waitTimer) waitTimer = setInterval(checkWaits, 300);
   }
 
   /** "Tomorrow morning  Oct 29, 8:00 AM" / the picker's date + time fields → ISO, or undefined. */
@@ -157,6 +218,7 @@
   function onPress(e) {
     const t = e.target instanceof Element ? e.target : null;
     if (!t || !alive()) return;
+    if (waiting.size) extendWaits();
     const send = t.closest(SEL.send);
     if (send) {
       const body = bodyIn(composeRoot(send));
