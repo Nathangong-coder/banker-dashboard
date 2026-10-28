@@ -33,6 +33,7 @@
     "https://*.workable.com/*",
     "https://www.linkedin.com/*",
     "https://*.joinhandshake.com/*",
+    "https://mail.google.com/*",
     "<all_urls>"
   ],
   "background": {

@@ -1,4 +1,4 @@
-// Open tracking, extension side (the Gmail content script is Task 7; the dashboard side is src/lib/applyBridge.ts).
+// Open tracking, extension side (the Gmail content script is sites/gmail.js; the dashboard side is src/lib/applyBridge.ts).
 // - The dashboard hands over the account's pixel key; the worker mints pixel ids offline for emails written in Gmail.
 // - Sends / "seen" times from Gmail wait in an outbox in chrome.storage.local until a dashboard tab can take them.
 // No state lives in worker globals (the worker is stopped at will): everything is in chrome.storage.local.
@@ -6,9 +6,11 @@
 import { mintPixelId, pixelUrl, PIXEL_PATH_RE } from "./pixel.js";
 
 export const GMAIL_ORIGIN = "https://mail.google.com";
-export const TRACKING_TYPES = new Set(["pixelMint", "pixelSent", "pixelSeen", "pixelStatus"]);
+export const TRACKING_TYPES = new Set(["pixelMint", "pixelSent", "pixelSeen", "pixelStatus", "pixelIndex"]);
 const OUTBOX_MAX = 500;
 const MARKS_MAX = 2000;
+// What the Sent list needs to find a row's pixel id: subject + recipients of each tracked send (newest last).
+const INDEX_MAX = 1000;
 const ID_RE = /^[A-Za-z0-9_-]{1,60}\.[A-Za-z0-9_-]{12}\.[A-Za-z0-9_-]{11}$/;
 const iso = (v) => typeof v === "string" && v.length <= 40 && !Number.isNaN(Date.parse(v));
 
@@ -99,8 +101,10 @@ export async function fromGmail(msg, ask) {
     if (iso(msg.scheduledFor)) item.scheduledFor = msg.scheduledFor;
     if (typeof msg.threadId === "string") item.threadId = msg.threadId.slice(0, 80);
     await locked(async () => {
-      const { pixelOutbox } = await chrome.storage.local.get("pixelOutbox");
-      await chrome.storage.local.set({ pixelOutbox: push(pixelOutbox, item) });
+      const { pixelOutbox, pixelIndex } = await chrome.storage.local.get(["pixelOutbox", "pixelIndex"]);
+      const entry = { id: item.id, subject: item.subject, to: item.to.map((x) => x.toLowerCase()), at: item.scheduledFor ?? item.at };
+      const index = [...(Array.isArray(pixelIndex) ? pixelIndex : []).filter((e) => e?.id !== item.id), entry].slice(-INDEX_MAX);
+      await chrome.storage.local.set({ pixelOutbox: push(pixelOutbox, item), pixelIndex: index });
     });
     flushOutbox(ask).catch(() => {});
     return true;
@@ -114,6 +118,10 @@ export async function fromGmail(msg, ask) {
     });
     flushOutbox(ask).catch(() => {});
     return true;
+  }
+  if (msg.type === "pixelIndex") {
+    const { pixelIndex } = await chrome.storage.local.get("pixelIndex");
+    return Array.isArray(pixelIndex) ? pixelIndex : [];
   }
   if (msg.type === "pixelStatus") {
     const ids = (Array.isArray(msg.ids) ? msg.ids : []).slice(0, 500).filter((x) => typeof x === "string" && ID_RE.test(x));
@@ -137,3 +145,43 @@ export async function fromGmail(msg, ask) {
 }
 
 export { PIXEL_PATH_RE };
+
+// ---- Gmail content script (test build, opt-in: Options → "Track opens of emails I send from Gmail") ----
+// Registered dynamically, never in the manifest: it runs only when the optional mail.google.com access is granted AND
+// the gmailTrack flag is on. The store build has neither the permission nor sites/gmail.js, so this only unregisters.
+const GMAIL_MATCH = "https://mail.google.com/*";
+const GMAIL_SCRIPT_ID = "gmail-track";
+
+/** Register sites/gmail.js when allowed and turned on, otherwise make sure it isn't registered. Returns { on }. */
+export async function ensureGmailScript() {
+  const allowed = await chrome.permissions.contains({ origins: [GMAIL_MATCH] }).catch(() => false);
+  const { gmailTrack } = await chrome.storage.local.get("gmailTrack");
+  const on = allowed && gmailTrack === true;
+  const registered = (await chrome.scripting.getRegisteredContentScripts({ ids: [GMAIL_SCRIPT_ID] }).catch(() => [])).length > 0;
+  if (on && !registered) {
+    await chrome.scripting.registerContentScripts([
+      { id: GMAIL_SCRIPT_ID, matches: [GMAIL_MATCH], js: ["sites/gmail.js"], runAt: "document_idle", persistAcrossSessions: true },
+    ]);
+  } else if (!on && registered) {
+    await chrome.scripting.unregisterContentScripts({ ids: [GMAIL_SCRIPT_ID] });
+  }
+  return { on };
+}
+
+/** Call once at the worker's top level (listeners must be added synchronously on every start). */
+export function watchGmailScript() {
+  const run = () => ensureGmailScript().catch(() => {});
+  chrome.runtime.onInstalled.addListener(run);
+  chrome.runtime.onStartup.addListener(run);
+  chrome.permissions.onAdded.addListener(run);
+  chrome.permissions.onRemoved.addListener(run);
+  // From the Options page (an extension page, here in its own tab) after the switch changes.
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg?.type !== "gmailScript" || sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(""))) return false;
+    ensureGmailScript().then(
+      (result) => sendResponse({ ok: true, result }),
+      (e) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),
+    );
+    return true;
+  });
+}

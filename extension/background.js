@@ -40,7 +40,7 @@ import { captureLinkedInJob, isLinkedInWall, linkedinJobsUrl, readLinkedInJobs }
 import { runFill } from "./agent/agent.js";
 // Tracking never opens a tab: with no Coverage tab open its calls fail fast and wait in the outbox.
 const askQuiet = (type, payload) => askDashboard(type, payload, { create: false });
-import { GMAIL_ORIGIN, TRACKING_TYPES, flushOutbox, fromGmail, syncPixelKey } from "./tracking.js";
+import { GMAIL_ORIGIN, TRACKING_TYPES, flushOutbox, fromGmail, syncPixelKey, watchGmailScript } from "./tracking.js";
 import { captureHandshakeJob, clickApplyExternally, handshakeJobUrl, handshakePage, isHandshake, isHandshakeWall, readHandshakeJobs } from "./sites/handshake.js";
 
 const progress = (tabId, text) => chrome.runtime.sendMessage({ type: "autofill-progress", tabId, text }).catch(() => {});
@@ -1034,6 +1034,9 @@ async function fromDashboard(msg, sender) {
   }
   throw new Error("Unknown command.");
 }
+
+// Gmail open tracking (test build, opt-in): registers / unregisters sites/gmail.js.
+watchGmailScript();
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
