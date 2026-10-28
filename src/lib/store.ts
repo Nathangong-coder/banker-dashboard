@@ -271,6 +271,14 @@ export function addHitsIn(t: TrackingState, hits: RawHit[]): TrackingState {
   return changed ? { ...t, messages } : t;
 }
 
+/** Store helper (exported for checks): note a time you had an email on screen; an unknown id gets a stub (like addHitsIn). */
+export function addSeenIn(t: TrackingState, id: string, at: string): TrackingState {
+  const m = t.messages.find((x) => x.id === id);
+  if (!m) return { ...t, messages: [...t.messages, { id, to: [], subject: "", kind: "gmail", source: "gmail", createdAt: at, hits: [], seen: [at] }] };
+  if (m.seen.includes(at)) return t;
+  return { ...t, messages: t.messages.map((x) => (x.id === id ? { ...x, seen: [...x.seen, at].slice(-200) } : x)) };
+}
+
 type GridState = Pick<State, "patches" | "contacts" | "tables" | "banks">;
 
 const norm = (x?: string) => (x ?? "").trim().toLowerCase();
@@ -372,11 +380,7 @@ export const useStore = create<State>()(
       tracking: EMPTY_TRACKING,
       registerTracked: (m) => set({ tracking: registerTrackedIn(get().tracking, m) }),
       addHits: (hits) => set({ tracking: addHitsIn(get().tracking, hits) }),
-      addSeen: (id, at) => {
-        const t = get().tracking;
-        if (!t.messages.some((m) => m.id === id && !m.seen.includes(at))) return;
-        set({ tracking: { ...t, messages: t.messages.map((m) => (m.id === id ? { ...m, seen: [...m.seen, at].slice(-200) } : m)) } });
-      },
+      addSeen: (id, at) => set({ tracking: addSeenIn(get().tracking, id, at) }),
       setTrackingKey: (key, base, account) => set({ tracking: { ...get().tracking, key, base, account } }),
       updateTracking: (fn) => set({ tracking: fn(get().tracking) }),
       upsertInfoSessions: (list) => {

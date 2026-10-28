@@ -63,8 +63,8 @@ export async function flushOutbox(ask) {
       }
     }
   }
-  // Seen times only mean something once their email is registered: skip them if a send is still waiting.
-  if (!down && sentIds.size === snap.sends.length) {
+  // The dashboard keeps a stub for a seen time whose send isn't registered yet, so one rejected send never blocks these.
+  if (!down) {
     for (let i = 0; i < snap.seen.length; i += 200) {
       const batch = snap.seen.slice(i, i + 200);
       try {

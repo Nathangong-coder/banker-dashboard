@@ -101,7 +101,7 @@ const noPixel = mimeParts(buildMime({ to: "sam@gs.com", subject: "Hi", body: sig
 check("no pixel asked: none added", noPixel.length === 2 && noPixel.every((p) => !p.text.includes("/api/o/")), noPixel.length);
 
 // Store helpers: hits merge by id + time; a hit for an unknown id makes a stub that a later registration fills in.
-const { addHitsIn, registerTrackedIn } = await import("../src/lib/store");
+const { addHitsIn, registerTrackedIn, addSeenIn } = await import("../src/lib/store");
 const h1: RawHit = { id: "x", at: "2026-10-28T12:00:00.000Z", ua: UA_OLK_WIN, ipHash: "i", net: "other" };
 const h2: RawHit = { ...h1, at: "2026-10-28T13:00:00.000Z" };
 let ts = addHitsIn({ messages: [], mx: {} }, [h2, h1, h1]);
@@ -212,5 +212,14 @@ check("Google unknown / connected: post the real queue", opensOnlySends(q, undef
   check("panel: the thread for the shown row is applied", settleFor(shown, { for: "B", state: "done" }).state === "done");
 }
 
+{
+  const SEEN = "2026-10-28T12:00:00.000Z";
+  let t = addSeenIn({ messages: [], mx: {} }, "q", SEEN);
+  t = addSeenIn(t, "q", SEEN);
+  t = registerTrackedIn(t, msg({ id: "q", to: ["a@gs.com"], createdAt: "2026-10-28T11:00:00.000Z" }));
+  check("addSeen before registerTracked: one entry with the seen time and recipients", t.messages.length === 1 && t.messages[0].seen.join() === SEEN && t.messages[0].to.join() === "a@gs.com", t.messages);
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nall open-tracking checks passed");
 process.exit(failed ? 1 : 0);
+
