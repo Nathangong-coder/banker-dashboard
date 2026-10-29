@@ -1,6 +1,6 @@
 import { DEFAULT_DASHBOARD, getDashboard, setDashboard } from "./settings.js";
 import { APPLICATION_SITES } from "./sites/apply.js";
-import { createVault, deleteLogin, deleteVault, listLogins, lockVault, saveLogin, setVaultOn, unlockVault, vaultStatus } from "./vault.js";
+import { createVault, deleteLogin, deleteVault, keepUnlocked, listLogins, lockVault, saveLogin, setVaultOn, unlockVault, vaultStatus } from "./vault.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -200,4 +200,49 @@ if (fillAgentBox) {
     await chrome.storage.local.set({ prefs: { ...prefs, fillAgent: fillAgentBox.checked } });
     $("agentStatus").textContent = fillAgentBox.checked ? "On." : "Off: Fill selected uses the rules only.";
   });
+}
+
+/* Applications filled at once in the background (fillWidth, 1-4, default 2). */
+const widthSel = $("fillWidth");
+chrome.storage.local.get("fillWidth").then(({ fillWidth }) => (widthSel.value = [1, 2, 3, 4].includes(Number(fillWidth)) ? String(fillWidth) : "2"));
+widthSel.addEventListener("change", () => chrome.storage.local.set({ fillWidth: Number(widthSel.value) }));
+
+/*
+ * Auto mode (test build): autoMode, off unless turned on. Turning it on asks for access to any site (the click is the
+ * gesture Chrome needs), and keeps your saved logins unlocked on this device so new accounts' passwords are kept.
+ */
+const autoModeBox = $("autoModeOn");
+if (autoModeBox) {
+  const tell = (t) => ($("autoStatus").textContent = t);
+  const showAuto = async () => {
+    const { autoMode } = await chrome.storage.local.get("autoMode");
+    autoModeBox.checked = autoMode === true;
+    if (autoMode !== true) return tell("Off.");
+    const st = await vaultStatus();
+    const any = await chrome.permissions.contains({ origins: ["<all_urls>"] }).catch(() => false);
+    tell(
+      [
+        "On.",
+        any ? "" : "Allow any site (turn it off and on again) so careers pages outside the list work.",
+        !st.on || !st.hasPin ? "Turn on saved logins above and choose a PIN, so the passwords of accounts it creates are kept." : !st.unlocked ? "Unlock your saved logins above once; they'll stay unlocked on this computer." : "Saved logins stay unlocked on this computer.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+  };
+  autoModeBox.addEventListener("change", () => {
+    if (autoModeBox.checked) {
+      // Asked straight from the click (permission requests need the gesture).
+      chrome.permissions.request({ origins: ["<all_urls>"] }).then(async (any) => {
+        await chrome.storage.local.set({ autoMode: true, ...(any ? { anySite: true } : {}) });
+        await keepUnlocked(true);
+        showAuto();
+      });
+    } else {
+      chrome.storage.local.set({ autoMode: false }).then(() => keepUnlocked(false)).then(showAuto);
+    }
+  });
+  // Unlocking (or making) the saved logins while Auto mode is on keeps them unlocked here too.
+  chrome.storage.onChanged.addListener((c, area) => area === "local" && ("vault" in c || "vaultKeyDevice" in c) && showAuto());
+  showAuto();
 }
