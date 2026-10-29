@@ -300,6 +300,12 @@ eq("a dropdown whose options couldn't be read is left for you", wd.skipped.some(
 eq("an unplaceable typeahead is left for you, not sent to the AI", [wd.skipped.some((x) => x.id === "w6"), wd.ai.length], [true, 0]);
 
 // "Track this job" from LinkedIn.
+// Auto mode (extension, owner 2026-10-28): consent / privacy boxes ticked; without it they stay yours.
+const consent = [f("ca", "checkbox", "I have read and agree to the Privacy Notice"), f("cb", "checkbox", "I certify that the information provided is true and complete")];
+eq("consent boxes: yours by default", planFill(consent, me, { hasResume: false }).skipped.length, 2);
+eq("consent boxes: ticked in Auto mode", planFill(consent, me, { hasResume: false, autoConsent: true }).items.map((i) => i.checked), [true, true]);
+eq("Auto mode still never fills a password / SSN", planFill([form.find((x) => x.id === "o")!, form.find((x) => x.id === "v")!], me, { hasResume: false, autoConsent: true }).items.length, 0);
+
 const job = parseJobCapture(
   "#job=" +
     encodeURIComponent(

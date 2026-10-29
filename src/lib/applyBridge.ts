@@ -452,7 +452,7 @@ async function plan(payload: unknown): Promise<PlanResult> {
   const file = await resumeFile(fileJob, pageText);
   const cover = await coverFor(job, pageText);
   const learned = st.apply.learned?.[platformOf(url)];
-  const base = planFill(fields, gradAs === me.gradDate ? me : { ...me, gradDate: gradAs }, { hasResume: !!file, coverText: cover, learned });
+  const base = planFill(fields, gradAs === me.gradDate ? me : { ...me, gradDate: gradAs }, { hasResume: !!file, coverText: cover, learned, autoConsent: p.auto === true });
   const fileData = file && { name: file.name, type: file.type, base64: file.base64 };
   const coverFile = cover ? coverPdf(cover, st.apply.profile, job?.company) : undefined;
   const items: PlanResult["items"] = base.items.map((it) => (it.file === "resume" && fileData ? { ...it, fileData } : it.file === "cover" && coverFile ? { ...it, fileData: coverFile } : it));

@@ -749,6 +749,19 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   when a model rejects it. `background.js#canSee` decides if the main model gets screenshots (Claude / Gemini /
   GPT-4o-class; Qwen / GLM only VL / V / vision names; never DeepSeek); otherwise only the vision helper does.
   `check:agent` covers each provider's image format, the JSON-mode retry and the vision-helper routing.
+- **1.18.0 lighter + Auto mode (owner, 2026-10-28: "slow and extremely memory intensive"; "start applications";
+  "auto-creating passwords"; "a mode like dangerously skip permissions"):** `background.js#dashboardTab` caches the
+  dashboard tab (memory + `session.dashTab`) and pings all tabs in parallel only on a miss (it pinged every tab in
+  turn on every report / plan); `fillWidth` (Options, default 2, was 4); finished multi-page (Workday) tabs get
+  `autoDiscardable: true` (single-page forms would lose their values); the post-resume wait polls `pageState.busy`
+  (3–12 s, was a fixed 9 s); CDP screenshots `optimizeForSpeed`. `sites/apply.js#startApplication` adds any page's one
+  Apply / Apply now / Start application (body over header, never Easy Apply / "with LinkedIn"; links → `href` opened
+  in the same tab by `openApplication`); FILL_SYSTEM tells the agent to press Apply on a job page. **Auto mode**
+  (`autoMode`, test build Options, asks `<all_urls>`): `reachForm` before the popup's Autofill (saved-login sign-in,
+  Create Account, `makeAccount`, Apply) and `continuePages` after it; `autoAccountsOn` true; `vault.js#keepUnlocked`
+  keeps the vault key in `local.vaultKeyDevice` (dropped on lock / off / an adopted vault); plans get `auto` →
+  `apply.ts#planFill({ autoConsent })` ticks ATTEST checkboxes (never NEVER_FILL); the agent brief gets an AUTO MODE
+  paragraph. The final Submit is never pressed in any mode.
 - **Dashboard ↔ extension versions (owner, 2026-10-26):** they ship together; `SITE.extension.version` = the extension
   built from the same commit, so bump both in one commit. Applications → `ExtensionNotice` compares the hello's
   version (older → "load the new copy", newer → "reload / deploy still going out"). Reloading the extension orphans

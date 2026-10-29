@@ -33,9 +33,34 @@ async function deriveKey(pin, salt) {
 }
 
 async function sessionKey() {
-  const { vaultKey } = await chrome.storage.session.get("vaultKey");
+  let { vaultKey } = await chrome.storage.session.get("vaultKey");
+  // Auto mode (Options): the key is also kept on this device, so a browser restart doesn't lock the logins Coverage
+  // creates accounts with (owner, 2026-10-28). Anyone using this Chrome profile can then use them: that's the trade.
+  if (!vaultKey) {
+    const { vaultKeyDevice, autoMode } = await chrome.storage.local.get(["vaultKeyDevice", "autoMode"]);
+    if (autoMode === true && vaultKeyDevice) {
+      vaultKey = vaultKeyDevice;
+      await chrome.storage.session.set({ vaultKey });
+    }
+  }
   if (!vaultKey) return null;
   return crypto.subtle.importKey("raw", unb64(vaultKey), "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+/** Auto mode on: keep the unlocked key on this device too (off: forget it). Needs the logins unlocked to turn on. */
+export async function keepUnlocked(on) {
+  if (!on) return chrome.storage.local.remove("vaultKeyDevice");
+  const { vaultKey } = await chrome.storage.session.get("vaultKey");
+  if (!vaultKey) return false;
+  await chrome.storage.local.set({ vaultKeyDevice: vaultKey });
+  return true;
+}
+
+/** After a PIN unlock / new vault: refresh the device copy when Auto mode keeps one. */
+async function rememberKey(raw) {
+  await chrome.storage.session.set({ vaultKey: raw });
+  const { autoMode } = await chrome.storage.local.get("autoMode");
+  if (autoMode === true) await chrome.storage.local.set({ vaultKeyDevice: raw });
 }
 
 async function seal(key, logins) {
@@ -57,7 +82,10 @@ export async function vaultStatus() {
 
 export async function setVaultOn(on) {
   await chrome.storage.local.set({ vaultOn: !!on });
-  if (!on) await chrome.storage.session.remove("vaultKey");
+  if (!on) {
+    await chrome.storage.session.remove("vaultKey");
+    await chrome.storage.local.remove("vaultKeyDevice");
+  }
 }
 
 /** First time: choose a PIN (6+ characters). Starts with no logins. */
@@ -67,7 +95,7 @@ export async function createVault(pin) {
   const key = await deriveKey(pin, salt);
   const box = await seal(key, []);
   await chrome.storage.local.set({ vault: { v: 1, salt: b64(salt), ...box } });
-  await chrome.storage.session.set({ vaultKey: b64(await crypto.subtle.exportKey("raw", key)) });
+  await rememberKey(b64(await crypto.subtle.exportKey("raw", key)));
 }
 
 export async function unlockVault(pin) {
@@ -79,10 +107,13 @@ export async function unlockVault(pin) {
   } catch {
     throw new Error("Wrong PIN.");
   }
-  await chrome.storage.session.set({ vaultKey: b64(await crypto.subtle.exportKey("raw", key)) });
+  await rememberKey(b64(await crypto.subtle.exportKey("raw", key)));
 }
 
-export const lockVault = () => chrome.storage.session.remove("vaultKey");
+export const lockVault = async () => {
+  await chrome.storage.session.remove("vaultKey");
+  await chrome.storage.local.remove("vaultKeyDevice");
+};
 
 async function readAll() {
   const { vault } = await chrome.storage.local.get("vault");
@@ -115,7 +146,7 @@ export async function deleteLogin(origin, username) {
 }
 
 export async function deleteVault() {
-  await chrome.storage.local.remove(["vault", "vaultOn"]);
+  await chrome.storage.local.remove(["vault", "vaultOn", "vaultKeyDevice"]);
   await chrome.storage.session.remove("vaultKey");
 }
 

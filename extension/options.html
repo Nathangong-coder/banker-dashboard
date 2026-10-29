@@ -96,6 +96,16 @@
         <button id="allowSites">Allow all application sites</button>
         <button id="removeSites" class="secondary">Remove access</button>
       </div>
+      <p class="muted" style="margin:10px 0 4px">
+        Applications filled at once in the background. Each one is a full browser tab (a Workday form takes several hundred MB), so fewer is lighter on
+        your computer; finished Workday tabs are let go when Chrome needs the memory.
+      </p>
+      <select id="fillWidth">
+        <option value="1">1 at a time (lightest)</option>
+        <option value="2">2 at a time (default)</option>
+        <option value="3">3 at a time</option>
+        <option value="4">4 at a time (fastest, heaviest)</option>
+      </select>
     </section>
 
     <section>
@@ -134,6 +144,21 @@
     </section>
 
     <!-- agent:start (left out of the store build) -->
+    <section>
+      <h2>Auto mode <span class="tag">test build</span></h2>
+      <p class="muted">
+        Coverage stops asking. On each application it presses the job page's Apply (or the AI agent finds the way in), creates an account when the site
+        wants one (a strong password, saved in your saved logins first), signs in with it next time, ticks the data-privacy, terms and consent boxes, fills
+        sites that aren't on your tracked jobs without checking with you, and goes page after page. It still stops at the final Submit: you read the review
+        page and submit it yourself.
+      </p>
+      <p class="warn">
+        Ticking consent and certification boxes ("I agree to the privacy notice", "the information is true and complete") agrees to that site's terms and privacy policy on your behalf. Your saved logins stay unlocked on this computer (anyone using
+        this Chrome profile could use them). Your call.
+      </p>
+      <label class="switch"><input id="autoModeOn" type="checkbox" /> Turn on Auto mode (I accept this)</label>
+      <p id="autoStatus" class="muted" role="status"></p>
+    </section>
     <section>
       <h2>LinkedIn job search <span class="tag">test build</span></h2>
       <p class="muted">

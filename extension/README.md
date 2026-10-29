@@ -97,6 +97,19 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
 Listing: https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp (item id `hjmfcaldipgcjffmcemcljllmlpjlnlp`,
 in `src/lib/site.ts` → `SITE.extension.chromeUrl`).
 
+### 1.18.0
+
+- Lighter and faster: the worker remembers your Coverage tab instead of asking every open tab on every message,
+  background fills default to 2 at once (Options → Application sites, 1–4), finished Workday tabs may be freed by
+  Chrome's memory saver, the resume wait after an upload ends when the site is done reading it, and screenshots use
+  Chrome's fast capture.
+- Fill selected opens the application from any job page's own "Apply" / "Apply now" / "Start application" (a link
+  opens in the same tab; never Easy Apply or "Apply with LinkedIn / Indeed"); the AI agent is told to do the same.
+- **Auto mode** (test build, Options, off by default): Apply pressed from the toolbar button too, accounts created
+  with saved passwords that stay unlocked on this device, consent / privacy / certification boxes ticked, unknown
+  sites filled without the check, page after page. Still never presses the final Submit.
+- Store build: nothing new to declare (no new permissions; Auto mode isn't in it).
+
 ### 1.5.0
 
 - **AI agent finishes applications** (test build): Fill selected runs the rules (+ resume upload) first, then the

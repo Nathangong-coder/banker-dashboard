@@ -975,5 +975,36 @@ export async function startApplication() {
     lever.click();
     return { clicked: true, label: "Apply for this job" };
   }
-  return { clicked: false };
+  // Any other job page (owner, 2026-10-28: "currently I need to press the apply button"): its one Apply / Apply now /
+  // Start application button or link. Never LinkedIn's Easy Apply or "Apply with LinkedIn / Indeed" (those apply
+  // through another site). A link is returned for the worker to open in this same tab (no stray new tabs); a button
+  // is pressed with a real click when the extension can. This only opens the form.
+  const clean = (t) => (t || "").replace(/\s+/g, " ").trim();
+  const START = /^(apply( now| online| here| today)?|apply (for|to) (this|the) (job|position|role|opportunity|posting)|start( your)? application|begin( your)? application|apply for job)$/i;
+  const label = (el) => clean(el.innerText || el.value || el.getAttribute("aria-label") || "");
+  const found = [...document.querySelectorAll("a[href], button, [role=button], input[type=button], input[type=submit]")].filter(
+    (el) => shown(el) && START.test(label(el)) && !/easy apply|linkedin|indeed|with /i.test(label(el)) && !el.disabled,
+  );
+  // Prefer the one in the page body over a sticky header copy.
+  const pick = found.find((el) => !el.closest("header, nav")) ?? found[0];
+  if (!pick) return { clicked: false };
+  const text = label(pick);
+  if (pick.tagName === "A") {
+    try {
+      const u = new URL(pick.href, location.href);
+      if (/^https?:$/.test(u.protocol)) return { clicked: false, href: u.toString(), label: text };
+    } catch {
+      // not a real link: press it below
+    }
+  }
+  pick.scrollIntoView({ block: "center", behavior: "instant" });
+  const r = pick.getBoundingClientRect();
+  let real = false;
+  try {
+    real = window.top === window && (await chrome.runtime.sendMessage({ type: "cov-click", x: r.left + r.width / 2, y: r.top + r.height / 2 })) === true;
+  } catch {
+    // no real clicks here
+  }
+  if (!real) pick.click();
+  return { clicked: true, label: text };
 }

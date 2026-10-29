@@ -147,13 +147,16 @@ async function fillPage(tabId, confirmed, opts = {}) {
     throw new Error("No form fields on this page. Open the application form itself (after any 'Apply' button).");
   }
 
+  const auto = await autoMode();
   progress(tabId, `Found ${scan.fields.length} fields. Asking Coverage what goes in them…`);
   const plan = await askDashboard("plan", {
     url: scan.url,
     title: scan.title,
     pageText: scan.text,
     fields: scan.fields,
-    confirmed: !!confirmed,
+    confirmed: !!confirmed || auto,
+    // Auto mode: the plan ticks the consent / privacy boxes too.
+    auto,
     ...(opts.jobId ? { jobId: opts.jobId, batch: true } : {}),
   });
 
@@ -169,7 +172,13 @@ async function fillPage(tabId, confirmed, opts = {}) {
   if (fileItems.length && fileItems.length < items.length && !opts.resumeDone && isMultiPageSite(scan.url)) {
     progress(tabId, "Uploading your resume first (the site fills your experience from it)…");
     await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: fillForm, args: [fileItems, { skipped: [], watch: !!opts.watch }] });
-    await sleep(9000);
+    // Give the site time to read the resume: at least 3 s, then until it stops showing a spinner (at most 12 s).
+    await sleep(3000);
+    for (let i = 0; i < 18; i++) {
+      const [{ result: st }] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: pageState }).catch(() => [{ result: null }]);
+      if (st && !st.busy) break;
+      await sleep(500);
+    }
     return fillPage(tabId, true, { ...opts, resumeDone: true });
   }
   const skipped = (plan.skipped ?? []).slice(0, 40).map((s) => ({ id: s.id, label: String(s.label ?? "").slice(0, 200), why: String(s.why ?? "").slice(0, 300) }));
@@ -201,8 +210,68 @@ async function remember(tabId, result) {
   return r;
 }
 
+/**
+ * Auto mode, from the toolbar button: get from wherever the tab is to the form (sign in with a saved login, create an
+ * account, open the application from the job page). Returns a note when it needs you.
+ */
+async function reachForm(tabId) {
+  let tries = 0;
+  let created = false;
+  let started = false;
+  for (let step = 0; step < 6; step++) {
+    const tab = await chrome.tabs.get(tabId);
+    const ls = await inTab(tabId, loginState).catch(() => null);
+    if (ls?.kind === "signin" || ls?.kind === "signup") {
+      const cred = await loginFor(tab.url);
+      if (cred.username && ls.kind === "signup" && ls.signInSwitch && tries < 2) {
+        await inTab(tabId, switchToSignIn);
+      } else if (cred.username && ls.kind === "signin" && tries < 2) {
+        progress(tabId, "Signing in with your saved login…");
+        await inTab(tabId, signIn, [cred.username, cred.password, new URL(tab.url).origin]);
+      } else if (!cred.username && ls.kind === "signin" && !created) {
+        if (!(await inTab(tabId, switchToCreateAccount))?.clicked) return "Sign in in this tab, then press Autofill again.";
+        progress(tabId, "No account here yet: opening Create Account…");
+      } else if (!cred.username && ls.kind === "signup" && !created) {
+        created = true;
+        const made = await makeAccount(tabId, tab.url, { id: "" });
+        if (!made.clicked) return made.why;
+        progress(tabId, "Created an account (password saved in your saved logins)…");
+      } else return "Sign in in this tab, then press Autofill again.";
+      tries++;
+      await sleep(3500);
+      await loaded(tabId);
+      continue;
+    }
+    if (ls?.kind === "verify") return "Verify your email (the link in your inbox), sign in, then press Autofill again.";
+    const { scan } = await scanBest(tabId);
+    if ((scan?.fields?.length ?? 0) >= 3 || started) return null;
+    started = true;
+    const label = await openApplication(tabId);
+    if (!label) return null;
+    progress(tabId, `Opened the application (${label})…`);
+  }
+  return null;
+}
+
+/** Press the job page's Apply (rules: Workday, Lever, any "Apply now" button or link). The label, or null. */
+async function openApplication(tabId) {
+  const s = await inTab(tabId, startApplication).catch(() => null);
+  if (!s?.clicked && !s?.href) return null;
+  if (s.href) await chrome.tabs.update(tabId, { url: s.href });
+  await sleep(3500);
+  await loaded(tabId);
+  return s.label;
+}
+
 async function autofill(tabId, confirmed) {
-  const r = await remember(tabId, await fillPage(tabId, confirmed));
+  const auto = await autoMode();
+  if (auto) {
+    const why = await reachForm(tabId);
+    if (why) throw new Error(why);
+  }
+  let r = await remember(tabId, await fillPage(tabId, confirmed || auto));
+  // Auto mode: the next pages too (Workday), without stopping to read AI drafts (you read the review page).
+  if (auto && r.multi && !r.stopped && (await hasAccess(r.url))) r = await remember(tabId, await continuePages(tabId, { batch: true }));
   // The toolbar button gets the same backup as Fill selected: the AI agent finishes what the rules / Jev / the
   // answer model left (it runs on after the popup closes; its steps show on the page).
   if (needsAgent(r) && (await agentModel())) {
@@ -339,10 +408,32 @@ async function trustedInput(msg, sender) {
 
 /* ---------------- accounts (opt-in, test build; owner 2026-10-26) ---------------- */
 
-/** "Create accounts for me" (extension Options): off unless you turned it on. */
+/**
+ * Auto mode (extension Options, test build; owner 2026-10-28: 'a mode like "dangerously skip permissions"'): off
+ * unless you turn it on. With it on, Coverage doesn't stop to ask: it opens the application from the job page (Apply /
+ * Apply Now, else the AI agent finds the way in), creates accounts with a generated password kept in your saved logins
+ * (which stay unlocked on this device), ticks the data-privacy / terms / consent boxes, fills sites that aren't
+ * tracked jobs without the "fill this site?" check, and keeps going page after page. It still never presses the final
+ * Submit: you read the review page and submit it yourself.
+ */
+async function autoMode() {
+  const { autoMode: on } = await chrome.storage.local.get("autoMode");
+  return on === true;
+}
+
+/** "Create accounts for me" (extension Options), or Auto mode: off unless you turned one on. */
 async function autoAccountsOn() {
-  const { autoAccounts } = await chrome.storage.local.get("autoAccounts");
-  return autoAccounts === true;
+  const { autoAccounts, autoMode: auto } = await chrome.storage.local.get(["autoAccounts", "autoMode"]);
+  return autoAccounts === true || auto === true;
+}
+
+/**
+ * How many applications fill at once in the background (Options; default 2). Each is a full browser tab (a Workday
+ * form is several hundred MB), so 4 at once was heavy on a laptop that's also running other work.
+ */
+async function fillWidth() {
+  const { fillWidth: n } = await chrome.storage.local.get("fillWidth");
+  return [1, 2, 3, 4].includes(Number(n)) ? Number(n) : 2;
 }
 
 /** A strong password: 20 characters with upper / lower / digit / symbol (what application sites require). */
@@ -500,12 +591,10 @@ async function drive(tabId, job) {
     const { scan } = await scanBest(tabId);
     if ((scan?.fields?.length ?? 0) < 3 && !started) {
       // Still the job description: open the application (Workday Apply → Apply Manually, Lever's apply link).
-      const s = await inTab(tabId, startApplication);
       started = true;
-      if (s?.clicked) {
-        progress(tabId, `Opened the application (${s.label})…`);
-        await sleep(3500);
-        await loaded(tabId);
+      const label = await openApplication(tabId);
+      if (label) {
+        progress(tabId, `Opened the application (${label})…`);
         continue;
       }
     }
@@ -563,7 +652,14 @@ async function fillOne(job, active) {
   await inTab(tab.id, () => delete document.documentElement.dataset.coverageStop).catch(() => {});
   return drive(tab.id, job)
     .catch((e) => report(job.id, "error", e instanceof Error ? e.message : String(e)))
-    .finally(() => detachDebugger(tab.id));
+    .finally(async () => {
+      await detachDebugger(tab.id);
+      // Done with it: Workday keeps the application on its side page by page, so Chrome may free this tab's memory
+      // when it needs to (it reloads where it was when you open it). Single-page forms (Greenhouse, Lever) would lose
+      // their typed answers, so those stay in memory until you close them.
+      const t = await chrome.tabs.get(tab.id).catch(() => null);
+      if (t && isMultiPageSite(t.url)) await chrome.tabs.update(tab.id, { autoDiscardable: true }).catch(() => {});
+    });
 }
 
 let running = Promise.resolve();
@@ -587,9 +683,9 @@ function fillJobs({ jobs, watch }) {
         );
       else queue.push({ ...job, watch });
     }
-    // Up to 4 at once (owner, 2026-10-26: "do more, text me when ~30 are done"). The AI's model calls are paced
-    // across all tabs (agent.js#paced), so more tabs don't mean more rate-limit errors; watching = one at a time.
-    const width = watch ? 1 : 4;
+    // How many at once is yours to set (Options, 1-4, default 2: every tab is a full page). The AI's model calls are
+    // paced across all tabs (agent.js#paced), so more tabs don't mean more rate-limit errors; watching = one at a time.
+    const width = watch ? 1 : await fillWidth();
     for (const [i, job] of queue.entries()) if (i >= width) await report(job.id, "queued", `Waiting: #${i - width + 1} in line (${width} fill at a time).`);
     const workers = Array.from({ length: width }, async (_, w) => {
       await sleep(w * 4000); // staggered starts
@@ -694,6 +790,9 @@ async function agentFinish(tabId, job) {
   const tab = await chrome.tabs.get(tabId);
   const brief = await askDashboard("agentBrief", { jobId: job.id, url: tab.url });
   if (!brief?.task) return null;
+  // Auto mode: the agent may tick privacy / consent boxes and open the application from the job page itself.
+  if (await autoMode())
+    brief.task += "\n\nAUTO MODE (the student turned it on): tick data-privacy, terms and consent acknowledgement boxes; on a job description page, press its Apply / Apply Now / Start application button to open the form. Still never press the final Submit.";
   await report(job.id, "filling", `AI agent (${model.model}) is filling the rest…`);
   const ctrl = new AbortController();
   const vision = await visionModel();
@@ -717,7 +816,7 @@ async function agentFinish(tabId, job) {
     // Dropdown wording not found: Jev (your TypeSafe key, through your Coverage tab) picks from the shown options.
     pick: (q) => askDashboard("pickOption", { ...q, jobId: job.id }),
     // Screenshots through the debugging protocol: background tabs too (test build).
-    shot: canDebug() ? async (id) => `data:image/jpeg;base64,${(await cdp(id, "Page.captureScreenshot", { format: "jpeg", quality: 50 })).data}` : undefined,
+    shot: canDebug() ? async (id) => `data:image/jpeg;base64,${(await cdp(id, "Page.captureScreenshot", { format: "jpeg", quality: 50, optimizeForSpeed: true })).data}` : undefined,
     signal: ctrl.signal,
     onStep: (s) => {
       progress(tabId, `AI step ${s.n}: ${s.thought || s.result}`);
@@ -971,7 +1070,9 @@ async function syncVault() {
         await chrome.storage.local.remove(["vault", "vaultOn"]);
         await chrome.storage.local.set({ vaultAt: remoteAt });
       }
+      // Another browser's copy (maybe another PIN / salt): this device's kept key doesn't open it.
       await chrome.storage.session.remove("vaultKey");
+      await chrome.storage.local.remove("vaultKeyDevice");
       return { synced: true, from: "account" };
     }
     if (localAt && localAt > remoteAt) {

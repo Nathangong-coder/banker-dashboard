@@ -527,7 +527,11 @@ const isQuestion = (f: FormField) => f.kind === "textarea" || (f.kind === "text"
  * Decide what goes in each field. Rules from your profile first (sensitive answers ONLY from rules); open
  * questions go to `ai`; anything else is left for you with a reason.
  */
-export function planFill(fields: FormField[], profile: ApplyProfile, opts: { hasResume: boolean; coverText?: string; learned?: Record<string, { value: string; kind?: string }> }): FillPlan {
+export function planFill(
+  fields: FormField[],
+  profile: ApplyProfile,
+  opts: { hasResume: boolean; coverText?: string; learned?: Record<string, { value: string; kind?: string }>; autoConsent?: boolean },
+): FillPlan {
   const items: FillItem[] = [];
   const ai: FormField[] = [];
   const skipped: FillPlan["skipped"] = [];
@@ -580,7 +584,9 @@ export function planFill(fields: FormField[], profile: ApplyProfile, opts: { has
     // require sponsorship") are answered from My info even when worded as a certification (owner, 2026-10-26: only 2 of
     // 5 eligibility boxes were ticked). Other certifications / consents stay yours.
     if ((f.kind === "checkbox" || f.kind === "checkboxes") && ATTEST.test(label) && !ELIGIBILITY.test(label)) {
-      skip(f, "Consent / certification: tick it yourself after reading it.");
+      // The extension's Auto mode (owner, 2026-10-28): data-privacy / terms / consent boxes are ticked for you.
+      if (opts.autoConsent && f.kind === "checkbox") items.push({ id: f.id, checked: true, source: "profile", label: f.label, note: "Auto mode: consent / privacy box ticked" });
+      else skip(f, "Consent / certification: tick it yourself after reading it.");
       continue;
     }
     if (/salary|compensation|pay (range|expectation)|desired pay/.test(label)) {
