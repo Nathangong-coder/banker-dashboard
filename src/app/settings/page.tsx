@@ -341,6 +341,7 @@ export default function SettingsPage() {
                 <SendModeSwitch onAuto={() => go("reminders")} />
               </div>
             </Card>
+            <TrackOpensSetting />
         <Card>
           <CardHeader title="Follow-up rules" />
           <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-4 md:grid-cols-5">
@@ -652,5 +653,38 @@ function SmartMentionsField() {
         <span className="text-muted">or better</span>
       </div>
     </Field>
+  );
+}
+
+/** Settings → Email → Sending: the open-tracking switch. Turning it on makes sure the server account + pixel key exist. */
+function TrackOpensSetting() {
+  const on = useStore((s) => !!s.settings.tracking?.on);
+  const setSettings = useStore((s) => s.setSettings);
+  const [busy, setBusy] = useState(false);
+  const set = async (v: boolean) => {
+    if (!v) return setSettings((s) => ({ ...s, tracking: { ...s.tracking, on: false } }));
+    setBusy(true);
+    try {
+      const { prepareTracking } = await import("@/lib/trackingActions");
+      await prepareTracking();
+      setSettings((s) => ({ ...s, tracking: { ...s.tracking, on: true } }));
+    } catch (e) {
+      toast.err(`Couldn't turn on open tracking: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card>
+      <div className="p-4">
+        <label className={cn("flex items-center gap-2 text-[13px] font-medium text-ink", busy && "opacity-60")}>
+          <Checkbox checked={on} onChange={(v) => !busy && void set(v)} label="Track opens" />
+          Track opens
+        </label>
+        <p className="mt-1 text-[12px] text-muted">
+          Adds an invisible image to emails Coverage makes, so you can see when they&apos;re opened. Banks often block images, so missing opens mean unknown.
+        </p>
+      </div>
+    </Card>
   );
 }

@@ -14,6 +14,9 @@ import { documentText } from "./fileText";
 import { reviewPending, summarize } from "./jobReviewRun";
 import { coverLetterFrom, letterPdf, templateFirm } from "./coverLetter";
 import { STARTER_TARGETS } from "./banks";
+import { openSummary } from "./opens";
+import { ownPixelId } from "./pixel";
+import { prepareTracking } from "./trackingActions";
 
 /**
  * The dashboard's half of the extension bridge (extension/content/dashboard.js is the other half).
@@ -801,7 +804,81 @@ async function agentBrief(payload: unknown) {
   return { task, secrets: { email: me.email, phone: me.phone, address1: me.address1, address2: me.address2, zip: me.zip }, jobId: job?.id };
 }
 
-const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption, accountInfo, accountCreated, verifyLink, learnAnswer, agentRun, aiKeys };
+/* ---------------- open tracking (extension's Gmail pixel; see extension/tracking.js) ---------------- */
+
+const PIXEL_ID = /^[A-Za-z0-9_-]{1,60}\.[A-Za-z0-9_-]{12}\.[A-Za-z0-9_-]{11}$/;
+const isoOk = (v: unknown): v is string => typeof v === "string" && v.length <= 40 && !Number.isNaN(Date.parse(v));
+
+/** The pixel key for the extension to mint ids offline; null when tracking is off. Only to the bridge on this page. */
+async function pixelKey() {
+  const st = useStore.getState();
+  if (!st.settings.tracking?.on) return null;
+  await prepareTracking().catch(() => {});
+  const t = useStore.getState().tracking;
+  const accountId = useStore.getState().settings.server?.id;
+  if (!t.key || !t.base || !accountId || t.account !== accountId) return null;
+  return { key: t.key, base: t.base, accountId };
+}
+
+/** An email sent from Gmail's own compose window with a pixel the extension added. */
+function pixelSent(payload: unknown) {
+  const p = (payload ?? {}) as { id?: unknown; to?: unknown; subject?: unknown; at?: unknown; scheduledFor?: unknown; threadId?: unknown };
+  const st = useStore.getState();
+  const account = st.tracking.account;
+  if (typeof p.id !== "string" || !PIXEL_ID.test(p.id) || !ownPixelId(p.id, account)) throw new Error("Bad pixel id.");
+  if (!Array.isArray(p.to) || p.to.length > 20) throw new Error("Bad recipients.");
+  const to = p.to.filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 200).toLowerCase());
+  if (!isoOk(p.at)) throw new Error("Bad time.");
+  st.registerTracked({
+    id: p.id,
+    to,
+    subject: typeof p.subject === "string" ? p.subject.slice(0, 300) : "",
+    kind: "gmail",
+    source: "gmail",
+    createdAt: p.at,
+    sentAt: isoOk(p.scheduledFor) ? p.scheduledFor : p.at,
+    threadId: typeof p.threadId === "string" ? p.threadId.slice(0, 80) : undefined,
+    hits: [],
+    seen: [],
+  });
+  return true;
+}
+
+/** Times you had a tracked email on screen (so your own views aren't counted as theirs). */
+function pixelSeen(payload: unknown) {
+  const items = ((payload ?? {}) as { items?: unknown }).items;
+  if (!Array.isArray(items)) throw new Error("Bad list.");
+  const st = useStore.getState();
+  const account = st.tracking.account ?? st.settings.server?.id;
+  const add = st.addSeen;
+  let n = 0;
+  for (const it of items.slice(0, 200)) {
+    const x = it as { id?: unknown; at?: unknown };
+    // Only this account's ids: someone else's tracked email you opened must not become a row here.
+    if (typeof x?.id === "string" && PIXEL_ID.test(x.id) && ownPixelId(x.id, account) && isoOk(x.at)) {
+      add(x.id, x.at);
+      n++;
+    }
+  }
+  return n;
+}
+
+/** Opens so far for the ids Gmail's content script is showing. */
+function pixelStatus(payload: unknown) {
+  const ids = ((payload ?? {}) as { ids?: unknown }).ids;
+  if (!Array.isArray(ids)) throw new Error("Bad list.");
+  const t = useStore.getState().tracking;
+  const want = new Set(ids.slice(0, 500).filter((x): x is string => typeof x === "string"));
+  const out: Record<string, { opens: number; lastAt?: string; forwarded: boolean }> = {};
+  for (const m of t.messages) {
+    if (!want.has(m.id)) continue;
+    const s = openSummary(m, t.mx);
+    out[m.id] = { opens: s.opens, lastAt: s.lastAt, forwarded: s.forwarded };
+  }
+  return out;
+}
+
+const HANDLERS: Record<string, (payload: unknown) => unknown> = { plan, submitted, fillStatus, foundJob, finderStatus, vault, agentBrief, pickOption, accountInfo, accountCreated, verifyLink, learnAnswer, agentRun, aiKeys, pixelKey, pixelSent, pixelSeen, pixelStatus };
 
 /** Mounted once in Shell: answers the extension, and learns whether it's installed (for the Applications page). */
 export function useExtensionBridge(ready: boolean) {

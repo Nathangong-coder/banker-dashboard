@@ -147,6 +147,21 @@ scans again without the aria check (size / position / clipping checks still keep
 what it saw. No new permissions;
 review answers same as 1.3.1. `npm run pack:extension` → `dist/coverage-extension-1.3.2.zip`.
 
+### Gmail open tracking (test build only; version bumped at merge)
+
+`sites/gmail.js` + `tracking.js` + `pixel.js`: Options section "Gmail open tracking" (between `<!-- gmail:start/end -->`,
+optional `https://mail.google.com/*`, all stripped from the store build; `pack:extension` fails if any remain). Turn on:
+Options -> "Track opens of emails I send from Gmail" (needs the Coverage tab to have Settings -> Email -> Sending -> Track opens
+on). It adds the tracking image to the compose window you send from (new, reply, forward, Schedule send), reports the send
+to the dashboard, and marks your Sent list (check = tracked, double check = opened). Your own views are recognized, not counted.
+Live Gmail selectors are not yet checked against the real site (see CLAUDE.md "Email open tracking").
+
+**Future store justification for `mail.google.com`** (only if this ever ships in the store build): "Adds an invisible
+tracking image to emails the user sends from Gmail and shows open marks in the user's Sent folder. It reads the compose
+window and Sent list pages only (never the inbox or other messages), and sends the recipient, subject and tracking ID
+only to the user's own Coverage dashboard." Also add Website content / Personal communications to the data-usage ticks,
+update `/extension/privacy` section 5a and the review answers.
+
 ### 1.3.1 (after 1.3.0 is approved)
 
 Only change: saved logins sync through the user's Coverage account (the PIN-encrypted vault goes through the dashboard

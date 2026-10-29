@@ -13,8 +13,8 @@ export const SITE = {
    */
   extension: {
     chromeUrl: "https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp",
-    version: "1.18.0",
+    version: "1.19.0",
   },
   /** Last time the privacy policy / terms were changed (shown on the pages). */
-  legalUpdated: "October 26, 2026",
+  legalUpdated: "October 28, 2026",
 };

@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { connectGmail, gmailConnected, latestFrom, upsertDraft, type TheirMessage } from "@/lib/gmail";
+import { notePixelDraft, pixelFor } from "@/lib/trackingActions";
 import { busyTimes, calendarConnected, createCallEvent } from "@/lib/gcal";
 import { COMMON_ZONES, dateTimeLabel, formatWindows, freeWindows, narrowTo, phonesIn, tzLabel, ymdIn, type AskedFor, type Window } from "@/lib/availability";
 import { fillScheduling, schedulingOf } from "@/lib/scheduling";
@@ -15,6 +16,7 @@ import { EMAIL_FONTS, type Contact } from "@/lib/types";
 import { relDays } from "@/lib/util";
 import { Badge, Button, Checkbox, Empty, Field, Input, Modal, Select, Textarea, toast } from "./ui";
 import { Cell, ListTable, NameCell, Row, RowActions } from "./FollowupsUi";
+import { OpenBadge } from "./OpenBadge";
 
 /* ---------------- reading their reply ---------------- */
 
@@ -184,14 +186,17 @@ export function AvailabilityReply({ c, onClose }: { c: Contact; onClose: () => v
     setSaving(true);
     try {
       const subject = r.msg?.subject ? (/^re:/i.test(r.msg.subject) ? r.msg.subject : `Re: ${r.msg.subject}`) : `Re: ${c.draft?.subject ?? "Coffee chat"}`;
-      await upsertDraft(r.clientId, undefined, {
+      const pixel = await pixelFor({ to: c.email, subject, kind: "reply", contactId: c.id });
+      const d = await upsertDraft(r.clientId, undefined, {
         to: c.email,
         subject,
         body: signature ? withSignature(text, settings.profile) : text,
         threadId: r.msg?.threadId ?? c.threadId,
         inReplyTo: r.msg?.messageId ?? c.lastMessageId,
         font: EMAIL_FONTS[c.trial?.font ?? settings.emailStyle.font]?.css,
+        pixel,
       });
+      notePixelDraft(pixel, d);
       updateContact(
         c.id,
         { ...(r.parsed?.phone && !c.phone ? { phone: r.parsed.phone } : {}) },
@@ -373,6 +378,7 @@ export function ScheduleCallsTable({ onOpen }: { onOpen: (c: Contact) => void })
                 name={c.name}
                 sub={`${c.position || "—"} · ${c.bank}${c.repliedAt ? ` · replied ${relDays(c.repliedAt)}` : ""}`}
                 onOpen={() => onOpen(c)}
+                extra={<OpenBadge plain c={c} className="ml-1.5 inline-flex align-middle" />}
               />
             </Cell>
             <Cell className="text-[12px] whitespace-nowrap text-ink-2">{tzLabel(recipientTz(c))}</Cell>

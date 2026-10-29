@@ -188,10 +188,16 @@ export function experimentArmOf(c: Contact, e: Experiment): { key: string; label
 export interface Cell {
   sent: number;
   replied: number;
+  /** Of those, first emails sent with open tracking on, and how many of them were opened (a person open). */
+  tracked: number;
+  opened: number;
 }
 
-/** Reply counts for every (segment value × dimension value) among sent emails. */
-export function crossTab(contacts: Contact[], dim: Dimension, seg: Segment, ctx: DimCtx, tiers: Map<string, string>) {
+/**
+ * Reply counts for every (segment value × dimension value) among sent emails, plus open counts for the ones whose first
+ * email was tracked (`opens`: contactId → opened, from trackingView.ts#firstEmailOpens; untracked contacts aren't in it).
+ */
+export function crossTab(contacts: Contact[], dim: Dimension, seg: Segment, ctx: DimCtx, tiers: Map<string, string>, opens?: Map<string, boolean>) {
   const cols = new Map<string, string>();
   const rows = new Map<string, Map<string, Cell>>();
   const totals = new Map<string, Cell>();
@@ -211,9 +217,14 @@ export function crossTab(contacts: Contact[], dim: Dimension, seg: Segment, ctx:
       [row, v.key],
       [totals, v.key],
     ] as const) {
-      const cell = m.get(key) ?? { sent: 0, replied: 0 };
+      const cell = m.get(key) ?? { sent: 0, replied: 0, tracked: 0, opened: 0 };
       cell.sent++;
       if (gotReply(c)) cell.replied++;
+      const o = opens?.get(c.id);
+      if (o !== undefined) {
+        cell.tracked++;
+        if (o) cell.opened++;
+      }
       m.set(key, cell);
     }
     rows.set(r, row);

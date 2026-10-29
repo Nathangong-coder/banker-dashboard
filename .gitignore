@@ -63,3 +63,5 @@ demo-video/out/
 demo-video/media/
 demo-video/profile/
 demo-video/*.mp4
+
+.superpowers/

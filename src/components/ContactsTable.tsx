@@ -12,6 +12,7 @@ import { useFirmKinds } from "./useFirmKinds";
 import { dayLabel, lastEmailOf, nextAction } from "@/lib/followups";
 import { autoMovedOn } from "@/lib/contactUpkeep";
 import { Badge, Button, Card, Checkbox, Empty, Input, Modal, Select, StatusBadge, toast } from "./ui";
+import { OpenBadge } from "./OpenBadge";
 import { ContactModal } from "./ContactModal";
 import { AddContactModal } from "./AddContact";
 
@@ -256,6 +257,7 @@ export function ContactsTable({
                   <td className="px-2 py-2 whitespace-nowrap">
                     <StatusBadge status={c.status} />
                     {c.followUps > 0 && <span className="ml-1 num text-[11px] text-muted">{c.followUps}× followed up</span>}
+                    <OpenBadge c={c} className="ml-1.5 inline-flex align-middle" />
                   </td>
                   <EmailDates c={c} />
                   <td className="max-w-[280px] truncate px-2 py-2 text-[12px] text-muted" title={c.comment}>

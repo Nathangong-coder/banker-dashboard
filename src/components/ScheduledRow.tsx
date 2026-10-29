@@ -9,6 +9,7 @@ import type { Contact } from "@/lib/types";
 import { Clock, ExternalLink, X } from "lucide-react";
 import { Badge, Button, Input, Menu, toast } from "./ui";
 import { Cell, NameCell, Row, RowActions, RowCheckbox } from "./FollowupsUi";
+import { OpenBadge } from "./OpenBadge";
 
 /** "2026-10-13T09:05" in this browser's zone, for <input type="datetime-local">. */
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -36,7 +37,7 @@ export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Cont
         </Cell>
       )}
       <Cell main>
-        <NameCell name={c.name} sub={c.bank} onOpen={() => onOpen(c)} />
+        <NameCell name={c.name} sub={c.bank} onOpen={() => onOpen(c)} extra={<OpenBadge plain c={c} className="ml-1.5 inline-flex align-middle" />} />
       </Cell>
       {editing ? (
         <td colSpan={3} className="px-3 py-2 pr-4 max-lg:block max-lg:basis-full max-lg:p-0">

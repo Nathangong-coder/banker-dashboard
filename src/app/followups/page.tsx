@@ -10,6 +10,7 @@ import { nextAction, pendingFollowUpDraft, rollupBanks, sendLabel, type BankRoll
 import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
 import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
 import { connectGmail, deleteDraft, gmailConnected, upsertDraft } from "@/lib/gmail";
+import { notePixelDraft, pixelFor } from "@/lib/trackingActions";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
@@ -34,6 +35,7 @@ import { OffSheetTable, useOffSheet } from "@/components/OffSheet";
 import { ScheduledRow } from "@/components/ScheduledRow";
 import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
+import { OpenBadge } from "@/components/OpenBadge";
 
 type Tab = "due" | "bankers" | "banks" | "reminders";
 
@@ -203,16 +205,20 @@ function useActions() {
     await connectGmail(clientId);
     const step = c.followUps + 1;
     const prev = pendingFollowUpDraft(c);
-    const d = await upsertDraft(clientId, prev?.step === step ? prev.gmailDraftId : undefined, {
+    const reuse = prev?.step === step ? prev.gmailDraftId : undefined;
+    const pixel = await pixelFor({ to: c.email, subject, kind: "follow-up", step, contactId: c.id, gmailDraftId: reuse });
+    const d = await upsertDraft(clientId, reuse, {
       to: c.email,
       subject,
       body,
+      pixel,
       threadId: c.threadId,
       inReplyTo: c.lastMessageId,
       // No attachment: the resume goes on the first cold email only (it's already in this thread).
       // Same font as the first email (keeps font experiments clean and the thread consistent).
       font: EMAIL_FONTS[c.trial?.font ?? s.settings.emailStyle.font]?.css,
     });
+    notePixelDraft(pixel, d);
     s.updateContact(
       c.id,
       { followUpDraft: { gmailDraftId: d.id, messageId: d.message.id, step, createdAt: new Date().toISOString() } },
@@ -453,11 +459,14 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           <NameCell
             name={c.name}
             extra={
-              isVpPlus(c.position || c.headline) && (
-                <span className="ml-1.5 rounded-full bg-red-soft px-1.5 py-px text-[10.5px] font-semibold text-red" title="VP or above">
-                  VP+
-                </span>
-              )
+              <>
+                {isVpPlus(c.position || c.headline) && (
+                  <span className="ml-1.5 rounded-full bg-red-soft px-1.5 py-px text-[10.5px] font-semibold text-red" title="VP or above">
+                    VP+
+                  </span>
+                )}
+                <OpenBadge plain c={c} className="ml-1.5 inline-flex align-middle" />
+              </>
             }
             sub={`${c.position || "—"} · ${c.bank}${c.region !== "Other" ? ` (${c.region})` : ""}`}
             onOpen={() => onOpen(c)}

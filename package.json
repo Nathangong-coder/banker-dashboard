@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "check:templates": "tsx scripts/check-templates.mts",
     "check:coverage": "tsx scripts/check-coverage.mts",
+    "check:opens": "tsx scripts/check-opens.mts",
     "check:apply": "tsx scripts/check-apply.mts",
     "check:outreach": "tsx scripts/check-outreach.mts",
     "fix:workbook": "tsx scripts/fix-workbook.mts",

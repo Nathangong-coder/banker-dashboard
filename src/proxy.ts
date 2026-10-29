@@ -29,7 +29,7 @@ export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   // Account sync and the session check run every couple of minutes per open tab and require a signed-in session
   // already, so they skip the per-IP limiter (it cost 1-2 Redis commands per call; owner hit the Upstash limit).
-  if (!general || EXEMPT.includes(path) || path.startsWith("/api/sync/") || path === "/api/auth/me") return NextResponse.next();
+  if (!general || EXEMPT.includes(path) || path.startsWith("/api/sync/") || path.startsWith("/api/o/") || path === "/api/auth/me") return NextResponse.next();
   const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || req.headers.get("x-real-ip") || "unknown";
   const limiter = path === "/api/server/google/start" ? signup! : path === "/api/notify" ? notify! : isCapture(path) ? capture! : general;
   try {

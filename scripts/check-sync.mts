@@ -71,6 +71,17 @@ const big = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`c:${i}`, "
 const parts = batches(big, ["c:gone"], 500_000);
 eq("pushes are split under the size cap", [parts.length, parts.every((p) => Object.values(p.changed).join("").length <= 500_000), parts.flatMap((p) => p.removed)], [8, true, ["c:gone"]]);
 
+// Open tracking: each tracked message is its own doc; the rest of `tracking` stays one small doc.
+const tm = (id: string, subject: string) => ({ id, to: ["a@gs.com"], subject, kind: "first", createdAt: "2026-10-28T10:00:00Z", source: "coverage", hits: [], seen: [] });
+const tracked = { ...state, tracking: { key: "k", base: "https://x.app", messages: [tm("acc.aaaaaaaaaaaa.bbbbbbbbbbb", "Hi"), tm("acc.cccccccccccc.ddddddddddd", "Yo")], mx: { "gs.com": "google" } } };
+const tDocs = toDocs(tracked);
+eq("tracked messages round trip", sorted(fromDocs(tDocs)), sorted(Object.fromEntries(Object.entries(tracked).filter(([k]) => !["snapshots", "gridUndo", "setSettings"].includes(k)))));
+eq("one doc per tracked message (tm:<id>), none inside s:tracking", ["tm:acc.aaaaaaaaaaaa.bbbbbbbbbbb" in tDocs, "tm:acc.cccccccccccc.ddddddddddd" in tDocs, (tDocs["s:tracking"] as { messages?: unknown } | undefined)?.messages], [true, true, undefined]);
+eq("tracked message keys are valid doc keys", Object.keys(tDocs).every(validDocKey), true);
+const tBase = serialize(tDocs);
+const tEdited = serialize(toDocs({ ...tracked, tracking: { ...tracked.tracking, messages: [tracked.tracking.messages[0], { ...tracked.tracking.messages[1], sentAt: "2026-10-28T11:00:00Z" }] } }));
+eq("editing one tracked message changes exactly one doc", Object.keys(diffDocs(tBase, tEdited).changed), ["tm:acc.cccccccccccc.ddddddddddd"]);
+
 eq("unknown doc keys are refused", [validDocKey("x:1"), validDocKey(""), validDocKey("c:" + "a".repeat(700))], [false, false, false]);
 
 console.log(failed ? `\n${failed} failed` : "\nall passed");

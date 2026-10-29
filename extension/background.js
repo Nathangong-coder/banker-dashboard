@@ -38,6 +38,9 @@ import {
 } from "./sites/apply.js";
 import { captureLinkedInJob, isLinkedInWall, linkedinJobsUrl, readLinkedInJobs } from "./sites/linkedin.js";
 import { runFill } from "./agent/agent.js";
+// Tracking never opens a tab: with no Coverage tab open its calls fail fast and wait in the outbox.
+const askQuiet = (type, payload) => askDashboard(type, payload, { create: false });
+import { GMAIL_ORIGIN, TRACKING_TYPES, flushOutbox, fromGmail, syncPixelKey, watchGmailScript } from "./tracking.js";
 import { captureHandshakeJob, clickApplyExternally, handshakeJobUrl, handshakePage, isHandshake, isHandshakeWall, readHandshakeJobs } from "./sites/handshake.js";
 
 const progress = (tabId, text) => chrome.runtime.sendMessage({ type: "autofill-progress", tabId, text }).catch(() => {});
@@ -53,7 +56,7 @@ const HANDSHAKE = "https://*.joinhandshake.com/*";
 // every open tab, one after another, on every call (dozens of round trips with a full tab strip). Now the last tab
 // that answered is asked first, and a search asks all tabs at once (owner, 2026-10-28: "slow and memory intensive").
 let dashTabId = null;
-async function dashboardTab() {
+async function dashboardTab({ create = true } = {}) {
   const dashboard = await getDashboard();
   const ping = (id) => chrome.tabs.sendMessage(id, { to: "dashboard", type: "ping" }).then((r) => r?.ok === true && r.origin === dashboard, () => false);
   if (dashTabId === null) dashTabId = (await chrome.storage.session.get("dashTab")).dashTab ?? null;
@@ -64,7 +67,7 @@ async function dashboardTab() {
   const tabs = (await chrome.tabs.query({})).filter((t) => !t.discarded && /^https?:/.test(t.url ?? "https:"));
   const hits = await Promise.all(tabs.map((t) => ping(t.id)));
   let found = tabs.find((_, i) => hits[i]);
-  if (!found) {
+  if (!found && create) {
     const t = await chrome.tabs.create({ url: `${dashboard}/applications`, active: false });
     for (let i = 0; i < 40 && !found; i++) {
       await sleep(500);
@@ -77,8 +80,8 @@ async function dashboardTab() {
   return found;
 }
 
-async function askDashboard(type, payload) {
-  const tab = await dashboardTab();
+async function askDashboard(type, payload, { create = true } = {}) {
+  const tab = await dashboardTab({ create });
   const res = await chrome.tabs.sendMessage(tab.id, { to: "dashboard", type, payload });
   if (!res?.ok) throw new Error(res?.error || "Coverage didn't answer.");
   return res.result;
@@ -1112,6 +1115,7 @@ async function fromDashboard(msg, sender) {
   const p = msg.payload ?? {};
   if (msg.type === "vaultSync") {
     syncAiKeys().catch(() => {});
+    syncPixelKey(askQuiet).then(() => flushOutbox(askQuiet)).catch(() => {});
     return syncVault();
   }
   if (msg.type === "fillJobs") return fillJobs({ jobs: cleanJobs(p.jobs), watch: p.watch === true });
@@ -1131,6 +1135,9 @@ async function fromDashboard(msg, sender) {
   }
   throw new Error("Unknown command.");
 }
+
+// Gmail open tracking (test build, opt-in): registers / unregisters sites/gmail.js.
+watchGmailScript();
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
@@ -1153,6 +1160,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   };
   // The dashboard bridge (a content script on the dashboard's own pages only).
   if (sender.tab && msg?.from === "dashboard") return reply(fromDashboard(msg, sender));
+  // Open tracking, from the Gmail content script: top frame of mail.google.com only (see tracking.js).
+  if (sender.tab && TRACKING_TYPES.has(msg?.type) && sender.frameId === 0 && sender.url && new URL(sender.url).origin === GMAIL_ORIGIN) return reply(fromGmail(msg, askQuiet));
   // Everything else: only the popup / options (extension pages, not a content script in some tab).
   if (sender.tab || !sender.url?.startsWith(chrome.runtime.getURL(""))) return false;
   if (msg?.type === "autofill" && Number.isInteger(msg.tabId)) return reply(autofill(msg.tabId, msg.confirmed === true));

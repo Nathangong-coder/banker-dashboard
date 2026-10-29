@@ -115,7 +115,7 @@ $("wipe").addEventListener("click", async () => {
 showVault();
 
 /* LinkedIn / Handshake job search (test build only; the store build strips these sections and has no access to either site) */
-function siteToggle(box, status, origin, flag, button) {
+function siteToggle(box, status, origin, flag, button, after) {
   if (!box) return;
   const show = async () => {
     const flags = await chrome.storage.local.get(flag);
@@ -126,11 +126,12 @@ function siteToggle(box, status, origin, flag, button) {
       // Asked straight from the click (permission requests need the gesture).
       chrome.permissions.request({ origins: [origin] }).then(async (ok) => {
         await chrome.storage.local.set({ [flag]: ok });
-        status.textContent = ok ? `On. Reload your Coverage tab to see “${button}”.` : "Not allowed.";
+        status.textContent = ok ? (after ? "On." : `On. Reload your Coverage tab to see “${button}”.`) : "Not allowed.";
         show();
+        if (after) after(ok);
       });
     } else {
-      chrome.storage.local.set({ [flag]: false });
+      chrome.storage.local.set({ [flag]: false }).then(() => after?.(false, true));
       chrome.permissions.remove({ origins: [origin] }).catch(() => {});
       status.textContent = "Off.";
     }
@@ -140,6 +141,17 @@ function siteToggle(box, status, origin, flag, button) {
 siteToggle($("liOn"), $("liStatus"), "https://www.linkedin.com/*", "linkedinAgent", "Search LinkedIn");
 siteToggle($("hsOn"), $("hsStatus"), "https://*.joinhandshake.com/*", "handshakeAgent", "Search Handshake");
 siteToggle($("anySiteOn"), $("agentStatus"), "<all_urls>", "anySite", "Fill selected");
+// Gmail open tracking: the worker registers / unregisters sites/gmail.js (extension/tracking.js#ensureGmailScript).
+siteToggle($("gmOn"), $("gmStatus"), "https://mail.google.com/*", "gmailTrack", "", (ok, turnedOff) => {
+  chrome.runtime.sendMessage({ type: "gmailScript" }).then(
+    (r) => {
+      if (!r?.ok) $("gmStatus").textContent = `Couldn't turn it ${ok ? "on" : "off"}: ${r?.error ?? "no answer"}`;
+      else if (r.result.on) $("gmStatus").textContent = "On. Reload your Gmail tab; emails you send from it now get the tracking image.";
+      else if (turnedOff) $("gmStatus").textContent = "Off: new emails aren't tracked anymore. Reload any open Gmail tabs to remove the ✓ marks.";
+    },
+    (e) => ($("gmStatus").textContent = e.message),
+  );
+});
 
 /* Benchmark mode + vision helper (test build): prefs.benchmark, prefs.vision { provider, model }. */
 const benchBox = $("benchOn");

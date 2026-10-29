@@ -12,6 +12,7 @@ import { EMAIL_FONTS, type EmailFont } from "./types";
 import { bodyToHtml, bodyToPlain, logoLineIndex, normalizeBody, normalizeSubject } from "./emailFormat";
 import { dropServerGoogleToken, serverGoogleToken } from "./googleToken";
 import { requireAccount } from "./session";
+import { PIXEL_PATH_RE } from "./pixel";
 
 const SCOPES = "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -139,6 +140,8 @@ export interface DraftInput {
    * from the web. Undefined = use the one saved in Settings → Email → Writing; null = none.
    */
   logo?: SignatureLogo | null;
+  /** Open-tracking pixel URL (lib/trackingActions.ts#pixelFor): a 1×1 image at the very end of the HTML part, never in the plain text. */
+  pixel?: string;
 }
 
 export interface SignatureLogo {
@@ -152,6 +155,13 @@ export interface SignatureLogo {
 }
 
 const LOGO_CID = "signature-logo@coverage";
+
+/** Put the tracking pixel after everything else (the logo included), inside the Gmail-style wrapper div. */
+export function withPixel(html: string, url?: string): string {
+  if (!url) return html;
+  const img = `<img src="${url.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0">`;
+  return html.endsWith("</div>") ? html.slice(0, -"</div>".length) + img + "</div>" : html + img;
+}
 
 /**
  * RFC 2822 message for a Gmail draft: multipart/alternative (plain text + Gmail-style HTML so lines use
@@ -173,7 +183,7 @@ export function buildMime(d: DraftInput): string {
     [`Content-Type: ${type}; charset="UTF-8"`, "Content-Transfer-Encoding: base64", "", wrap76(b64Text(content))].join("\r\n");
   // The logo only goes in when the body has the signature (a reply without one gets no logo either).
   const logo = d.logo && logoLineIndex(normalizeBody(body).split("\n"), d.logo.after) >= 0 ? d.logo : undefined;
-  const html = part("text/html", bodyToHtml(body, d.font, logo && { src: `cid:${LOGO_CID}`, width: logo.width, alt: logo.alt, link: logo.link, after: logo.after }));
+  const html = part("text/html", withPixel(bodyToHtml(body, d.font, logo && { src: `cid:${LOGO_CID}`, width: logo.width, alt: logo.alt, link: logo.link, after: logo.after }), d.pixel));
   const rel = `rel_${id}`;
   const htmlPart = logo
     ? [
@@ -746,3 +756,47 @@ export async function gmailReadableQuietly(clientId: string): Promise<boolean> {
   if (gmailConnected(clientId)) return true;
   return !!(await serverGoogleToken(SCOPES.split(" ")).catch(() => null));
 }
+
+/* ---------------- reading a whole thread (Email tracking's side panel) ---------------- */
+
+export interface ThreadMessage {
+  id: string;
+  from: string;
+  to: string;
+  at: string;
+  subject: string;
+  /** The HTML part with every tracking pixel removed (so showing it never counts as an open). */
+  html?: string;
+  /** Plain text with quoted history cut. */
+  text: string;
+}
+
+/** Our own open-tracking images, removed before anything is shown. */
+export function stripPixels(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => (PIXEL_PATH_RE.test(tag.replace(/&amp;/g, "&")) ? "" : tag));
+}
+
+/** Every message in a Gmail thread, oldest first (needs the Gmail read permission). */
+export async function threadMessages(clientId: string, threadId: string): Promise<ThreadMessage[]> {
+  const t = await gapi<{ messages?: (MsgMeta & { payload?: Part & { headers?: { name: string; value: string }[] } })[] }>(
+    clientId,
+    `/threads/${encodeURIComponent(threadId)}?format=full`,
+  );
+  return (t.messages ?? []).map((m) => {
+    const rawHtml = partText(m.payload, "text/html");
+    const plain = partText(m.payload, "text/plain");
+    const html = rawHtml ? stripPixels(rawHtml) : undefined;
+    return {
+      id: m.id,
+      from: header(m, "From") ?? "",
+      to: header(m, "To") ?? "",
+      at: new Date(when(m)).toISOString(),
+      subject: header(m, "Subject") ?? "",
+      html,
+      text: stripQuoted((plain || htmlToText(html ?? "")).trim()),
+    };
+  });
+}
+
+/** Deep link to a thread in Gmail's web app. */
+export const gmailThreadUrl = (threadId: string) => `https://mail.google.com/mail/u/0/#all/${threadId}`;

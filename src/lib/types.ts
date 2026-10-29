@@ -516,6 +516,22 @@ export interface Settings {
   sendMode?: "coverage" | "gmail";
   /** When sends go out (lib/sendWindow.ts). undefined = 9–11 AM the recipient's time, weekdays. */
   sendWindow?: import("./sendWindow").SendWindow;
+  /** Open tracking: `on` adds an invisible image to emails Coverage makes (lib/trackingActions.ts). undefined = off. */
+  tracking?: { on?: boolean };
+}
+
+/**
+ * Open tracking data (store `tracking`): the account's pixel key + the site that serves pixels (cached from
+ * api/server/pixel), every tracked email (synced one doc each, `tm:<id>`), and which recipient domains are on Google
+ * mail (`mx`, for reading Gmail image-proxy opens).
+ */
+export interface TrackingState {
+  key?: string;
+  base?: string;
+  /** The server account (`settings.server.id`) the key belongs to: a new account needs a new key. */
+  account?: string;
+  messages: import("./opens").TrackedMessage[];
+  mx: Record<string, "google" | "other">;
 }
 
 export interface Prospect {

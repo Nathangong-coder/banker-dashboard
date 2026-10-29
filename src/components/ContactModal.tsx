@@ -9,6 +9,7 @@ import { fmtDate } from "@/lib/util";
 import { detectRegion } from "@/lib/workbook";
 import { locationForRegion, normLocation, normTeam } from "@/lib/locationTeam";
 import { LocationTeamFields } from "./LocationTeam";
+import { ContactOpens } from "./OpenBadge";
 import { Button, Field, Input, Modal, Select, Textarea } from "./ui";
 
 const toDateInput = (iso?: string) => (iso ? iso.slice(0, 10) : "");
@@ -121,6 +122,7 @@ function Editor({ c, onClose }: { c: Contact; onClose: () => void }) {
         <Field label="Snooze reminders until">
           <Input type="date" value={toDateInput(d.snoozeUntil)} onChange={(e) => set("snoozeUntil", fromDateInput(e.target.value))} />
         </Field>
+        <ContactOpens c={c} />
         {c.history.length > 0 && (
           <div>
             <div className="mb-1 text-[12px] font-medium text-ink-2">History</div>

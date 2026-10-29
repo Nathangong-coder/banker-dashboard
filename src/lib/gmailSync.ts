@@ -8,6 +8,7 @@ import { googleClientId } from "./keys";
 import type { Contact } from "./types";
 import { latestIso, pool } from "./util";
 import { autoMovedOn } from "./contactUpkeep";
+import { matchTrackedSends } from "./trackingActions";
 
 export interface SyncSummary {
   checked: number;
@@ -162,6 +163,8 @@ export function syncAllWithGmail(opts: { interactive: boolean; onProgress?: (don
       (done) => opts.onProgress?.(done, list.length),
     );
     useStore.getState().setLastGmailSync(new Date().toISOString());
+    // Tracked emails (open tracking) that went out get their sent date from the contacts' new dates.
+    matchTrackedSends();
     // Bankers emailed but not in the tracker (throttled to every 6 h; a failure here never fails the sync).
     await scanOffSheet({ interactive: false }).catch(() => undefined);
     return summary;
