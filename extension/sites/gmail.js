@@ -31,7 +31,7 @@
   };
   // Same as extension/pixel.js (pack-extension checks they match). Matches a direct address and Gmail's image proxy
   // (…googleusercontent.com/…#https://<site>/api/o/<id>.gif).
-  const PIXEL_PATH_RE = /\/api\/o\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]{12}\.[A-Za-z0-9_-]{11})\.gif/;
+  const PIXEL_PATH_RE = /\/api\/o\/([A-Za-z0-9_-]+\.(?:[0-9a-z]{3,6}\.)?[A-Za-z0-9_-]{12}\.[A-Za-z0-9_-]{11})\.gif/;
   const MARK = "data-cov-mark";
 
   /* ---- talking to the worker ---- */

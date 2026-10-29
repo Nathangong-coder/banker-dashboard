@@ -9,10 +9,19 @@ const TTL = 30 * 86400;
 
 export const hitKey = (h: Pick<RawHit, "id" | "at">) => `${h.id}|${h.at}`;
 
+/** Housekeeping (cap + TTL) runs on a new list and every this-many pushes, not on each one. */
+const TIDY_EVERY = 25;
+
+/**
+ * One command per open (RPUSH, which returns the length). The cap and TTL are refreshed only when the list is new
+ * or every 25th hit, so the list can run up to 24 past the cap and expires 30 days after its last tidy: Upstash bills
+ * every command, scripts and pipelines included, so this is ~1.1 commands per open instead of 3.
+ */
 export async function pushHit(acct: string, hit: RawHit) {
+  const n = await db().rpush(OPENS(acct), hit);
+  if (n !== 1 && n % TIDY_EVERY !== 0) return;
   const p = db().pipeline();
-  p.rpush(OPENS(acct), hit);
-  p.ltrim(OPENS(acct), -MAX_KEPT, -1);
+  if (n > MAX_KEPT) p.ltrim(OPENS(acct), -MAX_KEPT, -1);
   p.expire(OPENS(acct), TTL);
   await p.exec();
 }

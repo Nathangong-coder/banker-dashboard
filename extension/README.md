@@ -97,6 +97,12 @@ Bump `"version"` in `manifest.json` before every store upload (the stores reject
 Listing: https://chromewebstore.google.com/detail/hjmfcaldipgcjffmcemcljllmlpjlnlp (item id `hjmfcaldipgcjffmcemcljllmlpjlnlp`,
 in `src/lib/site.ts` → `SITE.extension.chromeUrl`).
 
+### 1.19.1
+
+- Email open tracking (test build): emails sent from Gmail's compose window carry Coverage's tracking image, with
+  ✓ / ✓✓ marks in Sent; your own views aren't counted. Tracking IDs now carry the day they were made, so opens stop
+  being recorded after 60 days.
+
 ### 1.18.0
 
 - Lighter and faster: the worker remembers your Coverage tab instead of asking every open tab on every message,

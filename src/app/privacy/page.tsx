@@ -241,11 +241,13 @@ export default function PrivacyPage() {
         label each open (a person, a security scanner, Apple&apos;s privacy proxy, or you) as a best guess.
       </p>
       <p className="mt-3">
-        <b>Where it&apos;s kept.</b> The server holds opens only until your signed-in dashboard picks them up, and at most 30 days after the latest open; then they live in your
+        <b>How long.</b> Opens are recorded for 60 days after an email&apos;s image was made; later loads get the same image but aren&apos;t recorded. The same
+        device opening the same email again within 30 minutes counts as one open.{" "}
+        <b>Where it&apos;s kept.</b> The server holds opens only until your signed-in dashboard picks them up, and at most about 30 days after that; then they live in your
         own {SITE.name} data like everything else you save (and are deleted with it). The image address is a random ID signed with a key tied to your
-        account (your dashboard and, if you use it, the extension hold that key to make new IDs); it contains no name or email address. Emails you view inside {SITE.name} are shown without loading remote images, and your own views
+        account (your dashboard and, if you use it, the extension hold that key to make new IDs) plus the day it was made; it contains no name or email address. Emails you view inside {SITE.name} are shown without loading remote images, and your own views
         are not counted. <b>Turning Track opens off</b> stops new tracking images being added; emails already sent keep the image they carry, and
-        late opens on them are still collected for your dashboard while it holds tracked emails. In the extension&apos;s test build you can also track
+        late opens on them (within those 60 days) are still collected for your dashboard. In the extension&apos;s test build you can also track
         emails sent from Gmail itself (see the{" "}
         <a className="text-navy underline" href="/extension/privacy">
           extension privacy policy

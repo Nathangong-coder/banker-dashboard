@@ -16,6 +16,7 @@ import { googleClientId } from "./keys";
 import { scheduledByRecipient } from "./gmail";
 import { officeGapItems, officeGaps } from "./officeGaps";
 import type { RawHit } from "./opens";
+import { OPEN_DAYS } from "./pixel";
 import { matchTrackedSends, refreshMx } from "./trackingActions";
 
 /**
@@ -122,8 +123,13 @@ let pendingOpensAck: string[] = [];
 const MAX_OPEN_PAGES = 10;
 type OpensWire = { opens?: RawHit[]; moreOpens?: boolean };
 
-/** Open tracking needs the server's hits while it's on, and while there are tracked emails whose opens may still come. */
-const wantsOpens = (st: ReturnType<typeof useStore.getState>) => !!st.settings.tracking?.on || st.tracking.messages.length > 0;
+/**
+ * Open tracking needs the server's hits while it's on, and while a tracked email may still have opens coming: the
+ * server records them for OPEN_DAYS after the pixel was made and keeps unread hits up to 30 days more.
+ */
+const OPENS_READ_MS = (OPEN_DAYS + 30) * 86_400_000;
+const wantsOpens = (st: ReturnType<typeof useStore.getState>, now = Date.now()) =>
+  !!st.settings.tracking?.on || st.tracking.messages.some((m) => now - Date.parse(m.createdAt) < OPENS_READ_MS);
 
 /** One sync call that also acks the opens stored last time; stores the opens it returns (acked next call). */
 async function callWithOpens<T extends OpensWire>(body: Record<string, unknown>): Promise<T> {

@@ -37,6 +37,44 @@ const proxied = (i: string) => `https://ci3.googleusercontent.com/meips/AbC=s0-d
 check("both regexes find the id in a Gmail proxy URL", PIXEL_PATH_RE.exec(proxied(id))?.[1] === id && twin.PIXEL_PATH_RE.exec(proxied(id))?.[1] === id);
 check("pixelUrl agrees", pixelUrl("https://x.app", id) === twin.pixelUrl("https://x.app", id) && pixelUrl("https://x.app", id) === `https://x.app/api/o/${id}.gif`);
 
+// The mint day (60-day window) and ids from before it existed.
+{
+  const { pixelExpired, OPEN_DAYS } = await import("../src/lib/pixel");
+  const DAY = 86_400_000;
+  const now = Date.UTC(2026, 9, 28, 12);
+  const today = await mintPixelId(ACCT, key, now);
+  const v = await verifyPixelId(today, keyFor);
+  check("id carries the mint day", today.split(".").length === 4 && v?.day === Math.floor(now / DAY), v);
+  const d = today.split(".")[1];
+  const moved = today.replace(`.${d}.`, `.${(parseInt(d, 36) + 30).toString(36)}.`);
+  check("verify rejects a moved day", (await verifyPixelId(moved, keyFor)) === null);
+  const enc = new TextEncoder();
+  const k = await crypto.subtle.importKey("raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const b64 = (b: ArrayBuffer) => Buffer.from(b).toString("base64url");
+  const rand = "AbCdEfGhIjKl";
+  const legacy = `${ACCT}.${rand}.${b64(await crypto.subtle.sign("HMAC", k, enc.encode(`${ACCT}.${rand}`))).slice(0, 11)}`;
+  const lv = await verifyPixelId(legacy, keyFor);
+  check("a first-version id (no day) still verifies, never expires", lv?.accountId === ACCT && lv.day === undefined && !pixelExpired(lv.day, now));
+  check("regexes find old and new ids", PIXEL_PATH_RE.exec(proxied(legacy))?.[1] === legacy && twin.PIXEL_PATH_RE.exec(proxied(today))?.[1] === today);
+  const old = await verifyPixelId(await mintPixelId(ACCT, key, now - (OPEN_DAYS + 1) * DAY), keyFor);
+  const edge = await verifyPixelId(await mintPixelId(ACCT, key, now - OPEN_DAYS * DAY), keyFor);
+  check("opens stop after 60 days", pixelExpired(old?.day, now) && !pixelExpired(edge?.day, now) && !pixelExpired(v?.day, now));
+  const tday = (await verifyPixelId(await twin.mintPixelId(ACCT, key, now), keyFor))?.day;
+  check("extension twin mints the same day", tday === Math.floor(now / DAY), tday);
+}
+
+// The same reader reopening within 30 minutes is one open; a scanner's burst still passes.
+{
+  const { repeatGate } = await import("../src/lib/opens");
+  const gate = repeatGate(30 * 60_000, 10_000, 3);
+  const t0 = 5_000_000;
+  check("repeat: first open recorded", gate("e|r1", t0));
+  check("repeat: a burst within 10 s passes (scanner signal kept)", gate("e|r1", t0 + 1500) && gate("e|r1", t0 + 9000));
+  check("repeat: a reopen 2 min later is collapsed", !gate("e|r1", t0 + 120_000) && !gate("e|r1", t0 + 29 * 60_000));
+  check("repeat: another reader or email still counts", gate("e|r2", t0 + 120_000) && gate("f|r1", t0 + 120_000));
+  check("repeat: after 30 min it's a new open", gate("e|r1", t0 + 31 * 60_000));
+}
+
 // ---- classification (lib/opens.ts) ----
 const T = (s: string) => `2026-10-27T${s}.000Z`;
 const UA_OLK_WIN = "Mozilla/5.0 (Windows NT 10.0; Microsoft Outlook 16.0.17928)";

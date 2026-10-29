@@ -211,3 +211,22 @@ export function hitThrottle(limit = 20, windowMs = 10 * 60_000, maxIds = 5000) {
     return true;
   };
 }
+
+/**
+ * In-memory collapse for the pixel route, keyed by email + reader (`id|ipHash`): the same reader opening the same
+ * email again within `windowMs` is one open, not several (no Redis cost). Hits within `burstMs` of the reader's
+ * first one still pass, so a scanner's burst keeps the 2-second signal `labelHits` relies on. `now` is for checks.
+ */
+export function repeatGate(windowMs = 30 * 60_000, burstMs = 10_000, maxKeys = 5000) {
+  const first = new Map<string, number>();
+  return (key: string, now = Date.now()): boolean => {
+    const at = first.get(key);
+    if (at !== undefined && now - at < windowMs) return now - at <= burstMs;
+    if (at === undefined && first.size >= maxKeys) {
+      for (const [k, v] of first) if (now - v >= windowMs) first.delete(k);
+      if (first.size >= maxKeys) first.delete(first.keys().next().value as string);
+    }
+    first.set(key, now);
+    return true;
+  };
+}
