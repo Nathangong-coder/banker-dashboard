@@ -24,6 +24,8 @@ npm run check:conversations                   # Conversation table: rows link to
 npm run check:apply                           # application autofill planning: profile rules, AI-only questions, never-filled fields
 npm run check:jobs                            # job finder: career boards from links, internship / banking / US filters, dedupe; recruiters
 npm run check:sync                            # account sync docs: round trip, one edit = one doc, tombstones, two tabs adding, push batches
+npm run check:store                           # Postgres store answers like Upstash Redis for every call the server makes (.env.local + .env.neon)
+npm run db:setup / db:migrate [-- --dry-run]  # create the Postgres tables / copy Redis → Postgres (see "Server storage")
 ```
 
 There is no unit test suite. `check:workbook` and `check:templates` are the regression checks for the two parsers.
@@ -161,6 +163,21 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   browser restart that takes one Save click. `fileBusy` keeps it and `saveWorkbook` from running at the same time.
 - Contact ids for sheet rows are `s:<sheet>:<row>`, stable across re-imports. `importWorkbook` merges by id (and by ref for people added
   from the dashboard that were already saved into the file) so workflow state (status, dates, drafts) survives a re-import.
+
+## Server storage: Redis → Postgres (owner, 2026-11-02)
+
+- **Why:** Upstash bills per command and the free plan ran out once; Neon Postgres bills compute time + storage. Neon
+  `coverage-db` (Vercel Marketplace, us-east-1, free plan) is connected to every environment (`DATABASE_URL`; one
+  database shared by production / preview / development, as Redis was). Locally: `vercel env pull .env.neon --environment development`.
+- `accounts.ts#db()` returns `lib/server/store.ts#Store`: **`DATA_STORE=postgres` → `PgStore`**, else Upstash. PgStore keeps the
+  same keys in `kv` / `kv_hash` / `kv_set` / `kv_list` / `kv_zset` (+ `kv_ttl` for collection expiry), jsonb values, and reads strings
+  back through JSON.parse like Upstash does (routes rely on it). Expired rows read as missing; the hourly tick runs
+  `sweepExpired`. multi/pipeline run in order, not atomically. hscan / scan return everything in one page. `npm run check:store`
+  runs the same steps on both backends (23 checks); new Redis calls in server code must be added to the interface and the check.
+- **Stays on Upstash:** the per-IP rate limiter (`proxy.ts`, rl:* keys) and QStash.
+- **Cutover:** deploy (inert) → close every Coverage tab, not at :00 → `npm run db:migrate` (copies + compares; refuses
+  when Postgres has data unless `--force`) → `DATA_STORE=postgres` in Vercel (production) → redeploy. Rollback = remove the
+  env var + redeploy (Redis still has the pre-cutover data; writes made on Postgres meanwhile would not be in it).
 
 ## Accounts + login (owner, 2026-10-25; spec `docs/superpowers/specs/2026-10-25-accounts-login-design.md`)
 

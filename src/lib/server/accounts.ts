@@ -2,6 +2,7 @@ import "server-only";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { HttpError } from "./http";
+import { PgStore, type Store } from "./store";
 import type { DigestItem } from "../digestFormat";
 import type { CaptureItem } from "../infoSessions";
 
@@ -79,15 +80,22 @@ export interface CalPerson {
   loggedAt?: string;
 }
 
-let redis: Redis | null = null;
-export function db() {
-  if (!redis) {
-    const url = process.env.KV_REST_API_URL;
-    const token = process.env.KV_REST_API_TOKEN;
-    if (!url || !token) throw new HttpError(503, "The server isn't set up for automatic sending (no storage connected).");
-    redis = new Redis({ url, token });
+let store: Store | null = null;
+/** Postgres (Neon) with DATA_STORE=postgres, else Upstash Redis; both behind the same Redis-shaped calls (store.ts). */
+export function db(): Store {
+  if (!store) {
+    if (process.env.DATA_STORE === "postgres") {
+      const url = process.env.DATABASE_URL;
+      if (!url) throw new HttpError(503, "The server isn't set up (DATA_STORE=postgres but no DATABASE_URL).");
+      store = new PgStore(url);
+    } else {
+      const url = process.env.KV_REST_API_URL;
+      const token = process.env.KV_REST_API_TOKEN;
+      if (!url || !token) throw new HttpError(503, "The server isn't set up for automatic sending (no storage connected).");
+      store = new Redis({ url, token }) as unknown as Store;
+    }
   }
-  return redis;
+  return store;
 }
 
 const KEY = (id: string) => `acct:${id}`;

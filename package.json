@@ -31,7 +31,10 @@
     "check:moveon": "tsx scripts/check-moveon.mts",
     "check:jobs": "tsx scripts/check-jobs.mts",
     "check:sync": "tsx scripts/check-sync.mts",
-    "check:agent": "node scripts/check-agent.mjs"
+    "check:agent": "node scripts/check-agent.mjs",
+    "db:setup": "tsx --conditions=react-server scripts/pg-setup.mts",
+    "check:store": "tsx --conditions=react-server scripts/check-store.mts",
+    "db:migrate": "tsx --conditions=react-server scripts/migrate-to-pg.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.62",
@@ -40,6 +43,7 @@
     "@ai-sdk/google": "^4.0.80",
     "@ai-sdk/openai": "^4.0.75",
     "@ai-sdk/openai-compatible": "^3.0.55",
+    "@neondatabase/serverless": "^1.2.0",
     "@upstash/qstash": "^2.12.0",
     "@upstash/ratelimit": "^2.2.0",
     "@upstash/redis": "^1.39.0",

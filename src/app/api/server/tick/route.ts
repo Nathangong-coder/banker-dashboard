@@ -4,6 +4,7 @@ import { accessToken, eventsOn, infoSessionsBetween } from "@/lib/server/google"
 import { verifyQstash } from "@/lib/server/jobs";
 import { trackAccount, trackStates, type TrackState } from "@/lib/server/gmailTrack";
 import { ensureWatch } from "@/lib/server/gmailPush";
+import { PgStore } from "@/lib/server/store";
 import { planItems } from "@/lib/server/tonight";
 import { sendWhatsApp } from "@/lib/server/whatsapp";
 import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, jobRunLine, nextTextDay, type CallPerson, type DigestItem } from "@/lib/digestFormat";
@@ -185,6 +186,9 @@ export async function POST(req: Request) {
       }
       if (await nightText(a, appUrl(req))) sent++;
     }
+    // Postgres keeps expired rows until they are deleted (Redis drops them by itself).
+    const store = db();
+    if (store instanceof PgStore) await store.sweepExpired().catch((e: Error) => console.warn(`[store] sweep: ${e.message}`));
     return Response.json({ sent, sessionTexts, tracked });
   } catch (e) {
     return errorResponse(e);
