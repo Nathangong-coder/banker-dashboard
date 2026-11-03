@@ -154,6 +154,11 @@ export async function readReplies(states: Record<string, TrackStateWire>) {
     }
     return [...ack].map(([contactId, ids]) => ({ contactId, ids }));
   }
+  // The last try failed (quota, bad output): don't ask again on every 2-minute sync.
+  if (Date.now() < restUntil) {
+    for (const p of pending) reading.delete(p.id);
+    return [];
+  }
   for (let i = 0; i < pending.length; i += 10) {
     const batch = pending.slice(i, i + 10);
     try {
@@ -196,13 +201,16 @@ export async function readReplies(states: Record<string, TrackStateWire>) {
         useStore.getState().updateContact(cur.id, { signals });
       }
     } catch {
-      // AI unavailable this time: leave them on the server for the next sync.
+      // AI unavailable this time: leave them on the server and try again in half an hour.
+      restUntil = Date.now() + 30 * 60_000;
+      break;
     }
   }
   for (const p of pending) reading.delete(p.id);
   return [...ack].map(([contactId, ids]) => ({ contactId, ids }));
 }
 const reading = new Set<string>();
+let restUntil = 0;
 
 /**
  * Confirm a referral / intro: the referrer gets `referral` (dated from the email), each person they referred becomes a

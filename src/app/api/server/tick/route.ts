@@ -3,6 +3,7 @@ import { DIGEST_DAY, DIGEST_ERR, accountIds, appUrl, captureUrl, db, getSends, l
 import { accessToken, eventsOn, infoSessionsBetween } from "@/lib/server/google";
 import { verifyQstash } from "@/lib/server/jobs";
 import { trackAccount, trackStates, type TrackState } from "@/lib/server/gmailTrack";
+import { ensureWatch } from "@/lib/server/gmailPush";
 import { planItems } from "@/lib/server/tonight";
 import { sendWhatsApp } from "@/lib/server/whatsapp";
 import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, jobRunLine, nextTextDay, type CallPerson, type DigestItem } from "@/lib/digestFormat";
@@ -174,6 +175,8 @@ export async function POST(req: Request) {
       if (!a) continue;
       // Replies / thank-yous / intros first, so tonight's text is current.
       if (a.google?.read) tracked += await trackAccount(a, 60_000).catch(() => 0);
+      // Gmail push (when set up): start or renew the 7-day watch.
+      if (a.google?.read) await ensureWatch(a).catch((e: Error) => console.warn(`[gmail-push] watch ${a.id}: ${e.message.slice(0, 200)}`));
       if (!a.whatsapp) continue;
       try {
         sessionTexts += await infoSessionReminders(a, req);

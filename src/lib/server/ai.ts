@@ -1,5 +1,5 @@
 import "server-only";
-import type { LanguageModel } from "ai";
+import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGateway } from "@ai-sdk/gateway";
 import { createGoogle } from "@ai-sdk/google";
@@ -14,6 +14,23 @@ export { HttpError, errorResponse };
 export const PROVIDERS: AiProvider[] = ["anthropic", "openai", "google", "deepseek", "glm", "gateway", "custom"];
 const GLM_BASE = "https://api.z.ai/api/paas/v4";
 
+/**
+ * OpenAI-compatible endpoints (GLM, DashScope / Qwen, any custom URL) get no JSON schema: the SDK sends one only with
+ * structured outputs, so the model guessed its own shape ({"a1": "professional"} instead of {results: [...]}), every
+ * Output.object call failed with "response did not match schema" and /api/replies/classify answered 500 on every
+ * sync (2026-11-02). Put the schema in the system prompt, the way @ai-sdk/deepseek does.
+ */
+const schemaInPrompt: LanguageModelMiddleware = {
+  transformParams: async ({ params }) => {
+    const rf = params.responseFormat;
+    if (rf?.type !== "json" || !rf.schema) return params;
+    const note = `Answer with one JSON object only (no prose, no code fences) that matches this JSON schema, using exactly its keys: ${JSON.stringify(rf.schema)}`;
+    return { ...params, prompt: [{ role: "system", content: note }, ...params.prompt] };
+  },
+};
+const compatible = (name: string, baseURL: string, apiKey: string, modelId: string) =>
+  wrapLanguageModel({ model: createOpenAICompatible({ name, baseURL, apiKey })(modelId), middleware: schemaInPrompt });
+
 export function makeModel(provider: AiProvider, apiKey: string, modelId: string, baseURL?: string): LanguageModel {
   switch (provider) {
     case "anthropic":
@@ -25,12 +42,12 @@ export function makeModel(provider: AiProvider, apiKey: string, modelId: string,
     case "deepseek":
       return createDeepSeek({ apiKey })(modelId);
     case "glm":
-      return createOpenAICompatible({ name: "glm", baseURL: baseURL || GLM_BASE, apiKey })(modelId);
+      return compatible("glm", baseURL || GLM_BASE, apiKey, modelId);
     case "gateway":
       return createGateway({ apiKey })(modelId.includes("/") ? modelId : `anthropic/${modelId}`);
     case "custom":
       if (!baseURL) throw new HttpError(400, "Custom provider needs a base URL.");
-      return createOpenAICompatible({ name: "custom", baseURL, apiKey })(modelId);
+      return compatible("custom", baseURL, apiKey, modelId);
   }
 }
 
@@ -240,6 +257,11 @@ export async function withAi<T>(req: Request, fn: (model: LanguageModel, opts: {
         (allBusy ? ". Google's servers are overloaded; try again in a minute." : ". Add another key or backup model in Settings, or wait for quotas to reset (midnight PT)."),
     );
   }
+  // One model, one key: the provider's own error, but with a status that says whose problem it is (a used-up free
+  // quota answered 500, which counted as a server error on every background sync).
+  const why = classifyAiError(last);
+  const status = ({ daily: 429, rate: 429, key: 401, busy: 503, model: 502 } as Partial<Record<FailKind, number>>)[why.kind];
+  if (status) throw new HttpError(status, why.kind === "model" ? `The AI model ${why.text}` : `${chain[0]?.model ?? "AI"}: ${why.text} (${firstLine(last)})`);
   throw last;
 }
 

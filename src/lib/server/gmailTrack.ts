@@ -1,6 +1,8 @@
 import "server-only";
 import { TRACK, db, type Account, type TrackedPerson } from "./accounts";
 import { accessToken, gmail } from "./google";
+import { HttpError } from "./http";
+import { touchedPeople, type ChangedMsg } from "../gmailHistory";
 import { analyzePerson, parseAddrs, personQuery, stripQuotedText, type MailMsg, type TrackResult } from "../replyTracking";
 
 /**
@@ -75,23 +77,117 @@ async function messagesFor(access: string, p: TrackedPerson): Promise<MailMsg[]>
   return threads.flatMap((t) => (t.messages ?? []).filter((m) => !m.labelIds?.includes("DRAFT")).map(toMsg));
 }
 
-/** Check the people who are due (hot hourly, the rest every 6 h), within `budgetMs`. Returns how many were checked. */
-export async function trackAccount(a: Account, budgetMs = 120_000) {
+/**
+ * Where the incremental read left off (`ghist:<id>`): Gmail's history id, when this cursor started (anyone not checked
+ * since gets one full check), the last run, and people a run touched but had no time for.
+ */
+interface Cursor {
+  h: string;
+  base: string;
+  at: string;
+  pending?: string[];
+  /** The mailbox the history id belongs to (a reconnect to another Google account starts over). */
+  email?: string;
+}
+const GHIST = (id: string) => `ghist:${id}`;
+/** Everyone is still re-read in full weekly, in case a change slipped past the history list. */
+const SAFETY_EVERY = 7 * 86_400_000;
+/** More new messages than this since the last run: the per-person read is cheaper. */
+const MAX_CHANGED = 150;
+
+type HistoryPage = {
+  history?: { messagesAdded?: { message: { id: string; threadId: string; labelIds?: string[] } }[] }[];
+  historyId: string;
+  nextPageToken?: string;
+};
+
+/** Messages added since `start` (drafts and spam left out), or null when Gmail no longer has that history (about a week). */
+async function changesSince(access: string, start: string) {
+  const msgs = new Map<string, { id: string; threadId: string }>();
+  let historyId = start;
+  let page: string | undefined;
+  try {
+    for (let i = 0; i < 10; i++) {
+      const r = await gmail<HistoryPage>(access, `/history?startHistoryId=${start}&historyTypes=messageAdded&maxResults=500${page ? `&pageToken=${page}` : ""}`);
+      historyId = r.historyId;
+      for (const h of r.history ?? [])
+        for (const { message: m } of h.messagesAdded ?? []) if (!m.labelIds?.some((l) => l === "DRAFT" || l === "SPAM")) msgs.set(m.id, m);
+      if (!r.nextPageToken) break;
+      page = r.nextPageToken;
+    }
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 404) return null;
+    throw e;
+  }
+  return { historyId, msgs: [...msgs.values()] };
+}
+
+/** From / To / Cc / Bcc of each new message (4 at a time). */
+async function addressesOf(access: string, msgs: { id: string; threadId: string }[]): Promise<ChangedMsg[]> {
+  const out: ChangedMsg[] = [];
+  let i = 0;
+  const worker = async () => {
+    while (i < msgs.length) {
+      const m = msgs[i++];
+      try {
+        const raw = await gmail<RawMsg>(access, `/messages/${m.id}?format=metadata&${META}`);
+        out.push({ id: m.id, threadId: m.threadId, addrs: ["from", "to", "cc", "bcc"].flatMap((h) => parseAddrs(header(raw, h)).map((x) => x.email.toLowerCase())) });
+      } catch (e) {
+        // Deleted since (404): nothing to read. Anything else: it still touches its thread.
+        if (!(e instanceof HttpError && e.status === 404)) out.push({ id: m.id, threadId: m.threadId, addrs: [] });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+  return out;
+}
+
+/**
+ * Check whoever new mail could have changed (owner, 2026-11-02), within `budgetMs`; returns how many were checked.
+ * With a saved history id, a run where nothing happened is one Gmail call (it was one search per tracked person).
+ * The first run, or one after Gmail dropped the history, reads people the old way (hot hourly, the rest every 6 h).
+ * `minGapMs`: skip when the last run was more recent (the dashboard's sync calls this every few minutes).
+ */
+export async function trackAccount(a: Account, budgetMs = 120_000, opts: { minGapMs?: number } = {}) {
   if (!a.google?.read || !a.track?.length) return 0;
   const start = Date.now();
-  const states = ((await db().hgetall<Record<string, TrackState>>(TRACK(a.id))) ?? {}) as Record<string, TrackState>;
-  const due = a.track
-    .filter((p) => {
-      const at = states[p.contactId]?.checkedAt;
-      return !at || Date.now() - Date.parse(at) > (p.hot ? HOT_EVERY : COLD_EVERY);
-    })
-    .sort((x, y) => Number(!!y.hot) - Number(!!x.hot) || (states[x.contactId]?.checkedAt ?? "").localeCompare(states[y.contactId]?.checkedAt ?? ""));
-  if (!due.length) return 0;
+  const saved = await db().get<Cursor>(GHIST(a.id));
+  const cur = saved?.email === a.google.email ? saved : null;
+  if (opts.minGapMs && cur?.at && start - Date.parse(cur.at) < opts.minGapMs) return 0;
   const access = await accessToken(a);
   const me = [a.google.email];
+  const states = ((await db().hgetall<Record<string, TrackState>>(TRACK(a.id))) ?? {}) as Record<string, TrackState>;
+  const changes = cur?.h ? await changesSince(access, cur.h) : null;
+  let next: Cursor;
+  let due: TrackedPerson[];
+  if (cur && changes && changes.msgs.length <= MAX_CHANGED) {
+    next = { ...cur, h: changes.historyId, at: new Date().toISOString() };
+    const want = new Set(cur.pending ?? []);
+    if (changes.msgs.length) {
+      const people = a.track.map((p) => ({ contactId: p.contactId, emails: p.emails, threadIds: states[p.contactId]?.result.threadIds }));
+      for (const id of touchedPeople(people, await addressesOf(access, changes.msgs), me)) want.add(id);
+    }
+    due = a.track.filter((p) => {
+      const at = states[p.contactId]?.checkedAt;
+      return want.has(p.contactId) || !at || at < cur.base || start - Date.parse(at) > SAFETY_EVERY;
+    });
+  } else {
+    // No cursor yet, or the history is gone: note where "now" is first, so nothing after it is missed.
+    const now = new Date().toISOString();
+    next = { h: (await gmail<{ historyId: string }>(access, "/profile")).historyId, base: now, at: now, email: a.google.email };
+    due = a.track.filter((p) => {
+      const at = states[p.contactId]?.checkedAt;
+      return !at || start - Date.parse(at) > (p.hot ? HOT_EVERY : COLD_EVERY);
+    });
+  }
+  due.sort((x, y) => Number(!!y.hot) - Number(!!x.hot) || (states[x.contactId]?.checkedAt ?? "").localeCompare(states[y.contactId]?.checkedAt ?? ""));
   let n = 0;
+  const left: string[] = [];
   for (const p of due) {
-    if (Date.now() - start > budgetMs) break;
+    if (Date.now() - start > budgetMs) {
+      left.push(p.contactId);
+      continue;
+    }
     try {
       const msgs = await messagesFor(access, p);
       const result = analyzePerson(p, msgs, me);
@@ -110,12 +206,18 @@ export async function trackAccount(a: Account, budgetMs = 120_000) {
       states[p.contactId] = state;
       n++;
     } catch (e) {
-      // A revoked token stops the run; anything else skips this person until the next hour.
+      // A revoked token stops the run; anything else is tried again next run.
       if (/401|revoked/i.test((e as Error).message)) throw e;
+      left.push(p.contactId);
     }
   }
+  next.pending = left.length ? left.slice(0, 500) : undefined;
+  await db().set(GHIST(a.id), next);
   return n;
 }
+
+/** Forget where the incremental read was (Google disconnected or account deleted). */
+export const dropCursor = (id: string) => db().del(GHIST(id));
 
 /** Everything tracked for this account (for the sync response). */
 export async function trackStates(id: string) {

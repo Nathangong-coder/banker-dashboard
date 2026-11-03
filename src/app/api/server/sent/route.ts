@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { errorResponse } from "@/lib/server/http";
+import { HttpError, errorResponse } from "@/lib/server/http";
 import { authAccount } from "@/lib/server/accounts";
 import { accessToken, gmail } from "@/lib/server/google";
 import { parseAddrs } from "@/lib/replyTracking";
@@ -40,12 +40,23 @@ export async function POST(req: Request) {
     let stopped = false;
     const worker = async () => {
       while (i < ids.length) {
-        if (Date.now() - started > BUDGET_MS) {
+        if (stopped || Date.now() - started > BUDGET_MS) {
           stopped = true;
           return;
         }
         const id = ids[i++];
-        const m = await gmail<Meta>(access, `/messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Subject`);
+        let m: Meta;
+        try {
+          m = await gmail<Meta>(access, `/messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Subject`);
+        } catch (e) {
+          // Gmail's per-user rate limit answers 403 / 429 "rateLimitExceeded": hand back what we have, the dashboard
+          // asks for this page again (it skips messages it already has). Other errors (no access) still fail.
+          if (e instanceof HttpError && (e.status === 429 || (e.status === 403 && /rate.?limit|quota/i.test(e.message)))) {
+            stopped = true;
+            return;
+          }
+          throw e;
+        }
         const at = Number(m.internalDate);
         // A Schedule-send email that hasn't gone out isn't one to follow up on yet.
         if (m.labelIds?.includes("SCHEDULED") || at > Date.now()) continue;
@@ -55,7 +66,7 @@ export async function POST(req: Request) {
           out.push({ id: m.id, email: r.email.toLowerCase().slice(0, 320), name: (r.name ?? "").slice(0, 200), at, subject, threadId: m.threadId });
       }
     };
-    await Promise.all(Array.from({ length: 8 }, worker));
+    await Promise.all(Array.from({ length: 4 }, worker));
     // Out of time mid-page: the dashboard asks for the same page again and skips messages it already has.
     return Response.json({ read: true, recipients: out, next: stopped ? (b.page ?? "") : (list.nextPageToken ?? null), partial: stopped });
   } catch (e) {

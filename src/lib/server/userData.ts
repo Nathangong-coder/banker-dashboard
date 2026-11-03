@@ -97,53 +97,79 @@ function checkName(name: string, part: number) {
   if (!Number.isInteger(part) || part < 0 || part > 40) throw new HttpError(400, "Bad file part.");
 }
 
+/**
+ * Vercel Blob first; Redis when Blob fails. The Hobby store was suspended for going over its monthly limits
+ * (2026-11-02) and every upload answered 500 in a loop. A part written to Redis is read from there first, and a later
+ * Blob write removes it, so whichever copy is newest wins.
+ */
+let blobDownUntil = 0;
+const blobUsable = () => blobStoreOn() && Date.now() >= blobDownUntil;
+function blobFailed(e: unknown) {
+  // Suspended / missing store: don't try again for 10 minutes on this instance (each try is another error).
+  blobDownUntil = Date.now() + 10 * 60_000;
+  console.warn(`[blob] ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}; using Redis`);
+}
+
 export async function putPart(uid: string, name: string, part: number, bytes: Uint8Array) {
   checkName(name, part);
   if (bytes.byteLength > PART_BYTES) throw new HttpError(413, "File part too big.");
-  if (blobStoreOn()) await blobPut(blobPath(uid, name, part), Buffer.from(bytes), { access: "private", allowOverwrite: true, addRandomSuffix: false, contentType: "application/octet-stream" });
-  else await db().set(REDIS_PART(uid, name, part), Buffer.from(bytes).toString("base64"));
+  if (blobUsable()) {
+    try {
+      await blobPut(blobPath(uid, name, part), Buffer.from(bytes), { access: "private", allowOverwrite: true, addRandomSuffix: false, contentType: "application/octet-stream" });
+      await db().del(REDIS_PART(uid, name, part));
+      return;
+    } catch (e) {
+      blobFailed(e);
+    }
+  }
+  await db().set(REDIS_PART(uid, name, part), Buffer.from(bytes).toString("base64"));
 }
 
 export async function getPart(uid: string, name: string, part: number): Promise<Uint8Array | null> {
   checkName(name, part);
-  if (blobStoreOn()) {
+  const b64 = await db().get<string>(REDIS_PART(uid, name, part));
+  if (b64) return new Uint8Array(Buffer.from(b64, "base64"));
+  if (!blobUsable()) return null;
+  try {
     const r = await blobGet(blobPath(uid, name, part), { access: "private", useCache: false });
     if (!r || r.statusCode !== 200 || !r.stream) return null;
     return new Uint8Array(await new Response(r.stream).arrayBuffer());
+  } catch (e) {
+    blobFailed(e);
+    throw new HttpError(503, "File storage is unavailable right now; this file will come down on a later sync.");
   }
-  const b64 = await db().get<string>(REDIS_PART(uid, name, part));
-  return b64 ? new Uint8Array(Buffer.from(b64, "base64")) : null;
 }
 
 /** Remove a file's parts from `from` on (all of them by default; a shorter new version drops its old tail). */
 export async function deleteParts(uid: string, name: string, from = 0, upTo = 40) {
   checkName(name, from);
-  if (blobStoreOn()) {
-    const { blobs } = await blobList({ prefix: `${folder(uid)}/${name.replace(":", "-")}.` });
-    const gone = blobs.filter((b) => Number(b.pathname.split(".").pop()) >= from).map((b) => b.url);
-    if (gone.length) await blobDel(gone);
-  } else {
-    const keys = Array.from({ length: upTo - from + 1 }, (_, i) => REDIS_PART(uid, name, from + i));
-    await db().del(...keys);
+  const parts = Array.from({ length: upTo - from + 1 }, (_, i) => from + i);
+  await db().del(...parts.map((i) => REDIS_PART(uid, name, i)));
+  if (!blobUsable()) return;
+  // By pathname: list() is an "advanced operation" on Blob's monthly quota, deletes aren't.
+  try {
+    await blobDel(parts.map((i) => blobPath(uid, name, i)));
+  } catch (e) {
+    blobFailed(e);
   }
 }
 
 /** Everything this user stored (account deletion). */
 export async function deleteUserData(uid: string) {
+  // Parts can be in either store (Redis while Blob was down), so both are cleared.
+  let cursor: string | number = 0;
+  do {
+    const [next, keys] = (await db().scan(cursor, { match: `ublob:${uid}:*`, count: 500 })) as [string | number, string[]];
+    if (keys.length) await db().del(...keys);
+    cursor = next;
+  } while (String(cursor) !== "0");
   if (blobStoreOn()) {
-    let cursor: string | undefined;
+    let after: string | undefined;
     do {
-      const r = await blobList({ prefix: `${folder(uid)}/`, cursor });
+      const r = await blobList({ prefix: `${folder(uid)}/`, cursor: after });
       if (r.blobs.length) await blobDel(r.blobs.map((b) => b.url));
-      cursor = r.hasMore ? r.cursor : undefined;
-    } while (cursor);
-  } else {
-    let cursor: string | number = 0;
-    do {
-      const [next, keys] = (await db().scan(cursor, { match: `ublob:${uid}:*`, count: 500 })) as [string | number, string[]];
-      if (keys.length) await db().del(...keys);
-      cursor = next;
-    } while (String(cursor) !== "0");
+      after = r.hasMore ? r.cursor : undefined;
+    } while (after);
   }
   await db().del(DOCS(uid), LOG(uid), REV(uid));
 }

@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     if (next.google?.read) {
       await ackTexts(a.id, b.trackAck);
       if (b.track) await pruneTracked(a.id, new Set(b.track.map((p) => p.contactId)));
-      await trackAccount(next, 20_000).catch(() => 0);
+      await trackAccount(next, 20_000, { minGapMs: 5 * 60_000 }).catch(() => 0);
       tracking = await trackStates(a.id);
     }
 

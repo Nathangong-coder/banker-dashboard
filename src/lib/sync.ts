@@ -9,7 +9,7 @@ import { batches, diffDocs, fromDocs, serialize, toDocs } from "./syncDocs";
  * Accounts (owner, 2026-10-25): keeps a signed-in user's dashboard in step with their account. The account is the
  * source of truth; this browser's IndexedDB copy is a cache that makes pages load instantly.
  * - Push: a few seconds after any change, the docs that differ from what the server last had (lib/syncDocs.ts).
- * - Pull: on start, on focus, every 30 s while visible, and right away when another tab in this browser pushed
+ * - Pull: on start, when you come back to the tab, every 15 min while visible, and right away when another tab in this browser pushed
  *   (BroadcastChannel). Only docs changed since the last revision come down.
  * - Conflicts: last write wins per doc. A doc edited here and not pushed yet keeps the local version.
  * - Big files (workbook, parsed sheets, resumes, logo) go up and down in 3 MB parts, described by `bm:<name>` docs.
@@ -29,13 +29,12 @@ export const useSyncStatus = create<{ state: SyncState; at?: string; error?: str
 const PART = 3 * 1024 * 1024;
 const PUSH_DELAY = 3000;
 /**
- * Background pulls (owner, 2026-10-26: every-30-s polling used up the Upstash plan): every 2 min while the tab is
- * visible, stretching to 10 min after several pulls in a row brought nothing. Focus, another tab's push and your own
- * changes still sync right away.
+ * Background pulls (owner, 2026-10-26: every-30-s polling used up the Upstash plan; 2026-11-02: every 2 min was still
+ * most of the Redis bill). Changes from elsewhere only matter when you look, so: when the tab gets focus again (at
+ * most every 30 s), when another tab here pushed, and every 15 min while visible as a safety net.
  */
-const POLL = 120_000;
-const IDLE_POLL = 600_000;
-let quietPulls = 0;
+const POLL = 15 * 60_000;
+const FOCUS_GAP = 30_000;
 let lastPullAt = 0;
 const META_KEY = (uid: string) => `sync:${uid}`;
 
@@ -130,7 +129,6 @@ async function pullNow(force = false) {
   lastPullAt = Date.now();
   for (let guard = 0; guard < 50; guard++) {
     const r = await api<Pulled>(`/api/sync/pull?since=${meta.rev}`);
-    quietPulls = Object.keys(r.docs).length || r.removed.length ? 0 : quietPulls + 1;
     applyRemote(r.docs, r.removed, force);
     for (const [k, v] of Object.entries(r.docs)) if (k.startsWith("bm:")) await receiveBlob(k.slice(3) as BlobName, JSON.parse(v) as BlobMeta);
     meta.rev = r.rev;
@@ -323,12 +321,11 @@ export async function startSync(userId: string, opts: { localWins?: boolean } = 
     dirtyBlobs.add(name);
     schedulePush();
   });
-  const onFocus = () => document.visibilityState === "visible" && void syncNow();
+  const onFocus = () => document.visibilityState === "visible" && Date.now() - lastPullAt > FOCUS_GAP && void syncNow();
   const timer = setInterval(() => {
-    if (document.visibilityState !== "visible") return;
-    if (quietPulls >= 5 && Date.now() - lastPullAt < IDLE_POLL) return;
+    if (document.visibilityState !== "visible" || Date.now() - lastPullAt < POLL - 5000) return;
     void syncNow();
-  }, POLL);
+  }, 60_000);
   const onLeave = (e: BeforeUnloadEvent) => {
     if (dirtyBlobs.size) void syncNow(true);
     if (!hasUnsaved()) return;

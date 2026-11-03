@@ -239,8 +239,18 @@ function useServerSync(ready: boolean) {
   }, [ready, syncing, contacts, sends, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
   useEffect(() => {
     if (!ready || !syncing) return;
-    const i = setInterval(() => document.visibilityState === "visible" && syncServer().catch(() => undefined), 10 * 60_000);
-    return () => clearInterval(i);
+    // Every 15 min while visible, and when you come back to the tab (replies Gmail push brought in show up then).
+    const run = () => {
+      if (document.visibilityState !== "visible" || Date.now() - lastServerSync.at < 2 * 60_000) return;
+      lastServerSync.at = Date.now();
+      syncServer().catch(() => undefined);
+    };
+    const i = setInterval(run, 15 * 60_000);
+    document.addEventListener("visibilitychange", run);
+    return () => {
+      clearInterval(i);
+      document.removeEventListener("visibilitychange", run);
+    };
   }, [ready, syncing]);
   // Chats → their Google Docs (lib/chatDocs.ts): a Drive search for chats with no doc, at most once a day each.
   useEffect(() => {

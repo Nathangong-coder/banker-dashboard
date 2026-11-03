@@ -831,6 +831,19 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   analyzePerson; hot hourly, others 6 h. Stored in `track:<id>` (+ reply texts ≤1,500 chars until the dashboard acks
   them, ≤14 days). The 9 PM text drops "owed" items settled by a newer email (vs `knownLast`), uses tracked dates for
   calendar thank-yous, and adds fresh "They wrote back" items.
+- **Incremental reads + push (owner, 2026-11-02, Redis bill):** `trackAccount` keeps a Gmail history cursor in
+  `ghist:<id>` ({h, base, at, pending, email}); a run = `history.list?startHistoryId` (1 call, 3 Redis commands when
+  nothing changed) → metadata of new messages → `lib/gmailHistory.ts#touchedPeople` (address, known thread, or same work
+  domain; covered by `check:tracking`) → only those people get the per-person read. No cursor / 404 (history older
+  than ~a week) / > 150 new messages → the old hot-hourly / cold-6h pass from a fresh `/profile` historyId; people not
+  checked since `base`, or for 7 days, still get a full read; budget overflow goes to `pending`. Sync calls it with
+  `minGapMs` 5 min. **Gmail push** (`lib/server/gmailPush.ts`, `api/gmail/push`) is off unless `GMAIL_PUSH_TOPIC`
+  (`projects/<p>/topics/<t>`) + `GMAIL_PUSH_SECRET` are set: the tick renews `users.watch` (INBOX + SENT, 7-day expiry,
+  `gwatch:<id>`, `gmailacct:<sha256(email)>` → id); the push subscription POSTs to `/api/gmail/push?k=<secret>`
+  (rate-limit exempt, always 204, 20 s min gap). Needs a Pub/Sub topic in the OAuth client's Google Cloud project with
+  `gmail-api-push@system.gserviceaccount.com` as Publisher. Browser pulls (`lib/sync.ts`) and server syncs (Shell)
+  went from every 2 / 10 min to tab focus + every 15 min. Tested with a fake-Gmail harness on real Redis (not kept);
+  not yet run against real Gmail or Pub/Sub.
 - **Dashboard (`lib/referrals.ts`):** `applyTracking` (dates forward, status up, aliases, intro → `contact.signals`),
   `readReplies` → `api/replies/classify` (AI: referral without a cc, promises, dates) → signals; acked on the next sync.
   Follow-ups → **Referrals** (`components/Referrals.tsx`): confirm / dismiss signals (`confirmSignal` creates or links

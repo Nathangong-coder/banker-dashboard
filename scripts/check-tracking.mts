@@ -3,6 +3,7 @@
  *   npm run check:tracking
  */
 import { analyzePerson, parseAddrs, personQuery, thankedAfter, type MailMsg } from "../src/lib/replyTracking";
+import { touchedPeople } from "../src/lib/gmailHistory";
 
 let failed = 0;
 const check = (what: string, ok: boolean, detail: unknown = "") => {
@@ -127,6 +128,31 @@ check("parseAddrs: quoted 'Last, First' names and lowercased emails", a.length =
 }
 
 check("query covers both directions and cc/bcc", personQuery(["a@x.com"], "2026-09-01T00:00:00Z") === "{from:a@x.com to:a@x.com cc:a@x.com bcc:a@x.com} after:2026/09/01");
+
+// Incremental reads: which tracked people a batch of new Gmail messages could change.
+{
+  const people = [
+    { contactId: "ie", emails: ["iestrella@guggenheimpartners.com"], threadIds: ["t1"] },
+    { contactId: "kz", emails: ["kevin.zhu@mizuho.com"] },
+    { contactId: "fr", emails: ["friend@gmail.com"] },
+    { contactId: "no", emails: ["nobody@rbc.com"] },
+  ];
+  const t = touchedPeople(
+    people,
+    [
+      { id: "1", threadId: "t9", addrs: ["idelacruz@guggenheimpartners.com", "nagong1@ucla.edu"] },
+      { id: "2", threadId: "t1", addrs: ["nagong1@ucla.edu"] },
+      { id: "3", threadId: "t8", addrs: ["someone@gmail.com", "nagong1@ucla.edu"] },
+      { id: "4", threadId: "t7", addrs: ["kevin.zhu@mizuho.com"] },
+    ],
+    ["nagong1@ucla.edu"],
+  );
+  check("new alias at the same firm domain touches them", t.has("ie"), [...t]);
+  check("their exact address touches them", t.has("kz"), [...t]);
+  check("a gmail.com stranger doesn't touch a gmail.com contact", !t.has("fr"), [...t]);
+  check("untouched people aren't re-checked", !t.has("no") && t.size === 2, [...t]);
+  check("a known thread touches them", touchedPeople(people, [{ id: "5", threadId: "t1", addrs: [] }]).has("ie"));
+}
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nall tracking checks passed");
 process.exit(failed ? 1 : 0);

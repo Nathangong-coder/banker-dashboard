@@ -22,7 +22,7 @@ const notify = redis && new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(30
 const capture = redis && new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(60, "10 m"), prefix: "rl:capture", ephemeralCache: cache });
 
 // Twilio's webhook is signature-checked and retried from shared Twilio IPs.
-const EXEMPT = ["/api/server/run-send", "/api/server/tick", "/api/server/google/callback", "/api/server/twilio/inbound"];
+const EXEMPT = ["/api/server/run-send", "/api/server/tick", "/api/server/google/callback", "/api/server/twilio/inbound", "/api/gmail/push"];
 const isCapture = (path: string) => path.startsWith("/api/server/capture") || path.startsWith("/api/capture-share");
 
 export async function proxy(req: NextRequest) {
