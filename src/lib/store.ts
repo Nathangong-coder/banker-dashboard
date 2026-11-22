@@ -72,8 +72,18 @@ export function onBlobChange(fn: BlobListener) {
   };
 }
 const memBlobs = new Map<string, unknown>();
-async function blobGet<T>(name: string): Promise<T | undefined> {
+/**
+ * Files another browser changed come down only when something here reads them (lib/sync.ts registers this; 2026-11-21,
+ * Vercel transfer): the 2 MB workbook used to download to every signed-in browser after each save even if nobody
+ * opened the spreadsheet there. A failed download leaves the copy this browser has.
+ */
+let blobFetcher: ((name: BlobName) => Promise<void>) | null = null;
+export function setBlobFetcher(fn: typeof blobFetcher) {
+  blobFetcher = fn;
+}
+async function blobGet<T>(name: string, fetch = true): Promise<T | undefined> {
   if (namespace === "demo") return memBlobs.get(name) as T | undefined;
+  if (fetch && blobFetcher && name !== "handle") await blobFetcher(name as BlobName).catch(() => undefined);
   return idbGet<T>(localKey(`blob:${name}`));
 }
 async function blobSet(name: string, v: unknown, notify = true) {
@@ -104,7 +114,7 @@ export const blobs = {
   appResume: (id: string) => blobGet<FileBlob>(`appresume:${id}`),
   setAppResume: (id: string, r: FileBlob | undefined) => blobSet(`appresume:${id}`, r),
   /** For lib/sync.ts: read / write a file without announcing it (a download from the account isn't a local change). */
-  raw: (name: BlobName) => blobGet<unknown>(name),
+  raw: (name: BlobName) => blobGet<unknown>(name, false),
   putRaw: (name: BlobName, v: unknown) => blobSet(name, v, false),
 };
 

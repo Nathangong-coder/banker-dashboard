@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { del as idbDel, get as idbGet, set as idbSet, keys as idbKeys } from "idb-keyval";
-import { blobs, localKey, onBlobChange, persistedState, useStore, type BlobName } from "./store";
+import { blobs, localKey, onBlobChange, persistedState, setBlobFetcher, useStore, type BlobName } from "./store";
 import { batches, diffDocs, fromDocs, serialize, toDocs } from "./syncDocs";
 
 /**
@@ -25,7 +25,11 @@ interface Meta {
   /** Each doc as the server last had it (what a push is diffed against). */
   synced: Record<string, string>;
   blobs: Record<string, BlobMeta>;
+  /** Newer versions of files on the account, not downloaded yet (they come down when something reads them). */
+  pending?: Record<string, BlobMeta>;
 }
+/** Every file but the parsed sheets (small once gzipped, and every page reads them) downloads on first use. */
+const lazy = (name: BlobName) => name !== "snapshots";
 export type SyncState = "off" | "starting" | "saved" | "saving" | "offline" | "error";
 export const useSyncStatus = create<{ state: SyncState; at?: string; error?: string }>(() => ({ state: "off" }));
 
@@ -223,9 +227,37 @@ async function sendBlob(name: BlobName) {
 }
 
 async function receiveBlob(name: BlobName, m: BlobMeta) {
-  if (meta.blobs[name]?.at === m.at) return;
+  if (meta.blobs[name]?.at === m.at) {
+    if (meta.pending?.[name]) delete meta.pending[name];
+    return;
+  }
   // Changed here and not uploaded yet: this browser's version wins (it goes up next).
   if (dirtyBlobs.has(name)) return;
+  if (!m.deleted && lazy(name)) {
+    // Comes down when something reads it (fetchPending). `meta.blobs` keeps describing the copy this browser has,
+    // so the hash check in sendBlob still compares against what's really here.
+    (meta.pending ??= {})[name] = m;
+    await saveMeta();
+    return;
+  }
+  await download(name, m);
+}
+
+/** Single-flight per file: two readers at once share one download. */
+const fetching = new Map<BlobName, Promise<void>>();
+/** store.ts calls this before every read of a file: download the account's newer version if there is one. */
+function fetchPending(name: BlobName): Promise<void> {
+  const m = meta.pending?.[name];
+  if (!uid || !m || dirtyBlobs.has(name)) return Promise.resolve();
+  let p = fetching.get(name);
+  if (!p) {
+    p = download(name, m).finally(() => fetching.delete(name));
+    fetching.set(name, p);
+  }
+  return p;
+}
+
+async function download(name: BlobName, m: BlobMeta) {
   if (m.deleted) await blobs.putRaw(name, undefined);
   else {
     const out = new Uint8Array(m.size);
@@ -247,6 +279,8 @@ async function receiveBlob(name: BlobName, m: BlobMeta) {
     }
   }
   meta.blobs[name] = m;
+  // Only clear what this download covered (a newer version may have arrived while it ran).
+  if (meta.pending?.[name]?.at === m.at) delete meta.pending[name];
   await saveMeta();
 }
 
@@ -351,9 +385,12 @@ export async function startSync(userId: string, opts: { localWins?: boolean } = 
   // Files throttled in an earlier session may not have gone up: look again (unchanged bytes are skipped by hash).
   for (const n of await localBlobNames()) if (n === "workbook" || n === "snapshots") dirtyBlobs.add(n);
   const unBlob = onBlobChange((name) => {
+    // A file written here is newer than any version waiting on the account: it goes up instead.
+    if (meta.pending?.[name]) delete meta.pending[name];
     dirtyBlobs.add(name);
     schedulePush();
   });
+  setBlobFetcher(fetchPending);
   const onFocus = () => document.visibilityState === "visible" && Date.now() - lastPullAt > FOCUS_GAP && void syncNow();
   const timer = setInterval(() => {
     if (document.visibilityState !== "visible" || Date.now() - lastPullAt < POLL - 5000) return;
@@ -377,6 +414,7 @@ export async function startSync(userId: string, opts: { localWins?: boolean } = 
     () => document.removeEventListener("visibilitychange", onFocus),
     () => window.removeEventListener("beforeunload", onLeave),
     () => channel?.close(),
+    () => setBlobFetcher(null),
   ];
   await syncNow();
 }
