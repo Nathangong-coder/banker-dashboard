@@ -147,11 +147,27 @@ export function setOfficeMap(map: Map<string, BankOffices>) {
 }
 export const officeMap = () => current;
 
-/** What's known about a bank's office: the COVERAGE tab first, then the built-in list. Undefined = no data (assume it hires). */
+/**
+ * Your corrections (Corrections page, `coverage.officeFacts`, key "<canonBank key>|<office code>"): they win over the
+ * COVERAGE tab and the built-in lists. Set from the store whenever they change.
+ */
+let overrides: Record<string, { hires?: boolean; teams?: string }> = {};
+export function setOfficeOverrides(map: Record<string, { hires?: boolean; teams?: string }> | undefined) {
+  overrides = map ?? {};
+}
+export const officeKey = (bank: string, location: string) => `${canonBank(bank)}|${officeOf(location) ?? location}`;
+function withOverride(key: string, o: string, info: OfficeInfo | undefined): OfficeInfo | undefined {
+  const ov = overrides[`${key}|${o}`];
+  if (!ov) return info;
+  return { ...info, ...(ov.hires !== undefined ? { hires: ov.hires } : {}), ...(ov.teams ? { teams: ov.teams } : {}), notes: `Set by you on Corrections.${info?.notes ? ` ${info.notes}` : ""}` };
+}
+
+/** What's known about a bank's office: your corrections, the COVERAGE tab, then the built-in list. Undefined = no data (assume it hires). */
 export function officeInfo(bank: string, location: string): OfficeInfo | undefined {
   const o = officeOf(location);
   if (!o) return undefined;
   const key = canonBank(bank);
+  if (overrides[`${key}|${o}`]) return withOverride(key, o, current.get(key)?.offices[o] ?? BUILT_IN_BY_KEY.get(key)?.[o]);
   const info = current.get(key)?.offices[o] ?? BUILT_IN_BY_KEY.get(key)?.[o];
   // The COVERAGE tab has no Texas rows: only banks on the built-in Texas list count there.
   if (!info && o === "TX") return { hires: false, notes: "Not on the Texas energy list (src/lib/offices.ts)" };
@@ -161,7 +177,7 @@ export function officeInfo(bank: string, location: string): OfficeInfo | undefin
 /** Only what the owner's COVERAGE tab says (no built-in fallback): the evidence that outranks the built-in lists. */
 export function sheetOfficeInfo(bank: string, location: string): OfficeInfo | undefined {
   const o = officeOf(location);
-  return o ? current.get(canonBank(bank))?.offices[o] : undefined;
+  return o ? withOverride(canonBank(bank), o, current.get(canonBank(bank))?.offices[o]) : undefined;
 }
 
 /** Built-in office facts, for checks (scripts/check-firms.mts). */

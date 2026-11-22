@@ -32,10 +32,16 @@ export function summerOf(j: { summer?: number; role?: string }): number | undefi
   return y >= 2024 && y <= 2035 ? y : undefined;
 }
 
-/** The summer you're recruiting for: the one before you graduate (class of 2029 → Summer 2028). */
-export function targetSummer(gradDate: string | undefined, now = new Date()): number {
-  const y = Number((gradDate ?? "").match(/^(\d{4})/)?.[1]);
-  return y > 2000 ? y - 1 : now.getFullYear() + 1;
+/**
+ * The summer you're recruiting for: the one before you graduate (class of 2029 → Summer 2028). Reads the first of
+ * `years` with a year in it: Applications → My info's graduation date, then Settings → Profile's class year.
+ */
+export function targetSummer(years: string | (string | undefined)[] | undefined, now = new Date()): number {
+  for (const s of Array.isArray(years) ? years : [years]) {
+    const y = Number((s ?? "").match(/(?:^|\D)(20\d{2})(?!\d)/)?.[1]);
+    if (y > 2000) return y - 1;
+  }
+  return now.getFullYear() + 1;
 }
 
 /**

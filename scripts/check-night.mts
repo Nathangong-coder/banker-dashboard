@@ -150,7 +150,7 @@ check("referral from an analyst → 88+", (hb([{ status: "done", position: "Anal
   check("summer analyst", programKind({ role: "2028 Investment Banking Summer Analyst - New York" }) === "sa");
   check("your override wins", programKind({ role: "Early Insight", program: "sa" }) === "sa");
   check("summer from the title", summerOf({ role: "Summer Analyst 2028" }) === 2028 && summerOf({ role: "IB Summer Analyst '28" }) === 2028 && summerOf({ role: "Summer Analyst" }) === undefined);
-  check("class of 2029 recruits for Summer 2028", targetSummer("2029-06-15") === 2028);
+  check("class of 2029 recruits for Summer 2028", targetSummer("2029-06-15") === 2028 && targetSummer(["", "Class of 2029"]) === 2028);
   const jobs = [
     { company: "JP Morgan", status: "submitted" as const, role: "Early Insight Program 2027" },
     { company: "Goldman Sachs", status: "submitted" as const, role: "2028 Summer Analyst" },

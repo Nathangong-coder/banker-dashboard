@@ -2,6 +2,25 @@
 
 ## 000. Queued 2026-11-21
 
+**Owner's asks after the Process tracker shipped (in the agreed order, see the chat of 2026-11-21):**
+- A. ✅ 2026-11-21 **Accuracy:** tracked jobs tagged Summer Analyst vs Insight / early program (+ summer year); only SA counts as
+  "applied" (JP Morgan showed Applied from an insight program; its SA isn't out). Process tracker = Summer 2028
+  (junior) only, 2027 on its own board. Non-banks (e.g. RCLCO) filtered out.
+- B. ✅ 2026-11-21 (/corrections) **"Corrections" tab** (name TBD; for reworking anything the app guessed): add / remove banks, offices, teams,
+  tiers; insight programs applied to (add, remove); override any automatic assumption.
+- C. ✅ 2026-11-21 **Process tracker manual color** per bank (Piper Sandler / Axom / Citizens light green after a bad chat).
+- D. **"Things to think about" list:** dated reminders ("reach out in January"); people who replied then went quiet
+  (tabs: 1 day / 1 week / longer; bank, last-reply date, their message when expanded); earlier re-follow-ups (e.g.
+  Colin Bryant, Deutsche Bank).
+- E. **Bank coverage redesign** on `banking_pipeline_ranked_list.html`: ranked list in tiers (Act now / This week /
+  Pipeline / Watching), stage chips, row = rank · firm · group/office · next action · stage · days left, detail panel
+  (why ranked #N, score bars, contacts); split by office.
+- F. **Gmail add-on proof of concept** (design in progress): sidebar + no-mistakes thank-you first (locked template,
+  name "First Last", To/firm/domain check, the bank's email pattern vs the stored first/last name escalated to the
+  user, thread check, sign-off check, draft only), then calendar invites, then forwarded intros.
+- G. **Analytics under Prep & reminders** (reply rate by send time etc.). Later.
+- H. **Finish email open tracking** (extension pixel). Last.
+
 1. **Reply rate is inflated (owner):** "replied" counts anyone who ever wrote back, including people who replied once and
    then ghosted (no call, no answer to your next email). Split replied → engaged vs. went quiet, and use it in the firm
    score, Analytics and the lab's reply rates.

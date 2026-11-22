@@ -35,7 +35,7 @@ import { DEFAULT_CRITERIA, DEFAULT_QUERIES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES,
 import type { TargetBank } from "./banks";
 import type { CoverageSettings } from "./coverage";
 import { EMPTY_OPS, type SheetOps } from "./sheetOps";
-import { readOfficeMap, setOfficeMap } from "./offices";
+import { readOfficeMap, setOfficeMap, setOfficeOverrides } from "./offices";
 import { signOffFor, templateSignOff } from "./emailFormat";
 import { withSheetChat } from "./conversations";
 
@@ -801,6 +801,8 @@ export async function dropNamespace(ns: StoreNamespace) {
 // Pending edits count too (rows added to COVERAGE for a new application are in `patches` until save).
 useStore.subscribe((s, prev) => {
   if (s.snapshots !== prev.snapshots || s.patches !== prev.patches) setOfficeMap(readOfficeMap(applyPatches(s.snapshots, s.patches)));
+  // Your office corrections (Corrections page) win over the sheet and the built-in lists.
+  if (s.coverage.officeFacts !== prev.coverage.officeFacts) setOfficeOverrides(s.coverage.officeFacts);
 });
 
 function deepMerge(base: object, over: object): object {

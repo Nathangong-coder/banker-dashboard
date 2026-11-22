@@ -201,7 +201,7 @@ export function progressFor(st: ReturnType<typeof useStore.getState>) {
   try {
     // Banks only (RCLCO isn't one), on your target summer's board.
     const rows = buildCoverage({ contacts: st.contacts, tables: st.tables, targets: st.targets, coverage: { ...st.coverage, plan: undefined }, banks: st.banks, followUp: st.settings.followUp }).filter((r) => isBankFirm(r, st.coverage));
-    const target = targetSummer(st.apply.profile.gradDate);
+    const target = targetSummer([st.apply.profile.gradDate, st.settings.profile.year]);
     const cols = columnsOf(st.coverage);
     return nightProgress({
       rows,

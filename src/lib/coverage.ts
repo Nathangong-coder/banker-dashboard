@@ -84,6 +84,10 @@ export type CoverageSettings = {
   processTargets?: Record<string, number>;
   /** Your own color for a bank on the Process tracker, as a health score 0–100 (owner: a chat that went badly). */
   processColor?: Record<string, number>;
+  /** A firm's tier set by you (Corrections), over what your lists say. */
+  tierOf?: Record<string, string>;
+  /** Office facts set by you (Corrections), "<bank key>|<office code>" → hires / teams (lib/offices.ts). */
+  officeFacts?: Record<string, { hires?: boolean; teams?: string }>;
   /** A firm is / isn't a bank, set by you (else: a tier from your lists, or a known bank = bank; anything else = other). */
   firmKind?: Record<string, "bank" | "other">;
   /** The tracker's columns in order (default PROCESS_COLUMNS). */
@@ -182,6 +186,11 @@ export function buildCoverage(args: {
   for (const t of coverage.added) ensure(t.name, t.tier);
   if (coverage.includeStarter) for (const t of STARTER_TARGETS) ensure(t.name, t.tier);
 
+  // Tiers you set on Corrections win over the lists.
+  for (const [key, tier] of Object.entries(coverage.tierOf ?? {})) {
+    const r = rows.get(key);
+    if (r && tier) r.tier = tier;
+  }
   const hidden = new Set(coverage.hidden);
   const active = activeDesks(coverage.plan);
   const cap = coverage.officesPerBank ?? DEFAULT_OFFICES_PER_BANK;

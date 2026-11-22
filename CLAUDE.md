@@ -308,6 +308,29 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Click-tested 2026-11-21 in headless Edge (CDP scratch driver, demo data on 127.0.0.1): board, drag to Superday, star,
   search, card rings, coverage tabs, office panel, /firms redirect, 390 px no horizontal scroll, console clean.
 
+## Accuracy pass + Corrections (owner, 2026-11-21; `check:night` covers it)
+
+- **Chats counted from evidence** (`lib/chatEvidence.ts`): logged chats, a past `call`, `contact.chatEvidence` =
+  past calendar events with them as a guest (`calendarDay.ts#chatsIn` now gives EVERY tracked guest via
+  `contactIds`; Eli Sanchez + Charles Kirby at BofA were one chat) and thank-you emails (`api/server/sent` with
+  `kind: "thanks"` = `THANKS_QUERY` chat wording; only to someone who had replied or met you first). One chat per
+  day; a thank-you ≤3 days after a chat is that chat. Shell `useSentScan` runs `gmailSync.ts#scanThankYous` (≤ 3 h)
+  and `CalendarActions.ts#backfillCalendarChats` (120 days, ≤ 6 h). `bankHealth` / `talkedTo` / `liveKind` read it.
+- **Programs** (`lib/programs.ts`): `programKind` (Summer Analyst / insight / other; the TITLE decides, your
+  `job.program` wins), `summerOf`, `targetSummer([gradDate, settings.profile.year])` (class of 2029 → 2028).
+  `appState` / `guessColumn` count only this cycle's SA (JPM's insight program showed "Applied").
+- **Process tracker:** Summer <target> board + Summer <target-1> board (`placeKey` = "<summer>|<key>" for the
+  other board's drags), `isBankFirm` (tier / known bank / `coverage.firmKind`) hides non-banks (RCLCO) behind
+  "Other firms", your color per bank (`coverage.processColor`, a health score).
+- **/corrections** (Overview nav): Firms (add / remove your firms, tier `coverage.tierOf`, bank or not, specialty,
+  hidden), Programs & applications (tracked jobs: type, summer, status, add an insight program, remove; the
+  sheet's applications tab listed read-only), Offices (hires / teams per office, `coverage.officeFacts`, set into
+  `offices.ts#setOfficeOverrides` by a store subscription; beats the COVERAGE tab and the built-in lists). All
+  these maps are `cm:` sync docs.
+- Scripts that write files: never put `\b` in a Python non-raw string (it became a backspace byte; it also broke
+  `InfoSessionActions.tsx`'s IB check before). The click-test driver runs Edge InPrivate with sync off: a fresh
+  headless profile otherwise signs into the Windows account and syncs the owner's extensions.
+
 ## 9 PM text, firms, transcripts (2026-10-19)
 
 - **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's

@@ -581,7 +581,7 @@ function ensureTemplate(): Template {
 export function sessionName(s: Pick<InfoSession, "title" | "firm">) {
   const t = cleanTitle(s);
   const m = t.match(/^(.+?)\s+info(?:rmation)?\s+session$/i);
-  if (m && !/investment banking|IB/i.test(t) && canonBank(m[1]) === canonBank(s.firm)) return `${m[1]} Investment Banking Info Session`;
+  if (m && !/investment banking|\bIB\b/i.test(t) && canonBank(m[1]) === canonBank(s.firm)) return `${m[1]} Investment Banking Info Session`;
   return t || `${s.firm} info session`;
 }
 

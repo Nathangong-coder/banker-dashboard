@@ -56,10 +56,11 @@ export function useBankViews(scoped: boolean, cycleYear?: number): { views: Bank
   const followUp = useStore((s) => s.settings.followUp);
   const jobs = useStore((s) => s.apply.jobs);
   const gradDate = useStore((s) => s.apply.profile.gradDate);
+  const classYear = useStore((s) => s.settings.profile.year);
   // "Now" for deadlines and live / awaiting: fixed per mount (the page re-reads it when you come back).
   const [now] = useState(() => Date.now());
   return useMemo(() => {
-    const target = targetSummer(gradDate);
+    const target = targetSummer([gradDate, classYear]);
     const cyc: Cycle = { cycle: cycleYear ?? target, target };
     const rows = buildCoverage({ contacts, tables, targets, coverage: scoped ? coverage : { ...coverage, plan: undefined }, banks, followUp });
     const ratings = coverage.ratings ?? NO_RATINGS;
@@ -106,7 +107,7 @@ export function useBankViews(scoped: boolean, cycleYear?: number): { views: Bank
       });
     }
     return { views, rows, cycle: cyc };
-  }, [contacts, tables, targets, coverage, banks, followUp, jobs, gradDate, scoped, cycleYear, now]);
+  }, [contacts, tables, targets, coverage, banks, followUp, jobs, gradDate, classYear, scoped, cycleYear, now]);
 }
 
 /** Star / unstar a bank ("most tracked": listed first, and in the 9 PM text's Big banks). */
