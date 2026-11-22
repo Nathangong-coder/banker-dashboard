@@ -732,6 +732,9 @@ export function SheetGrid({
                         data-pos={`${i}:${c}`}
                         onMouseDown={(e) => {
                           if (e.button !== 0) return;
+                          // Keep the grid as the paste target. Letting the browser handle the default
+                          // mouse action can move focus/selection away from the clicked cell first.
+                          e.preventDefault();
                           dragging.current = true;
                           selectCell(i, c, e.shiftKey);
                         }}
