@@ -83,7 +83,7 @@ export type CoverageSettings = {
   /** Target number of contacts per bank (like the workbook's ACTIVE BAY tab). */
   processTargets?: Record<string, number>;
   /** The tracker's columns in order (default PROCESS_COLUMNS). */
-  processColumns?: { id: string; label: string }[];
+  processColumns?: { id: string; label: string; hint?: string }[];
 };
 
 /** A deal the bank advised on, found in web results (api/prep/bank). Every field comes from a cited source. */

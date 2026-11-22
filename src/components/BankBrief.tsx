@@ -287,8 +287,8 @@ export function BankBrief({ bank: initial, contact }: { bank?: string; contact?:
               {brief.why.generic && (
                 <p className="mt-2 text-[11.5px] text-muted">
                   Make it yours: after a chat with someone at {brief.bank}, add notes (Transcripts &amp; grades on this page, or the firm&apos;s notes on{" "}
-                  <Link href="/firms" className="underline">
-                    Firms
+                  <Link href="/coverage?tab=analytics" className="underline">
+                    Bank coverage → Analytics
                   </Link>
                   ) and refresh.
                 </p>

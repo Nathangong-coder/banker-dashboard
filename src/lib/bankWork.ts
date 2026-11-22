@@ -223,7 +223,7 @@ export function bankUrgency(
     label: "Prestige",
     points: round1(W.prestige * prestige),
     max: W.prestige,
-    detail: opts.stars ? `Your rating: ${opts.stars} of 5 stars.` : bank.tier ? `${bank.tier}. Star the firm on Firms to set your own.` : "Tier unknown. Star the firm on Firms to set it.",
+    detail: opts.stars ? `Your rating: ${opts.stars} of 5 stars.` : bank.tier ? `${bank.tier}. Star it on Bank coverage → Analytics to set your own.` : "Tier unknown. Star it on Bank coverage → Analytics to set it.",
   });
 
   const apps = bank.applied ?? [];

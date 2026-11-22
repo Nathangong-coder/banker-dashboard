@@ -36,7 +36,7 @@ export interface Feature {
 export const FEATURES: Feature[] = [
   { slug: "sheet", label: "Your spreadsheet, live", line: "Import your tracker. Edits sync both ways, formatting kept.", href: "/sheet", icon: Sheet, group: "Track", mock: "sheet", slab: "bg-chart-soft" },
   { slug: "coverage", label: "Bank coverage", line: "Every desk you're recruiting for, and where you have no one yet.", href: "/coverage", icon: Building2, group: "Track", mock: "coverage", slab: "bg-blue-soft" },
-  { slug: "firms", label: "Firm scores", line: "Which banks reply, take calls and refer you.", href: "/firms", icon: Trophy, group: "Track", mock: "firms", slab: "bg-amber-soft" },
+  { slug: "firms", label: "Firm scores", line: "Which banks reply, take calls and refer you.", href: "/coverage?tab=analytics", icon: Trophy, group: "Track", mock: "firms", slab: "bg-amber-soft" },
   { slug: "find", label: "Find bankers", line: "Search by bank, office and team, with verified emails.", href: "/find", icon: Search, group: "Reach out", mock: "find", slab: "bg-green-soft" },
   { slug: "drafts", label: "Personal emails", line: "Your own wording, the right hook for each banker.", href: "/drafts", icon: Mail, group: "Reach out", mock: "draft", slab: "bg-brass-soft" },
   { slug: "smart", label: "Smart mentions", line: "\"I just talked to Ben…\" pulled from your chat notes.", href: "/drafts", icon: Sparkles, group: "Reach out", mock: "smart", slab: "bg-red-soft" },

@@ -286,6 +286,28 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   ±8 by chat rating, referral ≥88 (VP+ referrer = 100), red penalties (all moved on −15, declined −10, bad chat −8).
   `healthColor` / `healthEmoji` (in digestFormat so the server can use it).
 
+## Process tracker, Bank coverage tabs, duplicates (owner, 2026-11-21)
+
+- **/process** (`app/process/page.tsx`, nav Overview): every non-hidden bank (unscoped by desks, so a bank never vanishes
+  behind a filter: Centerview's SF office is Generalist, so any "SF Tech" view dropped it) as a card in left-to-right
+  steps (`lib/processTracker.ts#PROCESS_COLUMNS`: Watching → Networking → Applied / HireVue → First round → Superday →
+  Offer, Closed; editable, `coverage.processColumns`). Drag = `coverage.processAt[key]`, else `guessColumn` (offer /
+  interview / applied from Applications + the applications tab, emailed → Networking). Stars `coverage.processStars`
+  (first in each step; the 9 PM Big banks list). Card color = `bankHealth`; foot = chats · emailed / target
+  (`coverage.processTargets`, default cap × offices) · application; open = Relationship + Urgency rings (urgency's
+  timeline = earliest open job deadline at that firm). "Active" view hides untouched non-top-tier banks; search finds
+  any bank and offers "show it again" (hidden) or "Add". Those three maps are `cm:` sync docs.
+- **/coverage** = three tabs (`?tab=`): Offices to fill (open offices as nodes per bank → `OfficePanel`: office facts
+  from `officeInfo`, why it's open, who to email next, Draft / Find emails / Find people), Analytics (KPIs, steps bar,
+  insights, `components/FirmsRanking.tsx` = the old /firms), Settings (recruiting plan, bank list, hidden, specialists).
+  `/firms` → 307 to Analytics (`next.config.ts#redirects`). Shared: `components/useBankViews.ts`, `components/BankDetail.tsx`.
+- **Duplicates** (`lib/duplicates.ts`, `check:offsheet`): `findDuplicates` (same email = certain; same firm + `looseSameName`
+  with one side missing an email = likely), `mergedPatch`; `components/TrackerHygiene.tsx` notices on Follow-ups + Offices
+  to fill (Merge / Merge all; a duplicate sheet row is deleted). `inTracker` / `trackerHits` use `looseSameName` so the
+  sent-mail scan stops re-adding people. `OffSheetNotice` = "Add all N to tracker".
+- Click-tested 2026-11-21 in headless Edge (CDP scratch driver, demo data on 127.0.0.1): board, drag to Superday, star,
+  search, card rings, coverage tabs, office panel, /firms redirect, 390 px no horizontal scroll, console clean.
+
 ## 9 PM text, firms, transcripts (2026-10-19)
 
 - **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's

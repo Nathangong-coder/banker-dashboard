@@ -21,6 +21,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  async redirects() {
+    // Firms moved into Bank coverage → Analytics (owner, 2026-11-21).
+    return [{ source: "/firms", destination: "/coverage?tab=analytics", permanent: false }];
+  },
 };
 
 export default nextConfig;

@@ -1,5 +1,15 @@
 # TODO
 
+## 000. Queued 2026-11-21
+
+1. **Reply rate is inflated (owner):** "replied" counts anyone who ever wrote back, including people who replied once and
+   then ghosted (no call, no answer to your next email). Split replied → engaged vs. went quiet, and use it in the firm
+   score, Analytics and the lab's reply rates.
+2. **Sync upgrades #3–#5 belong to the mobile app (owner):** per-tab sheet sync, files straight to storage (presigned
+   URLs), and contacts / cell edits as the source of truth instead of the .xlsx. Step 1 of the mobile app.
+3. **Reply-tracking misses:** ask the owner for specific people the tracker got wrong (how you reached out / who
+   replied) after the duplicates were merged; the 5 same-email duplicates split replies across two records.
+
 ## 00. Owner's list (2026-10-19, after the redesign)
 
 1. **Coffee chat prep page (/prep):** not redesigned yet (the owner couldn't give feedback while the redesign was in

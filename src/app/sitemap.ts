@@ -10,7 +10,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ["/extension/privacy", 0.5],
     ["/extension/support", 0.4],
     ["/coverage", 0.6],
-    ["/firms", 0.5],
+    ["/process", 0.5],
     ["/find", 0.6],
     ["/drafts", 0.6],
     ["/tracking", 0.4],

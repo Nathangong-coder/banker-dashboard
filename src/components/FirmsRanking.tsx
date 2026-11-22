@@ -11,7 +11,7 @@ import { autoMovedOn } from "@/lib/contactUpkeep";
 import type { FirmRating } from "@/lib/coverage";
 import type { Contact } from "@/lib/types";
 import { cn, fmtDate, relDays } from "@/lib/util";
-import { Badge, Card, CardHeader, Checkbox, Empty, PageHeader, Select, StatusBadge, Textarea } from "@/components/ui";
+import { Badge, Card, CardHeader, Checkbox, Empty, Select, StatusBadge, Textarea } from "./ui";
 
 type Sort = "score" | "stars" | "replies" | "name";
 const SORTS: { id: Sort; label: string }[] = [
@@ -72,7 +72,11 @@ function scoreTone(n: number) {
   return "neutral" as const;
 }
 
-export default function FirmsPage() {
+/**
+ * The firm ranking (was /firms; owner, 2026-11-21: Bank coverage → Analytics replaces it): tiles that zoom into the
+ * firms behind them, and every firm scored 0–100 next to your stars and notes.
+ */
+export function FirmsRanking() {
   const contacts = useStore((s) => s.contacts);
   const targets = useStore((s) => s.targets);
   const added = useStore((s) => s.coverage.added);
@@ -117,7 +121,6 @@ export default function FirmsPage() {
   if (!stats.length) {
     return (
       <>
-        <PageHeader title="Firms" />
         <Card>
           <Empty icon={<Trophy className="size-6" />} title="No firms yet">
             Firms show up here once you have contacts. Upload your spreadsheet or add people on Find people.
@@ -134,11 +137,6 @@ export default function FirmsPage() {
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
-      <PageHeader
-        title="Firms"
-        sub="How networking is going at each firm: replies, calls, referrals and how your chats went, scored 0–100, next to your own stars and notes."
-      />
-
       <Card className="grid grid-cols-2 divide-line md:grid-cols-4 md:divide-x">
         {(
           [
@@ -305,7 +303,8 @@ export default function FirmsPage() {
       </Card>
       <p className="text-[12px] text-muted">
         Score = replies (35, your reply rate pulled toward your {Math.round(overall * 100)}% average while there are few emails) + calls (25, full at 2) +
-        referrals (25, full at 1) + chat grade (15, half when nothing is graded). Your stars are your own call and don&apos;t change the score.
+        referrals (25, full at 1) + chat grade (15, half when nothing is graded). Your stars are your own call and don&apos;t change the score. Replies
+        count anyone who ever wrote back, including people who then went quiet, so the reply rate runs high.
       </p>
     </div>
   );

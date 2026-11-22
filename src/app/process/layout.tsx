@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Firms",
-  description: "Every firm you're networking with, scored on replies, calls, referrals and how your chats went, next to your own rating and notes.",
-  alternates: { canonical: "/firms" },
+  title: "Process tracker",
+  description: "Every bank you're recruiting at, dragged through your process from networking to offer, colored by how it's going.",
+  alternates: { canonical: "/process" },
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
