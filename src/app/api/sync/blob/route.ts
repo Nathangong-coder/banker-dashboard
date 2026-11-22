@@ -27,6 +27,11 @@ export async function GET(req: Request) {
     const { name, part } = args(req);
     const bytes = await getPart(u.id, name, part);
     if (!bytes) throw new HttpError(404, "That file isn't in your account.");
+    // Gzipped files (sync.ts, 2026-11-21) start with 1f 8b; no uncompressed file the dashboard stores does (xlsx "PK",
+    // JSON "[" / "{", named files a 0 length byte). A tab still running older code can't unpack them and would
+    // download them again on every retry, so it gets a short error instead of the bytes.
+    if (part === 0 && bytes[0] === 0x1f && bytes[1] === 0x8b && !req.headers.get("x-sync-gz"))
+      throw new HttpError(409, "Coverage was updated. Reload this tab to keep syncing.");
     return new Response(bytes as BodyInit, { headers: { "Content-Type": "application/octet-stream", "Cache-Control": "no-store" } });
   } catch (e) {
     return errorResponse(e);

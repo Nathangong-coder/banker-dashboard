@@ -15,8 +15,11 @@ import { batches, diffDocs, fromDocs, serialize, toDocs } from "./syncDocs";
  * - Big files (workbook, parsed sheets, resumes, logo) go up and down in 3 MB parts, described by `bm:<name>` docs.
  */
 
-/** `hash` = SHA-256 of the uploaded bytes, so an identical rewrite isn't uploaded again. */
-type BlobMeta = { parts: number; size: number; kind: "ab" | "json" | "file"; at: string; deleted?: boolean; hash?: string };
+/**
+ * `hash` = SHA-256 of the file's bytes before compression, so an identical rewrite isn't uploaded again.
+ * `gz` = the parts are gzipped (2026-11-21, Vercel Fast Origin Transfer): `size` is then the gzipped size.
+ */
+type BlobMeta = { parts: number; size: number; kind: "ab" | "json" | "file"; at: string; deleted?: boolean; hash?: string; gz?: boolean };
 interface Meta {
   rev: number;
   /** Each doc as the server last had it (what a push is diffed against). */
@@ -177,6 +180,19 @@ function decodeBlob(bytes: Uint8Array, kind: BlobMeta["kind"]): unknown {
   return { ...head, data: bytes.slice(4 + n).buffer };
 }
 
+/**
+ * gzip / gunzip with the browser's own streams. The parsed sheets (JSON, ~0.9 MB on the owner's file) shrink several
+ * times; the .xlsx, PDFs and images are zipped already and gain little, so they go up as they are (see sendBlob).
+ */
+async function pipe(bytes: Uint8Array, t: CompressionStream | DecompressionStream) {
+  const s = new Blob([bytes as Uint8Array<ArrayBuffer>]).stream().pipeThrough(t);
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+const gzip = (b: Uint8Array) => pipe(b, new CompressionStream("gzip"));
+const gunzip = (b: Uint8Array) => pipe(b, new DecompressionStream("gzip"));
+/** Sent with every part download: the server only hands gzipped parts to code that can unpack them. */
+const GZ_OK = { "x-sync-gz": "1" };
+
 async function sendBlob(name: BlobName) {
   const v = await blobs.raw(name);
   const q = (x: Record<string, string | number>) => new URLSearchParams(Object.entries(x).map(([k, val]) => [k, String(val)]));
@@ -191,10 +207,14 @@ async function sendBlob(name: BlobName) {
     // Each upload goes through a function (Vercel Fast Origin Transfer) and into Blob storage (operations).
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>)), (b) => b.toString(16).padStart(2, "0")).join("");
     if (meta.blobs[name]?.hash === hash && !meta.blobs[name]?.deleted) return;
-    const parts = Math.max(1, Math.ceil(bytes.length / PART));
-    for (let i = 0; i < parts; i++) await api(`/api/sync/blob?${q({ name, part: i })}`, { method: "PUT", body: bytes.slice(i * PART, (i + 1) * PART) });
+    // Gzipped only when it saves at least 10% (already-zipped files would just cost CPU on both ends).
+    const packed = typeof CompressionStream === "undefined" ? bytes : await gzip(bytes);
+    const gz = packed.length < bytes.length * 0.9;
+    const body = gz ? packed : bytes;
+    const parts = Math.max(1, Math.ceil(body.length / PART));
+    for (let i = 0; i < parts; i++) await api(`/api/sync/blob?${q({ name, part: i })}`, { method: "PUT", body: body.slice(i * PART, (i + 1) * PART) });
     if ((meta.blobs[name]?.parts ?? 0) > parts) await api(`/api/sync/blob?${q({ name, from: parts })}`, { method: "DELETE" });
-    m = { parts, size: bytes.length, kind, at: new Date().toISOString(), hash };
+    m = { parts, size: body.length, kind, at: new Date().toISOString(), hash, ...(gz ? { gz: true } : {}) };
   }
   await api("/api/sync/push", { method: "POST", body: JSON.stringify({ changed: { [`bm:${name}`]: JSON.stringify(m) }, removed: [] }) });
   meta.blobs[name] = m;
@@ -211,11 +231,11 @@ async function receiveBlob(name: BlobName, m: BlobMeta) {
     const out = new Uint8Array(m.size);
     let at = 0;
     for (let i = 0; i < m.parts; i++) {
-      const part = new Uint8Array(await api<ArrayBuffer>(`/api/sync/blob?name=${encodeURIComponent(name)}&part=${i}`));
+      const part = new Uint8Array(await api<ArrayBuffer>(`/api/sync/blob?name=${encodeURIComponent(name)}&part=${i}`, { headers: GZ_OK }));
       out.set(part, at);
       at += part.length;
     }
-    const value = decodeBlob(out, m.kind);
+    const value = decodeBlob(m.gz ? await gunzip(out) : out, m.kind);
     await blobs.putRaw(name, value);
     if (name === "snapshots") {
       applying = true;
@@ -251,6 +271,13 @@ function schedulePush() {
 
 /** Push what changed here, upload changed files, then pull what changed elsewhere. */
 const lastSent = new Map<string, number>();
+/**
+ * Wait before retrying a failed sync: 15 s, doubling up to 15 min. A fixed 15 s meant a sync that kept failing partway
+ * through a file download downloaded the same parts again four times a minute for as long as the tab stayed open.
+ */
+const RETRY_MIN = 15_000;
+let retryMs = RETRY_MIN;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function syncNow(final = false) {
   return queue(async () => {
@@ -275,9 +302,15 @@ export function syncNow(final = false) {
       // A pull can bring docs a local merge then fills in (new settings defaults): push those back once.
       await pushNow();
       useSyncStatus.setState({ state: "saved", at: new Date().toISOString(), error: undefined });
+      retryMs = RETRY_MIN;
     } catch (e) {
       fail(e);
-      setTimeout(() => uid && void syncNow(), 15_000);
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (uid) void syncNow();
+      }, retryMs);
+      retryMs = Math.min(retryMs * 2, 15 * 60_000);
     }
   });
 }
@@ -376,6 +409,9 @@ export function stopSync() {
   stopFns = [];
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = null;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  retryMs = RETRY_MIN;
   uid = null;
   channel = null;
   dirtyBlobs.clear();

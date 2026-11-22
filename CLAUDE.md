@@ -197,7 +197,10 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   check doesn't read the TTL (slides once a day from `at`); files re-upload only when their SHA-256 changed, the
   workbook (2.2 MB on the owner's file) + parsed sheets (0.9 MB) at most every 15 min (flushed on leave / sign-out /
   Download, re-checked by hash on start, no leave prompt): Excel autosave pickups re-uploaded ~3 MB each and every
-  other signed-in browser downloaded it. The automatic-sending sync at most every 2 min unless the
+  other signed-in browser downloaded it. **Files go up gzipped** when that saves ≥10% (`sync.ts`, `BlobMeta.gz`, 2026-11-21;
+  owner's file: parsed sheets 545 → 48 KB, .xlsx 1,487 → 370 KB); `api/sync/blob` GET answers 409 "reload this tab"
+  for a gzipped part without `x-sync-gz`, so a tab on older code can't loop on it. Failed syncs retry 15 s doubling to
+  15 min (was a fixed 15 s, which re-downloaded a failing file 4×/min). The automatic-sending sync at most every 2 min unless the
   send queue changed, the 10-min one only while visible. Keep new polling / per-request Redis calls rare.
 - **Sync** (`lib/syncDocs.ts` pure + `check:sync`; `lib/sync.ts` browser; `lib/server/userData.ts`): the persisted state is cut into docs
   (`c:` per contact, `aj:` job, `af:` found job, `is:` info session, `b:` bank, `p:<tab>\0<cell>` per manual cell edit, `cm:<field>\0<key>`
