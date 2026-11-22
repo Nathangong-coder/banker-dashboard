@@ -297,7 +297,7 @@ export type BankStage = "referral" | "chatted" | "emailed" | "outreach" | "cold"
 export const BANK_STAGES: BankStage[] = ["referral", "chatted", "emailed", "outreach", "cold"];
 
 /** Talked to them, or about to: a reply, a call (past or booked), or a logged chat. */
-export const talkedTo = (c: Contact) => gotReply(c) || !!c.call || !!c.chats?.length;
+export const talkedTo = (c: Contact) => gotReply(c) || !!c.call || !!c.chats?.length || !!c.chatEvidence?.length;
 
 export function bankStage(contacts: Contact[]): BankStage {
   if (contacts.some((c) => !!c.referral)) return "referral";
@@ -355,7 +355,7 @@ export function liveKind(c: Contact, now = Date.now()): LiveKind | undefined {
   // Your call on Bank coverage beats the dates.
   if (c.liveMark === "live") return "live";
   if (c.liveMark === "off" || c.status === "ignored") return undefined;
-  if (c.call || c.chats?.length || c.status === "call_scheduled" || c.status === "done") return "live";
+  if (c.call || c.chats?.length || c.chatEvidence?.length || c.status === "call_scheduled" || c.status === "done") return "live";
   const heard = [c.lastHeardAt, c.repliedAt].filter((x): x is string => !!x).sort().pop();
   if (heard && now - Date.parse(heard) <= 7 * DAY) return "live";
   if (gotReply(c)) return undefined;

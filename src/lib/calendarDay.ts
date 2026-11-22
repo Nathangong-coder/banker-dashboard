@@ -7,6 +7,7 @@
 import type { Contact, Status } from "./types";
 import { isInfoSessionTitle } from "./infoSessions";
 import { couldBeWith, looksLikeChat, matchEvent } from "./calendarMatch";
+import { withEvidence } from "./chatEvidence";
 
 export interface CalendarEvent {
   id: string;
@@ -21,8 +22,13 @@ export interface CalendarEvent {
 }
 
 export interface CalendarChat extends CalendarEvent {
-  /** The contact it was with, when we can tell. */
+  /** The contact it was with, when we can tell (the first guest, for one-line lists). */
   contactId?: string;
+  /**
+   * Every contact on it (owner, 2026-11-21): a chat with two bankers as guests (Eli Sanchez and Charles Kirby at
+   * Bank of America) is a chat with each of them. It used to count for the first guest only.
+   */
+  contactIds?: string[];
 }
 
 /**
@@ -42,6 +48,13 @@ export function chatsIn(events: CalendarEvent[], contacts: Contact[], myFirstNam
     // With no guest list, an earlier first-name match only holds for someone engaged (else it's matched again below).
     if (own && couldBeWith(e, own) && !own.notEvents?.includes(e.id) && (e.attendees.length || engaged(own) || fullNameIn(e.title, own.name))) {
       out.push({ ...e, contactId: own.id });
+      continue;
+    }
+    // Every guest who's a contact (address or alias), not just the first.
+    const guests = new Set(e.attendees.map((a) => a.toLowerCase()));
+    const all = contacts.filter((c) => !c.notEvents?.includes(e.id) && [c.email, ...(c.aliases ?? [])].some((a) => a && guests.has(a.toLowerCase())));
+    if (all.length) {
+      out.push({ ...e, contactId: all[0].id, contactIds: all.map((c) => c.id) });
       continue;
     }
     const byEmail = matchEvent({ id: e.id, summary: "", description: "", attendees: e.attendees }, people);
@@ -74,7 +87,7 @@ export const BEFORE_CALL: Status[] = ["new", "drafted", "sent", "followed_up", "
  */
 export function callPatches(chats: CalendarChat[], contacts: Contact[], now = Date.now()) {
   const byPerson = new Map<string, CalendarChat[]>();
-  for (const c of chats) if (c.contactId) byPerson.set(c.contactId, [...(byPerson.get(c.contactId) ?? []), c]);
+  for (const c of chats) for (const id of c.contactIds ?? (c.contactId ? [c.contactId] : [])) byPerson.set(id, [...(byPerson.get(id) ?? []), c]);
   const out: { id: string; patch: Partial<Contact> }[] = [];
   for (const [id, list] of byPerson) {
     const c = contacts.find((x) => x.id === id);
@@ -82,9 +95,15 @@ export function callPatches(chats: CalendarChat[], contacts: Contact[], now = Da
     const ahead = list.filter((e) => Date.parse(e.start) > now).sort((a, b) => a.start.localeCompare(b.start));
     const past = list.filter((e) => Date.parse(e.start) <= now).sort((a, b) => b.start.localeCompare(a.start));
     const e = ahead[0] ?? past[0];
-    // Keep a call the dashboard scheduled that's still ahead, unless the calendar has that same event at a new time.
-    if (c.call && c.call.eventId !== e.id && Date.parse(c.call.at) > now && Date.parse(e.start) <= now) continue;
     const patch: Partial<Contact> = {};
+    // Every chat that happened is kept (chatEvidence.ts counts them), not just the latest one on `call`.
+    const evidence = withEvidence(c, past.map((x) => ({ at: x.start, source: "calendar" as const, ref: x.id })));
+    if (evidence) patch.chatEvidence = evidence;
+    // Keep a call the dashboard scheduled that's still ahead, unless the calendar has that same event at a new time.
+    if (c.call && c.call.eventId !== e.id && Date.parse(c.call.at) > now && Date.parse(e.start) <= now) {
+      if (evidence) out.push({ id, patch });
+      continue;
+    }
     if (c.call?.eventId !== e.id || c.call.at !== e.start)
       patch.call = { at: e.start, eventId: e.id, link: e.link ?? (c.call?.eventId === e.id ? c.call.link : ""), invited: c.call?.eventId === e.id ? c.call.invited : false };
     if (BEFORE_CALL.includes(c.status)) patch.status = "call_scheduled";
@@ -100,11 +119,11 @@ export function callPatches(chats: CalendarChat[], contacts: Contact[], now = Da
  */
 export function wrongCalls(events: CalendarEvent[], chats: CalendarChat[], contacts: Contact[]) {
   const seen = new Set(events.map((e) => e.id));
-  const owner = new Map(chats.map((c) => [c.id, c.contactId]));
+  const owner = new Map(chats.map((c) => [c.id, new Set(c.contactIds ?? (c.contactId ? [c.contactId] : []))]));
   const out: { id: string; patch: Partial<Contact>; guests: string[] }[] = [];
   for (const c of contacts) {
     const id = c.call?.eventId;
-    if (!id || !seen.has(id) || owner.get(id) === c.id) continue;
+    if (!id || !seen.has(id) || owner.get(id)?.has(c.id)) continue;
     const patch: Partial<Contact> = { call: undefined };
     if (c.status === "call_scheduled" && !c.chats?.length)
       patch.status = c.repliedAt ? "replied" : c.followUps > 0 ? "followed_up" : c.sentAt ? "sent" : c.draft ? "drafted" : "new";

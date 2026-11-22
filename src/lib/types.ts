@@ -105,6 +105,12 @@ export interface Contact {
   phone?: string;
   /** The call on your calendar (Follow-ups → Schedule calls). */
   call?: { at: string; eventId: string; link: string; invited: boolean };
+  /**
+   * Chats that happened, found without you logging them (owner, 2026-11-21: two BofA chats counted as one):
+   * "calendar" = a past event with them as a guest (`ref` = event id), "thanks" = a thank-you email you sent them
+   * after they'd replied (`ref` = Gmail message id). lib/chatEvidence.ts counts them with logged chats by day.
+   */
+  chatEvidence?: { at: string; source: "calendar" | "thanks"; ref: string }[];
   /** The next follow-up, waiting as a Gmail draft (made from Follow-ups). Stale once `followUps` reaches `step`. */
   followUpDraft?: { gmailDraftId: string; messageId: string; step: number; createdAt: string };
   /**

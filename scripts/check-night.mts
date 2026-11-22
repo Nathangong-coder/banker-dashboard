@@ -5,6 +5,12 @@
  */
 import { LABELS, digestMessages, isTextDay, nextTextDay, nightMessages, type DigestItem } from "../src/lib/digestFormat";
 import { bankHealth, healthColor } from "../src/lib/bankHealth";
+import { chatCount, thanksEvidence, withEvidence } from "../src/lib/chatEvidence";
+import { callPatches, chatsIn } from "../src/lib/calendarDay";
+import { programKind, summerOf, targetSummer } from "../src/lib/programs";
+import { appState } from "../src/lib/nightProgress";
+import { isBankFirm } from "../src/lib/processTracker";
+import { canonBank } from "../src/lib/banks";
 import { relationshipItem } from "../src/lib/reminders";
 import { earliestSend, nextAction } from "../src/lib/followups";
 import { DEFAULT_SEND_WINDOW, planBatch, planSends, zonedDate } from "../src/lib/sendWindow";
@@ -14,9 +20,10 @@ import { DEFAULT_SETTINGS } from "../src/lib/defaults";
 import type { Contact } from "../src/lib/types";
 
 let failed = 0;
-const check = (what: string, ok: boolean, detail = "") => {
+const check = (what: string, ok: boolean, detail: unknown = "") => {
   if (!ok) failed++;
-  console.log(`${ok ? "ok  " : "FAIL"} ${what}${!ok && detail ? `\n       got: ${detail}` : ""}`);
+  const d = typeof detail === "string" ? detail : JSON.stringify(detail);
+  console.log(`${ok ? "ok  " : "FAIL"} ${what}${!ok && d ? `\n       got: ${d}` : ""}`);
 };
 
 // Text nights: every night (owner, 2026-11-21; it was Mon–Thu). Oct 19, 2026 is a Monday.
@@ -109,6 +116,54 @@ check("all moved on with no reply → red", (hb([{ status: "ignored", sentAt: lo
 check("two chats → green", (hb([{ status: "done", sentAt: local("2026-10-01T10:00:00"), chats: [{ id: "1", at: local("2026-10-05T10:00:00") }, { id: "2", at: local("2026-10-09T10:00:00") }] }]).score ?? 0) >= 60);
 check("referral from a VP → 100", hb([{ status: "done", position: "Vice President", sentAt: local("2026-10-01T10:00:00"), referral: { at: local("2026-10-05T10:00:00") } }]).score === 100);
 check("referral from an analyst → 88+", (hb([{ status: "done", position: "Analyst", sentAt: local("2026-10-01T10:00:00"), referral: { at: local("2026-10-05T10:00:00") } }]).score ?? 0) >= 88);
+
+// Counting chats (owner, 2026-11-21): two chats at Bank of America, Eli Sanchez and Charles Kirby both calendar guests,
+// both thanked in one email chain. It showed one chat.
+{
+  const eli = { ...base, id: "eli", name: "Eli Sanchez", bank: "Bank of America", email: "eli.sanchez@bofa.com", status: "replied" as const, repliedAt: local("2026-10-20T10:00:00") };
+  const charles = { ...base, id: "charles", name: "Charles Kirby", bank: "Bank of America", email: "charles.kirby@bofa.com", status: "replied" as const, repliedAt: local("2026-10-21T10:00:00") };
+  const cold = { ...base, id: "cold", name: "Pat Cold", bank: "Bank of America", email: "pat.cold@bofa.com", status: "sent" as const };
+  const ev = { id: "ev1", title: "Nathan <> BofA", start: local("2026-10-28T15:00:00"), end: local("2026-10-28T15:30:00"), allDay: false, attendees: ["eli.sanchez@bofa.com", "charles.kirby@bofa.com"] };
+  const chats = chatsIn([ev], [eli, charles, cold], "Nathan");
+  check("an event with two bank guests is a chat with each", JSON.stringify(chats[0]?.contactIds?.slice().sort()) === JSON.stringify(["charles", "eli"]), chats);
+  const patches = callPatches(chats, [eli, charles], Date.parse("2026-11-21T00:00:00Z"));
+  check("both get the chat recorded", patches.length === 2 && patches.every((p) => p.patch.chatEvidence?.length === 1), patches);
+  const withCal = [eli, charles].map((c) => ({ ...c, ...patches.find((p) => p.id === c.id)!.patch }));
+  const sent = [
+    { id: "m1", email: "eli.sanchez@bofa.com", at: Date.parse(local("2026-10-28T20:00:00")) },
+    { id: "m2", email: "charles.kirby@bofa.com", at: Date.parse(local("2026-10-29T09:00:00")) },
+    { id: "m3", email: "pat.cold@bofa.com", at: Date.parse(local("2026-10-29T09:00:00")) },
+  ];
+  const thanks = thanksEvidence(sent, [...withCal, cold]);
+  check("thank-yous count for people who'd replied, never a cold email", thanks.map((t) => t.id).sort().join() === "charles,eli", thanks);
+  const final = withCal.map((c) => ({ ...c, chatEvidence: withEvidence(c, thanks.find((t) => t.id === c.id)!.add) }));
+  check("a thank-you the day after the call is the same chat (1 each)", final.every((c) => chatCount(c) === 1), final.map((c) => chatCount(c)));
+  check("Bank of America: 2 chats", bankHealth(final).chats === 2, bankHealth(final));
+  const thanksOnly = { ...eli, call: undefined, chatEvidence: [{ at: local("2026-11-10T10:00:00"), source: "thanks" as const, ref: "m9" }] };
+  check("a thank-you with no calendar event still counts as a chat", chatCount(thanksOnly) === 1);
+}
+
+// Summer Analyst vs insight programs (owner, 2026-11-21: JP Morgan showed Applied from an insight program).
+{
+  check("insight program", programKind({ role: "2027 Early Insight Program - Investment Banking" }) === "insight");
+  check("sophomore program", programKind({ role: "Sophomore Summer Analyst Program 2027" }) === "insight");
+  check("summer analyst", programKind({ role: "2028 Investment Banking Summer Analyst - New York" }) === "sa");
+  check("your override wins", programKind({ role: "Early Insight", program: "sa" }) === "sa");
+  check("summer from the title", summerOf({ role: "Summer Analyst 2028" }) === 2028 && summerOf({ role: "IB Summer Analyst '28" }) === 2028 && summerOf({ role: "Summer Analyst" }) === undefined);
+  check("class of 2029 recruits for Summer 2028", targetSummer("2029-06-15") === 2028);
+  const jobs = [
+    { company: "JP Morgan", status: "submitted" as const, role: "Early Insight Program 2027" },
+    { company: "Goldman Sachs", status: "submitted" as const, role: "2028 Summer Analyst" },
+    { company: "Evercore", status: "submitted" as const, role: "Summer Analyst 2027" },
+  ];
+  const row = (name: string) => ({ key: canonBank(name), applied: [] });
+  check("JPM insight program is not an application for Summer 2028", appState(row("JP Morgan"), jobs, { cycle: 2028, target: 2028 }) === undefined);
+  check("…but it is on the Summer 2027 board", appState(row("JP Morgan"), jobs, { cycle: 2027, target: 2028 }) === "applied");
+  check("GS 2028 summer analyst counts", appState(row("Goldman Sachs"), jobs, { cycle: 2028, target: 2028 }) === "applied");
+  check("a 2027 summer analyst doesn't count for 2028", appState(row("Evercore"), jobs, { cycle: 2028, target: 2028 }) === undefined);
+  check("RCLCO isn't a bank; Piper Sandler is", !isBankFirm({ key: canonBank("RCLCO") }, { added: [] }) && isBankFirm({ key: canonBank("Piper Sandler"), tier: "Middle Market" }, { added: [] }));
+  check("…unless you say so", isBankFirm({ key: canonBank("RCLCO") }, { added: [], firmKind: { [canonBank("RCLCO")]: "bank" } }));
+}
 
 // Calendar matching.
 const people = [

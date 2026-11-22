@@ -3,12 +3,15 @@ import { HttpError, errorResponse } from "@/lib/server/http";
 import { authAccount } from "@/lib/server/accounts";
 import { accessToken, gmail } from "@/lib/server/google";
 import { parseAddrs } from "@/lib/replyTracking";
+import { THANKS_QUERY } from "@/lib/chatEvidence";
 
 const Body = z.object({
   /** "YYYY/MM/DD": sent mail on or after this day. */
   after: z.string().regex(/^\d{4}\/\d{2}\/\d{2}$/),
   /** Gmail's page token from the previous answer (`next`). */
   page: z.string().max(200).optional(),
+  /** "thanks": only thank-you emails after a chat (lib/chatEvidence.ts#THANKS_QUERY), for counting chats. */
+  kind: z.enum(["all", "thanks"]).default("all"),
 });
 
 type Meta = { id: string; threadId: string; internalDate: string; labelIds?: string[]; payload?: { headers?: { name: string; value: string }[] } };
@@ -31,7 +34,7 @@ export async function POST(req: Request) {
     const access = await accessToken(a);
     const list = await gmail<{ messages?: { id: string }[]; nextPageToken?: string }>(
       access,
-      `/messages?q=${encodeURIComponent(`in:sent after:${b.after}`)}&maxResults=${PER_CALL}${b.page ? `&pageToken=${encodeURIComponent(b.page)}` : ""}`,
+      `/messages?q=${encodeURIComponent(`in:sent after:${b.after}${b.kind === "thanks" ? ` ${THANKS_QUERY}` : ""}`)}&maxResults=${PER_CALL}${b.page ? `&pageToken=${encodeURIComponent(b.page)}` : ""}`,
     );
     const ids = (list.messages ?? []).map((m) => m.id);
     const started = Date.now();

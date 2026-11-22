@@ -247,6 +247,48 @@ const gmailDay = (t: number) => {
 };
 
 /**
+ * Chats counted from your thank-you emails (owner, 2026-11-21; lib/chatEvidence.ts): the server searches your sent mail
+ * for chat thank-you wording since the last scan (first time: 180 days), and each one to someone who had already
+ * replied (or met you on the calendar) is recorded on them. At most every 3 hours; needs the server's Gmail read access.
+ */
+let thanking: Promise<number> | null = null;
+export function scanThankYous(opts: { force?: boolean } = {}) {
+  if (thanking) return thanking;
+  thanking = (async () => {
+    const s = useStore.getState();
+    if (!s.settings.server?.id) return 0;
+    const last = s.offSheet.thanksAt ? Date.parse(s.offSheet.thanksAt) : 0;
+    if (!opts.force && Date.now() - last < 3 * 3600_000) return 0;
+    const since = last ? last - 3 * 86_400_000 : Date.now() - 180 * 86_400_000;
+    const { serverCall } = await import("./serverSync");
+    const sent: { id: string; email: string; at: number }[] = [];
+    let page: string | undefined;
+    for (let round = 0; round < 8; round++) {
+      const r = await serverCall<{ read: boolean; recipients: { id: string; email: string; at: number }[]; next?: string | null }>("/api/server/sent", { after: gmailDay(since), page, kind: "thanks" });
+      if (!r.read) return 0;
+      sent.push(...r.recipients);
+      if (r.next === null || r.next === undefined) break;
+      page = r.next || undefined;
+    }
+    const { thanksEvidence, withEvidence } = await import("./chatEvidence");
+    const st = useStore.getState();
+    let n = 0;
+    for (const { id, add } of thanksEvidence(sent, st.contacts)) {
+      const c = st.contacts.find((x) => x.id === id);
+      const ev = c && withEvidence(c, add);
+      if (!ev) continue;
+      st.updateContact(id, { chatEvidence: ev }, { at: new Date().toISOString(), type: "note", note: `Chat counted from your thank-you email${add.length > 1 ? "s" : ""} (${add.map((a) => new Date(a.at).toLocaleDateString()).join(", ")})` });
+      n++;
+    }
+    st.setOffSheet({ thanksAt: new Date().toISOString() });
+    return n;
+  })().finally(() => {
+    thanking = null;
+  });
+  return thanking;
+}
+
+/**
  * The server's read of your sent mail (api/server/sent: To, Cc and Bcc, no popup), since the last server scan or 120
  * days. Null when the server has no read access (or isn't connected), so the browser scan runs instead.
  */

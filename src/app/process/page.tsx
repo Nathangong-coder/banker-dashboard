@@ -12,7 +12,8 @@ import { PROCESS_COLUMNS, columnsOf, type ProcessColumn } from "@/lib/processTra
 import { cn, fmtDate } from "@/lib/util";
 import { Button, Card, Empty, Input, Menu, Modal, PageHeader, Segmented, Select, toast } from "@/components/ui";
 import { BankDetail, NextStep } from "@/components/BankDetail";
-import { moveToColumn, setTarget, toggleStar, useBankViews, type BankView } from "@/components/useBankViews";
+import { moveToColumn, setColor, setFirmKind, setTarget, toggleStar, useBankViews, type BankView } from "@/components/useBankViews";
+import type { Cycle } from "@/lib/processTracker";
 
 /**
  * Process tracker (owner, 2026-11-21): every bank on your list as a card on a left-to-right process (a flowchart of
@@ -35,7 +36,12 @@ function loadShow(): Show {
 
 export default function ProcessPage() {
   const router = useRouter();
-  const { views } = useBankViews(false);
+  // Summer 2028 (junior, the one you're recruiting for) by default; 2027 programs are their own board.
+  const [cycleYear, setCycleYear] = useState<number | undefined>(undefined);
+  const { views: all, cycle } = useBankViews(false, cycleYear);
+  const [showOther, setShowOther] = useState(false);
+  const otherCount = all.filter((v) => v.other && v.inCycle).length;
+  const views = useMemo(() => all.filter((v) => v.inCycle && (showOther || !v.other)), [all, showOther]);
   const coverage = useStore((s) => s.coverage);
   const setCoverage = useStore((s) => s.setCoverage);
   const workbook = useStore((s) => s.workbook);
@@ -82,8 +88,8 @@ export default function ProcessPage() {
   const drop = (column: ProcessColumn, key: string) => {
     const v = views.find((x) => x.r.key === key);
     if (!v || v.column.id === column.id) return;
-    moveToColumn(key, column.id);
-    toast.ok(`${v.r.name} → ${column.label}.`);
+    moveToColumn(key, column.id, cycle);
+    toast.ok(`${v.r.name} → ${column.label}${cycle.cycle !== cycle.target ? ` (Summer ${cycle.cycle})` : ""}.`);
   };
 
   if (!views.length && !workbook)
@@ -122,6 +128,14 @@ export default function ProcessPage() {
 
       <Card className="flex flex-wrap items-center gap-2 p-3">
         <Segmented
+          value={String(cycle.cycle)}
+          onChange={(v) => setCycleYear(Number(v) === cycle.target ? undefined : Number(v))}
+          options={[
+            [String(cycle.target), `Summer ${cycle.target}`],
+            [String(cycle.target - 1), `Summer ${cycle.target - 1}`],
+          ]}
+        />
+        <Segmented
           value={show}
           onChange={setShow}
           options={[
@@ -144,6 +158,17 @@ export default function ProcessPage() {
             <option value="ib">Investment banks</option>
             <option value="pe">Private equity</option>
           </Select>
+        )}
+        {otherCount > 0 && (
+          <button
+            type="button"
+            aria-pressed={showOther}
+            onClick={() => setShowOther((v) => !v)}
+            className={cn("rounded-full border px-2.5 py-1 text-[12px]", showOther ? "border-navy bg-navy text-white" : "border-line-2 text-ink-2 hover:border-navy/50")}
+            title="Firms that aren't banks by your lists (e.g. a consultancy). Mark one as a bank from its ⋯ menu."
+          >
+            Other firms {otherCount}
+          </button>
         )}
         <div className="flex-1" />
         <div className="relative w-56 max-sm:w-full">
@@ -216,6 +241,7 @@ export default function ProcessPage() {
                       <BankCard
                         key={v.r.key}
                         v={v}
+                        cycle={cycle}
                         cols={cols}
                         open={open === v.r.key}
                         onToggle={() => setOpen(open === v.r.key ? null : v.r.key)}
@@ -297,8 +323,18 @@ function ScorePie({ value, label, sub }: { value: number | null; label: string; 
   );
 }
 
-function BankCard({ v, cols, open, onToggle, onDetail, onHide }: { v: BankView; cols: ProcessColumn[]; open: boolean; onToggle: () => void; onDetail: () => void; onHide: () => void }) {
-  const color = healthColor(v.health.score);
+/** Your own read on a bank, as a health score: dark red → dark green (owner: a chat that went badly). */
+const SWATCHES: { score: number; label: string }[] = [
+  { score: 4, label: "Going badly" },
+  { score: 20, label: "Not great" },
+  { score: 30, label: "Neutral" },
+  { score: 45, label: "OK" },
+  { score: 70, label: "Good" },
+  { score: 95, label: "Great" },
+];
+
+function BankCard({ v, cycle, cols, open, onToggle, onDetail, onHide }: { v: BankView; cycle: Cycle; cols: ProcessColumn[]; open: boolean; onToggle: () => void; onDetail: () => void; onHide: () => void }) {
+  const color = healthColor(v.color);
   const app = v.app === "applied" ? "Applied" : v.app === "open" ? "Open" : v.app === "closed" ? "Closed" : "—";
   return (
     <li
@@ -324,17 +360,20 @@ function BankCard({ v, cols, open, onToggle, onDetail, onHide }: { v: BankView; 
         <button type="button" onClick={onToggle} aria-expanded={open} className="min-w-0 flex-1 text-left">
           <div className="truncate text-[13.5px] font-semibold">{v.r.name}</div>
           <div className="truncate text-[11px] opacity-75">
-            {[v.r.tier, v.health.why, v.column.set ? "set by you" : ""].filter(Boolean).join(" · ")}
+            {[v.r.tier, v.health.why, v.column.set ? "placed by you" : "", v.colorSet ? "your color" : ""].filter(Boolean).join(" · ")}
           </div>
         </button>
         <Menu
           label={`Move ${v.r.name}`}
           items={[
-            ...cols.map((c) => ({ label: c.id === v.column.id ? `In ${c.label}` : `Move to ${c.label}`, disabled: c.id === v.column.id, onClick: () => moveToColumn(v.r.key, c.id) })),
+            ...cols.map((c) => ({ label: c.id === v.column.id ? `In ${c.label}` : `Move to ${c.label}`, disabled: c.id === v.column.id, onClick: () => moveToColumn(v.r.key, c.id, cycle) })),
             v.column.set && "divider",
-            v.column.set && { label: "Back to automatic", icon: <Undo2 />, onClick: () => moveToColumn(v.r.key, null) },
+            v.column.set && { label: "Back to automatic", icon: <Undo2 />, onClick: () => moveToColumn(v.r.key, null, cycle) },
             "divider",
             { label: "Open details", onClick: onDetail },
+            v.other
+              ? { label: "This is a bank", hint: "Show it with the banks", onClick: () => setFirmKind(v.r.key, "bank") }
+              : { label: "Not a bank", hint: "Move to Other firms", onClick: () => setFirmKind(v.r.key, "other") },
             { label: "Hide this bank", hint: "Not recruiting here", icon: <EyeOff />, onClick: onHide },
           ]}
         />
@@ -367,6 +406,24 @@ function BankCard({ v, cols, open, onToggle, onDetail, onHide }: { v: BankView; 
             <div className="flex items-center gap-1.5">
               <span className="text-muted">Next:</span>
               <NextStep t={v.w.next} />
+            </div>
+            <div className="flex flex-wrap items-center gap-1" role="group" aria-label={`Your color for ${v.r.name}`}>
+              <span className="mr-0.5 text-muted">Color</span>
+              {SWATCHES.map((sw) => (
+                <button
+                  key={sw.score}
+                  type="button"
+                  title={sw.label}
+                  aria-label={sw.label}
+                  aria-pressed={v.colorSet && v.color === sw.score}
+                  onClick={() => setColor(v.r.key, sw.score)}
+                  className={cn("size-4 rounded-full border border-black/15", v.colorSet && v.color === sw.score && "ring-2 ring-navy ring-offset-1")}
+                  style={{ background: healthColor(sw.score).bg }}
+                />
+              ))}
+              <button type="button" className={cn("ml-1 text-[11px] hover:underline", v.colorSet ? "text-navy" : "text-muted")} onClick={() => setColor(v.r.key, null)} disabled={!v.colorSet}>
+                auto
+              </button>
             </div>
             <label className="flex items-center gap-1.5 text-muted">
               Target contacts

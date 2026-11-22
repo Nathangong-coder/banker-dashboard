@@ -7,6 +7,7 @@ import { useStore } from "@/lib/store";
 import type { Contact } from "@/lib/types";
 import { serverCall } from "@/lib/serverSync";
 import { callPatches, chatsIn, wrongCalls, type CalendarEvent } from "@/lib/calendarDay";
+import { withEvidence } from "@/lib/chatEvidence";
 import { loadCalendarSessions } from "./InfoSessionActions";
 
 const DAY = 86_400_000;
@@ -35,6 +36,30 @@ export async function syncCalendar() {
   return { calendar: r.calendar, chats: chats.length, updated: patches.length, unmatched: wrong.length };
 }
 
+
+/**
+ * Chats from the last 120 days of your calendar (owner, 2026-11-21): every past event with a contact as a guest is
+ * recorded on each of them (`chatEvidence`), so the chat count sees all of them, not just the latest on `call`. Only
+ * evidence is written here (the Calendar page's sync sets calls and statuses). Run from Shell at most every 6 hours.
+ */
+export async function backfillCalendarChats() {
+  const now = Date.now();
+  const r = await serverCall<{ calendar: boolean; events: CalendarEvent[] }>("/api/server/calendar", { from: new Date(now - 119 * DAY).toISOString(), to: new Date(now).toISOString() });
+  if (!r.calendar) return 0;
+  const st = useStore.getState();
+  const chats = chatsIn(r.events ?? [], st.contacts, st.settings.profile.name.trim().split(/\s+/)[0]).filter((c) => Date.parse(c.start) <= now);
+  const by = new Map<string, NonNullable<Contact["chatEvidence"]>>();
+  for (const c of chats) for (const id of c.contactIds ?? (c.contactId ? [c.contactId] : [])) by.set(id, [...(by.get(id) ?? []), { at: c.start, source: "calendar", ref: c.id }]);
+  let n = 0;
+  for (const [id, add] of by) {
+    const c = useStore.getState().contacts.find((x) => x.id === id);
+    const ev = c && withEvidence(c, add);
+    if (!ev) continue;
+    st.updateContact(id, { chatEvidence: ev });
+    n++;
+  }
+  return n;
+}
 
 /**
  * "Not them": the calendar event on this person was someone else's (owner, 2026-10-28: "Market Research - James <>

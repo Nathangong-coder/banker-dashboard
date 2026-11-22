@@ -203,7 +203,22 @@ function useContactUpkeep(ready: boolean) {
 function useSentScan(ready: boolean) {
   useEffect(() => {
     if (!ready) return;
-    const run = () => void import("@/lib/gmailSync").then((m) => m.scanOffSheet({ interactive: false })).catch(() => undefined);
+    const run = () => {
+      void import("@/lib/gmailSync").then((m) => m.scanOffSheet({ interactive: false })).catch(() => undefined);
+      // Chats: thank-you emails (≤ every 3 h, inside) and the last 120 days of calendar guests (≤ every 6 h).
+      void import("@/lib/gmailSync").then((m) => m.scanThankYous()).catch(() => undefined);
+      let last = 0;
+      try {
+        last = Number(localStorage.getItem("coverage:calChatsAt") ?? 0);
+      } catch {}
+      if (Date.now() - last > 6 * 3600_000 && useStore.getState().settings.server?.email)
+        void import("./CalendarActions").then(async (m) => {
+          await m.backfillCalendarChats();
+          try {
+            localStorage.setItem("coverage:calChatsAt", String(Date.now()));
+          } catch {}
+        }).catch(() => undefined);
+    };
     const t = setTimeout(run, 20_000);
     const i = setInterval(run, 60 * 60_000);
     return () => {

@@ -17,7 +17,8 @@ import { scheduledByRecipient } from "./gmail";
 import { officeGapItems, officeGaps } from "./officeGaps";
 import { buildCoverage } from "./coverage";
 import { nightProgress } from "./nightProgress";
-import { columnFor, columnsOf } from "./processTracker";
+import { columnFor, columnsOf, isBankFirm } from "./processTracker";
+import { targetSummer } from "./programs";
 import type { RawHit } from "./opens";
 import { OPEN_DAYS } from "./pixel";
 import { matchTrackedSends, refreshMx } from "./trackingActions";
@@ -198,7 +199,9 @@ function withOfficeGaps(plan: ReturnType<typeof nightPlan>, st: ReturnType<typeo
 /** The text's "Big banks" message (lib/nightProgress.ts). Never fails the sync: no message 1 tonight instead. */
 export function progressFor(st: ReturnType<typeof useStore.getState>) {
   try {
-    const rows = buildCoverage({ contacts: st.contacts, tables: st.tables, targets: st.targets, coverage: { ...st.coverage, plan: undefined }, banks: st.banks, followUp: st.settings.followUp });
+    // Banks only (RCLCO isn't one), on your target summer's board.
+    const rows = buildCoverage({ contacts: st.contacts, tables: st.tables, targets: st.targets, coverage: { ...st.coverage, plan: undefined }, banks: st.banks, followUp: st.settings.followUp }).filter((r) => isBankFirm(r, st.coverage));
+    const target = targetSummer(st.apply.profile.gradDate);
     const cols = columnsOf(st.coverage);
     return nightProgress({
       rows,
@@ -206,10 +209,11 @@ export function progressFor(st: ReturnType<typeof useStore.getState>) {
       banks: st.banks,
       followUp: st.settings.followUp,
       jobs: st.apply.jobs,
+      target,
       starred: st.coverage.processStars,
       columnOf: (key) => {
         const row = rows.find((r) => r.key === key);
-        const id = row ? columnFor(row, st.coverage, st.apply.jobs).id : undefined;
+        const id = row ? columnFor(row, st.coverage, st.apply.jobs, { cycle: target, target }).id : undefined;
         return cols.find((c) => c.id === id)?.label;
       },
     });

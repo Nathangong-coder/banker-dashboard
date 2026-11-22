@@ -64,6 +64,8 @@ export interface JobApplication {
   emails?: { id: string; kind: string; at: string; subject: string }[];
   /** Summer the internship is for (from the confirmation email or the posting), for the Gmail label. */
   summer?: number;
+  /** Summer Analyst / insight / other, set by you; else read from the title (lib/programs.ts#programKind). */
+  program?: "sa" | "insight" | "other";
   /** The graduation date this application uses (your early date when the posting asks for that class), once decided. */
   gradAs?: string;
   /** The cover letter made for this job (your template tailored to it), exactly as uploaded. */

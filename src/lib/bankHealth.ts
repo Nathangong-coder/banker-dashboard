@@ -2,6 +2,7 @@ import type { Contact } from "./types";
 import { chatRating } from "./smartMention";
 import { isVpPlus } from "./seniority";
 import { gotReply, wasEmailed } from "./bankWork";
+import { chatCount } from "./chatEvidence";
 
 /**
  * How a bank's process is going, 0–100 (owner, 2026-11-21): the Process tracker colors each bank with it and the
@@ -31,9 +32,8 @@ export function bankHealth(contacts: Contact[]): BankHealth {
   const emailed = contacts.filter(wasEmailed);
   const replies = contacts.filter(gotReply).length;
   const chatList = contacts.flatMap((c) => c.chats ?? []);
-  // A call that happened (or is booked) counts as a chat even before it's logged.
-  const callsOnly = contacts.filter((c) => c.call && !(c.chats ?? []).length && Date.parse(c.call.at) <= Date.now()).length;
-  const chats = chatList.length + callsOnly;
+  // Chats that happened: logged, a past call, past calendar events with them, thank-you emails (chatEvidence.ts, by day).
+  const chats = contacts.reduce((n, c) => n + chatCount(c), 0);
   const referrers = contacts.filter((c) => !!c.referral);
   const seniorReferral = referrers.some((c) => isVpPlus(c.position || c.headline));
   const base = { chats, emailed: emailed.length, replies, referrals: referrers.length, seniorReferral };

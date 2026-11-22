@@ -124,6 +124,8 @@ export function bankKey(name: string, region: Region) {
 
 export interface OffSheetState {
   scannedAt?: string;
+  /** Last thank-you email scan (gmailSync.ts#scanThankYous: chats counted from your thank-yous). */
+  thanksAt?: string;
   /** Last scan the server did (api/server/sent), so the next one starts there. */
   serverAt?: string;
   /** Gmail message ids already read, so a scan only fetches new sent mail. */

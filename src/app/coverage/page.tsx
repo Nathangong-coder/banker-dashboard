@@ -52,7 +52,7 @@ export default function CoveragePage() {
   const workbook = useStore((s) => s.workbook);
   const setCoverage = useStore((s) => s.setCoverage);
   const cap = useStore((s) => Math.max(1, s.settings.followUp.livePerBank));
-  const ib = useMemo(() => views.filter((v) => !v.pe), [views]);
+  const ib = useMemo(() => views.filter((v) => !v.pe && !v.other), [views]);
   const toFill = useMemo(() => ib.filter((v) => v.slots.some((o) => !o.full)), [ib]);
 
   // Workbooks imported before target-list parsing existed: re-read the stored file once to pick up bank lists.
@@ -133,7 +133,7 @@ function OfficesTab({ views, cap, total }: { views: BankView[]; cap: number; tot
     () =>
       views
         .filter((v) => !office || v.slots.some((o) => !o.full && o.office === office))
-        .sort((a, b) => Number(!!b.r.applied?.length) - Number(!!a.r.applied?.length) || Number(b.starred) - Number(a.starred) || b.u.score - a.u.score || a.r.name.localeCompare(b.r.name)),
+        .sort((a, b) => Number(b.app === "applied") - Number(a.app === "applied") || Number(b.starred) - Number(a.starred) || b.u.score - a.u.score || a.r.name.localeCompare(b.r.name)),
     [views, office],
   );
   const shown = all ? list : list.slice(0, 15);
@@ -192,7 +192,7 @@ function OfficeBank({ v, cap, open, setOpen, filter }: { v: BankView; cap: numbe
         <div className="min-w-[180px] flex-1 basis-[180px]">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-medium text-ink">{v.r.name}</span>
-            {v.r.applied?.length ? <Badge tone="green" className="px-1.5 py-0 text-[10.5px]">Applied</Badge> : null}
+            {v.app === "applied" ? <Badge tone="green" className="px-1.5 py-0 text-[10.5px]">Applied</Badge> : null}
             {v.starred && <Badge tone="brass" className="px-1.5 py-0 text-[10.5px]">★</Badge>}
           </div>
           <div className="text-[11.5px] text-muted">{[v.r.tier, `urgency ${v.u.score}`, v.deadline ? `deadline ${new Date(v.deadline).toLocaleDateString()}` : ""].filter(Boolean).join(" · ")}</div>

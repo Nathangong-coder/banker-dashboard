@@ -82,6 +82,10 @@ export type CoverageSettings = {
   processStars?: Record<string, boolean>;
   /** Target number of contacts per bank (like the workbook's ACTIVE BAY tab). */
   processTargets?: Record<string, number>;
+  /** Your own color for a bank on the Process tracker, as a health score 0–100 (owner: a chat that went badly). */
+  processColor?: Record<string, number>;
+  /** A firm is / isn't a bank, set by you (else: a tier from your lists, or a known bank = bank; anything else = other). */
+  firmKind?: Record<string, "bank" | "other">;
   /** The tracker's columns in order (default PROCESS_COLUMNS). */
   processColumns?: { id: string; label: string; hint?: string }[];
 };

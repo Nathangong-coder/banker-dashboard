@@ -7,6 +7,10 @@ import { bankWork, gotReply, isLive, wasEmailed } from "./bankWork";
 import { bankHealth } from "./bankHealth";
 import type { NightProgress, ProgressBank } from "./digestFormat";
 import { DAY } from "./util";
+import { appRowForCycle, jobsForCycle, programKind } from "./programs";
+
+/** What appState / the tracker read from a tracked job. */
+export type AppJob = Pick<JobApplication, "company" | "status" | "role" | "summer" | "description" | "program">;
 
 /**
  * The first message of the 9 PM text (owner, 2026-11-21): how the big banks are going, in ranking order, and what to
@@ -18,10 +22,14 @@ const CLOSED_JOB = new Set(["rejected", "withdrawn", "offer"]);
 const APPLIED_JOB = new Set(["submitted", "confirmed", "interview"]);
 const CLOSED_APP = /reject|declin|withdr|no longer|closed|denied|not selected/i;
 
-/** Application status at a firm, from the applications tab (row.applied) and Applications → My list. */
-export function appState(row: Pick<CoverageRow, "key" | "applied">, jobs: Pick<JobApplication, "company" | "status">[]): ProgressBank["app"] {
-  const mine = jobs.filter((j) => canonBank(j.company) === row.key);
-  const apps = row.applied ?? [];
+/**
+ * Application status at a firm, from the applications tab (row.applied) and Applications → My list. Only Summer
+ * Analyst postings for the cycle count (lib/programs.ts): an insight program isn't an application (owner, 2026-11-21).
+ */
+export function appState(row: Pick<CoverageRow, "key" | "applied">, jobsIn: AppJob[], cycle?: { cycle: number; target: number }): ProgressBank["app"] {
+  const at = jobsIn.filter((j) => canonBank(j.company) === row.key);
+  const mine = cycle ? jobsForCycle(at, cycle.cycle, cycle.target) : at.filter((j) => programKind(j) === "sa");
+  const apps = (row.applied ?? []).filter((a) => (cycle ? appRowForCycle(a.program, cycle.cycle, cycle.target) : programKind({ role: a.program }) !== "insight"));
   if (mine.some((j) => APPLIED_JOB.has(j.status)) || apps.some((a) => !CLOSED_APP.test(a.status))) return "applied";
   if (mine.some((j) => !CLOSED_JOB.has(j.status))) return "open";
   if (mine.length || apps.length) return "closed";
@@ -44,7 +52,9 @@ export function nightProgress(args: {
   contacts: Contact[];
   banks: Record<string, BankMeta>;
   followUp: Settings["followUp"];
-  jobs: Pick<JobApplication, "company" | "status">[];
+  jobs: AppJob[];
+  /** The summer you're recruiting for (lib/programs.ts#targetSummer). */
+  target?: number;
   starred?: Record<string, boolean>;
   /** Process tracker column per bank key → its label. */
   columnOf?: (key: string) => string | undefined;
@@ -63,7 +73,7 @@ export function nightProgress(args: {
       chats: h.chats,
       emailed: h.emailed,
       live: r.allContacts.filter(isLive).length,
-      app: appState(r, args.jobs),
+      app: appState(r, args.jobs, args.target ? { cycle: args.target, target: args.target } : undefined),
       next: w.next?.label,
     };
   });
