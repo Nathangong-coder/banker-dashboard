@@ -1,4 +1,4 @@
-import { latestIso } from "./util";
+import { latestIso, personName } from "./util";
 import type { Contact, ReplySignal } from "./types";
 
 /** Pure referral helpers (no store), shared by Follow-ups → Referrals and the 9 PM text (reminders.ts). */
@@ -29,11 +29,11 @@ export function referralRows(contacts: Contact[], now = Date.now()): ReferralRow
     const targets = r.referral!.to?.length ? r.referral!.to : [undefined];
     for (const t of targets) {
       const person = t?.contactId ? byId.get(t.contactId) : undefined;
-      const row: ReferralRow = { referrer: r, person, name: person?.name ?? t?.name ?? "", at: r.referral!.at, next: "", dateGuess: r.referral!.source === "sheet" };
+      const row: ReferralRow = { referrer: r, person, name: person?.name ?? (t?.name ? personName(t.name) : ""), at: r.referral!.at, next: "", dateGuess: r.referral!.source === "sheet" };
       if (!t) {
         row.next = "Who did they refer you to? Confirm it under suggestions, or note it on their row.";
       } else if (!person?.sentAt) {
-        row.next = `Email ${t.name}`;
+        row.next = `Email ${personName(t.name)}`;
         row.due = r.referral!.at;
       } else {
         const talked = [person.call?.at, ...(person.chats ?? []).map((x) => x.at)].filter((d): d is string => !!d && Date.parse(d) <= now).sort().pop();

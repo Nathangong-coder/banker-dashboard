@@ -1,4 +1,5 @@
 import { canonBank } from "./banks";
+import { looseSameName } from "./duplicates";
 import type { Contact } from "./types";
 import { BANK_DOMAINS } from "./util";
 
@@ -114,7 +115,10 @@ export function inTracker(r: { email: string; name: string }, contacts: Contact[
     const f = tokens(c.firstName || c.name.split(" ")[0])[0];
     const l = tokens(c.lastName || c.name.split(" ").slice(-1)[0]).join("");
     if (!f || !l) return false;
-    const named = (shown.has(f) && tokens(r.name).join("").includes(l)) || (local.includes(l) && (local.includes(f) || local.startsWith(f[0])));
+    // Exact, or close enough at the same firm ("Kaden Watters-Geremia" = "Kaden Geramia", "Jesse" = "Jesse Waller",
+    // "Khoa Le" = "Khoa Leanh"): those four were added a second time on 2026-11 and split each person's history.
+    const exact = (shown.has(f) && tokens(r.name).join("").includes(l)) || (local.includes(l) && (local.includes(f) || local.startsWith(f[0])));
+    const named = exact || (!!bank && !!c.bank && canonBank(c.bank) === canonBank(bank) && looseSameName(r.name, c.name));
     if (!named) return false;
     // Same name at the same firm (or a contact with no bank / no email yet): the same person.
     return !c.email || !bank || canonBank(c.bank) === canonBank(bank) || domainOf(c.email) === domainOf(email);
@@ -207,7 +211,7 @@ export function trackerHits(recipients: SentRecipient[], contacts: Contact[], op
       const f = tokens(c.firstName || c.name.split(" ")[0])[0];
       const l = tokens(c.lastName || c.name.split(" ").slice(-1)[0]).join("");
       if (!f || !l || l.length < 2) return false;
-      return (shown.includes(f) && shown.join("").includes(l)) || (local.includes(l) && (local.includes(f) || local.startsWith(f[0])));
+      return (shown.includes(f) && shown.join("").includes(l)) || (local.includes(l) && (local.includes(f) || local.startsWith(f[0]))) || looseSameName(name, c.name);
     });
     // Two people at the firm fit: leave it for you.
     if (hits.length !== 1) continue;

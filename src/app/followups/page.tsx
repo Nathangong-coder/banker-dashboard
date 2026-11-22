@@ -32,6 +32,7 @@ import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
 import { replacementLists, ReplacementsTable } from "@/components/Replacements";
 import { referralCount, ReferralsTable } from "@/components/Referrals";
 import { OffSheetTable, useOffSheet } from "@/components/OffSheet";
+import { DuplicatesNotice, OffSheetNotice } from "@/components/TrackerHygiene";
 import { ScheduledRow } from "@/components/ScheduledRow";
 import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
@@ -656,6 +657,8 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
             </span>
           </Notice>
         )}
+        <DuplicatesNotice />
+        {view !== "offsheet" && <OffSheetNotice onView={() => setView("offsheet")} />}
         <EarlySendsBanner />
         <DoubleSendsBanner />
         <LateSendsBanner />
