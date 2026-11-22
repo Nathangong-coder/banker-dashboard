@@ -21,7 +21,7 @@ const LISTS = [
 ] as const;
 
 /** Coverage fields that are maps (canonBank key → value): one doc per key. */
-export const COVERAGE_MAPS = ["officePick", "specialty", "ratings", "bankBriefs", "stages", "processAt", "processStars", "processTargets", "processColor", "firmKind", "tierOf", "officeFacts", "reminders"] as const;
+export const COVERAGE_MAPS = ["officePick", "specialty", "ratings", "bankBriefs", "stages", "processAt", "processStars", "processTargets", "processColor", "firmKind", "tierOf", "officeFacts", "reminders", "views"] as const;
 
 const SEP = "\u0000";
 type Obj = Record<string, unknown>;

@@ -9,6 +9,7 @@ import { cn } from "@/lib/util";
  * <html data-theme> here and before first paint by layout.tsx's script. Recruitly (the logo's colors) is the default since 2026-10-23; slate was before.
  */
 export const THEMES = [
+  { id: "crm", name: "CRM", note: "Neutral gray, navy header, green actions (docs/DESIGN.md)", top: "#0e1a2b", side: "#ffffff", paper: "#f3f3f3", accent: "#1f7a5c" },
   { id: "recruitly", name: "Recruitly", note: "Navy, cream and green (the logo)", top: "#0e1a2b", side: "#0e1a2b", paper: "#f4f3ef", accent: "#1f7a5c" },
   { id: "slate", name: "Slate", note: "Slate bars, orange accent", top: "#2d3e50", side: "#33475b", paper: "#f5f8fa", accent: "#ff7a59" },
   { id: "cream", name: "Cream", note: "Warm cream, black bar, orange", top: "#1f1f1f", side: "#fffdf8", paper: "#f8f5ee", accent: "#ff4800" },
@@ -20,7 +21,7 @@ const KEY = "coverage:theme";
 
 function current(): ThemeId {
   const t = typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined;
-  return THEMES.some((x) => x.id === t) ? (t as ThemeId) : "recruitly";
+  return THEMES.some((x) => x.id === t) ? (t as ThemeId) : "crm";
 }
 
 export function setTheme(id: ThemeId) {

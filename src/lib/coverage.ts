@@ -88,6 +88,8 @@ export type CoverageSettings = {
   tierOf?: Record<string, string>;
   /** Office facts set by you (Corrections), "<bank key>|<office code>" → hires / teams (lib/offices.ts). */
   officeFacts?: Record<string, { hires?: boolean; teams?: string }>;
+  /** Saved views on Bank coverage (docs/DESIGN.md L-4): which offices show, etc. View id → view. */
+  views?: Record<string, import("./coverageGrid").CoverageView>;
   /** Things to think about (app/think, lib/thinkAbout.ts): reminders you added, and your done / new date on found ones. */
   reminders?: Record<string, import("./thinkAbout").Reminder>;
   /** A firm is / isn't a bank, set by you (else: a tier from your lists, or a known bank = bank; anything else = other). */

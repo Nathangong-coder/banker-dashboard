@@ -9,7 +9,7 @@ const sans = Lexend_Deca({ variable: "--font-app-sans", subsets: ["latin"], weig
 const mono = IBM_Plex_Mono({ variable: "--font-app-mono", subsets: ["latin"], weight: ["400", "500"] });
 
 /** Sets <html data-theme> from Settings → Appearance before the first paint, so a non-default theme doesn't flash. */
-const THEME_SCRIPT = `try{var t=localStorage.getItem("coverage:theme");if(t&&/^(recruitly|slate|cream|navy|graphite)$/.test(t))document.documentElement.dataset.theme=t}catch(e){}`;
+const THEME_SCRIPT = `try{var t=localStorage.getItem("coverage:theme");if(t&&/^(crm|recruitly|slate|cream|navy|graphite)$/.test(t))document.documentElement.dataset.theme=t}catch(e){}`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE.url),

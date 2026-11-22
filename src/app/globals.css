@@ -7,7 +7,54 @@
  * that carries text or white text (buttons, badges), brass-ink = accent text on brass-soft.
  */
 :root,
+[data-theme="crm"] {
+  /*
+   * The default since 2026-11-22 (docs/DESIGN.md §2): Salesforce Cosmos neutrals (surface-2 #f3f3f3, on-surface
+   * #181818 / #2e2e2e / #5c5c5c, borders #e5e5e5 / #c9c9c9, status = Cosmos error/warning/success/info 40 + 95),
+   * the logo's navy for the global header, its green as the one action accent. System font (Cosmos font-family-base).
+   */
+  --app-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --paper: #f3f3f3;
+  --panel: #ffffff;
+  --ink: #181818;
+  --ink-2: #2e2e2e;
+  --muted: #5c5c5c;
+  --line: #e5e5e5;
+  --line-2: #c9c9c9;
+  --navy: #0e1a2b;
+  --navy-hover: #1c2b40;
+  --brass: #2a9a74;
+  --brass-soft: #e6f2ed;
+  --brass-strong: #1f7a5c;
+  --brass-hover: #18644b;
+  --brass-ink: #175c45;
+  --green: #056764;
+  --green-soft: #def9f3;
+  --red: #b60554;
+  --red-soft: #fef0f3;
+  --blue: #0b5cab;
+  --blue-soft: #eef4ff;
+  --amber: #8c4b02;
+  --amber-soft: #fbf3e0;
+  --subtle: #fafafa;
+  --hover: #f0f0f0;
+  --track: #e5e5e5;
+  --top: #0e1a2b;
+  --top-ink: #ffffff;
+  --top-muted: #a5aebb;
+  --top-line: #0e1a2b;
+  --side: #ffffff;
+  --side-ink: #2e2e2e;
+  --side-muted: #5c5c5c;
+  --side-active: #e6f2ed;
+  --side-hover: #f3f3f3;
+  --side-mark: #1f7a5c;
+  --chart: #6fb59a;
+  --chart-soft: #dcefe6;
+}
+
 [data-theme="recruitly"] {
+  --app-font: var(--font-app-sans);
   /* The default since 2026-10-23: the colors of the logo (navy #0e1a2b, cream #f4f3ef, green #1f7a5c). */
   --paper: #f4f3ef;
   --panel: #ffffff;
@@ -49,6 +96,7 @@
 }
 
 [data-theme="slate"] {
+  --app-font: var(--font-app-sans);
   --paper: #f5f8fa;
   --panel: #ffffff;
   --ink: #213343;
@@ -89,6 +137,7 @@
 }
 
 [data-theme="cream"] {
+  --app-font: var(--font-app-sans);
   --paper: #f8f5ee;
   --panel: #ffffff;
   --ink: #1f1f1f;
@@ -129,6 +178,7 @@
 }
 
 [data-theme="navy"] {
+  --app-font: var(--font-app-sans);
   --paper: #f5f4ef;
   --panel: #ffffff;
   --ink: #111a28;
@@ -169,6 +219,7 @@
 }
 
 [data-theme="graphite"] {
+  --app-font: var(--font-app-sans);
   --paper: #f7f7f8;
   --panel: #ffffff;
   --ink: #111827;
@@ -246,16 +297,16 @@
   --color-side-mark: var(--side-mark);
   --color-chart: var(--chart);
   --color-chart-soft: var(--chart-soft);
-  --font-sans: var(--font-app-sans);
+  --font-sans: var(--app-font);
   --font-mono: var(--font-app-mono);
   /* Headings use the body font (owner, 2026-10-19). */
-  --font-serif: var(--font-app-sans);
+  --font-serif: var(--app-font);
 }
 
 body {
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-app-sans), system-ui, sans-serif;
+  font-family: var(--app-font), system-ui, sans-serif;
   font-size: 14px;
 }
 

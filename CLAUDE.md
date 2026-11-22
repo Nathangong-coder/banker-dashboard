@@ -1,5 +1,6 @@
 @AGENTS.md
 @docs/outreach-rules.md
+@docs/DESIGN.md
 
 # Coverage: IB networking dashboard (agent handoff notes)
 
@@ -383,6 +384,24 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **Bash tool gotcha:** `\\n` / `\\b` inside heredocs and `node -e` / `sed` arrive unescaped (real newline / backspace
   byte). Write code with the Edit / Write tools; check `grep -c $'\x08'`. Files here are CRLF: `indexOf("}\n")`
   string surgery misses.
+## CRM redesign, phase 1 + Bank coverage grid (owner, 2026-11-22; docs/DESIGN.md, `check:grid`)
+
+- **docs/DESIGN.md** (loaded above) = the design rules with ids (V-, C-, T-, S-, L-, B-, D-…), built from Salesforce's
+  real Cosmos tokens (`@salesforce-ux/design-tokens` 4.1.0), SLDS page-header / data-table / path blueprints and
+  HubSpot's record layout. Owner's brief: CRM style like Salesforce / HubSpot, less text and no 4-tile row + toggle
+  bar at the top of pages, no pills everywhere. Migration plan in its §11 (tokens → primitives → shell → pages).
+- **Phase 1 done:** theme `crm` is the default (`:root`): Cosmos neutrals (#f3f3f3 / #fff, ink #181818 / #2e2e2e /
+  #5c5c5c, lines #e5e5e5 / #c9c9c9), Cosmos status colors, white sidebar, logo navy header, green accent; each theme
+  sets `--app-font` (crm = system-ui, others keep Lexend). Old themes stay in Settings → Appearance.
+- **Primitives** `components/crm.tsx`: `ObjectHeader` (L-1: icon tile, eyebrow, view name, actions, meta line,
+  controls), `ViewSwitcher` (L-4), `IconToggleGroup` (Display as), `NeutralButton`, `MenuRow`.
+- **/coverage** = `components/CoverageGrid.tsx` (+ `lib/coverageGrid.ts`): bank × office grid (`gridCell`: level
+  nobody → found → emailed → talked → referral, team = what the people there are on else the desk, `teamConfirmed`
+  false = only guessed → amber "Tech?"; "—" = office doesn't hire; "·" = not one of your offices). Saved views
+  (`coverage.views`, `cm:` sync docs; offices, started-only, include PE, pin; last used in localStorage
+  `coverage:lastView`), Edit view panel, Display as grid / list (the old offices-to-fill list). Clicking a bank opens
+  A's row: why ranked (urgency parts), next steps, people with team + source (`teamSourceLabel`) and Confirm /
+  Change (writes the Team cell, `teamSource: "manual"`). Analytics and the plan moved to the header's ⋯ menu.
 ## 9 PM text, firms, transcripts (2026-10-19)
 
 - **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's
@@ -1326,7 +1345,7 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   grade / promises, ⋯ = grade, prep, doc, delete), the orphans card, and the "Log activity" modal (person from a datalist or
   someone new, kind, date, notes, Doc link, grade with AI).
 
-## UI design (owner, 2026-10-19; HubSpot-inspired, mock approved)
+## UI design (owner, 2026-10-19; superseded where they disagree by docs/DESIGN.md, 2026-11-22)
 
 - **Navigation (`Shell.tsx#GROUPS`):** top bar = groups (Overview: Dashboard, Bank coverage, Firms, Spreadsheet · Outreach: Find
   people, Email drafts, Email lab · Prep & reminders: Follow-ups, Coffee chat prep, Info sessions); the sidebar lists the current

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, ChevronDown, ChevronRight, Lightbulb, ListChecks, Plus, Undo2 } from "lucide-react";
+import { ArrowRight, Building2, ChevronDown, ChevronRight, Lightbulb, ListChecks, Plus, Undo2 } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { tierRank } from "@/lib/coverage";
 import { activeDesks } from "@/lib/desks";
@@ -16,7 +17,9 @@ import type { Contact } from "@/lib/types";
 import { parseWorkbook } from "@/lib/workbook";
 import { ensureBankTabs } from "@/lib/actions";
 import { cn } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, Kpi, PageHeader, Segmented, Select, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, Empty, Input, Kpi, Menu, PageHeader, Segmented, Select, toast } from "@/components/ui";
+import { CoverageGrid } from "@/components/CoverageGrid";
+import { ObjectHeader } from "@/components/crm";
 import { DeskChecklist, RecruitingPlan, SpecialtyPicker } from "@/components/RecruitingPlan";
 import { NextStep } from "@/components/BankDetail";
 import { FirmsRanking } from "@/components/FirmsRanking";
@@ -42,6 +45,7 @@ function initialTab(): Tab {
 }
 
 export default function CoveragePage() {
+  const router = useRouter();
   const [tab, setTabState] = useState<Tab>(initialTab);
   const setTab = (t: Tab) => {
     setTabState(t);
@@ -89,33 +93,47 @@ export default function CoveragePage() {
       </>
     );
 
-  const openOffices = toFill.reduce((n, v) => n + v.slots.filter((o) => !o.full).length, 0);
+  // docs/DESIGN.md L-1: one header (view switcher, meta line, controls), then the records. Analytics and the plan
+  // are other views of the same object, reached from the header's ⋯ menu (no tab bar on top).
+  const more = (
+    <Menu
+      items={[
+        tab !== "offices" && { label: "Coverage by office", onClick: () => setTab("offices") },
+        tab !== "analytics" && { label: "Analytics", hint: "Reach, live banks, firm ranking", onClick: () => setTab("analytics") },
+        tab !== "settings" && { label: "Recruiting plan and bank list", hint: "Desks, banks on your list, specialists", onClick: () => setTab("settings") },
+        "divider",
+        { label: "Process tracker board", onClick: () => router.push("/process") },
+      ]}
+    />
+  );
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
-      <PageHeader
-        title="Bank coverage"
-        sub={
-          tab === "offices"
-            ? `Your outreach to-do list: offices with fewer than ${cap} waiting on a reply and nobody live there. Open one to see what the office is and who to email next.`
-            : tab === "analytics"
-              ? "How coverage is going across your banks, and every firm ranked on replies, calls, referrals and how your chats went."
-              : "Which desks you're recruiting for and which banks are on your list."
-        }
-        right={
-          <Segmented
-            value={tab}
-            onChange={setTab}
-            options={[
-              ["offices", <span key="o">Offices to fill <span className="num text-muted">{openOffices}</span></span>],
-              ["analytics", "Analytics"],
-              ["settings", "Settings"],
-            ]}
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
+      {tab === "offices" ? (
+        <CoverageGrid
+          views={views}
+          menu={more}
+          list={(shown) => {
+            const keys = new Set(shown.map((v) => v.r.key));
+            return <OfficesTab views={toFill.filter((v) => keys.has(v.r.key))} cap={cap} total={ib.length} />;
+          }}
+        />
+      ) : (
+        <>
+          <ObjectHeader
+            icon={<Building2 className="size-5" />}
+            eyebrow={
+              <button type="button" onClick={() => setTab("offices")} className="hover:text-ink hover:underline">
+                Bank coverage
+              </button>
+            }
+            title={tab === "analytics" ? "Analytics" : "Recruiting plan and bank list"}
+            actions={more}
+            meta={tab === "analytics" ? "Reach across your banks, and every firm ranked on replies, calls, referrals and chats." : "Which desks you recruit for and which banks are on your list."}
           />
-        }
-      />
-      {tab === "offices" && <OfficesTab views={toFill} cap={cap} total={ib.length} />}
-      {tab === "analytics" && <AnalyticsTab views={views} />}
-      {tab === "settings" && <SettingsTab />}
+          {tab === "analytics" && <AnalyticsTab views={views} />}
+          {tab === "settings" && <SettingsTab />}
+        </>
+      )}
     </div>
   );
 }
