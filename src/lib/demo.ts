@@ -16,7 +16,7 @@ const ahead = (d: number, h = 18) => new Date(Date.now() + d * day + (h - 12) * 
 
 type P = [name: string, bank: string, region: Contact["region"], team: string, position: string, status: Status, sentDaysAgo?: number, extra?: Partial<Contact>];
 const PEOPLE: P[] = [
-  ["Maya Okafor", "Goldman Sachs", "SF", "Tech", "Analyst", "replied", 12, { repliedAt: ago(9) }],
+  ["Maya Okafor", "Goldman Sachs", "SF", "Tech", "Analyst", "replied", 12, { repliedAt: ago(9), lastHeardAt: ago(1, 9), lastReply: { at: ago(1, 9), messageId: "demo-m1", text: "Hi Nathan,\n\nThanks for reaching out, and great to hear from a fellow Bruin. Our team is heads-down on a deal through December, so feel free to reach out in January and we can find 20 minutes.\n\nBest,\nMaya" } }],
   ["Daniel Brooks", "Goldman Sachs", "NY", "Generalist", "Associate", "sent", 8],
   ["Priya Raman", "Morgan Stanley", "SF", "Tech", "Analyst", "call_scheduled", 15, { repliedAt: ago(11), call: { at: ahead(2, 16), eventId: "demo-ev-1", link: "", invited: true } }],
   ["Ethan Park", "Morgan Stanley", "NY", "Generalist", "Analyst", "followed_up", 16, { followUps: 1, lastTouchAt: ago(8) }],
@@ -26,7 +26,7 @@ const PEOPLE: P[] = [
   ["Omar Haddad", "Qatalyst Partners", "SF", "Tech", "Analyst", "new"],
   ["Grace Kim", "Centerview Partners", "NY", "Generalist", "Analyst", "new"],
   ["Lucas Moreau", "Moelis & Company", "LA", "Generalist", "Associate", "sent", 3],
-  ["Aisha Patel", "Jefferies", "SF", "Tech", "Analyst", "replied", 25, { repliedAt: ago(22) }],
+  ["Aisha Patel", "Jefferies", "SF", "Tech", "Analyst", "replied", 25, { repliedAt: ago(22), lastHeardAt: ago(22), lastEmailedAt: ago(6), lastReply: { at: ago(22), messageId: "demo-m2", text: "Happy to chat! Send over a few times that work for you next week." } }],
   ["Ryan Torres", "Lazard", "NY", "Generalist", "Vice President", "new"],
 ];
 

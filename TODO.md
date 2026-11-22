@@ -9,7 +9,7 @@
 - B. ✅ 2026-11-21 (/corrections) **"Corrections" tab** (name TBD; for reworking anything the app guessed): add / remove banks, offices, teams,
   tiers; insight programs applied to (add, remove); override any automatic assumption.
 - C. ✅ 2026-11-21 **Process tracker manual color** per bank (Piper Sandler / Axom / Citizens light green after a bad chat).
-- D. **"Things to think about" list:** dated reminders ("reach out in January"); people who replied then went quiet
+- D. ✅ 2026-11-22 (/think) **"Things to think about" list:** dated reminders ("reach out in January"); people who replied then went quiet
   (tabs: 1 day / 1 week / longer; bank, last-reply date, their message when expanded); earlier re-follow-ups (e.g.
   Colin Bryant, Deutsche Bank).
 - E. **Bank coverage redesign** on `banking_pipeline_ranked_list.html`: ranked list in tiers (Act now / This week /

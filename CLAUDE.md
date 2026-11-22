@@ -331,6 +331,26 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `InfoSessionActions.tsx`'s IB check before). The click-test driver runs Edge InPrivate with sync off: a fresh
   headless profile otherwise signs into the Windows account and syncs the owner's extensions.
 
+## Things to think about (owner, 2026-11-22; `/think`, `lib/thinkAbout.ts`, `check:night` covers it)
+
+- **Replies to answer:** `unansweredReplies` = they wrote after your last email / "done by hand" (`lastFromYou`),
+  tabs Last day (< 2 days) / This week / Longer. Expanded = their message: `contact.lastReply` (kept by
+  `referrals.ts#readReplies` from the server's Gmail tracking texts before they're acked, ≤1,500 chars; the AI's
+  read adds `kind` / `needsReply` / `summary` / `later`), else "Load it from Gmail" (`gmail.ts#latestFrom`). A stored
+  text older than `lastHeardAt` isn't shown as this email. "Answered / no reply needed" = `handledAt`.
+- **Went quiet:** `wentQuiet` = replied, you answered, no call ahead, no referral. Nudge 4 days after your email
+  before any chat (`QUIET_DAYS`; Colin Bryant at DB), 7 after one (`CHECK_IN_DAYS`). The 9 PM text's
+  `relationshipItem` uses the same split: `LABELS.quiet` vs `LABELS.checkIn`. The server drops either when they've
+  written back since the plan (`tonight.ts#heardSince`).
+- **Reminders:** `reminderRows` = yours (`coverage.reminders`, a `cm:` sync doc each, `source: "manual"`) + found ones
+  (`laterMentions`: a sentence with reach-out wording AND a time: months, "after the new year", "after
+  Thanksgiving", "next spring", "in a few weeks"; the time AFTER the reach-out words wins, so "busy through
+  December, so reach out in January" = Jan 5) from their last reply, the AI's `reachOutLater`, signals, chat notes /
+  grades and the Comment column. Your done / new date on a found one is stored under its `auto:` id. Due by the next
+  text night → `LABELS.reminder` in the 9 PM text (`nightPlan(…, reminders)`, item ids `rem:<id>`).
+- Shell scripts: the Bash tool turned `\\b` in a heredoc into a backspace byte again; write regex code with the
+  Edit/Write tools, or replace bytes with PowerShell `[char]8`. The click-test driver needs an absolute profile path
+  (a relative `--user-data-dir` made Edge exit at once).
 ## 9 PM text, firms, transcripts (2026-10-19)
 
 - **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's

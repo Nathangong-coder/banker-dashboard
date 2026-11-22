@@ -37,6 +37,10 @@ const Read = z.object({
         .describe("Each person or team they referred the student to (name as written; email only if it appears; role like 'recruiter'). Empty if none."),
       promises: z.array(z.string()).describe("Things the banker said THEY will do ('I'll forward your resume', 'will intro you to Sarah'), short. Empty if none."),
       dates: z.array(z.string()).describe("Dates they mention for events / deadlines, as written ('info session on campus 10/28'). Empty if none."),
+      reachOutLater: z
+        .string()
+        .nullable()
+        .describe("If they tell the student to get back in touch at a later time ('reach out in January', 'ping me after the new year', 'try me again in a few weeks'), that time exactly as written ('in January'); else null."),
       needsReply: z.boolean().describe("True if the email asks the student something or expects an answer."),
       summary: z.string().describe("One short sentence."),
       confidence: z.enum(["high", "medium", "low"]),

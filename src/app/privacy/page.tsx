@@ -56,7 +56,7 @@ export default function PrivacyPage() {
         <li>The queue of emails you scheduled: Gmail draft IDs, the contact&apos;s name, and the send time. Not the email text.</li>
         <li>
           If you use WhatsApp reminders: your WhatsApp number and CallMeBot key (encrypted), and the next two weeks of reminder lists (names, email addresses
-          and labels such as &ldquo;Follow-up #1&rdquo;), plus the names, email addresses, firms, LinkedIn profile links, last-emailed dates and
+          and labels such as &ldquo;Follow-up #1&rdquo;, and the text of reminders you set), plus the names, email addresses, firms, LinkedIn profile links, last-emailed dates and
           last-logged-conversation dates of people who replied to you, have a call with you or met you at an info session (to recognize them on your
           calendar and link their profile in the evening text).
         </li>
@@ -65,7 +65,9 @@ export default function PrivacyPage() {
           If you allow <b>reply tracking</b> (read-only Gmail): the names and email addresses of the people in your tracker you&apos;ve emailed or talked
           to, and for each one what Gmail showed: dates you emailed them and they replied, Gmail message and thread IDs, other addresses they wrote
           from, and people they added to a reply (name and email). The text of their newest replies (at most 1,500 characters each, quoted history
-          removed) waits for at most 14 days until your dashboard reads it, and is deleted as soon as it does.
+          removed) waits for at most 14 days until your dashboard reads it, and is deleted from there as soon as it does. Your dashboard then keeps
+          each person&apos;s newest reply with their contact in your account (shown on Things to think about) until a newer one replaces it or you
+          delete the contact.
         </li>
         <li>
           If you use <b>info-session capture</b>: the photos, screenshots and text you send from your phone (the capture page, your phone&apos;s share

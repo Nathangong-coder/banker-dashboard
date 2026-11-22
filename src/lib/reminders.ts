@@ -5,6 +5,8 @@ import { nextAction } from "./followups";
 import { LABELS, TEXT_HOUR, afterCallLines, isTextDay, isTodoLabel, nextTextDay, nightMessages, type DigestItem, type NightProgress } from "./digestFormat";
 import { DAY, latestIso } from "./util";
 import { referralRows } from "./referralRows";
+import { chatDays } from "./chatEvidence";
+import { CHECK_IN_DAYS, QUIET_DAYS, dueReminders, type ReminderRow } from "./thinkAbout";
 
 export interface DayDigest {
   date: string; // YYYY-MM-DD (local)
@@ -131,9 +133,11 @@ export function relationshipItem(c: Contact, day: string, horizonEnd: Date): Dig
   if (c.call && new Date(c.call.at) > dayEnd) return null;
   if (c.lastHeardAt && (!last || c.lastHeardAt > last)) return item(LABELS.replyOwed);
   if (c.referral || !last) return null;
-  let due = new Date(new Date(last).getTime() + 7 * DAY);
+  // Replied, you answered, and you haven't talked yet: nudge after 4 days, not a week (owner, 2026-11-21: Colin Bryant).
+  const talked = !!lastCall || chatDays(c, dayEnd.getTime()).length > 0;
+  let due = new Date(new Date(last).getTime() + (talked ? CHECK_IN_DAYS : QUIET_DAYS) * DAY);
   if (c.snoozeUntil && new Date(c.snoozeUntil) > due) due = new Date(c.snoozeUntil);
-  return due <= horizonEnd ? item(LABELS.checkIn) : null;
+  return due <= horizonEnd ? item(talked ? LABELS.checkIn : LABELS.quiet) : null;
 }
 
 /**
@@ -142,7 +146,7 @@ export function relationshipItem(c: Contact, day: string, horizonEnd: Date): Dig
  * tomorrow's emails get scheduled tonight instead of on the day. The dashboard re-sends this whenever it's open, and
  * the server adds today's Google Calendar calls and drops people its own sends have since followed up with.
  */
-export function nightPlan(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], days = 14) {
+export function nightPlan(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], days = 14, reminders: ReminderRow[] = []) {
   const out: Record<string, { items: DigestItem[]; queued: number }> = {};
   const actions = contacts.map((c) => ({ c, a: nextAction(c, s, banks[`${c.bank}|${c.region}`]) })).filter(({ a }) => a.kind === "follow_up" && !a.unknownDate && a.due);
   for (let i = 0; i < days; i++) {
@@ -169,6 +173,11 @@ export function nightPlan(contacts: Contact[], banks: Record<string, BankMeta>, 
       if (seen.has(id)) continue;
       seen.add(id);
       items.push({ contactId: id, name: `${r.next.replace(/ \(.*\)$/, "")}`, email: who?.email || undefined, label: LABELS.referral });
+    }
+    // Dated reminders due by the next text night (Things to think about), until you mark them done.
+    for (const r of dueReminders(reminders, nextTextDay(day))) {
+      const who = r.name ? `${r.name}${r.bank ? ` (${r.bank})` : ""}` : r.bank;
+      items.push({ contactId: `rem:${r.id}`, name: `${who ? `${who}: ` : ""}${r.note}`.slice(0, 120), label: LABELS.reminder });
     }
     // Emails that go out by themselves before the next text.
     const tonight = endOf(day);

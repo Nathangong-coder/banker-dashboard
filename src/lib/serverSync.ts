@@ -5,6 +5,7 @@ import { useStore } from "./store";
 import { requireAccount, useSession } from "./session";
 import { latestIso } from "./util";
 import { nightPlan } from "./reminders";
+import { reminderRows } from "./thinkAbout";
 import { earliestSend, pendingFollowUpDraft } from "./followups";
 import { FOLLOW_UP_SPREAD, pastRange, planSends, tooSoon, windowOf } from "./sendWindow";
 import { vpPlusWarning } from "./seniority";
@@ -238,7 +239,7 @@ export function syncServer(): Promise<ServerStatus | null> {
     const body = {
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles",
       whatsapp: whatsappOn ? { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } : null,
-      digests: whatsappOn ? withOfficeGaps(nightPlan(st.contacts, st.banks, st.settings.followUp), st) : {},
+      digests: whatsappOn ? withOfficeGaps(nightPlan(st.contacts, st.banks, st.settings.followUp, 14, reminderRows(st.contacts, st.coverage.reminders)), st) : {},
       progress: whatsappOn ? progressFor(st) : undefined,
       // People you're talking to, so the server can match today's Google Calendar events to them for thank-you reminders.
       people: whatsappOn ? calendarPeople(st.contacts) : [],

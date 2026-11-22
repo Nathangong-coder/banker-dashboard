@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, type ReactNode } from "react";
-import { BellRing, Building2, LayoutGrid, Mail, MailCheck, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Workflow, Presentation, NotebookPen, CalendarDays, FileText, BriefcaseBusiness, Wrench } from "lucide-react";
+import { Lightbulb, BellRing, Building2, LayoutGrid, Mail, MailCheck, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Workflow, Presentation, NotebookPen, CalendarDays, FileText, BriefcaseBusiness, Wrench } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useExtensionBridge } from "@/lib/applyBridge";
 import { useSaveShortcut } from "./useSaveShortcut";
@@ -64,6 +64,7 @@ const GROUPS = [
   {
     label: "Prep & reminders",
     pages: [
+      { href: "/think", label: "Things to think about", icon: Lightbulb },
       { href: "/calendar", label: "Calendar", icon: CalendarDays },
       { href: "/followups", label: "Follow-ups", icon: BellRing },
       { href: "/prep", label: "Coffee chat prep", icon: Coffee },

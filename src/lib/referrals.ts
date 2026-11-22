@@ -124,6 +124,7 @@ type ReadResult = {
     dates: string[];
     needsReply: boolean;
     summary: string;
+    reachOutLater?: string | null;
     confidence: "high" | "medium" | "low";
   }[];
 };
@@ -137,9 +138,17 @@ export async function readReplies(states: Record<string, TrackStateWire>) {
   const pending: { contactId: string; id: string; at: string; text: string }[] = [];
   for (const [contactId, s] of Object.entries(states)) {
     const c = st.contacts.find((x) => x.id === contactId);
+    // Keep their newest email's text for Things to think about (the server deletes it once acknowledged).
+    const newest = Object.entries(s.texts ?? {})
+      .filter(([, t]) => t.text.trim())
+      .sort((a, b) => b[1].at.localeCompare(a[1].at))[0];
+    if (c && newest && (!c.lastReply || newest[1].at > c.lastReply.at)) {
+      const [id, t] = newest;
+      st.updateContact(c.id, { lastReply: { at: t.at, messageId: id, threadId: s.result.replies?.find((r) => r.id === id)?.threadId, text: t.text.trim().slice(0, 1500) } });
+    }
     for (const [id, t] of Object.entries(s.texts ?? {})) {
       // Already read (the ack reaches the server on the next sync) or being read right now.
-      if (reading.has(id) || c?.signals?.some((x) => x.id === `ai:${id}`)) continue;
+      if (reading.has(id) || c?.signals?.some((x) => x.id === `ai:${id}`) || (c?.lastReply?.messageId === id && c.lastReply.kind)) continue;
       if (t.text.trim()) pending.push({ contactId, id, at: t.at, text: t.text });
     }
   }
@@ -177,8 +186,12 @@ export async function readReplies(states: Record<string, TrackStateWire>) {
         const res = r.results.find((x) => x.id === p.id);
         done(p.contactId, p.id);
         if (!res) continue;
-        const cur = useStore.getState().contacts.find((x) => x.id === p.contactId);
+        let cur = useStore.getState().contacts.find((x) => x.id === p.contactId);
         if (!cur) continue;
+        // The AI's read of their newest email: shown on Things to think about ("no reply needed", "reach out in January").
+        if (cur.lastReply?.messageId === p.id)
+          useStore.getState().updateContact(cur.id, { lastReply: { ...cur.lastReply, kind: res.kind, needsReply: res.needsReply, summary: res.summary.slice(0, 300), later: res.reachOutLater?.slice(0, 80) || undefined } });
+        cur = useStore.getState().contacts.find((x) => x.id === p.contactId)!;
         const signals = [...(cur.signals ?? [])];
         const intro = signals.find((x) => x.messageId === p.id && x.kind === "intro");
         const extra = [res.promises.length ? `Promised: ${res.promises.join("; ")}` : "", res.dates.length ? `Dates: ${res.dates.join("; ")}` : ""].filter(Boolean).join(". ");

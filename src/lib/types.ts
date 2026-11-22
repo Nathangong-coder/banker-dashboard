@@ -157,6 +157,12 @@ export interface Contact {
   aliases?: string[];
   /** What their replies said, found in Gmail (lib/replyTracking.ts + api/replies/classify): suggestions to confirm. */
   signals?: ReplySignal[];
+  /**
+   * Their latest email's text (quoted history removed, ≤1,500 chars) for Things to think about (app/think): kept from
+   * the server's Gmail tracking, or loaded from Gmail on click. `kind` / `needsReply` / `summary` / `later` are the
+   * AI's read of it when a model is set up ("reach out in January" → `later`).
+   */
+  lastReply?: { at: string; messageId: string; threadId?: string; text: string; summary?: string; kind?: string; needsReply?: boolean; later?: string };
   /** Conversations with them (coffee chats, calls, info sessions, emails, in person): notes / transcript and the AI's grade. */
   chats?: ChatLog[];
   /** Their row in the bank tab's Conversation table (lib/conversations.ts): one row per person, written by the app. */

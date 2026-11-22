@@ -19,7 +19,19 @@ export function planItems(a: Account, day: string, tracked: Record<string, Track
     const known = knownLast.get(contactId);
     return !!last && (!known || last > known);
   };
-  const planned = (plan?.items ?? []).filter((it) => !exclude.has(it.contactId) && !(doneSince.has(it.contactId) && /follow-up|move on/i.test(it.label)) && !settled(it.contactId));
+  // They wrote back since the plan was made: a "went quiet" / check-in nudge is stale (the reply line below replaces it).
+  const heardSince = (contactId: string) => {
+    const heard = tracked[contactId]?.result.lastHeardAt;
+    const known = knownLast.get(contactId);
+    return !!heard && !!known && heard > known;
+  };
+  const planned = (plan?.items ?? []).filter(
+    (it) =>
+      !exclude.has(it.contactId) &&
+      !(doneSince.has(it.contactId) && /follow-up|move on/i.test(it.label)) &&
+      !settled(it.contactId) &&
+      !((it.label === LABELS.quiet || it.label === LABELS.checkIn) && heardSince(it.contactId)),
+  );
   const listed = new Set([...exclude, ...planned.map((i) => i.contactId)]);
   const owed: DigestItem[] = [];
   if (textDay)

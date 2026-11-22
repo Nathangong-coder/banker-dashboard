@@ -11,7 +11,8 @@ import { programKind, summerOf, targetSummer } from "../src/lib/programs";
 import { appState } from "../src/lib/nightProgress";
 import { isBankFirm } from "../src/lib/processTracker";
 import { canonBank } from "../src/lib/banks";
-import { relationshipItem } from "../src/lib/reminders";
+import { nightPlan, relationshipItem } from "../src/lib/reminders";
+import { laterDate, laterMentions, reminderRows, unansweredReplies, wentQuiet, dueReminders } from "../src/lib/thinkAbout";
 import { earliestSend, nextAction } from "../src/lib/followups";
 import { DEFAULT_SEND_WINDOW, planBatch, planSends, zonedDate } from "../src/lib/sendWindow";
 import { matchEvent, looksLikeChat } from "../src/lib/calendarMatch";
@@ -55,8 +56,13 @@ check("call today, emailed after → nothing / check-in later", label({ ...repli
 check("call 3 days ago, never thanked → thank-you owed", label({ ...replied, call: { at: local("2026-10-16T14:00:00"), eventId: "e", link: "", invited: true }, lastEmailedAt: local("2026-10-15T10:00:00") }) === LABELS.thankOwed);
 check("logged chat today counts as a call", label({ ...replied, chats: [{ id: "x", at: local("2026-10-19T12:00:00") }], lastEmailedAt: local("2026-10-10T10:00:00") }) === LABELS.thankToday);
 check("they wrote after your last email → reply owed", label({ ...replied, lastEmailedAt: local("2026-10-15T10:00:00"), lastHeardAt: local("2026-10-17T10:00:00") }) === LABELS.replyOwed);
-check("last email 9 days ago → check in", label({ ...replied, lastEmailedAt: local("2026-10-10T10:00:00"), lastHeardAt: local("2026-10-09T10:00:00") }) === LABELS.checkIn);
-check("last email 6 days ago, due tomorrow → in tonight's text (not day of)", label({ ...replied, lastEmailedAt: local("2026-10-13T10:00:00"), lastHeardAt: local("2026-10-12T10:00:00") }) === LABELS.checkIn);
+// Replied, you answered, no chat yet: "went quiet" after 4 days (owner, 2026-11-21: Colin Bryant at DB); after a chat: check in at 7.
+const chatted = { ...replied, chats: [{ id: "old", at: local("2026-10-05T12:00:00") }] };
+check("after a chat, last email 9 days ago → check in", label({ ...chatted, lastEmailedAt: local("2026-10-10T10:00:00"), lastHeardAt: local("2026-10-09T10:00:00") }) === LABELS.checkIn);
+check("after a chat, last email 6 days ago, due tomorrow → in tonight's text (not day of)", label({ ...chatted, lastEmailedAt: local("2026-10-13T10:00:00"), lastHeardAt: local("2026-10-12T10:00:00") }) === LABELS.checkIn);
+check("after a chat, last email 4 days ago → not yet", label({ ...chatted, lastEmailedAt: local("2026-10-15T10:00:00"), lastHeardAt: local("2026-10-14T10:00:00") }) === "(none)");
+check("no chat yet, last email 9 days ago → went quiet", label({ ...replied, lastEmailedAt: local("2026-10-10T10:00:00"), lastHeardAt: local("2026-10-09T10:00:00") }) === LABELS.quiet);
+check("no chat yet, last email 3 days ago, due tomorrow → went quiet tonight", label({ ...replied, lastEmailedAt: local("2026-10-16T10:00:00"), lastHeardAt: local("2026-10-15T10:00:00") }) === LABELS.quiet);
 check("last email 2 days ago → not yet", label({ ...replied, lastEmailedAt: local("2026-10-17T10:00:00"), lastHeardAt: local("2026-10-16T10:00:00") }) === "(none)");
 check("referred → no more check-ins", label({ ...replied, lastEmailedAt: local("2026-10-01T10:00:00"), referral: { at: local("2026-10-05T10:00:00") } }) === "(none)");
 check("marked done → nothing", label({ ...replied, status: "done", lastEmailedAt: local("2026-10-01T10:00:00") }) === "(none)");
@@ -206,6 +212,37 @@ check("Tara still goes Tue with 20 already queued (no cap), 3+ min from each", e
 check("…and the reason says the gap", /Tue, 7 days after your last email/.test(why.get("tara") ?? ""), why.get("tara"));
 const taraFree = planSends([tara], DEFAULT_SEND_WINDOW, { now, jitter: () => 0, notBefore: nb }).get("tara");
 check("with room on Tue, Tara goes Tue (due that morning)", etDay(taraFree) === "Tue, 10/20", etDay(taraFree));
+
+// Things to think about (owner, 2026-11-21).
+const said = new Date("2026-11-03T10:00:00");
+check("'reach out in January' (said in Nov) → Jan 5 next year", laterDate("Feel free to reach out in January.", said)?.due === "2027-01-05", laterDate("Feel free to reach out in January.", said));
+check("'after the new year' → Jan 5", laterDate("Let's reconnect after the new year", said)?.due === "2027-01-05");
+check("'mid-February' → Feb 15", laterDate("ping me mid-February", said)?.due === "2027-02-15");
+check("'in a few weeks' → +3 weeks", laterDate("check back in a few weeks", said)?.due === "2026-11-24", laterDate("check back in a few weeks", said));
+check("'after Thanksgiving' → the Monday after", laterDate("follow up after Thanksgiving", said)?.due === "2026-11-30", laterDate("follow up after Thanksgiving", said));
+check("'next spring' → Mar 1", laterDate("touch base next spring", said)?.due === "2027-03-01");
+check("'you may want…' is not May", laterMentions("You may want to reach out to our recruiter.", said).length === 0);
+check("a month with no reach-out wording is ignored", laterMentions("I joined the team in January after two years at Lazard.", said).length === 0);
+const busy = laterMentions("Our team is heads-down on a deal through December, so feel free to reach out in January and we can find 20 minutes.", said);
+check("'busy through December, so reach out in January' → January, not December", busy.length === 1 && busy[0].due === "2027-01-05" && busy[0].phrase === "January", busy);
+check("notes: 'told me to reach out in January' is found", laterMentions("Great chat. He told me to reach out in January once staffing settles.", said).length === 1);
+const colin = { ...replied, id: "colin", name: "Colin Bryant", bank: "Deutsche Bank", email: "colin.bryant@db.com", lastHeardAt: "2026-11-10T15:00:00Z", lastEmailedAt: "2026-11-11T02:00:00Z" };
+const q = wentQuiet([colin], Date.parse("2026-11-16T12:00:00Z"));
+check("Colin Bryant (replied, you answered, no chat) → went quiet, nudge due", q.length === 1 && !q[0].chatted && Date.parse(q[0].due) <= Date.parse("2026-11-16T12:00:00Z"), q[0]);
+check("…a call ahead → not quiet", wentQuiet([{ ...colin, call: { at: "2026-11-20T18:00:00Z", eventId: "e", link: "", invited: true } }], Date.parse("2026-11-16T12:00:00Z")).length === 0);
+const owed = { ...colin, lastHeardAt: "2026-11-15T15:00:00Z", lastReply: { at: "2026-11-15T15:00:00Z", messageId: "m1", text: "Thanks Nathan, happy to chat. Reach out in January and we can find time.", needsReply: true } };
+const ur = unansweredReplies([owed], Date.parse("2026-11-16T12:00:00Z"));
+check("they wrote after you → reply to answer, with their message, 'last day'", ur.length === 1 && ur[0].age === "day" && /happy to chat/.test(ur[0].text ?? ""), ur[0]);
+check("…done by hand settles it", unansweredReplies([{ ...owed, handledAt: "2026-11-16T00:00:00Z" }], Date.parse("2026-11-16T12:00:00Z")).length === 0);
+check("…an older stored text isn't shown as this email", unansweredReplies([{ ...owed, lastReply: { ...owed.lastReply, at: "2026-11-01T00:00:00Z" } }], Date.parse("2026-11-16T12:00:00Z"))[0].text === undefined);
+const rr = reminderRows([owed], {});
+check("their 'reach out in January' becomes a found reminder for Jan 5", rr.length === 1 && rr[0].due === "2027-01-05" && rr[0].found && rr[0].contactId === "colin", rr);
+const rrDone = reminderRows([owed], { [rr[0].id]: { id: rr[0].id, due: rr[0].due, note: rr[0].note, createdAt: "", done: "2026-11-16T00:00:00Z", source: "found" } });
+check("…marking it done sticks", !!rrDone[0].done && dueReminders(rrDone, "2027-02-01").length === 0);
+const manual = reminderRows([], { man_1: { id: "man_1", due: "2026-12-01", note: "Email Evercore SF", bank: "Evercore", createdAt: "", source: "manual" } });
+check("a reminder you added is listed", manual.length === 1 && manual[0].note === "Email Evercore SF" && !manual[0].found);
+const planR = nightPlan([], {}, fu, 40, manual);
+check("…and goes in the 9 PM text the night before it's due", (planR["2026-11-30"]?.items ?? []).some((i) => i.label === LABELS.reminder && /Evercore: Email Evercore SF/.test(i.name)) || new Date() > new Date("2026-11-30"), planR["2026-11-30"]);
 
 function addDaysIso(iso: string, n: number) {
   const d = new Date(iso);

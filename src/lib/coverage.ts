@@ -88,6 +88,8 @@ export type CoverageSettings = {
   tierOf?: Record<string, string>;
   /** Office facts set by you (Corrections), "<bank key>|<office code>" → hires / teams (lib/offices.ts). */
   officeFacts?: Record<string, { hires?: boolean; teams?: string }>;
+  /** Things to think about (app/think, lib/thinkAbout.ts): reminders you added, and your done / new date on found ones. */
+  reminders?: Record<string, import("./thinkAbout").Reminder>;
   /** A firm is / isn't a bank, set by you (else: a tier from your lists, or a known bank = bank; anything else = other). */
   firmKind?: Record<string, "bank" | "other">;
   /** The tracker's columns in order (default PROCESS_COLUMNS). */
