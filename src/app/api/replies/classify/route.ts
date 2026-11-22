@@ -15,7 +15,8 @@ const Body = z.object({
         /** Their new text, quoted history removed. */
         text: z.string().min(1).max(2000),
         /** People they added to To/Cc in this email (an intro), if any. */
-        added: z.array(z.object({ name: z.string().max(120), email: z.string().max(320) })).max(10).default([]),
+        // A reply that cc's a whole team: keep the first 10 (it was max(10), which rejected the whole batch, 2026-11-21).
+        added: z.array(z.object({ name: z.string().max(120), email: z.string().max(320) })).max(50).default([]).transform((a) => a.slice(0, 10)),
       }),
     )
     .min(1)

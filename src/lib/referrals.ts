@@ -168,7 +168,7 @@ export async function readReplies(states: Record<string, TrackStateWire>) {
           replies: batch.map((p) => {
             const c = useStore.getState().contacts.find((x) => x.id === p.contactId);
             const intro = c?.signals?.find((x) => x.messageId === p.id && x.kind === "intro");
-            return { id: p.id, name: c?.name ?? "", bank: c?.bank ?? "", text: p.text.slice(0, 2000), added: (intro?.people ?? []).map((x) => ({ name: x.name, email: x.email ?? "" })) };
+            return { id: p.id, name: c?.name ?? "", bank: c?.bank ?? "", text: p.text.slice(0, 2000), added: (intro?.people ?? []).slice(0, 10).map((x) => ({ name: x.name.slice(0, 120), email: (x.email ?? "").slice(0, 320) })) };
           }),
         },
         useStore.getState().settings,
