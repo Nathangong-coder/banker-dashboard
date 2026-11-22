@@ -44,6 +44,19 @@ const steps: [string, (s: Store) => Promise<unknown>][] = [
     for (let i = 0; i < out.length; i += 2) pairs.push(`${out[i]}=${out[i + 1]}`);
     return pairs.sort();
   }],
+  // Sync doc keys use "\u0000" as a separator (p:<tab>\0<cell>); Postgres text can't hold NUL. U+F8FF is the escape.
+  ["NUL + escape in hash fields", async (s) => {
+    const f1 = "p:STFL\u0000A1";
+    const f2 = "cm:ratings\u0000x0y";
+    await s.hset(k("hn"), { [f1]: "a", [f2]: "b", plain: "c" });
+    return [await s.hget(k("hn"), f1), await s.hmget(k("hn"), f2, "nope"), Object.entries((await s.hgetall(k("hn"))) ?? {}).sort(), (await s.hkeys(k("hn"))).sort(),
+      (await s.hscan(k("hn"), 0, { match: "p:*" }))[1], await s.hdel(k("hn"), f1), (await s.hkeys(k("hn"))).sort()];
+  }],
+  ["NUL in zset + set members", async (s) => {
+    await s.zadd(k("zn"), { score: 1, member: "p:A\u0000B1" }, { score: 2, member: "plain" });
+    await s.sadd(k("sn"), "x\u0000y", "z");
+    return [await s.zrange(k("zn"), "-inf", "+inf", { byScore: true, withScores: true }), (await s.smembers(k("sn"))).sort(), await s.srem(k("sn"), "x\u0000y"), await s.smembers(k("sn"))];
+  }],
   ["sets", async (s) => [await s.sadd(k("s"), "a", "b", "a"), await s.sadd(k("s"), "c"), await s.srem(k("s"), "a", "q"), (await s.smembers(k("s"))).sort(), await s.smembers(k("nos"))]],
   ["lists", async (s) => [
     await s.rpush(k("l"), { a: 1 }, { a: 2 }),

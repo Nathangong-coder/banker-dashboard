@@ -67,6 +67,11 @@ console.log(`copied ${copied}`);
 
 // Compare (keys written by the live app meanwhile may differ; those are listed, not fatal).
 let diff = 0;
+const pairsOf = (flat: unknown[]) => {
+  const out: string[] = [];
+  for (let i = 0; i < flat.length; i += 2) out.push(`${JSON.stringify(flat[i])}=${Number(flat[i + 1])}`);
+  return out.sort();
+};
 for (const k of keys) {
   const type = await redis.type(k);
   const read = async (s: Store) =>
@@ -74,7 +79,9 @@ for (const k of keys) {
     : type === "hash" ? s.hgetall(k)
     : type === "set" ? ((await s.smembers(k)) as string[]).sort()
     : type === "list" ? s.lrange(k, 0, -1)
-    : type === "zset" ? s.zrange(k, "-inf", "+inf", { byScore: true, withScores: true })
+    // Members with equal scores come back in a different order (Redis: bytes; Postgres: collation), which no caller
+    // depends on (pullDocs re-reads a whole score when it pages), so compare as sorted member=score pairs.
+    : type === "zset" ? pairsOf((await s.zrange(k, "-inf", "+inf", { byScore: true, withScores: true })) as unknown[])
     : null;
   const [a, b] = await Promise.all([read(redis as unknown as Store), read(pg)]);
   if (!isDeepStrictEqual(a, b)) {

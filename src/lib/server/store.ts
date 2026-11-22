@@ -67,6 +67,15 @@ function rd<T>(v: unknown): T {
     return v as T;
   }
 }
+/**
+ * Postgres text can't hold NUL, and sync doc keys use "\u0000" as a separator (`p:<tab>\0<cell>`, `cm:<field>\0<key>`:
+ * hash fields of `ud:<uid>` and members of `udlog:<uid>`). Hash fields and set / zset members are stored with NUL →
+ * U+F8FF "0" and U+F8FF itself → U+F8FF "1", so any string round-trips exactly (2026-11-21: the first migration
+ * stopped on "unsupported Unicode escape sequence").
+ */
+const ESC = "";
+const enc = (s: string) => (/[\0]/.test(s) ? s.replace(/[\0]/g, (c) => (c === "\0" ? `${ESC}0` : `${ESC}1`)) : s);
+const dec = (s: string) => (s.includes(ESC) ? s.replace(/([01])/g, (_, d: string) => (d === "0" ? "\0" : ESC)) : s);
 /** A collection key that has expired (its rows still sit there until the sweep). */
 const LIVE = (col: string) => `not exists (select 1 from kv_ttl t where t.k = ${col} and t.exp <= now())`;
 const TABLES = ["kv", "kv_hash", "kv_set", "kv_list", "kv_zset", "kv_ttl"] as const;
@@ -145,30 +154,30 @@ export class PgStore implements Store {
     const r = await this.q<{ added: boolean }>(
       `insert into kv_hash (k, f, v) select $1, f, v from jsonb_each($2::jsonb) as e(f, v)
        on conflict (k, f) do update set v = excluded.v returning (xmax = 0) as added`,
-      [key, JSON.stringify(values)],
+      [key, JSON.stringify(Object.fromEntries(Object.entries(values).map(([f, v]) => [enc(f), v])))],
     );
     return r.filter((x) => x.added).length;
   }
   async hget<T = unknown>(key: string, field: string) {
-    const r = await this.q<{ v: T }>(`select v from kv_hash where k = $1 and f = $2 and ${LIVE("$1")}`, [key, field]);
+    const r = await this.q<{ v: T }>(`select v from kv_hash where k = $1 and f = $2 and ${LIVE("$1")}`, [key, enc(field)]);
     return r.length ? rd<T>(r[0].v) : null;
   }
   async hgetall<T = Record<string, unknown>>(key: string) {
     const r = await this.q<{ f: string; v: unknown }>(`select f, v from kv_hash where k = $1 and ${LIVE("$1")}`, [key]);
-    return r.length ? (Object.fromEntries(r.map((x) => [x.f, rd(x.v)])) as T) : null;
+    return r.length ? (Object.fromEntries(r.map((x) => [dec(x.f), rd(x.v)])) as T) : null;
   }
   async hmget<T = Record<string, unknown>>(key: string, ...fields: string[]) {
-    const r = await this.q<{ f: string; v: unknown }>(`select f, v from kv_hash where k = $1 and f = any($2::text[]) and ${LIVE("$1")}`, [key, fields]);
+    const r = await this.q<{ f: string; v: unknown }>(`select f, v from kv_hash where k = $1 and f = any($2::text[]) and ${LIVE("$1")}`, [key, fields.map(enc)]);
     if (!r.length) return null;
-    const got = new Map(r.map((x) => [x.f, rd(x.v)]));
+    const got = new Map(r.map((x) => [dec(x.f), rd(x.v)]));
     return Object.fromEntries(fields.map((f) => [f, got.has(f) ? got.get(f) : null])) as T;
   }
   async hkeys(key: string) {
-    return (await this.q<{ f: string }>(`select f from kv_hash where k = $1 and ${LIVE("$1")}`, [key])).map((x) => x.f);
+    return (await this.q<{ f: string }>(`select f from kv_hash where k = $1 and ${LIVE("$1")}`, [key])).map((x) => dec(x.f));
   }
   async hdel(key: string, ...fields: string[]) {
     if (!fields.length) return 0;
-    return (await this.q(`delete from kv_hash where k = $1 and f = any($2::text[]) returning f`, [key, fields])).length;
+    return (await this.q(`delete from kv_hash where k = $1 and f = any($2::text[]) returning f`, [key, fields.map(enc)])).length;
   }
   async hlen(key: string) {
     const r = await this.q<{ n: string }>(`select count(*) as n from kv_hash where k = $1 and ${LIVE("$1")}`, [key]);
@@ -176,21 +185,21 @@ export class PgStore implements Store {
   }
   /** One page with everything (cursor "0" = done); callers loop until "0". */
   async hscan(key: string, _cursor: string | number, opts: { match?: string } = {}): Promise<[string | number, unknown[]]> {
-    const r = await this.q<{ f: string; v: unknown }>(`select f, v from kv_hash where k = $1 and f like $2 and ${LIVE("$1")}`, [key, like(opts.match ?? "*")]);
-    return ["0", r.flatMap((x) => [x.f, rd(x.v)])];
+    const r = await this.q<{ f: string; v: unknown }>(`select f, v from kv_hash where k = $1 and f like $2 and ${LIVE("$1")}`, [key, like(enc(opts.match ?? "*"))]);
+    return ["0", r.flatMap((x) => [dec(x.f), rd(x.v)])];
   }
 
   async sadd(key: string, ...members: string[]) {
     if (!members.length) return 0;
     await this.revive(key);
-    return (await this.q(`insert into kv_set (k, m) select $1, unnest($2::text[]) on conflict do nothing returning m`, [key, members])).length;
+    return (await this.q(`insert into kv_set (k, m) select $1, unnest($2::text[]) on conflict do nothing returning m`, [key, members.map(enc)])).length;
   }
   async srem(key: string, ...members: string[]) {
     if (!members.length) return 0;
-    return (await this.q(`delete from kv_set where k = $1 and m = any($2::text[]) returning m`, [key, members])).length;
+    return (await this.q(`delete from kv_set where k = $1 and m = any($2::text[]) returning m`, [key, members.map(enc)])).length;
   }
   async smembers(key: string) {
-    return (await this.q<{ m: string }>(`select m from kv_set where k = $1 and ${LIVE("$1")}`, [key])).map((x) => x.m);
+    return (await this.q<{ m: string }>(`select m from kv_set where k = $1 and ${LIVE("$1")}`, [key])).map((x) => dec(x.m));
   }
 
   async rpush(key: string, ...values: unknown[]) {
@@ -220,7 +229,7 @@ export class PgStore implements Store {
     const r = await this.q<{ added: boolean }>(
       `insert into kv_zset (k, m, s) select $1, m, s from unnest($2::text[], $3::float8[]) as u(m, s)
        on conflict (k, m) do update set s = excluded.s returning (xmax = 0) as added`,
-      [key, members.map((m) => m.member), members.map((m) => m.score)],
+      [key, members.map((m) => enc(m.member)), members.map((m) => m.score)],
     );
     return r.filter((x) => x.added).length;
   }
@@ -239,7 +248,7 @@ export class PgStore implements Store {
     const params: unknown[] = [key];
     const cond = [lo, hi].map((b) => (b.val === null ? "true" : `${b.sql}$${params.push(b.val)}`)).join(" and ");
     const r = await this.q<{ m: string; s: number }>(`select m, s from kv_zset where k = $1 and ${cond} and ${LIVE("$1")} order by s, m`, params);
-    return (opts.withScores ? r.flatMap((x) => [x.m, Number(x.s)]) : r.map((x) => x.m)) as T;
+    return (opts.withScores ? r.flatMap((x) => [dec(x.m), Number(x.s)]) : r.map((x) => dec(x.m))) as T;
   }
 
   async scan(_cursor: string | number, opts: { match?: string } = {}): Promise<[string | number, string[]]> {
