@@ -8,6 +8,7 @@ import { latestIso } from "./util";
 import { autoMovedOn } from "./contactUpkeep";
 import type { TrackResult } from "./replyTracking";
 import type { Contact } from "./types";
+import { referrers, todoFor } from "./thinkAbout";
 
 /**
  * Reply / referral tracking in the dashboard (owner, 2026-10-22). The server reads Gmail every hour
@@ -28,6 +29,7 @@ export interface TrackStateWire {
 /** Who the server should watch: everyone you've emailed or talked to (not moved on), with an address. */
 export function trackList(contacts: Contact[]) {
   const now = Date.now();
+  const isRef = referrers(contacts);
   return contacts
     .filter((c) => c.email && c.status !== "ignored" && (c.sentAt || c.chats?.length || c.call || c.referredBy || (RANK[c.status] ?? 0) >= 2))
     .map((c) => {
@@ -39,11 +41,20 @@ export function trackList(contacts: Contact[]) {
         emails: [...new Set([c.email, ...(c.aliases ?? [])].map((e) => e.toLowerCase()))].filter((e) => /^\S+@\S+\.\S+$/.test(e)).slice(0, 4),
         since: new Date(Math.max(start, now - 365 * DAY)).toISOString(),
         hot: !!recent && now - Date.parse(recent) < 21 * DAY,
-        knownLast: latestIso(c.lastEmailedAt, c.lastTouchAt ?? c.sentAt),
+        // What's settled as far as the dashboard knows: your last email, "done by hand", Resolve, and a reply it
+        // filtered out as noise. The server only adds "they wrote back" for an email newer than this, so the 9 PM
+        // text lists the same people as Things to think about (Alex Cheung was in the text but not on the page).
+        knownLast: latestIso(latestIso(latestIso(c.lastEmailedAt, c.lastTouchAt ?? c.sentAt), latestIso(c.handledAt, c.resolved?.at)), mutedReply(c, now, isRef)),
       };
     })
     .filter((p) => p.emails.length)
     .slice(0, 400);
+}
+
+/** Their email that Things to think about filtered out (resolved / noise): the server shouldn't bring it back. */
+function mutedReply(c: Contact, now: number, isRef: (c: Contact) => boolean) {
+  const row = todoFor(c, now, isRef);
+  return row?.kind === "reply" && row.hidden ? row.at : undefined;
 }
 
 /** Fold the server's Gmail findings into contacts. Dates only move forward; statuses only move up. */

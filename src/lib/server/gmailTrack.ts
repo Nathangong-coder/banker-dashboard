@@ -26,14 +26,14 @@ const HOT_EVERY = 55 * 60_000;
 const COLD_EVERY = 6 * 3600_000;
 const TEXT_DAYS = 14;
 
-type RawMsg = { id: string; threadId: string; labelIds?: string[]; snippet?: string; internalDate: string; payload?: RawPart & { headers?: { name: string; value: string }[] } };
+export type RawMsg = { id: string; threadId: string; labelIds?: string[]; snippet?: string; internalDate: string; payload?: RawPart & { headers?: { name: string; value: string }[] } };
 type RawPart = { mimeType?: string; body?: { data?: string }; parts?: RawPart[] };
 
 const header = (m: RawMsg, n: string) => m.payload?.headers?.find((h) => h.name.toLowerCase() === n)?.value;
 const decode = (s: string) => Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
 const unescape = (s: string) => s.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 
-function toMsg(m: RawMsg): MailMsg {
+export function toMsg(m: RawMsg): MailMsg {
   return {
     id: m.id,
     threadId: m.threadId,
@@ -48,7 +48,7 @@ function toMsg(m: RawMsg): MailMsg {
   };
 }
 
-function plainText(p: RawPart | undefined): string {
+export function plainText(p: RawPart | undefined): string {
   if (!p) return "";
   if (p.mimeType === "text/plain" && p.body?.data) return decode(p.body.data);
   for (const c of p.parts ?? []) {
@@ -65,7 +65,7 @@ function plainText(p: RawPart | undefined): string {
   return "";
 }
 
-const META = ["From", "To", "Cc", "Bcc", "Subject"].map((h) => `metadataHeaders=${h}`).join("&");
+export const META = ["From", "To", "Cc", "Bcc", "Subject"].map((h) => `metadataHeaders=${h}`).join("&");
 
 /** Every message in the threads that involve this person (newest 15 threads since `since`). */
 async function messagesFor(access: string, p: TrackedPerson): Promise<MailMsg[]> {

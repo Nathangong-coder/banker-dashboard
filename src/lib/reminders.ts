@@ -3,10 +3,8 @@
 import type { BankMeta, Contact, Settings } from "./types";
 import { nextAction } from "./followups";
 import { LABELS, TEXT_HOUR, afterCallLines, isTextDay, isTodoLabel, nextTextDay, nightMessages, type DigestItem, type NightProgress } from "./digestFormat";
-import { DAY, latestIso } from "./util";
 import { referralRows } from "./referralRows";
-import { chatDays } from "./chatEvidence";
-import { CHECK_IN_DAYS, QUIET_DAYS, dueReminders, type ReminderRow } from "./thinkAbout";
+import { dueReminders, referrers, todoFor, type ReminderRow } from "./thinkAbout";
 
 export interface DayDigest {
   date: string; // YYYY-MM-DD (local)
@@ -90,26 +88,18 @@ export function nightExtras(plan: { items: DigestItem[]; queued: number }, conta
   return out;
 }
 
-const NURTURE = new Set(["replied", "call_scheduled"]);
 const endOf = (day: string) => new Date(`${day}T23:59:59.999`);
 const startOf = (day: string) => new Date(`${day}T00:00:00`);
 
-/** Calls with them: the one on your calendar and any chat you logged (newest first). */
-const callTimes = (c: Contact) => [c.call?.at, ...(c.chats ?? []).map((x) => x.at)].filter((x): x is string => !!x).sort().reverse();
-/** The last email you sent them, as well as we know it (Gmail sync, else the outreach dates). */
-// "Done by hand" (a text, LinkedIn) counts like an email: the thank-you / reply is settled and check-ins count from it.
-const lastEmailed = (c: Contact) => latestIso(latestIso(c.lastEmailedAt, c.lastTouchAt ?? c.sentAt), c.handledAt);
 
 /**
  * People who replied: tonight's thank-yous, thank-yous still owed for earlier calls, replies you owe, and a check-in
  * once a week has gone by since your last email (until they've referred you / done what they said, or you mark them
  * done). Evaluated as of the night of `day`, covering what falls due by `horizonEnd`.
  */
-export function relationshipItem(c: Contact, day: string, horizonEnd: Date): DigestItem | null {
-  if (c.status === "ignored" || c.status === "done") return null;
-  if (c.outcome && (c.outcome.kind !== "declined" || c.outcome.confirmed)) return null;
+export function relationshipItem(c: Contact, day: string, horizonEnd: Date, isReferrer?: (c: Contact) => boolean): DigestItem | null {
+  if (c.status === "done") return null;
   const item = (label: string): DigestItem => ({ contactId: c.id, name: c.name, email: c.email || undefined, label });
-  const last = lastEmailed(c);
   const dayStart = startOf(day);
   const dayEnd = endOf(day);
   // Met at an info session that day (app/info-sessions) and the thank-you isn't out or queued yet.
@@ -121,23 +111,13 @@ export function relationshipItem(c: Contact, day: string, horizonEnd: Date): Dig
     c.metAt?.some((m) => new Date(m.at) >= dayStart && new Date(m.at) <= dayEnd)
   )
     return item(LABELS.infoSession);
-  const lastCall = callTimes(c).find((t) => new Date(t) <= dayEnd);
-  if (lastCall) {
-    const at = new Date(lastCall);
-    const thanked = !!last && new Date(last) > at;
-    if (!thanked && at >= dayStart) return item(LABELS.thankToday);
-    if (!thanked && dayStart.getTime() - at.getTime() < 14 * DAY) return item(LABELS.thankOwed);
-  }
-  if (!NURTURE.has(c.status) && !lastCall) return null;
-  // A call still ahead: nothing to chase.
-  if (c.call && new Date(c.call.at) > dayEnd) return null;
-  if (c.lastHeardAt && (!last || c.lastHeardAt > last)) return item(LABELS.replyOwed);
-  if (c.referral || !last) return null;
-  // Replied, you answered, and you haven't talked yet: nudge after 4 days, not a week (owner, 2026-11-21: Colin Bryant).
-  const talked = !!lastCall || chatDays(c, dayEnd.getTime()).length > 0;
-  let due = new Date(new Date(last).getTime() + (talked ? CHECK_IN_DAYS : QUIET_DAYS) * DAY);
-  if (c.snoozeUntil && new Date(c.snoozeUntil) > due) due = new Date(c.snoozeUntil);
-  return due <= horizonEnd ? item(talked ? LABELS.checkIn : LABELS.quiet) : null;
+  // Everything else is the same per-person read as Things to think about (lib/thinkAbout.ts#todoFor), so the text and
+  // the page always list the same people (owner, 2026-11-22). Hidden (resolved, filtered as noise) = not in the text.
+  const row = todoFor(c, dayEnd.getTime(), isReferrer);
+  if (!row || row.hidden) return null;
+  if (row.kind === "thank") return item(new Date(row.at) >= dayStart ? LABELS.thankToday : LABELS.thankOwed);
+  if (row.kind === "reply") return item(LABELS.replyOwed);
+  return new Date(row.due) <= horizonEnd ? item(row.kind === "check_in" ? LABELS.checkIn : LABELS.quiet) : null;
 }
 
 /**
@@ -157,8 +137,9 @@ export function nightPlan(contacts: Contact[], banks: Record<string, BankMeta>, 
     const horizon = endOf(nextTextDay(day));
     const items: DigestItem[] = [];
     const seen = new Set<string>();
+    const isRef = referrers(contacts);
     for (const c of contacts) {
-      const it = relationshipItem(c, day, horizon);
+      const it = relationshipItem(c, day, horizon, isRef);
       if (it) {
         items.push(it);
         seen.add(c.id);

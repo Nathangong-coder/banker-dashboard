@@ -2,6 +2,7 @@
 
 import type { AppEmail } from "./appEmails";
 import { pickVerificationLink } from "./appEmails";
+import { addressIsPerson } from "./nameMatch";
 import { EMAIL_FONTS, type EmailFont } from "./types";
 
 /**
@@ -418,14 +419,6 @@ export async function detectSentFont(clientId: string, email: string): Promise<{
   return { font: hit?.[0] ?? (/(arial|helvetica|sans)/.test(firstFamily) ? "sans" : /(times|serif)/.test(firstFamily) ? "serif" : undefined), sentAt };
 }
 
-const normName = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 
 /** Parse a To/Cc header into [{ name, email }]. */
 export function parseAddresses(h: string): { name: string; email: string }[] {
@@ -435,18 +428,8 @@ export function parseAddresses(h: string): { name: string; email: string }[] {
   return out;
 }
 
-/** Does this address plausibly belong to First Last? Display-name match, or first/last in the mailbox name. */
-export function addressMatches(a: { name: string; email: string }, first: string, last: string) {
-  const f = normName(first);
-  const l = normName(last);
-  if (!f || !l) return false;
-  const dn = ` ${normName(a.name)} `;
-  if (dn.includes(` ${f} `) && dn.includes(` ${l} `)) return true;
-  const local = a.email.split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
-  const fl = f.replace(/ /g, "");
-  const ll = l.replace(/ /g, "");
-  return local.includes(ll) && (local.includes(fl) || local.startsWith(fl[0]) || local.endsWith(fl[0]));
-}
+/** Does this address belong to First Last? Both names must agree (lib/nameMatch.ts; "Jess Zhang" took jacob.zhang@). */
+export const addressMatches = (a: { name: string; email: string }, first: string, last: string) => addressIsPerson(a, first, last);
 
 /**
  * To-recipients of everything you sent since `sinceDay` (YYYY/MM/DD), for lib/offSheet.ts. Messages in `skip` (read

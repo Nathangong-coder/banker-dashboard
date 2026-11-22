@@ -11,6 +11,8 @@
  *   (api/replies/classify); both are only suggestions until you confirm them.
  */
 
+import { addressIsPerson } from "./nameMatch";
+
 export interface Addr {
   name: string;
   email: string;
@@ -68,7 +70,9 @@ export interface TrackResult {
   leftNote?: string;
 }
 
-const AUTO_REPLY = /^(automatic reply|auto[- ]?reply|autoreply|out of (?:the )?office|ooo\b)/i;
+export const AUTO_REPLY = /^(automatic reply|auto[- ]?reply|autoreply|out of (?:the )?office|ooo\b)/i;
+/** Calendar responses and invites Google / Outlook send in their name: not something they wrote. */
+export const CALENDAR = /^(accepted|declined|tentative(ly accepted)?|updated invitation|invitation|new event|canceled event|cancelled event|event canceled)\b.*:/i;
 const LEFT = /\b(no longer (?:with|at|employed|working)|has left|have left|left the (?:firm|company|bank)|last day (?:at|with))\b/i;
 /** Machine senders / list addresses never count as a person introduced to you. */
 const ROLE = /^(no-?reply|do-?not-?reply|notifications?|calendar|mailer-daemon|postmaster|bounce|info|recruiting|careers|hr|support)\b/i;
@@ -104,26 +108,11 @@ export function parseAddrs(header: string | undefined): Addr[] {
   }
 }
 
-/** Name words to recognise them by: "Isaiah De La Cruz" → ["isaiah", "cruz", "delacruz"]. */
-function nameKeys(name: string) {
-  const words = lc(name)
-    .replace(/[^a-z\s'-]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 3);
-  const joined = lc(name).replace(/[^a-z]/g, "");
-  const keys = new Set(words);
-  // Multi-word last names ("De La Cruz") also appear joined in addresses (IDeLaCruz@).
-  const parts = lc(name).split(/\s+/);
-  if (parts.length > 2) keys.add(parts.slice(1).join("").replace(/[^a-z]/g, ""));
-  if (joined.length >= 4) keys.add(joined);
-  return [...keys];
-}
-
 function looksLikeThem(a: Addr, person: TrackPerson) {
-  const keys = nameKeys(person.name);
-  const words = new Set(lc(a.name).split(/[^a-z]+/).filter(Boolean));
-  const local = lc(a.email.split("@")[0]).replace(/[^a-z]/g, "");
-  return keys.some((k) => words.has(k) || (k.length >= 4 && local.includes(k)));
+  // Both names (lib/nameMatch.ts): any one shared word was enough, so a colleague with the same last name at the same
+  // firm was learned as them (owner, 2026-11-22: Jess Zhang ↔ Jacob Zhang at Evercore).
+  const [first, ...rest] = person.name.trim().split(/\s+/);
+  return addressIsPerson(a, first ?? "", rest.join(" "));
 }
 
 /**
@@ -165,7 +154,11 @@ export function analyzePerson(person: TrackPerson, msgs: MailMsg[], me: string[]
   const sent = sorted.filter((m) => m.labels.includes("SENT") && [...m.to, ...m.cc, ...m.bcc].some((a) => known.has(a.email)));
   const fromThem = sorted.filter((m) => known.has(m.from.email) && !m.labels.includes("SENT"));
   const auto = (m: MailMsg) => AUTO_REPLY.test(m.subject);
-  const real = fromThem.filter((m) => !auto(m));
+  // A reply is written TO you: not a calendar response ("Accepted: Coffee chat"), and not a group email you were
+  // bcc'd / listed on, unless it's in a thread you wrote in (owner, 2026-11-22: "they wrote back" on people who hadn't).
+  const myThreads = new Set(sent.map((m) => m.threadId));
+  const toMe = (m: MailMsg) => [...m.to, ...m.cc].some((a) => mine.has(a.email)) || myThreads.has(m.threadId);
+  const real = fromThem.filter((m) => !auto(m) && !CALENDAR.test(m.subject) && toMe(m));
   const left = fromThem.find((m) => auto(m) && LEFT.test(m.snippet));
   const first = sent[0];
   const firstReply = first ? real.find((m) => m.at > first.at) : real[0];

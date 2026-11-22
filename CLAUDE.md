@@ -351,6 +351,38 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Shell scripts: the Bash tool turned `\\b` in a heredoc into a backspace byte again; write regex code with the
   Edit/Write tools, or replace bytes with PowerShell `[char]8`. The click-test driver needs an absolute profile path
   (a relative `--user-data-dir` made Edge exit at once).
+## Accuracy pass 2: one conversation per person, Resolve, noise filter (owner, 2026-11-22; `check:night`)
+
+- **The conversation is the source of truth** (`lib/mailLedger.ts`, `api/server/conversation`, `lib/ledgerSync.ts`):
+  every thread to / from their addresses in the last year (newest 20), both directions, kept as `contact.mail`
+  (≤12 messages: date, in/out, subject, snippet; full text of the newest each way). `lastExchange` = who wrote last:
+  their side from the ledger (drops calendar responses "Accepted: …" and group / list emails not to you), your side
+  from anything (ledger, sheet dates, done by hand). Fixes: a thank-you sent as a NEW email didn't count (Ryan
+  Kowlowski, Joe Romagnoli); Colin Bryant's reply + your nudge were missing. Read on Things open (due ones), "Check
+  Gmail", per row "refresh", and hourly in Shell `useSentScan` (≤30; engaged 6 h, others 2 days, sooner when tracking
+  saw something new). Candidates: engaged, or emailed ≤60 days (moved-on people too). `ledgerPatch` fills missing
+  dates forward-only, revives a moved-on person who replied.
+- **Names:** `lib/nameMatch.ts#addressIsPerson` (both names must agree; nicknames; initial+last only when nothing
+  says otherwise). `gmail.ts#addressMatches` and `replyTracking.ts#looksLikeThem` use it ("Jess Zhang" took
+  jacob.zhang@evercore.com; any shared word used to learn an alias). `ledgerSync#cleanAliases` drops learned aliases
+  with their last name that fail it. `mail.otherPerson` = Gmail shows someone else's name on the address on file →
+  off the lists + a "looks like someone else's" card with "Remove the address".
+- **One list, page = text:** `thinkAbout.ts#todoFor(c, now, isReferrer)` → thank (call ≤14 days, no email since) /
+  reply (they wrote last; a real email date, not the Replied status) / quiet (4 days, no chat) / check_in (7 days)
+  or null. `reminders.ts#relationshipItem` maps it to the 9 PM labels and drops hidden rows. The server's own "they
+  wrote back" (`tonight.ts`) only adds an email newer than `knownLast`, which now includes done by hand, Resolve
+  and a reply filtered as noise (`referrals.ts#trackList` / `mutedReply`): Alex Cheung was in the text, not the page.
+- **Resolve** (`contact.resolved {at, note}`, chips "Already thanked"…): off both until they write after `at`.
+  Replaces "I nudged them". Resolved list with Undo.
+- **Noise filter** (`withHidden`): rules first (they referred you → `referral_done`, Lev Afonine; an email that is
+  ONLY filler, every piece "thanks / good luck / a name" → `acknowledgement_only`, `isAckOnly`), then the AI
+  (`api/think/triage`, `lib/triageRun.ts`: last 6 emails + facts + your resolves / keeps as examples; verdict per item
+  `key` = kind + message id, so it's asked once per new email). Hidden only for `HIDEABLE` reasons at ≥ 0.8. Never
+  hidden: thank-yous, a "?" in their reply, times / availability / resume / referral words (`SIGNAL`), AI `asks`,
+  or "Keep it on my list" (`triage.kept`). Hidden rows sit under "Filtered out as noise" with the reason.
+- **Bash tool gotcha:** `\\n` / `\\b` inside heredocs and `node -e` / `sed` arrive unescaped (real newline / backspace
+  byte). Write code with the Edit / Write tools; check `grep -c $'\x08'`. Files here are CRLF: `indexOf("}\n")`
+  string surgery misses.
 ## 9 PM text, firms, transcripts (2026-10-19)
 
 - **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's

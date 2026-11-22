@@ -65,9 +65,10 @@ export default function PrivacyPage() {
           If you allow <b>reply tracking</b> (read-only Gmail): the names and email addresses of the people in your tracker you&apos;ve emailed or talked
           to, and for each one what Gmail showed: dates you emailed them and they replied, Gmail message and thread IDs, other addresses they wrote
           from, and people they added to a reply (name and email). The text of their newest replies (at most 1,500 characters each, quoted history
-          removed) waits for at most 14 days until your dashboard reads it, and is deleted from there as soon as it does. Your dashboard then keeps
-          each person&apos;s newest reply with their contact in your account (shown on Things to think about) until a newer one replaces it or you
-          delete the contact.
+          removed) waits for at most 14 days until your dashboard reads it, and is deleted from there as soon as it does. Your dashboard then keeps,
+          with each person&apos;s contact in your account, your recent emails with them (up to 12: date, direction, subject and a short preview, plus
+          the full text of the newest email each way, at most 1,500 characters), read on request through our server, which stores none of it. They
+          are shown on Things to think about and replaced on the next read, and removed when you delete the contact.
         </li>
         <li>
           If you use <b>info-session capture</b>: the photos, screenshots and text you send from your phone (the capture page, your phone&apos;s share
@@ -100,7 +101,7 @@ export default function PrivacyPage() {
         searches your mail every hour (people you were recently in touch with) or every six hours (everyone else) for messages to or from the people
         your dashboard tracks, and reads the headers of those threads (from, to, cc, subject, date) and the text of their replies, to know whether you
         thanked them, whether they replied, and whether they introduced you to someone. It reads nothing else in your mailbox, and keeps only what
-        section 2 lists. If an AI model is set up in your dashboard, your browser sends those reply texts to it to spot referrals and promises. If you also allow read-only Calendar access
+        section 2 lists. If an AI model is set up in your dashboard, your browser sends those reply texts to it to spot referrals and promises, and those recent emails to decide which conversations still need an email from you. If you also allow read-only Calendar access
         (<code>calendar.events.readonly</code>), the server reads that day&apos;s events once in the evening (9 PM your time), only
         to list the people you met so you remember to thank them, log the conversation and connect on LinkedIn. With WhatsApp reminders on, it also reads the next few hours of your calendar
         every hour to find info sessions (events titled like &ldquo;… Info Session&rdquo;) and text you before and after each one, and it lists

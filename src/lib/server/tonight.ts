@@ -38,6 +38,10 @@ export function planItems(a: Account, day: string, tracked: Record<string, Track
     for (const p of a.track ?? []) {
       const r = tracked[p.contactId]?.result;
       if (!r?.lastHeardAt || listed.has(p.contactId) || (r.lastEmailedAt && r.lastEmailedAt > r.lastHeardAt)) continue;
+      // Only an email the dashboard hadn't seen when it made the plan: what it settled, resolved or filtered out as
+      // noise stays out (owner, 2026-11-22: the text and Things to think about must list the same people).
+      const known = knownLast.get(p.contactId);
+      if (known && r.lastHeardAt <= known) continue;
       // Only fresh ones: older silences are the dashboard's call.
       if (Date.now() - Date.parse(r.lastHeardAt) < 10 * 86_400_000) owed.push({ contactId: p.contactId, name: p.name, email: p.emails[0], label: LABELS.replyOwed });
     }

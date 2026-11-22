@@ -12,7 +12,10 @@ import { appState } from "../src/lib/nightProgress";
 import { isBankFirm } from "../src/lib/processTracker";
 import { canonBank } from "../src/lib/banks";
 import { nightPlan, relationshipItem } from "../src/lib/reminders";
-import { laterDate, laterMentions, reminderRows, unansweredReplies, wentQuiet, dueReminders } from "../src/lib/thinkAbout";
+import { laterDate, laterMentions, reminderRows, dueReminders, todoFor, todoRows, referrers, isAckOnly, type Triage } from "../src/lib/thinkAbout";
+import { addressIsPerson } from "../src/lib/nameMatch";
+import { buildLedger, otherPersonOnAddress } from "../src/lib/mailLedger";
+import type { MailMsg } from "../src/lib/replyTracking";
 import { earliestSend, nextAction } from "../src/lib/followups";
 import { DEFAULT_SEND_WINDOW, planBatch, planSends, zonedDate } from "../src/lib/sendWindow";
 import { matchEvent, looksLikeChat } from "../src/lib/calendarMatch";
@@ -227,14 +230,57 @@ const busy = laterMentions("Our team is heads-down on a deal through December, s
 check("'busy through December, so reach out in January' → January, not December", busy.length === 1 && busy[0].due === "2027-01-05" && busy[0].phrase === "January", busy);
 check("notes: 'told me to reach out in January' is found", laterMentions("Great chat. He told me to reach out in January once staffing settles.", said).length === 1);
 const colin = { ...replied, id: "colin", name: "Colin Bryant", bank: "Deutsche Bank", email: "colin.bryant@db.com", lastHeardAt: "2026-11-10T15:00:00Z", lastEmailedAt: "2026-11-11T02:00:00Z" };
-const q = wentQuiet([colin], Date.parse("2026-11-16T12:00:00Z"));
-check("Colin Bryant (replied, you answered, no chat) → went quiet, nudge due", q.length === 1 && !q[0].chatted && Date.parse(q[0].due) <= Date.parse("2026-11-16T12:00:00Z"), q[0]);
-check("…a call ahead → not quiet", wentQuiet([{ ...colin, call: { at: "2026-11-20T18:00:00Z", eventId: "e", link: "", invited: true } }], Date.parse("2026-11-16T12:00:00Z")).length === 0);
+const nov16 = Date.parse("2026-11-16T12:00:00Z");
+const q = todoFor(colin, nov16);
+check("Colin Bryant (replied, you answered, no chat) → went quiet, nudge due", q?.kind === "quiet" && !q.chatted && Date.parse(q.due) <= nov16, q);
+check("…a call ahead → not quiet", todoFor({ ...colin, call: { at: "2026-11-20T18:00:00Z", eventId: "e", link: "", invited: true } }, nov16) === null);
 const owed = { ...colin, lastHeardAt: "2026-11-15T15:00:00Z", lastReply: { at: "2026-11-15T15:00:00Z", messageId: "m1", text: "Thanks Nathan, happy to chat. Reach out in January and we can find time.", needsReply: true } };
-const ur = unansweredReplies([owed], Date.parse("2026-11-16T12:00:00Z"));
-check("they wrote after you → reply to answer, with their message, 'last day'", ur.length === 1 && ur[0].age === "day" && /happy to chat/.test(ur[0].text ?? ""), ur[0]);
-check("…done by hand settles it", unansweredReplies([{ ...owed, handledAt: "2026-11-16T00:00:00Z" }], Date.parse("2026-11-16T12:00:00Z")).length === 0);
-check("…an older stored text isn't shown as this email", unansweredReplies([{ ...owed, lastReply: { ...owed.lastReply, at: "2026-11-01T00:00:00Z" } }], Date.parse("2026-11-16T12:00:00Z"))[0].text === undefined);
+const ur = todoFor(owed, nov16);
+check("they wrote after you → reply, with their message, 'last day'", ur?.kind === "reply" && ur.age === "day" && /happy to chat/.test(ur.text ?? "") && !ur.hidden, ur);
+check("…done by hand settles the reply (a nudge comes later if they go quiet)", todoFor({ ...owed, handledAt: "2026-11-16T00:00:00Z" }, nov16)?.kind === "quiet");
+check("filler only: 'Thanks Nathan, good luck!' / 'You're welcome. Best, Maya'", isAckOnly("Thanks Nathan, good luck!") && isAckOnly("You're welcome.\nBest,\nMaya") && !isAckOnly("Thanks Nathan, happy to chat. Reach out in January."));
+check("…an older stored text isn't shown as this email", todoFor({ ...owed, lastReply: { ...owed.lastReply, at: "2026-11-01T00:00:00Z" } }, nov16)?.text === undefined);
+
+// Accuracy pass 2 (owner, 2026-11-22).
+check("Jess Zhang ≠ jacob.zhang@ (different first name in the mailbox)", !addressIsPerson({ name: "", email: "jacob.zhang@evercore.com" }, "Jess", "Zhang"));
+check("Jess Zhang ≠ 'Jacob Zhang' <jzhang@> (display name wins)", !addressIsPerson({ name: "Jacob Zhang", email: "jzhang@evercore.com" }, "Jess", "Zhang"));
+check("Jess Zhang = jessica.zhang@ / jzhang@ with no name", addressIsPerson({ name: "", email: "jessica.zhang@evercore.com" }, "Jess", "Zhang") && addressIsPerson({ name: "", email: "jzhang@evercore.com" }, "Jess", "Zhang"));
+check("Isaiah De La Cruz = IDeLaCruz@, 'Zhu, Kevin' = Kevin Zhu, Mike = Michael", addressIsPerson({ name: "", email: "idelacruz@x.com" }, "Isaiah", "De La Cruz") && addressIsPerson({ name: "Zhu, Kevin", email: "kz@x.com" }, "Kevin", "Zhu") && addressIsPerson({ name: "Mike Smith", email: "ms@x.com" }, "Michael", "Smith"));
+check("names Gmail shows on the address flag someone else", otherPersonOnAddress("Jess Zhang", "jacob.zhang@evercore.com", ["Jacob Zhang"]) === "Jacob Zhang" && otherPersonOnAddress("Kevin Zhu", "kevin.zhu@x.com", ["Zhu, Kevin"]) === undefined);
+const me = "me@ucla.edu";
+const A = (email: string, name = "") => ({ name, email });
+const msg = (id: string, at: string, from: string, to: string[], subject: string, sent = false, thread = "t1"): MailMsg => ({ id, threadId: thread, at: Date.parse(at), labels: sent ? ["SENT"] : ["INBOX"], from: A(from), to: to.map((x) => A(x)), cc: [], bcc: [], subject, snippet: subject });
+const ryanP = { contactId: "ryan", name: "Ryan Kowlowski", emails: ["ryan.k@bank.com"] };
+const ryanMsgs = [
+  msg("1", "2026-11-01T10:00:00Z", me, ["ryan.k@bank.com"], "UCLA Student Seeking to Connect", true),
+  msg("2", "2026-11-02T10:00:00Z", "ryan.k@bank.com", [me], "Re: UCLA Student Seeking to Connect"),
+  msg("3", "2026-11-03T09:00:00Z", "ryan.k@bank.com", [me], "Accepted: Coffee chat @ Tue", false, "t2"),
+  msg("4", "2026-11-06T20:00:00Z", me, ["ryan.k@bank.com"], "Thank you!", true, "t3"),
+  msg("5", "2026-11-07T10:00:00Z", "ryan.k@bank.com", ["club-list@ucla.edu"], "Firm recruiting event", false, "t4"),
+];
+const led = buildLedger(ryanP, ryanMsgs, [me]);
+check("ledger: the calendar 'Accepted:' and a list email aren't replies", led.messages.filter((m) => m.dir === "in").map((m) => m.id).join() === "2", led.messages);
+check("ledger: a thank-you in a new thread is your latest email (Ryan, Joe)", led.messages[led.messages.length - 1].id === "4" && led.messages[led.messages.length - 1].dir === "out");
+const ryan = { ...replied, id: "ryan", name: "Ryan Kowlowski", email: "ryan.k@bank.com", lastHeardAt: "2026-11-07T10:00:00Z", lastEmailedAt: "2026-11-01T10:00:00Z", mail: { checkedAt: "2026-11-08T00:00:00Z", messages: led.messages } };
+check("…so Ryan isn't 'they wrote back' (his newest real email is older than your thank-you)", todoFor(ryan, Date.parse("2026-11-08T12:00:00Z"))?.kind !== "reply", todoFor(ryan, Date.parse("2026-11-08T12:00:00Z")));
+const sherrick = { ...owed, id: "sh", name: "Sherrick Murdock", resolved: { at: "2026-11-16T00:00:00Z", note: "Already thanked" } };
+check("Resolve: off the list until they write again", todoFor(sherrick, nov16) === null && todoFor({ ...sherrick, lastHeardAt: "2026-11-17T00:00:00Z" }, Date.parse("2026-11-18T00:00:00Z"))?.kind === "reply");
+const lev = { ...colin, id: "lev", name: "Lev Afonine" };
+const referred = { ...base, id: "ref1", name: "Someone New", referredBy: { contactId: "lev", name: "Lev Afonine", at: "2026-11-05T00:00:00Z" } };
+const levRow = todoRows([lev, referred], nov16).find((r) => r.c.id === "lev");
+check("Lev Afonine already referred you → his nudge is filtered (rule), not deleted", levRow?.hidden?.reason === "referral_done", levRow);
+check("…and not in the 9 PM text", relationshipItem(lev, "2026-11-16", new Date("2026-11-17T23:59:59"), referrers([lev, referred])) === null);
+const tri = (t: Partial<Triage>) => ({ ...owed, lastReply: { ...owed.lastReply, text: "Thanks again Nathan, best of luck with recruiting." }, triage: { key: "reply:m1", at: "", needed: false, reason: "conversation_closed", why: "Wrapped up.", confidence: 0.9, ...t } });
+check("AI: a sure 'conversation closed' is filtered out", todoFor(tri({}), nov16)?.hidden?.by === "ai" || todoFor(tri({}), nov16)?.hidden?.by === "rule", todoFor(tri({}), nov16));
+const triQ = { ...tri({}), lastReply: { ...owed.lastReply, text: "Great chatting. Are you free Thursday at 2pm for a quick call?" } };
+check("AI says closed but they asked for a time → stays listed (safeguard)", !todoFor(triQ, nov16)?.hidden);
+const notSure = { ...tri({ confidence: 0.6 }), lastReply: { ...owed.lastReply, text: "Appreciate it, talk soon and keep me posted on how the process goes for you over the coming weeks." } };
+check("AI not sure (0.6) → stays listed", !todoFor(notSure, nov16)?.hidden, todoFor(notSure, nov16));
+check("'Keep it on my list' beats the AI and the rules", !todoFor(tri({ kept: true }), nov16)?.hidden);
+check("a short 'thanks, good luck' reply is filtered by rule without AI", todoFor({ ...owed, lastReply: { ...owed.lastReply, text: "Thanks Nathan, good luck!" } }, nov16)?.hidden?.reason === "acknowledgement_only");
+check("hidden items stay out of the 9 PM text too", relationshipItem(tri({}), "2026-11-16", new Date("2026-11-17T23:59:59")) === null);
+const thankOwed = { ...colin, chats: [{ id: "c1", at: "2026-11-14T15:00:00Z" }], lastEmailedAt: "2026-11-10T00:00:00Z" };
+check("a thank-you owed is listed on the page (same as the text)", todoFor(thankOwed, nov16)?.kind === "thank" && relationshipItem(thankOwed, "2026-11-16", new Date("2026-11-17T23:59:59")) !== null);
 const rr = reminderRows([owed], {});
 check("their 'reach out in January' becomes a found reminder for Jan 5", rr.length === 1 && rr[0].due === "2027-01-05" && rr[0].found && rr[0].contactId === "colin", rr);
 const rrDone = reminderRows([owed], { [rr[0].id]: { id: rr[0].id, due: rr[0].due, note: rr[0].note, createdAt: "", done: "2026-11-16T00:00:00Z", source: "found" } });

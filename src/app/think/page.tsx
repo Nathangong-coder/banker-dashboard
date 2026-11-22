@@ -1,21 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { BellPlus, Check, ChevronDown, ChevronRight, ExternalLink, Mail, Undo2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowDownLeft, ArrowUpRight, BellPlus, Check, ChevronDown, ChevronRight, ExternalLink, RefreshCw, Undo2 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { googleClientId } from "@/lib/keys";
+import { googleClientId, aiReady } from "@/lib/keys";
 import { connectGmail, latestFrom } from "@/lib/gmail";
 import { DAY, cn } from "@/lib/util";
-import { reminderRows, unansweredReplies, wentQuiet, type Age, type QuietRow, type Reminder, type ReminderRow, type ReplyRow } from "@/lib/thinkAbout";
+import { REASON_LABEL, reminderRows, resolvedPeople, todoRows, wrongAddress, type Age, type Reminder, type ReminderRow, type TodoRow, type Triage } from "@/lib/thinkAbout";
 import type { Contact } from "@/lib/types";
 import { Badge, Button, Card, Empty, Input, Kpi, Menu, PageHeader, Segmented, toast } from "@/components/ui";
 
 /**
- * Things to think about (owner, 2026-11-21): "outstanding things i need to think about" — replies you haven't
- * answered (with their message), people who replied and went quiet (nudge sooner than a week before a chat), and dated
- * reminders ("one bank told me to reach out in January"). Logic in lib/thinkAbout.ts; the 9 PM text lists the same.
+ * Things to think about (owner, 2026-11-21/22): who you owe a thank-you or a reply, who replied and went quiet, and
+ * dated reminders. The SAME per-person read as the 9 PM text (lib/thinkAbout.ts#todoFor), built from each person's
+ * email conversation (lib/mailLedger.ts). Noise is filtered by rules and an AI read with safeguards; every filtered or
+ * resolved person stays one click away.
  */
-type Tab = "replies" | "quiet" | "reminders";
+type Tab = "reply" | "quiet" | "reminders";
 type AgeFilter = "all" | Age;
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -24,61 +25,133 @@ const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { m
 const dayDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const ago = (days: number) => (days <= 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`);
 const gmailLink = (c: Contact, threadId?: string) =>
-  threadId || c.threadId ? `https://mail.google.com/mail/u/0/#all/${threadId ?? c.threadId}` : `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(`from:${c.email}`)}`;
+  threadId || c.threadId ? `https://mail.google.com/mail/u/0/#all/${threadId ?? c.threadId}` : `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(`from:${c.email} OR to:${c.email}`)}`;
+const KIND_LABEL: Record<TodoRow["kind"], string> = { thank: "thank-you owed", reply: "they wrote last", quiet: "no chat yet", check_in: "after a chat" };
 
 function initialTab(): Tab {
   const t = new URLSearchParams(window.location.search).get("tab");
-  return t === "quiet" || t === "reminders" ? t : "replies";
+  return t === "quiet" || t === "reminders" ? t : "reply";
 }
 
 export default function ThinkPage() {
   const contacts = useStore((s) => s.contacts);
   const mine = useStore((s) => s.coverage.reminders);
+  const settings = useStore((s) => s.settings);
   const [tab, setTabState] = useState<Tab>(initialTab);
+  const [now] = useState(() => Date.now());
+  const [busy, setBusy] = useState<string | null>(null);
   const setTab = (t: Tab) => {
     setTabState(t);
-    window.history.replaceState(null, "", t === "replies" ? "/think" : `/think?tab=${t}`);
+    window.history.replaceState(null, "", t === "reply" ? "/think" : `/think?tab=${t}`);
   };
-  const replies = useMemo(() => unansweredReplies(contacts), [contacts]);
-  const quiet = useMemo(() => wentQuiet(contacts), [contacts]);
+  const rows = useMemo(() => todoRows(contacts, now), [contacts, now]);
   const reminders = useMemo(() => reminderRows(contacts, mine), [contacts, mine]);
-  const [now] = useState(() => Date.now());
-  const quietDue = quiet.filter((q) => Date.parse(q.due) <= now).length;
+  const resolved = useMemo(() => resolvedPeople(contacts), [contacts]);
+  const wrong = useMemo(() => wrongAddress(contacts), [contacts]);
+  const replyRows = rows.filter((r) => r.kind === "thank" || r.kind === "reply");
+  const quietRows = rows.filter((r) => r.kind === "quiet" || r.kind === "check_in");
+  const shown = (list: TodoRow[]) => list.filter((r) => !r.hidden);
+  const quietDue = shown(quietRows).filter((q) => Date.parse(q.due) <= now).length;
   const remindersDue = reminders.filter((r) => !r.done && r.due <= today()).length;
+  const filtered = rows.filter((r) => r.hidden).length;
+
+  /** Read conversations from Gmail (the ones due, or everyone on the page), then the AI's noise read. */
+  const refresh = async (force: boolean) => {
+    setBusy("Reading your emails with them…");
+    try {
+      const { syncLedgers } = await import("@/lib/ledgerSync");
+      const n = await syncLedgers(force ? { force: true, max: 120 } : { max: 40 });
+      if (aiReady(useStore.getState().settings)) {
+        setBusy("Checking which ones need you…");
+        const { runTriage } = await import("@/lib/triageRun");
+        await runTriage({ force });
+      }
+      if (force) toast.ok(`Checked ${n} conversation${n === 1 ? "" : "s"} in Gmail.`);
+    } catch (e) {
+      if (force) toast.err(e instanceof Error ? e.message : "Couldn't read Gmail.");
+    } finally {
+      setBusy(null);
+    }
+  };
+  useEffect(() => {
+    if (!useStore.getState().settings.server?.id) return;
+    const t = setTimeout(() => void refresh(false), 600);
+    return () => clearTimeout(t);
+    // Once per visit.
+  }, []);
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
       <PageHeader
         title="Things to think about"
-        sub="Replies you haven't answered, people who went quiet, and the dates bankers told you to come back. The 9 PM text lists the same."
+        sub="Who you owe a thank-you or a reply, who went quiet, and dates bankers gave you. The 9 PM text lists exactly the same people."
         right={
-          <Segmented
-            value={tab}
-            onChange={setTab}
-            options={[
-              ["replies", `Replies to answer${replies.length ? ` (${replies.length})` : ""}`],
-              ["quiet", `Went quiet${quiet.length ? ` (${quiet.length})` : ""}`],
-              ["reminders", `Reminders${remindersDue ? ` (${remindersDue})` : ""}`],
-            ]}
-          />
+          <div className="flex items-center gap-2">
+            <Button variant="primary" icon={<RefreshCw className={cn("size-4", busy && "animate-spin")} />} disabled={!!busy || !settings.server?.id} onClick={() => void refresh(true)}>
+              Check Gmail
+            </Button>
+          </div>
         }
       />
+      {busy && <div className="text-[12.5px] text-muted">{busy}</div>}
+      {!settings.server?.id && <div className="text-[12.5px] text-muted">Connect Google (Settings → Account) so Coverage can read each conversation. Until then the list uses the dates it already has.</div>}
+      {wrong.length > 0 && <WrongAddresses list={wrong} />}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label="Replies to answer" value={replies.length} sub={`${replies.filter((r) => r.age === "longer").length} older than a week`} tone={replies.some((r) => r.age === "longer") ? "bad" : undefined} />
-        <Kpi label="Went quiet" value={quiet.length} sub={`${quietDue} to nudge now`} />
+        <Kpi label="Reply or thank" value={shown(replyRows).length} sub={`${shown(replyRows).filter((r) => r.kind === "thank").length} thank-you${shown(replyRows).filter((r) => r.kind === "thank").length === 1 ? "" : "s"}`} />
+        <Kpi label="Nudge now" value={quietDue} sub={`${shown(quietRows).length} went quiet`} />
+        <Kpi label="Filtered out" value={filtered} sub={rows.length ? `${Math.round((filtered / rows.length) * 100)}% of ${rows.length} looked like noise` : "nothing yet"} />
         <Kpi label="Reminders due" value={remindersDue} sub={`${reminders.filter((r) => !r.done && r.due > today()).length} coming up`} />
-        <Kpi label="Found for you" value={reminders.filter((r) => r.found && !r.done).length} sub="dates from replies + notes" />
       </div>
-      {tab === "replies" && <RepliesTab rows={replies} />}
-      {tab === "quiet" && <QuietTab rows={quiet} />}
+      <Segmented
+        value={tab}
+        onChange={setTab}
+        options={[
+          ["reply", `Reply or thank (${shown(replyRows).length})`],
+          ["quiet", `Went quiet (${shown(quietRows).length})`],
+          ["reminders", `Reminders${remindersDue ? ` (${remindersDue})` : ""}`],
+        ]}
+      />
+      {tab === "reply" && <TodoTab rows={replyRows} resolved={resolved} now={now} empty="Everyone who wrote to you or talked with you has an answer." />}
+      {tab === "quiet" && <TodoTab rows={quietRows} resolved={[]} now={now} empty="Everyone who replied is either talking to you or waiting on you." quiet />}
       {tab === "reminders" && <RemindersTab rows={reminders} contacts={contacts} />}
     </div>
   );
 }
 
+/* ---------------- wrong addresses ---------------- */
+
+function WrongAddresses({ list }: { list: Contact[] }) {
+  return (
+    <Card className="border-amber/40 p-4">
+      <div className="text-[13px] font-medium text-ink">These addresses look like someone else&apos;s</div>
+      <div className="mt-0.5 text-[12.5px] text-muted">Gmail shows a different name on them, so these people are left off the lists until the address is fixed.</div>
+      <ul className="mt-2 grid gap-1.5">
+        {list.map((c) => (
+          <li key={c.id} className="flex flex-wrap items-center gap-2 text-[13px]">
+            <span className="font-medium text-ink">{c.name}</span>
+            <span className="text-muted">
+              · {c.bank} · {c.email} is {c.mail?.otherPerson}
+            </span>
+            <Button
+              size="sm"
+              onClick={() => {
+                const at = new Date().toISOString();
+                useStore.getState().updateContact(c.id, { email: "", aliases: [], mail: undefined }, { at, type: "note", note: `Removed ${c.email}: it belongs to ${c.mail?.otherPerson}` });
+                toast.ok(`Removed that address from ${c.name}.`);
+              }}
+            >
+              Remove the address
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 /* ---------------- shared pieces ---------------- */
 
-function AgeTabs<T extends { age: Age }>({ rows, value, onChange, labels }: { rows: T[]; value: AgeFilter; onChange: (v: AgeFilter) => void; labels: [string, string, string] }) {
+function AgeTabs({ rows, value, onChange }: { rows: { age: Age }[]; value: AgeFilter; onChange: (v: AgeFilter) => void }) {
   const n = (a: Age) => rows.filter((r) => r.age === a).length;
   return (
     <Segmented
@@ -86,52 +159,11 @@ function AgeTabs<T extends { age: Age }>({ rows, value, onChange, labels }: { ro
       onChange={onChange}
       options={[
         ["all", `All (${rows.length})`],
-        ["day", `${labels[0]} (${n("day")})`],
-        ["week", `${labels[1]} (${n("week")})`],
-        ["longer", `${labels[2]} (${n("longer")})`],
+        ["day", `Last day (${n("day")})`],
+        ["week", `This week (${n("week")})`],
+        ["longer", `Longer (${n("longer")})`],
       ]}
     />
-  );
-}
-
-/** Their message: the stored text, else a button that reads their latest email from Gmail and keeps it. */
-function TheirMessage({ c, text, summary }: { c: Contact; text?: string; summary?: string }) {
-  const settings = useStore((s) => s.settings);
-  const [busy, setBusy] = useState(false);
-  const load = async () => {
-    if (!c.email) return;
-    setBusy(true);
-    try {
-      const clientId = googleClientId(settings);
-      await connectGmail(clientId);
-      const m = await latestFrom(clientId, c.email);
-      if (!m) {
-        toast.err(`No email from ${c.name} found in Gmail.`);
-        return;
-      }
-      const cur = useStore.getState().contacts.find((x) => x.id === c.id);
-      if (cur && (!cur.lastReply || m.date >= cur.lastReply.at))
-        useStore.getState().updateContact(c.id, { lastReply: { at: m.date, messageId: m.id, threadId: m.threadId, text: (m.text || m.full).trim().slice(0, 1500) } });
-    } catch (e) {
-      toast.err(e instanceof Error ? e.message : "Couldn't read Gmail.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (!text)
-    return (
-      <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-muted">
-        Coverage doesn&apos;t have this email&apos;s text yet.
-        <Button size="sm" icon={<Mail className="size-3.5" />} loading={busy} onClick={load} disabled={!c.email}>
-          Load it from Gmail
-        </Button>
-      </div>
-    );
-  return (
-    <div className="grid gap-1.5">
-      {summary && <div className="text-[12px] text-muted">In short: {summary}</div>}
-      <blockquote className="max-h-72 overflow-y-auto rounded-lg border-l-[3px] border-brass bg-subtle px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap text-ink-2">{text}</blockquote>
-    </div>
   );
 }
 
@@ -164,6 +196,129 @@ function setReminder(r: Reminder | null, id: string) {
     else delete m[id];
     return { ...cov, reminders: m };
   });
+}
+
+/** The conversation: newest messages both ways; the newest of each side in full. */
+function Conversation({ row }: { row: TodoRow }) {
+  const c = row.c;
+  const L = c.mail;
+  const settings = useStore((s) => s.settings);
+  const [loading, setLoading] = useState(false);
+  const [all, setAll] = useState(false);
+  const reload = async () => {
+    setLoading(true);
+    try {
+      if (settings.server?.id) {
+        const { syncLedgers } = await import("@/lib/ledgerSync");
+        await syncLedgers({ ids: [c.id] });
+      } else if (c.email) {
+        const clientId = googleClientId(settings);
+        await connectGmail(clientId);
+        const m = await latestFrom(clientId, c.email);
+        if (m) useStore.getState().updateContact(c.id, { lastReply: { at: m.date, messageId: m.id, threadId: m.threadId, text: (m.text || m.full).trim().slice(0, 1500) } });
+      }
+    } catch (e) {
+      toast.err(e instanceof Error ? e.message : "Couldn't read Gmail.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  const refreshBtn = (
+    <Button size="sm" variant="ghost" icon={<RefreshCw className={cn("size-3.5", loading && "animate-spin")} />} loading={false} disabled={loading} onClick={reload}>
+      {L ? `Read ${shortDate(L.checkedAt)} · refresh` : "Load from Gmail"}
+    </Button>
+  );
+  if (!L?.messages.length)
+    return (
+      <div className="grid gap-2">
+        {row.text ? <blockquote className="max-h-72 overflow-y-auto rounded-lg border-l-[3px] border-brass bg-subtle px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap text-ink-2">{row.text}</blockquote> : <div className="text-[12.5px] text-muted">No emails read for them yet.</div>}
+        <div>{refreshBtn}</div>
+      </div>
+    );
+  const list = all ? L.messages : L.messages.slice(-5);
+  return (
+    <div className="grid gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11.5px] font-medium tracking-wide text-muted uppercase">Conversation ({L.messages.length})</span>
+        {refreshBtn}
+      </div>
+      <ol className="grid gap-1.5">
+        {L.messages.length > list.length && (
+          <li>
+            <button type="button" className="text-[12px] text-muted underline-offset-2 hover:underline" onClick={() => setAll(true)}>
+              Show {L.messages.length - list.length} older
+            </button>
+          </li>
+        )}
+        {list.map((m) => {
+          const full = m.id === L.lastIn?.id ? L.lastIn.text : m.id === L.lastOut?.id ? L.lastOut.text : undefined;
+          return (
+            <li key={m.id} className={cn("rounded-lg border px-3 py-2", m.dir === "in" ? "border-brass/40 bg-subtle" : "border-line bg-panel")}>
+              <div className="flex flex-wrap items-center gap-x-2 text-[12px] text-muted">
+                {m.dir === "in" ? <ArrowDownLeft className="size-3.5 text-brass-ink" /> : <ArrowUpRight className="size-3.5" />}
+                <span className="font-medium text-ink-2">{m.dir === "in" ? c.name.split(" ")[0] : "You"}</span>
+                <span>{new Date(m.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                <span className="truncate">· {m.subject || "(no subject)"}</span>
+                <a href={gmailLink(c, m.threadId)} target="_blank" rel="noreferrer" className="ml-auto text-brass-ink underline-offset-2 hover:underline">
+                  open
+                </a>
+              </div>
+              <div className={cn("mt-1 text-[13px] leading-relaxed text-ink-2", full ? "max-h-64 overflow-y-auto whitespace-pre-wrap" : "line-clamp-2")}>{full ?? m.snippet}</div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+const RESOLVE_CHIPS = ["Already thanked", "Nothing needed", "Got what I needed", "They referred me", "Talked another way", "Not networking"];
+
+/** Resolve: off the page and the 9 PM text until they write again, with a short note why. */
+function Resolve({ c }: { c: Contact }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const save = (n: string) => {
+    const at = new Date().toISOString();
+    useStore.getState().updateContact(c.id, { resolved: { at, note: n.trim() || "Resolved" } }, { at, type: "note", note: `Resolved: ${n.trim() || "nothing to do"}` });
+    toast.ok(`${c.name}: resolved. They come back if they write again.`);
+    setOpen(false);
+  };
+  if (!open)
+    return (
+      <Button size="sm" icon={<Check className="size-3.5" />} onClick={() => setOpen(true)}>
+        Resolve…
+      </Button>
+    );
+  return (
+    <form
+      className="grid w-full gap-2 rounded-lg border border-line bg-subtle p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save(note);
+      }}
+    >
+      <div className="text-[12.5px] text-muted">Why is nothing needed? (It helps the filter learn what you consider done.)</div>
+      <div className="flex flex-wrap gap-1.5">
+        {RESOLVE_CHIPS.map((x) => (
+          <button key={x} type="button" onClick={() => save(x)} className="rounded-full border border-line-2 bg-panel px-2.5 py-1 text-[12px] text-ink-2 hover:bg-hover">
+            {x}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="w-[320px] max-w-full">
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Or a note: only messaged him to farm contacts" autoFocus />
+        </div>
+        <Button size="sm" variant="primary" type="submit">
+          Resolve
+        </Button>
+        <Button size="sm" variant="ghost" type="button" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
 }
 
 /** "Remind me" on a person: a dated reminder tied to them. */
@@ -204,159 +359,147 @@ function RemindMe({ c, defaultNote }: { c: Contact; defaultNote: string }) {
   );
 }
 
-/* ---------------- Replies to answer ---------------- */
-
-function RepliesTab({ rows }: { rows: ReplyRow[] }) {
-  const [age, setAge] = useState<AgeFilter>("all");
-  const [open, setOpen] = useState<string | null>(null);
-  const [showAck, setShowAck] = useState(false);
-  const acks = rows.filter((r) => r.noReplyNeeded).length;
-  const shown = rows.filter((r) => (age === "all" || r.age === age) && (showAck || !r.noReplyNeeded));
-  return (
-    <Card>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-        <AgeTabs rows={rows} value={age} onChange={setAge} labels={["Last day", "This week", "Longer"]} />
-        {acks > 0 && (
-          <button type="button" onClick={() => setShowAck((v) => !v)} className="text-[12.5px] text-muted underline-offset-2 hover:underline">
-            {showAck ? "Hide" : "Show"} {acks} that probably need no reply
-          </button>
-        )}
-      </div>
-      {!shown.length ? (
-        <Empty title={rows.length ? "Nothing in this range" : "You're caught up"}>
-          {rows.length ? "Pick another range above." : "Everyone who wrote to you has an answer (as far as Gmail and the tracker show)."}
-        </Empty>
-      ) : (
-        <ul>
-          {shown.map((r) => (
-            <RowShell
-              key={r.c.id}
-              open={open === r.c.id}
-              onToggle={() => setOpen(open === r.c.id ? null : r.c.id)}
-              head={
-                <div className="grid gap-0.5">
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <Who c={r.c} />
-                    <span className="flex items-center gap-1.5 text-[12px] text-muted">
-                      {r.noReplyNeeded && <Badge>no reply needed?</Badge>}
-                      <Badge tone={r.age === "longer" ? "red" : r.age === "week" ? "amber" : "green"}>{ago(r.days)}</Badge>
-                      {shortDate(r.at)}
-                    </span>
-                  </div>
-                  {(r.summary || r.text) && <div className="truncate text-[12.5px] text-muted">{r.summary ?? r.text!.replace(/\s+/g, " ").slice(0, 160)}</div>}
-                </div>
-              }
-            >
-              <TheirMessage c={r.c} text={r.text} summary={r.summary} />
-              <div className="flex flex-wrap items-center gap-2">
-                <a href={gmailLink(r.c, r.c.lastReply?.threadId)} target="_blank" rel="noreferrer">
-                  <Button size="sm" variant="primary" icon={<ExternalLink className="size-3.5" />}>
-                    Reply in Gmail
-                  </Button>
-                </a>
-                <Button
-                  size="sm"
-                  icon={<Check className="size-3.5" />}
-                  onClick={() => {
-                    const at = new Date().toISOString();
-                    useStore.getState().updateContact(r.c.id, { handledAt: at }, { at, type: "note", note: "Reply settled by hand (Things to think about)" });
-                    toast.ok(`${r.c.name}: marked answered.`);
-                  }}
-                >
-                  Answered / no reply needed
-                </Button>
-                <RemindMe c={r.c} defaultNote={`Get back to ${r.c.name.split(" ")[0]}`} />
-              </div>
-            </RowShell>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
+/** Keep a filtered item on the list (for this email): the AI and the rules leave it alone, and it's an example for next time. */
+function keep(row: TodoRow) {
+  const prev = row.c.triage?.key === row.key ? row.c.triage : undefined;
+  const triage: Triage = { key: row.key, at: new Date().toISOString(), needed: true, reason: prev?.reason ?? row.hidden?.reason ?? "kept", why: prev?.why ?? row.hidden?.why ?? "", confidence: prev?.confidence ?? 1, asks: prev?.asks, kept: true };
+  useStore.getState().updateContact(row.c.id, { triage });
+  toast.ok(`${row.c.name} stays on your list.`);
 }
 
-/* ---------------- Went quiet ---------------- */
+/* ---------------- Reply or thank / Went quiet ---------------- */
 
-function QuietTab({ rows }: { rows: QuietRow[] }) {
+function TodoTab({ rows, resolved, now, empty, quiet }: { rows: TodoRow[]; resolved: Contact[]; now: number; empty: string; quiet?: boolean }) {
   const [age, setAge] = useState<AgeFilter>("all");
   const [open, setOpen] = useState<string | null>(null);
-  const [now] = useState(() => Date.now());
-  const shown = rows.filter((r) => age === "all" || r.age === age);
+  const [showHidden, setShowHidden] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
+  const visible = rows.filter((r) => !r.hidden);
+  const hidden = rows.filter((r) => r.hidden);
+  const list = visible.filter((r) => age === "all" || r.age === age);
   const snooze = (c: Contact, days: number) => {
     useStore.getState().updateContact(c.id, { snoozeUntil: new Date(Date.now() + days * DAY).toISOString() });
     toast.ok(`${c.name}: snoozed ${days} days.`);
   };
+
+  const item = (r: TodoRow) => {
+    const due = Date.parse(r.due) <= now;
+    const tr = r.c.triage?.key === r.key ? r.c.triage : undefined;
+    return (
+      <RowShell
+        key={r.c.id}
+        open={open === r.c.id}
+        onToggle={() => setOpen(open === r.c.id ? null : r.c.id)}
+        head={
+          <div className="grid gap-0.5">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <Who c={r.c} />
+              <span className="flex items-center gap-1.5 text-[12px] text-muted">
+                {r.hidden ? (
+                  <Badge>{REASON_LABEL[r.hidden.reason] ?? r.hidden.reason}</Badge>
+                ) : (
+                  <Badge tone={r.kind === "thank" ? "red" : r.kind === "reply" ? "blue" : "neutral"}>{KIND_LABEL[r.kind]}</Badge>
+                )}
+                {quiet && !r.hidden ? (
+                  due ? <Badge tone="amber">nudge now</Badge> : <span>nudge {dayDate(ymd(new Date(r.due)))}</span>
+                ) : (
+                  <Badge tone={r.age === "longer" ? "red" : r.age === "week" ? "amber" : "green"}>{ago(r.days)}</Badge>
+                )}
+              </span>
+            </div>
+            <div className="truncate text-[12.5px] text-muted">{r.hidden ? r.hidden.why : r.summary ?? (r.text ? r.text.replace(/\s+/g, " ").slice(0, 160) : r.why)}</div>
+          </div>
+        }
+      >
+        <div className="text-[12.5px] text-muted">
+          {r.why}
+          {tr && !r.hidden && <span> AI read: {tr.needed ? "needs you" : `${REASON_LABEL[tr.reason] ?? tr.reason}, not sure enough to hide`} ({tr.why})</span>}
+          {r.hidden && <span> Filtered out by {r.hidden.by === "ai" ? "the AI" : "a rule"}: {r.hidden.why}</span>}
+        </div>
+        <Conversation row={r} />
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={gmailLink(r.c, r.c.mail?.messages[r.c.mail.messages.length - 1]?.threadId ?? r.c.lastReply?.threadId)} target="_blank" rel="noreferrer">
+            <Button size="sm" variant={r.hidden ? "secondary" : "primary"} icon={<ExternalLink className="size-3.5" />}>
+              {r.kind === "thank" ? "Write the thank-you" : r.kind === "reply" ? "Reply in Gmail" : "Open the thread"}
+            </Button>
+          </a>
+          {r.hidden && (
+            <Button size="sm" variant="brass" onClick={() => keep(r)}>
+              Keep it on my list
+            </Button>
+          )}
+          {quiet && !r.hidden && (
+            <Menu
+              label="Snooze"
+              trigger={(toggle) => (
+                <Button size="sm" variant="ghost" onClick={toggle}>
+                  Snooze…
+                </Button>
+              )}
+              items={[
+                { label: "3 days", onClick: () => snooze(r.c, 3) },
+                { label: "1 week", onClick: () => snooze(r.c, 7) },
+                { label: "1 month", onClick: () => snooze(r.c, 30) },
+              ]}
+            />
+          )}
+          <RemindMe c={r.c} defaultNote={`Follow up with ${r.c.name.split(" ")[0]}`} />
+          <Resolve c={r.c} />
+        </div>
+      </RowShell>
+    );
+  };
+
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-        <AgeTabs rows={rows} value={age} onChange={setAge} labels={["Last day", "This week", "Longer"]} />
-        <span className="text-[12px] text-muted">Nudge 4 days after your email if you haven&apos;t talked yet; 7 days after a chat.</span>
+        <AgeTabs rows={visible} value={age} onChange={setAge} />
+        {quiet && <span className="text-[12px] text-muted">Nudge 4 days after your email if you haven&apos;t talked yet; 7 days after a chat.</span>}
       </div>
-      {!shown.length ? (
-        <Empty title={rows.length ? "Nothing in this range" : "Nobody's gone quiet"}>{rows.length ? "Pick another range above." : "Everyone who replied is either talking to you or waiting on you."}</Empty>
+      {!list.length ? (
+        <Empty title={visible.length ? "Nothing in this range" : "You're caught up"}>{visible.length ? "Pick another range above." : empty}</Empty>
       ) : (
-        <ul>
-          {shown.map((r) => {
-            const due = Date.parse(r.due) <= now;
-            const lr = r.c.lastReply && Date.parse(r.c.lastReply.at) >= Date.parse(r.heardAt) - 60_000 ? r.c.lastReply : undefined;
-            return (
-              <RowShell
-                key={r.c.id}
-                open={open === r.c.id}
-                onToggle={() => setOpen(open === r.c.id ? null : r.c.id)}
-                head={
-                  <div className="grid gap-0.5">
-                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                      <Who c={r.c} />
-                      <span className="flex items-center gap-1.5 text-[12px] text-muted">
-                        <Badge tone={r.chatted ? "neutral" : "blue"}>{r.chatted ? "after a chat" : "no chat yet"}</Badge>
-                        {due ? <Badge tone="amber">nudge now</Badge> : <span>nudge {dayDate(ymd(new Date(r.due)))}</span>}
-                      </span>
-                    </div>
-                    <div className="text-[12.5px] text-muted">
-                      They last wrote {shortDate(r.heardAt)} · you wrote {ago(r.days)} ({shortDate(r.youAt)})
-                    </div>
-                  </div>
-                }
-              >
-                <div className="text-[12px] font-medium tracking-wide text-muted uppercase">Their last email</div>
-                <TheirMessage c={r.c} text={lr?.text} summary={lr?.summary} />
-                <div className="flex flex-wrap items-center gap-2">
-                  <a href={gmailLink(r.c, lr?.threadId)} target="_blank" rel="noreferrer">
-                    <Button size="sm" variant="primary" icon={<ExternalLink className="size-3.5" />}>
-                      Open the thread
-                    </Button>
-                  </a>
+        <ul>{list.map(item)}</ul>
+      )}
+      {hidden.length > 0 && (
+        <div className="border-t border-line">
+          <button type="button" onClick={() => setShowHidden((v) => !v)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[12.5px] text-muted hover:bg-hover">
+            {showHidden ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            Filtered out as noise ({hidden.length}): check these now and then
+          </button>
+          {showHidden && <ul className="border-t border-line bg-subtle/40">{hidden.map(item)}</ul>}
+        </div>
+      )}
+      {resolved.length > 0 && (
+        <div className="border-t border-line">
+          <button type="button" onClick={() => setShowResolved((v) => !v)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[12.5px] text-muted hover:bg-hover">
+            {showResolved ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            Resolved by you ({resolved.length})
+          </button>
+          {showResolved && (
+            <ul className="border-t border-line">
+              {resolved.map((c) => (
+                <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2 text-[13px] last:border-b-0">
+                  <span className="min-w-0">
+                    <Who c={c} />
+                    <span className="text-muted"> · {c.resolved!.note} ({shortDate(c.resolved!.at)})</span>
+                  </span>
                   <Button
                     size="sm"
-                    icon={<Check className="size-3.5" />}
+                    variant="ghost"
+                    icon={<Undo2 className="size-3.5" />}
                     onClick={() => {
-                      const at = new Date().toISOString();
-                      useStore.getState().updateContact(r.c.id, { handledAt: at }, { at, type: "note", note: "Nudged by hand (Things to think about)" });
-                      toast.ok(`${r.c.name}: the clock restarts from today.`);
+                      useStore.getState().updateContact(c.id, { resolved: undefined });
+                      toast.ok(`${c.name} is back on the list.`);
                     }}
                   >
-                    I nudged them
+                    Undo
                   </Button>
-                  <Menu
-                    label="Snooze"
-                    trigger={(toggle) => (
-                      <Button size="sm" variant="ghost" onClick={toggle}>
-                        Snooze…
-                      </Button>
-                    )}
-                    items={[
-                      { label: "3 days", onClick: () => snooze(r.c, 3) },
-                      { label: "1 week", onClick: () => snooze(r.c, 7) },
-                      { label: "1 month", onClick: () => snooze(r.c, 30) },
-                    ]}
-                  />
-                  <RemindMe c={r.c} defaultNote={`Nudge ${r.c.name.split(" ")[0]}`} />
-                </div>
-              </RowShell>
-            );
-          })}
-        </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </Card>
   );

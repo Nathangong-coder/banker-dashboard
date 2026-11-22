@@ -163,6 +163,15 @@ export interface Contact {
    * AI's read of it when a model is set up ("reach out in January" → `later`).
    */
   lastReply?: { at: string; messageId: string; threadId?: string; text: string; summary?: string; kind?: string; needsReply?: boolean; later?: string };
+  /** Their whole email conversation with you, both directions (lib/mailLedger.ts; api/server/conversation). */
+  mail?: import("./mailLedger").MailLedger;
+  /**
+   * "Resolve" on Things to think about (owner, 2026-11-22: "already thanked", "only messaged him to farm contacts"):
+   * nothing to do with them until they write again after `at`. Kept out of the page and the 9 PM text.
+   */
+  resolved?: { at: string; note: string };
+  /** The AI's read of whether they need anything from you (lib/thinkAbout.ts#hiddenBy; api/think/triage). */
+  triage?: import("./thinkAbout").Triage;
   /** Conversations with them (coffee chats, calls, info sessions, emails, in person): notes / transcript and the AI's grade. */
   chats?: ChatLog[];
   /** Their row in the bank tab's Conversation table (lib/conversations.ts): one row per person, written by the app. */

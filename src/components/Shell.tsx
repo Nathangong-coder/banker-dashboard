@@ -209,6 +209,13 @@ function useSentScan(ready: boolean) {
       void import("@/lib/gmailSync").then((m) => m.scanOffSheet({ interactive: false })).catch(() => undefined);
       // Chats: thank-you emails (≤ every 3 h, inside) and the last 120 days of calendar guests (≤ every 6 h).
       void import("@/lib/gmailSync").then((m) => m.scanThankYous()).catch(() => undefined);
+      // Each engaged person's email conversation (Things to think about + the 9 PM text read from it), then the AI's
+      // noise read for anything new. Both only touch people whose conversation is due / changed.
+      void import("@/lib/ledgerSync")
+        .then((m) => m.syncLedgers({ max: 30 }))
+        .then(() => import("@/lib/triageRun"))
+        .then((m) => m.runTriage())
+        .catch(() => undefined);
       let last = 0;
       try {
         last = Number(localStorage.getItem("coverage:calChatsAt") ?? 0);

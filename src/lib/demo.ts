@@ -26,7 +26,7 @@ const PEOPLE: P[] = [
   ["Omar Haddad", "Qatalyst Partners", "SF", "Tech", "Analyst", "new"],
   ["Grace Kim", "Centerview Partners", "NY", "Generalist", "Analyst", "new"],
   ["Lucas Moreau", "Moelis & Company", "LA", "Generalist", "Associate", "sent", 3],
-  ["Aisha Patel", "Jefferies", "SF", "Tech", "Analyst", "replied", 25, { repliedAt: ago(22), lastHeardAt: ago(22), lastEmailedAt: ago(6), lastReply: { at: ago(22), messageId: "demo-m2", text: "Happy to chat! Send over a few times that work for you next week." } }],
+  ["Aisha Patel", "Jefferies", "SF", "Tech", "Analyst", "replied", 25, { repliedAt: ago(22), lastHeardAt: ago(22), lastEmailedAt: ago(6), lastReply: { at: ago(22), messageId: "demo-m2", text: "Happy to chat! Send over a few times that work for you next week." }, mail: { checkedAt: ago(0, 8), messages: [{ id: "demo-o1", threadId: "dt1", at: ago(25), dir: "out", subject: "UCLA Student Seeking to Connect", snippet: "Hi Aisha, I hope this email finds you well! My name is…" }, { id: "demo-m2", threadId: "dt1", at: ago(22), dir: "in", subject: "Re: UCLA Student Seeking to Connect", snippet: "Happy to chat! Send over a few times that work for you next week." }, { id: "demo-o2", threadId: "dt1", at: ago(6), dir: "out", subject: "Re: UCLA Student Seeking to Connect", snippet: "Hi Aisha, following up with a few times that work for me…" }], lastIn: { id: "demo-m2", at: ago(22), text: "Happy to chat! Send over a few times that work for you next week." }, lastOut: { id: "demo-o2", at: ago(6), text: "Hi Aisha,\n\nFollowing up with a few times that work for me next week: Tue 10-11 AM, Wed after 2 PM, or Thu morning PT.\n\nSincerely,\nNathan" } } }],
   ["Ryan Torres", "Lazard", "NY", "Generalist", "Vice President", "new"],
 ];
 

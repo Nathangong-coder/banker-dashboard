@@ -1,6 +1,7 @@
 import type { Contact } from "./types";
 import { DAY, latestIso } from "./util";
 import { chatDays } from "./chatEvidence";
+import { lastExchange } from "./mailLedger";
 
 /**
  * Things to think about (owner, 2026-11-21): replies you haven't answered, people who replied and then went quiet
@@ -170,7 +171,7 @@ export function reminderRows(contacts: Contact[], mine: Record<string, Reminder>
 /** Not done and due on or before `day` (YYYY-MM-DD): what the 9 PM text lists. */
 export const dueReminders = (rows: ReminderRow[], day: string) => rows.filter((r) => !r.done && r.due <= day);
 
-/* ---------------- replies you haven't answered / went quiet ---------------- */
+/* ---------------- one list for the page and the 9 PM text ---------------- */
 
 export type Age = "day" | "week" | "longer";
 /** Last day (< 2 days), this week (2–7 days), longer. */
@@ -179,71 +180,207 @@ export function ageOf(at: string, now = Date.now()): Age {
   return d < 2 ? "day" : d <= 7 ? "week" : "longer";
 }
 
+export const RANK_OF: Record<string, number> = { new: 0, drafted: 1, sent: 2, followed_up: 3, replied: 4, call_scheduled: 5, done: 6 };
+
+/** Replied, met, chatted, referred or was referred: someone in a conversation with you, not just cold outreach. */
+export const isEngaged = (c: Contact) =>
+  !!(c.repliedAt || c.lastHeardAt || c.chats?.length || c.call || c.chatEvidence?.length || c.referral || c.referredBy || c.metAt?.length || c.mail?.messages.some((m) => m.dir === "in"));
+
 /** Your last email (Gmail, else the outreach dates) or "done by hand", whichever is later. */
 export const lastFromYou = (c: Contact) => latestIso(latestIso(c.lastEmailedAt, c.lastTouchAt ?? c.sentAt), c.handledAt);
 
-const out = (c: Contact) => c.status === "ignored" || c.status === "done" || !!(c.outcome && c.outcome.kind !== "no_reply" && (c.outcome.kind !== "declined" || c.outcome.confirmed));
-
-export interface ReplyRow {
-  c: Contact;
-  /** Their latest email. */
-  at: string;
-  age: Age;
-  days: number;
-  /** Their message, when Coverage has it for this email. */
-  text?: string;
-  summary?: string;
-  /** The AI read it as a "thanks, good luck" with nothing to answer. */
-  noReplyNeeded?: boolean;
-}
-
-/** They wrote after your last email (and you haven't marked it done). Newest first. */
-export function unansweredReplies(contacts: Contact[], now = Date.now()): ReplyRow[] {
-  return contacts
-    .filter((c) => !out(c) && c.lastHeardAt && Date.parse(c.lastHeardAt) <= now)
-    .filter((c) => {
-      const mine = lastFromYou(c);
-      return !mine || c.lastHeardAt! > mine;
-    })
-    .map((c) => {
-      const at = c.lastHeardAt!;
-      // The stored text is for this email if it isn't older than it (allow a minute: Gmail vs header dates).
-      const r = c.lastReply && Date.parse(c.lastReply.at) >= Date.parse(at) - 60_000 ? c.lastReply : undefined;
-      return { c, at, age: ageOf(at, now), days: Math.floor((now - Date.parse(at)) / DAY), text: r?.text, summary: r?.summary, noReplyNeeded: !!r && r.needsReply === false && r.kind === "acknowledgement" };
-    })
-    .sort((a, b) => b.at.localeCompare(a.at));
-}
-
-export interface QuietRow {
-  c: Contact;
-  /** Their last email to you. */
-  heardAt: string;
-  /** Your last email after it. */
-  youAt: string;
-  days: number;
-  age: Age;
-  /** Chatted yet? Before a chat (scheduling stalled) the nudge is due sooner. */
-  chatted: boolean;
-  /** When to nudge them: 4 days after your email before a chat, 7 after one (or your snooze). */
-  due: string;
-}
+/** Out of the picture: done, moved on by hand / bounced / left / a confirmed no. (Moved on for no reply still counts: they may have written since.) */
+const closed = (c: Contact) =>
+  c.status === "done" || (c.status === "ignored" && c.outcome?.kind !== "no_reply") || !!(c.outcome && c.outcome.kind !== "no_reply" && (c.outcome.kind !== "declined" || c.outcome.confirmed));
 
 /** Nudge after this many days when they replied but you haven't talked yet (owner: re-follow up earlier). */
 export const QUIET_DAYS = 4;
 export const CHECK_IN_DAYS = 7;
 
-/** They replied, you answered, and they've gone quiet (no call ahead, no referral yet). Longest wait first. */
-export function wentQuiet(contacts: Contact[], now = Date.now()): QuietRow[] {
-  const rows: QuietRow[] = [];
-  for (const c of contacts) {
-    if (out(c) || !c.lastHeardAt || c.referral) continue;
-    if (c.call && Date.parse(c.call.at) > now) continue;
-    const you = lastFromYou(c);
-    if (!you || you <= c.lastHeardAt || Date.parse(you) > now) continue;
-    const chatted = chatDays(c, now).length > 0;
-    let due = Date.parse(you) + (chatted ? CHECK_IN_DAYS : QUIET_DAYS) * DAY;
-    if (c.snoozeUntil && Date.parse(c.snoozeUntil) > due) due = Date.parse(c.snoozeUntil);
-    rows.push({ c, heardAt: c.lastHeardAt, youAt: you, days: Math.floor((now - Date.parse(you)) / DAY), age: ageOf(you, now), chatted, due: new Date(due).toISOString() });
-  }
-  return rows.sort((a, b) => a.youAt.localeCompare(b.youAt));
+export type TodoKind = "thank" | "reply" | "quiet" | "check_in";
+
+/**
+ * The AI's read of one item (api/think/triage), for the message it was asked about (`key`). `kept` = you said "keep
+ * it" (it's never hidden again for that message, by the AI or a rule).
+ */
+export interface Triage {
+  key: string;
+  at: string;
+  needed: boolean;
+  reason: string;
+  why: string;
+  confidence: number;
+  /** Their last email asks you something / proposes times. */
+  asks?: boolean;
+  kept?: boolean;
 }
+
+/** Reasons the AI (or a rule) may hide an item for. Anything else stays listed. */
+export const HIDEABLE = new Set(["already_thanked", "conversation_closed", "referral_done", "acknowledgement_only", "not_networking", "handled_elsewhere"]);
+export const REASON_LABEL: Record<string, string> = {
+  already_thanked: "Already thanked",
+  conversation_closed: "Conversation wrapped up",
+  referral_done: "They already referred you",
+  acknowledgement_only: "Just a thanks / good luck",
+  not_networking: "Not a networking contact",
+  handled_elsewhere: "Handled another way",
+};
+/** The AI must be at least this sure to hide something. */
+export const HIDE_CONFIDENCE = 0.8;
+
+/** Times, availability, a call / resume / application / referral: never hidden, whatever the AI says. */
+const SIGNAL =
+  /\b(availability|available|times? (that )?work|what times?|free (on|this|next)|calendar invite|zoom|teams link|phone number|call (you|me)|hop on|grab (a )?(call|coffee)|(mon|tues|wednes|thurs|fri)day|tomorrow|next week|\d{1,2}(:\d{2})?\s?(am|pm)|resume|application|apply|superday|interview|referr\w*|recruiter|introduc\w*|connect you|forward(ed)?)\b/i;
+/** One filler sentence: thanks / you're welcome / good luck / a sign-off / a name. */
+const ACK_SENTENCE =
+  /^((hi|hey|hello)( \w+)?|(many |again )?(thanks|thank you)( so much| again| for reaching out| for the note| for the kind words| for your note| for the update)?|you'?re (very )?welcome|no problem|no worries|of course|my pleasure|anytime|likewise|cheers|best|regards|best regards|all the best|(great|nice|good) (chatting|talking|speaking|meeting|connecting)( with you)?|(good|best of) luck( with (everything|recruiting|the process))?|glad (i could|to) help|happy to help|take care)( [a-z]+)?$/i;
+/** Their whole email is filler, with no question: nothing to answer. */
+export function isAckOnly(text: string) {
+  const t = text.trim();
+  if (!t || t.length > 300 || /\?/.test(t)) return false;
+  // Pieces between punctuation: each must be filler, maybe with a name after it ("Thanks Nathan"), or just a name.
+  const parts = t.split(/[.!,;]+\s*|\n+/).map((s) => s.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every((s) => ACK_SENTENCE.test(s) || /^[A-Z][a-z]{1,14}$/.test(s));
+}
+
+export interface TodoRow {
+  c: Contact;
+  kind: TodoKind;
+  /** What it hangs on: the call (thank), their email (reply), your email (quiet / check-in). */
+  at: string;
+  /** When it's due (thank / reply: now). */
+  due: string;
+  age: Age;
+  days: number;
+  /** Identifies the item for the AI's verdict and "keep it": a new email makes a new item. */
+  key: string;
+  /** Their last email's text, when we have it. */
+  text?: string;
+  summary?: string;
+  /** One line: why it's listed. */
+  why: string;
+  chatted: boolean;
+  /** Hidden, and why (shown under "Filtered out" with a way back). */
+  hidden?: { by: "ai" | "rule"; reason: string; why: string };
+}
+
+
+/** People who referred you to someone: their `referral`, someone else's `referredBy`, or an intro / referral found in their email. */
+export function referrers(contacts: Contact[]) {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const c of contacts) {
+    if (c.referral || c.signals?.some((s) => (s.kind === "intro" || s.kind === "referral") && s.status !== "dismissed")) ids.add(c.id);
+    if (c.referredBy?.contactId) ids.add(c.referredBy.contactId);
+    else if (c.referredBy?.name) names.add(c.referredBy.name.toLowerCase());
+  }
+  return (c: Contact) => ids.has(c.id) || names.has(c.name.toLowerCase());
+}
+
+/** Their last email's own text, when we have it for that email (the conversation read, else the tracked reply). */
+function theirText(c: Contact, heard: string | undefined) {
+  if (!heard) return undefined;
+  const near = (at: string) => Date.parse(at) >= Date.parse(heard) - 60_000;
+  if (c.mail?.lastIn && near(c.mail.lastIn.at))
+    return { text: c.mail.lastIn.text, summary: c.lastReply?.messageId === c.mail.lastIn.id ? c.lastReply.summary : undefined, id: c.mail.lastIn.id };
+  if (c.lastReply && near(c.lastReply.at)) return { text: c.lastReply.text, summary: c.lastReply.summary, id: c.lastReply.messageId };
+  return undefined;
+}
+
+/**
+ * What you owe this person, if anything, as of `now`: a thank-you for a call (14 days), a reply (they wrote last), a
+ * nudge (they replied, you answered, they went quiet: 4 days before a chat, 7 after one), or nothing. Uses the email
+ * conversation (lib/mailLedger.ts) when we have it. Resolved (until they write again), referrers (for nudges), and
+ * the AI / rule filter decide `hidden`; the caller decides whether hidden rows show.
+ */
+export function todoFor(c: Contact, now: number, isReferrer: (c: Contact) => boolean = () => false): TodoRow | null {
+  if (closed(c) || c.mail?.otherPerson) return null;
+  const ex = lastExchange(c);
+  const heard = ex.heard && Date.parse(ex.heard) <= now ? ex.heard : undefined;
+  const you = ex.you;
+  const resolvedAt = c.resolved?.at;
+  // Resolved: nothing until they write after it.
+  if (resolvedAt && (!heard || heard <= resolvedAt)) return null;
+  const calls = [c.call?.at, ...(c.chats ?? []).map((x) => x.at), ...(c.chatEvidence ?? []).filter((e) => e.source === "calendar").map((e) => e.at)]
+    .filter((x): x is string => !!x && Date.parse(x) <= now)
+    .sort();
+  const lastCall = calls[calls.length - 1];
+  const chatted = !!lastCall || chatDays(c, now).length > 0;
+  const mk = (kind: TodoKind, at: string, due: string, key: string, why: string, t?: { text: string; summary?: string }): TodoRow => ({
+    c,
+    kind,
+    at,
+    due,
+    age: ageOf(at, now),
+    days: Math.max(0, Math.floor((now - Date.parse(at)) / DAY)),
+    key,
+    text: t?.text,
+    summary: t?.summary,
+    why,
+    chatted,
+  });
+  // A thank-you for a call / chat in the last 2 weeks with no email since.
+  if (lastCall && !(you && you > lastCall) && now - Date.parse(lastCall) < 14 * DAY) return mk("thank", lastCall, lastCall, `thank:${lastCall}`, `You talked ${md(lastCall)}; no email to them since.`);
+  // A call still ahead: nothing to chase.
+  if (c.call && Date.parse(c.call.at) > now) return null;
+  const t = theirText(c, heard);
+  // They wrote last. (Only a real email date counts here, not the "Replied" status.)
+  if (heard && (!you || heard > you)) {
+    const row = mk("reply", heard, heard, `reply:${t?.id ?? heard}`, `They wrote ${md(heard)}${you ? `; your last email was ${md(you)}` : ""}.`, t);
+    return withHidden(row, c, t?.text);
+  }
+  const replied = heard ?? c.repliedAt;
+  if (!replied || !you || you <= replied) return null;
+  let due = Date.parse(you) + (chatted ? CHECK_IN_DAYS : QUIET_DAYS) * DAY;
+  if (c.snoozeUntil && Date.parse(c.snoozeUntil) > due) due = Date.parse(c.snoozeUntil);
+  const kind: TodoKind = chatted ? "check_in" : "quiet";
+  const theirs = theirText(c, replied);
+  const row = mk(kind, you, new Date(due).toISOString(), `${kind}:${c.mail?.lastOut?.id ?? you}`, `They last wrote ${md(replied)}; you wrote ${md(you)} and haven't heard back.`, theirs);
+  if (c.referral || isReferrer(c)) return withHidden(row, c, row.text, { by: "rule", reason: "referral_done", why: "They already referred you to someone." });
+  return withHidden(row, c, row.text);
+}
+
+/** Never hidden: their email asks something, or has times / a call / a resume / a referral in it. */
+export function hasSignal(row: Pick<TodoRow, "kind">, text: string | undefined, asks?: boolean) {
+  if (asks) return true;
+  if (!text) return false;
+  const own = text.split(/\n\s*(best|thanks|regards|sincerely|cheers)[,!.]?\s*\n/i)[0];
+  if (row.kind === "reply" && /\?/.test(own)) return true;
+  // A stalled scheduling thread (no chat yet) is exactly what to chase.
+  if (row.kind === "quiet" || row.kind === "reply") return SIGNAL.test(own);
+  return false;
+}
+
+function withHidden(row: TodoRow, c: Contact, text: string | undefined, rule?: TodoRow["hidden"]): TodoRow {
+  const tr = c.triage?.key === row.key ? c.triage : undefined;
+  if (tr?.kept) return row;
+  if (hasSignal(row, text, tr?.asks)) return row;
+  if (rule) return { ...row, hidden: rule };
+  if (row.kind === "reply" && text && isAckOnly(text))
+    return { ...row, hidden: { by: "rule", reason: "acknowledgement_only", why: "A short thanks / good luck with nothing to answer." } };
+  if (tr && !tr.needed && tr.confidence >= HIDE_CONFIDENCE && HIDEABLE.has(tr.reason)) return { ...row, hidden: { by: "ai", reason: tr.reason, why: tr.why } };
+  return row;
+}
+
+/** Every open item (hidden ones included; filter on `hidden`). Newest first. */
+export function todoRows(contacts: Contact[], now = Date.now()): TodoRow[] {
+  const isRef = referrers(contacts);
+  return contacts
+    .map((c) => todoFor(c, now, isRef))
+    .filter((r): r is TodoRow => !!r)
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/** People you resolved who haven't written since. */
+export function resolvedPeople(contacts: Contact[]) {
+  return contacts
+    .filter((c) => {
+      if (!c.resolved) return false;
+      const { heard } = lastExchange(c);
+      return !heard || heard <= c.resolved.at;
+    })
+    .sort((a, b) => b.resolved!.at.localeCompare(a.resolved!.at));
+}
+
+/** The address on file is someone else's (by the names Gmail shows on it). */
+export const wrongAddress = (contacts: Contact[]) => contacts.filter((c) => c.mail?.otherPerson && !closed(c));
