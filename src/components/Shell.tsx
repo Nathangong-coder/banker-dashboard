@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, type ReactNode } from "react";
-import { Lightbulb, BellRing, Building2, LayoutGrid, Mail, MailCheck, Search, Settings2, Sheet, KeyRound, Loader2, Coffee, FlaskConical, Workflow, Presentation, NotebookPen, CalendarDays, FileText, BriefcaseBusiness, Wrench } from "lucide-react";
+import { KeyRound, Loader2, Settings2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useExtensionBridge } from "@/lib/applyBridge";
 import { useSaveShortcut } from "./useSaveShortcut";
@@ -12,6 +12,8 @@ import { upkeepPatches } from "@/lib/contactUpkeep";
 import { cn } from "@/lib/util";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
+import { AppNavBar, MobileMenu } from "./AppNav";
+import { GlobalSearch } from "./GlobalSearch";
 import { ConsentBanner } from "./Consent";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 import { sendWhatsAppDigest, textTime, whatsappDigest } from "@/lib/reminders";
@@ -31,52 +33,6 @@ setSignatureLogoSource(savedSignatureLogo);
 const PUBLIC_PATHS = ["/privacy", "/terms", "/capture", "/agent-practice", "/welcome", "/extension", "/extension/privacy", "/extension/support"];
 /** Pages with their own chrome (the landing page): no app header or sidebar. */
 const BARE_PATHS = ["/welcome", "/extension", "/extension/privacy", "/extension/support"];
-
-/**
- * Two-level navigation (owner, 2026-10-19): the top bar picks a group, the sidebar lists that group's pages. The group
- * follows the current page, so a deep link lands with the right sidebar.
- */
-const GROUPS = [
-  {
-    label: "Overview",
-    pages: [
-      { href: "/", label: "Dashboard", icon: LayoutGrid },
-      { href: "/process", label: "Process tracker", icon: Workflow },
-      { href: "/coverage", label: "Bank coverage", icon: Building2 },
-      { href: "/corrections", label: "Corrections", icon: Wrench },
-      { href: "/sheet", label: "Spreadsheet", icon: Sheet },
-    ],
-  },
-  {
-    label: "Outreach",
-    pages: [
-      { href: "/find", label: "Find people", icon: Search },
-      { href: "/drafts", label: "Email drafts", icon: Mail },
-      { href: "/tracking", label: "Email tracking", icon: MailCheck },
-      { href: "/templates", label: "Templates", icon: FileText },
-      { href: "/lab", label: "Email lab", icon: FlaskConical },
-    ],
-  },
-  {
-    label: "Applications",
-    pages: [{ href: "/applications", label: "Applications", icon: BriefcaseBusiness }],
-  },
-  {
-    label: "Prep & reminders",
-    pages: [
-      { href: "/think", label: "Things to think about", icon: Lightbulb },
-      { href: "/calendar", label: "Calendar", icon: CalendarDays },
-      { href: "/followups", label: "Follow-ups", icon: BellRing },
-      { href: "/prep", label: "Coffee chat prep", icon: Coffee },
-      { href: "/log", label: "Activity log", icon: NotebookPen },
-      { href: "/info-sessions", label: "Info sessions", icon: Presentation },
-    ],
-  },
-  { label: "Settings", pages: [{ href: "/settings", label: "Settings", icon: Settings2 }] },
-];
-
-const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path.startsWith(href));
-const groupOf = (path: string) => GROUPS.find((g) => g.pages.some((p) => isActive(p.href, path))) ?? GROUPS[0];
 
 /**
  * Edits made in Excel while the dashboard is open (Referral? ticked, a status changed) are read back when you come
@@ -350,7 +306,6 @@ export function Shell({ children }: { children: ReactNode }) {
     !!googleClientId(settings),
   ].filter(Boolean).length;
 
-  const group = groupOf(path);
   const toReview = useStore((s) => s.infoSessions.reduce((n, x) => n + (x.pending?.length ?? 0), 0));
   const badge = (href: string) => (href === "/followups" ? due : href === "/info-sessions" ? toReview : 0);
 
@@ -363,37 +318,33 @@ export function Shell({ children }: { children: ReactNode }) {
       </>
     );
 
+  const footerLinks = (
+    <div className="flex gap-3 text-[12px] text-muted">
+      <Link href="/privacy" className="hover:text-ink">
+        Privacy
+      </Link>
+      <Link href="/terms" className="hover:text-ink">
+        Terms
+      </Link>
+    </div>
+  );
+
+  // docs/DESIGN.md G-1 (global header: navy, 48 px, logo, search, utilities) + G-2 (white navigation bar of tabs).
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center border-b border-top-line bg-top text-top-ink">
-        <Link href="/" className="flex h-full shrink-0 items-center gap-2.5 px-4 md:w-[232px] md:px-5">
-          <Logo size={28} />
-          <span className="hidden text-[16px] font-medium tracking-tight sm:inline">Coverage</span>
+      <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 bg-top pr-2 text-top-ink md:gap-3 md:px-3">
+        <MobileMenu path={path} badge={badge} footer={<div className="space-y-3">{ready && <GmailSyncWidget />}{footerLinks}</div>} />
+        <Link href="/" className="flex shrink-0 items-center gap-2">
+          <Logo size={26} />
+          <span className="hidden text-[15px] font-semibold tracking-tight sm:inline">Coverage</span>
         </Link>
-        <nav className="flex h-full min-w-0 flex-1 overflow-x-auto" aria-label="Sections">
-          {GROUPS.filter((g) => g.label !== "Settings").map((g) => {
-            const on = g === group;
-            return (
-              <Link
-                key={g.label}
-                href={g.pages[0].href}
-                aria-current={on ? "true" : undefined}
-                className={cn(
-                  "relative flex h-full shrink-0 items-center px-3 text-[13.5px] font-medium whitespace-nowrap transition-colors md:px-4",
-                  on ? "text-top-ink" : "text-top-muted hover:text-top-ink",
-                )}
-              >
-                {g.label}
-                {on && <span className="absolute inset-x-3 bottom-0 h-[3px] rounded-t bg-brass md:inset-x-4" />}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="flex shrink-0 items-center gap-1 pr-3 md:pr-4">
+        <div className="flex min-w-0 flex-1 justify-center">{ready && !isPublic && <GlobalSearch className="w-full max-w-[480px]" />}</div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {ready && <GmailSyncWidget variant="header" />}
           <Link
             href="/settings?tab=data"
             title={`${keyCount}/4 services connected`}
-            className="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-top-muted hover:text-top-ink lg:flex"
+            className="hidden h-8 items-center gap-1.5 rounded px-2 text-[12px] text-top-muted hover:bg-top-ink/10 hover:text-top-ink xl:flex"
           >
             <KeyRound className="size-3.5" />
             {keyCount}/4
@@ -403,86 +354,36 @@ export function Shell({ children }: { children: ReactNode }) {
             href="/settings"
             aria-label="Settings"
             title="Settings"
-            className={cn("grid size-9 place-items-center rounded-lg transition-colors hover:bg-top-ink/10", group.label === "Settings" ? "text-top-ink" : "text-top-muted")}
+            className={cn("grid size-9 place-items-center rounded transition-colors hover:bg-top-ink/10", path.startsWith("/settings") ? "text-top-ink" : "text-top-muted")}
           >
             <Settings2 className="size-[18px]" />
           </Link>
           <AccountMenu />
         </div>
       </header>
+      <AppNavBar path={path} badge={badge} />
       {booted && !isPublic && mode === "demo" && <DemoBar />}
       {booted && !isPublic && mode === "legacy" && <LegacyBar />}
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-[232px] shrink-0 flex-col overflow-y-auto border-r border-top-line bg-side px-2.5 py-4 text-side-ink md:flex">
-          <div className="px-3 pb-2.5 text-[11px] font-medium tracking-[0.08em] text-side-muted uppercase">{group.label}</div>
-          <nav className="flex flex-col gap-0.5">
-            {group.pages.map(({ href, label, icon: Icon }) => {
-              const active = isActive(href, path);
-              const n = badge(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-colors",
-                    active ? "bg-side-active" : "hover:bg-side-hover",
-                  )}
-                >
-                  {active && <span className="absolute top-2 bottom-2 -left-2.5 w-[3px] rounded-r bg-side-mark" />}
-                  <Icon className={cn("size-[18px] shrink-0", active ? "opacity-100" : "opacity-75")} />
-                  <span className="flex-1">{label}</span>
-                  {n > 0 && <span className="num rounded-full bg-brass-strong px-1.5 text-[11px] font-medium text-white">{n}</span>}
-                </Link>
-              );
-            })}
-          </nav>
-          <div className="mt-auto pt-4">
-            {ready && <GmailSyncWidget />}
-            <div className="flex gap-3 px-3 pt-1 text-[11px] text-side-muted">
-              <Link href="/privacy" className="hover:text-side-ink">
-                Privacy
-              </Link>
-              <Link href="/terms" className="hover:text-side-ink">
-                Terms
-              </Link>
-            </div>
-          </div>
-        </aside>
-
-        {/* Phones: the group's pages as a strip under the top bar. */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <nav className="flex gap-1 overflow-x-auto border-b border-line bg-panel px-3 py-2 md:hidden" aria-label={group.label}>
-            {group.pages.map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                className={cn("shrink-0 rounded-full px-3 py-1.5 text-[12.5px] font-medium whitespace-nowrap", isActive(href, path) ? "bg-navy text-white" : "text-ink-2 hover:bg-hover")}
-              >
-                {label}
-                {badge(href) > 0 && <span className="num ml-1.5 opacity-80">{badge(href)}</span>}
-              </Link>
-            ))}
-          </nav>
-      <main className="min-w-0 flex-1 px-4 pt-6 pb-16 md:px-9 md:pt-7 md:pb-10">
+      <main className="min-w-0 flex-1 px-4 pt-3 pb-16 md:px-3 md:pb-6">
         {/* Legal pages and the 404 don't need the store: render them straight away (crawlers and Google's reviewers read them). */}
         {isPublic ? (
-          <div className="mx-auto max-w-[1320px]">{children}</div>
+          <div className="mx-auto max-w-[1440px]">{children}</div>
         ) : move ? (
           <MoveData legacy={move.legacy} onDone={finishMove} />
         ) : booted && mode === "blocked" ? (
           <SignInScreen />
         ) : ready ? (
-          <div className="mx-auto max-w-[1320px]">{children}</div>
+          <div className="mx-auto max-w-[1440px]">{children}</div>
         ) : (
           <div className="flex h-[60vh] items-center justify-center text-muted">
             <Loader2 className="size-5 animate-spin" />
           </div>
         )}
       </main>
-        </div>
-      </div>
+      <footer className="hidden px-3 pb-3 md:block">
+        <div className="mx-auto max-w-[1440px]">{footerLinks}</div>
+      </footer>
       <Toaster />
       <SignInNeededModal />
       <ConsentBanner />

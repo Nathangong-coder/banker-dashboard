@@ -362,7 +362,7 @@ function JobsTab({ onTab }: { onTab: (t: Tab) => void }) {
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="kpi-strip">
         <Kpi label="To apply" value={counts.open} sub={counts.soon ? `${counts.soon} due within a week` : "no deadlines this week"} tone={counts.soon ? "bad" : undefined} />
         <Kpi label="Applied" value={counts.submitted} sub={`${counts.confirmed} Off. applied · ${counts.submitted - counts.confirmed} pending`} />
         <Kpi label="Interviewing / offers" value={counts.interview} tone={counts.interview ? "good" : undefined} />

@@ -3,7 +3,7 @@
 import { addSmartMention } from "@/lib/mentionDrafts";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bell, CalendarClock, CalendarPlus, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Smartphone, Trash2, UserPlus, UserX, X } from "lucide-react";
+import { Bell, BellRing, CalendarClock, CalendarPlus, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Smartphone, Trash2, UserPlus, UserX, X } from "lucide-react";
 import { bankKey, useStore } from "@/lib/store";
 import { isVpPlus } from "@/lib/seniority";
 import { nextAction, pendingFollowUpDraft, rollupBanks, sendLabel, type BankRollup, type NextAction } from "@/lib/followups";
@@ -19,7 +19,8 @@ import { officeGapItems, officeGaps } from "@/lib/officeGaps";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Menu, Modal, PageHeader, Progress, Segmented, Select, StatusBadge, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Menu, Modal, Progress, Segmented, Select, StatusBadge, toast } from "@/components/ui";
+import { ObjectHeader, Tabs } from "@/components/crm";
 import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
@@ -75,10 +76,12 @@ export default function FollowupsPage() {
 
   return (
     <>
-      <PageHeader
+      <ObjectHeader
+        icon={<BellRing className="size-5" />}
+        eyebrow="Queue"
         title="Follow-ups"
-        sub={`Follow up ${s.settings.followUp.firstAfterDays} days after the first email, up to ${s.settings.followUp.maxFollowUps} times, then move on.`}
-        right={
+        meta={`Follow up ${s.settings.followUp.firstAfterDays} days after the first email, up to ${s.settings.followUp.maxFollowUps} times, then move on.`}
+        actions={
           <>
             <SendModeMenu onAuto={() => setTab("reminders")} />
             {sync ? (
@@ -94,15 +97,15 @@ export default function FollowupsPage() {
         }
       />
 
-      <Segmented
-        className="mb-5"
+      <Tabs
+        className="my-3"
         value={tab}
         onChange={setTab}
-        options={[
-          ["due", "Queue"],
-          ["bankers", "By banker"],
-          ["banks", "By bank"],
-          ["reminders", "Reminders & alerts"],
+        tabs={[
+          { id: "due", label: "Queue" },
+          { id: "bankers", label: "By banker" },
+          { id: "banks", label: "By bank" },
+          { id: "reminders", label: "Reminders & alerts" },
         ]}
       />
 
@@ -689,7 +692,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
       </div>
 
       {selected.length > 0 && (
-        <div className="sticky top-16 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-brass-strong/40 bg-panel px-4 py-2 shadow-[0_6px_20px_rgba(15,23,42,0.10)]">
+        <div className="sticky top-14 md:top-[92px] z-20 flex flex-wrap items-center gap-2 rounded-xl border border-brass-strong/40 bg-panel px-4 py-2 shadow-[0_6px_20px_rgba(15,23,42,0.10)]">
           <span className="text-[13px] font-medium">{selected.length} selected</span>
           <span className="hidden text-[12px] text-muted sm:inline">List buttons use only these.</span>
           <div className="flex-1" />

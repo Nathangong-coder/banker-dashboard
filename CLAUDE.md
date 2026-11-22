@@ -402,6 +402,35 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   `coverage:lastView`), Edit view panel, Display as grid / list (the old offices-to-fill list). Clicking a bank opens
   A's row: why ranked (urgency parts), next steps, people with team + source (`teamSourceLabel`) and Confirm /
   Change (writes the Team cell, `teamSource: "manual"`). Analytics and the plan moved to the header's ⋯ menu.
+## CRM shell + record pages; chats reconciled (owner, 2026-11-22; docs/DESIGN.md §11 status, `check:night`)
+
+- **Shell (G-1/G-2):** Shell.tsx = navy 48 px header (logo, `GlobalSearch`, Gmail sync, keys, sync badge, settings,
+  account) + `AppNav.tsx#AppNavBar` (white tab bar: Home, Things to think about, Follow-ups, Bank coverage, Process,
+  Outreach ▾, Prep ▾, Applications, More ▾; badges per page) + `MobileMenu` under 768 px. The sidebar / group switcher
+  are gone; Privacy / Terms sit in a footer. Sticky things below the header use `top-14 md:top-[92px]`.
+- **Primitives restyled in place** (`ui.tsx`), so every page moved at once: 4 px buttons / inputs, 8 px cards, PageHeader
+  = one white header bar, Segmented = underline tabs, `Kpi` = a pair inside `.kpi-strip` (globals.css; one highlights
+  bar). New in `crm.tsx`: `RecordHeader`, `Path`, `Tabs`, `RelatedCard`, `Timeline`, `QueueGroup`. Body text 13 px.
+- **Record pages:** `/person?id=<contact id>` (About · Activity timeline from `contact.mail` / dates · Chats with
+  sources and yes / no · History · bank colleagues · referrals) and `/bank?key=<canonBank>` (highlights, Process steps
+  as a clickable Path → `moveToColumn`, `BankDetail`, chats per person). Names link there from search, Bank coverage,
+  People (ContactsTable), Things to think about.
+- **Chats (owner: "UBS with Joe Romagnoli is only 1 — idk how you found 3"; "make sure [calendar and email]
+  reconcile — if they don't and you're uncertain, escalate"):** `chatEvidence.ts#chatRecords` groups evidence per
+  meeting (anchors ≤2 days apart = one; a sheet row / thank-you joins the meeting ≤7 days before it) and states:
+  confirmed (logged / you said yes / calendar + thank-you or sheet agree), likely (calendar ≤3 days, thank-you not yet;
+  counted), check (one source only: NOT counted, listed on /think → "Chats to confirm", the bank page and the 9 PM text
+  `LABELS.confirmChat`), rejected (`contact.chatVerdicts[day] = "no"`). Only coffee chat / call / in person log kinds
+  count (an "email" / "info session" entry used to). Causes fixed: Gmail's thank-you search matched asks ("would you
+  have time to chat?", "looking forward to our call") and quoted text, so every later email in a thread was another
+  chat → `api/server/sent` (kind thanks) now reads each message's own text (`isThankYouText`, format=full, nothing
+  stored), one per thread (`ref: t:<threadId>`); old thank-you evidence is dropped and 180 days re-read once
+  (`offSheet.thanksV` 2). Calendar evidence used to only grow: `backfillCalendarChats` now rebuilds the last 120 days
+  (deleted / moved events and guests who declined drop out; `google.ts` filters declined guests; a `call` whose event
+  is gone comes off).
+- **Bank "What to do here":** `bankWork` mapped every relationship label but reply / check-in to "Send a thank-you",
+  so someone who went quiet showed as a thank-you; quiet → "Nudge / check in".
+
 ## 9 PM text, firms, transcripts (2026-10-19)
 
 - **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's

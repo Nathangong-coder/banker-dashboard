@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { Check, ExternalLink, Plus, Search, Trash2, X } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -224,7 +225,9 @@ export function ContactsTable({
                   </td>
                   <td className="px-2 py-2">
                     <div className="flex items-center gap-1.5 font-medium">
-                      {c.name}
+                      <Link href={`/person?id=${encodeURIComponent(c.id)}`} onClick={(e) => e.stopPropagation()} className="text-brass-ink hover:underline">
+                        {c.name}
+                      </Link>
                       {c.linkedin && (
                         <a href={c.linkedin} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-muted hover:text-blue" aria-label="LinkedIn">
                           <ExternalLink className="size-3" />

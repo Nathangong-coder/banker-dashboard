@@ -252,25 +252,39 @@ const gmailDay = (t: number) => {
  * replied (or met you on the calendar) is recorded on them. At most every 3 hours; needs the server's Gmail read access.
  */
 let thanking: Promise<number> | null = null;
+const THANKS_V = 2;
 export function scanThankYous(opts: { force?: boolean } = {}) {
   if (thanking) return thanking;
   thanking = (async () => {
     const s = useStore.getState();
     if (!s.settings.server?.id) return 0;
-    const last = s.offSheet.thanksAt ? Date.parse(s.offSheet.thanksAt) : 0;
-    if (!opts.force && Date.now() - last < 3 * 3600_000) return 0;
+    // Rules v2 (owner, 2026-11-22: one chat with Joe Romagnoli counted as three): only the email's own words count, one
+    // per thread. Old thank-you evidence was read with the loose rules, so it's dropped and 180 days are read again.
+    const redo = (s.offSheet.thanksV ?? 1) < THANKS_V;
+    const last = !redo && s.offSheet.thanksAt ? Date.parse(s.offSheet.thanksAt) : 0;
+    if (!opts.force && !redo && Date.now() - last < 3 * 3600_000) return 0;
     const since = last ? last - 3 * 86_400_000 : Date.now() - 180 * 86_400_000;
     const { serverCall } = await import("./serverSync");
-    const sent: { id: string; email: string; at: number }[] = [];
+    const sent: { id: string; email: string; at: number; threadId?: string }[] = [];
     let page: string | undefined;
     for (let round = 0; round < 8; round++) {
-      const r = await serverCall<{ read: boolean; recipients: { id: string; email: string; at: number }[]; next?: string | null }>("/api/server/sent", { after: gmailDay(since), page, kind: "thanks" });
+      const r = await serverCall<{ read: boolean; recipients: { id: string; email: string; at: number; threadId?: string }[]; next?: string | null }>("/api/server/sent", { after: gmailDay(since), page, kind: "thanks" });
       if (!r.read) return 0;
       sent.push(...r.recipients);
       if (r.next === null || r.next === undefined) break;
       page = r.next || undefined;
     }
     const { thanksEvidence, withEvidence } = await import("./chatEvidence");
+    if (redo)
+      useStore.getState().updateContacts(
+        useStore
+          .getState()
+          .contacts.filter((c) => c.chatEvidence?.some((e) => e.source === "thanks"))
+          .map((c) => {
+            const keep = c.chatEvidence!.filter((e) => e.source !== "thanks");
+            return { id: c.id, patch: { chatEvidence: keep.length ? keep : undefined } };
+          }),
+      );
     const st = useStore.getState();
     let n = 0;
     for (const { id, add } of thanksEvidence(sent, st.contacts)) {
@@ -280,7 +294,7 @@ export function scanThankYous(opts: { force?: boolean } = {}) {
       st.updateContact(id, { chatEvidence: ev }, { at: new Date().toISOString(), type: "note", note: `Chat counted from your thank-you email${add.length > 1 ? "s" : ""} (${add.map((a) => new Date(a.at).toLocaleDateString()).join(", ")})` });
       n++;
     }
-    st.setOffSheet({ thanksAt: new Date().toISOString() });
+    st.setOffSheet({ thanksAt: new Date().toISOString(), thanksV: THANKS_V });
     return n;
   })().finally(() => {
     thanking = null;

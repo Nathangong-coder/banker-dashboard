@@ -2,8 +2,9 @@ import { z } from "zod";
 import { HttpError, errorResponse } from "@/lib/server/http";
 import { authAccount } from "@/lib/server/accounts";
 import { accessToken, gmail } from "@/lib/server/google";
-import { parseAddrs } from "@/lib/replyTracking";
-import { THANKS_QUERY } from "@/lib/chatEvidence";
+import { parseAddrs, stripQuotedText } from "@/lib/replyTracking";
+import { THANKS_QUERY, isThankYouText } from "@/lib/chatEvidence";
+import { plainText, type RawMsg } from "@/lib/server/gmailTrack";
 
 const Body = z.object({
   /** "YYYY/MM/DD": sent mail on or after this day. */
@@ -14,7 +15,7 @@ const Body = z.object({
   kind: z.enum(["all", "thanks"]).default("all"),
 });
 
-type Meta = { id: string; threadId: string; internalDate: string; labelIds?: string[]; payload?: { headers?: { name: string; value: string }[] } };
+type Meta = RawMsg;
 
 const PER_CALL = 250;
 const BUDGET_MS = 25_000;
@@ -50,7 +51,9 @@ export async function POST(req: Request) {
         const id = ids[i++];
         let m: Meta;
         try {
-          m = await gmail<Meta>(access, `/messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Subject`);
+          // Thank-yous are judged on the email's own words (owner, 2026-11-22: Gmail's search also matched quoted text and
+          // "would you have time to chat?", so one chat with Joe Romagnoli at UBS counted as three).
+          m = await gmail<Meta>(access, b.kind === "thanks" ? `/messages/${id}?format=full` : `/messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Subject`);
         } catch (e) {
           // Gmail's per-user rate limit answers 403 / 429 "rateLimitExceeded": hand back what we have, the dashboard
           // asks for this page again (it skips messages it already has). Other errors (no access) still fail.
@@ -63,6 +66,7 @@ export async function POST(req: Request) {
         const at = Number(m.internalDate);
         // A Schedule-send email that hasn't gone out isn't one to follow up on yet.
         if (m.labelIds?.includes("SCHEDULED") || at > Date.now()) continue;
+        if (b.kind === "thanks" && !isThankYouText(stripQuotedText(plainText(m.payload)))) continue;
         const h = (n: string) => m.payload?.headers?.find((x) => x.name.toLowerCase() === n)?.value;
         const subject = (h("subject") ?? "").slice(0, 200);
         for (const r of [...parseAddrs(h("to")), ...parseAddrs(h("cc")), ...parseAddrs(h("bcc"))])

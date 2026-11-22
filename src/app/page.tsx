@@ -177,7 +177,7 @@ export default function Overview() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="kpi-strip">
         <Kpi label="Emails sent" value={stats.emails} sub={stats.thisWeek ? `+${stats.thisWeek} this week` : "None this week"} tone={stats.thisWeek ? "good" : undefined} />
         <Kpi label="Reply rate" value={stats.reached ? `${Math.round(replyRate * 100)}%` : "—"} sub={`${stats.replied} of ${stats.reached} replied`} ring={replyRate} />
         <Kpi label="Calls booked" value={stats.calls} sub={stats.upcomingCalls ? `${stats.upcomingCalls} coming up` : `${stats.referrals} referral${stats.referrals === 1 ? "" : "s"}`} />

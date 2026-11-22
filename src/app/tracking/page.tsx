@@ -131,7 +131,7 @@ function TrackingInner() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="kpi-strip">
         <Kpi label="Tracked emails sent" value={kpis.sent} sub={`${rows.length - kpis.sent} not sent yet`} />
         <Kpi label="Opened at least once" value={kpis.opened} ring={kpis.share} sub={kpis.sent ? `at least ${pct(kpis.share)}` : "nothing sent yet"} />
         <Kpi label="Replied" value={kpis.replied} sub={kpis.sent ? `${pct(kpis.replied / kpis.sent)} of tracked` : "–"} tone={kpis.replied ? "good" : undefined} />

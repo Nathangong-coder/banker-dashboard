@@ -231,3 +231,12 @@ buttons and links, color never the only signal (progress also has the cell's not
    `Path`, `Card` header (K-1), button variants (B-1), underline `Tabs` (B-2). Retire `Kpi` rows on list pages.
 3. **Shell:** global header + app navigation bar (G-1, G-2).
 4. **Pages**, one per commit, starting with Bank coverage, then Things to think about, Follow-ups, People.
+
+**Status (2026-11-22):** 1–3 done. Shell = `components/AppNav.tsx` (G-2 tabs + phone menu) + `GlobalSearch.tsx` (G-1:
+people, banks, pages; "/" focuses). Primitives restyled in place (`ui.tsx`: Button B-1, Card K-1, PageHeader = a header
+bar, Segmented = underline tabs B-2, Badge B-3, inputs F-1, menus / modals shadow-3; `Kpi` = a label-over-value pair
+inside one `.kpi-strip` highlights bar, never tiles) and added in `crm.tsx` (`RecordHeader`, `Path`, `Tabs`,
+`RelatedCard`, `Timeline`, `QueueGroup`). Pages: Bank coverage (L-1), Things to think about + Follow-ups (L-3
+headers + tabs), new record pages `/person?id=` (L-2 people variant) and `/bank?key=` (L-2 with the Process steps as
+the Path). Still to do: a shared `DataTable` (D-1) and moving the remaining list pages (Applications, Info sessions,
+Activity log, Drafts, Find people) onto `ObjectHeader` + saved views.

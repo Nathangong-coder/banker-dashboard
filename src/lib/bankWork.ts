@@ -89,7 +89,16 @@ export function bankWork(args: {
   for (const c of active) {
     const rel = relationshipItem(c, today, endOfToday);
     if (rel) {
-      const k: TodoKind = rel.label === LABELS.replyOwed ? "reply" : rel.label === LABELS.checkIn ? "check_in" : "thank";
+      // Only real thank-yous are "thank" (owner, 2026-11-22: someone who went quiet showed as "Send a thank-you").
+      const k: TodoKind | null =
+        rel.label === LABELS.replyOwed
+          ? "reply"
+          : rel.label === LABELS.checkIn || rel.label === LABELS.quiet
+            ? "check_in"
+            : rel.label === LABELS.thankToday || rel.label === LABELS.thankOwed || rel.label === LABELS.infoSession
+              ? "thank"
+              : null;
+      if (!k) continue;
       buckets[k].push(c);
       continue;
     }
@@ -121,7 +130,7 @@ export function bankWork(args: {
   if (list.confirm.length) add("confirm", `Confirm an intro from ${firstNames(list.confirm)}`, list.confirm, "/followups");
   if (list.follow_up.length) add("follow_up", `Follow up with ${firstNames(list.follow_up)}`, list.follow_up, "/followups");
   if (list.send.length) add("send", `Send ${list.send.length} draft${list.send.length > 1 ? "s" : ""} (${firstNames(list.send)})`, list.send, `/drafts?bank=${enc(name)}&status=drafted`);
-  if (list.check_in.length) add("check_in", `Check in with ${firstNames(list.check_in)}`, list.check_in, "/followups");
+  if (list.check_in.length) add("check_in", `Nudge / check in with ${firstNames(list.check_in)}`, list.check_in, "/think?tab=quiet");
   if (list.move_on.length) add("move_on", `Move on from ${firstNames(list.move_on)}?`, list.move_on, "/followups");
 
   // Suggestions: the next person with an open slot on their desk (cap per desk), else emails to find, else people.

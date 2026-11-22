@@ -328,6 +328,9 @@ function BankRowDetail({ v, rank, cells }: { v: BankView; rank: number; cells: G
           </ul>
         )}
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+          <Link href={`/bank?key=${enc(v.r.key)}`} className="font-medium text-brass-ink hover:underline">
+            Open bank page
+          </Link>
           <Link href={`/drafts?bank=${enc(v.r.name)}`} className="font-medium text-brass-ink hover:underline">
             Draft emails here
           </Link>
@@ -356,7 +359,10 @@ function PersonRow({ c }: { c: Contact }) {
   return (
     <li className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)] items-baseline gap-3 py-1.5 text-[13px]">
       <span className="min-w-0 truncate">
-        <span className="font-medium text-ink">{c.name}</span> <span className="text-muted">{c.position}</span>
+        <Link href={`/person?id=${encodeURIComponent(c.id)}`} className="font-medium text-brass-ink hover:underline">
+          {c.name}
+        </Link>{" "}
+        <span className="text-muted">{c.position}</span>
       </span>
       <span className="min-w-0">
         {changing ? (

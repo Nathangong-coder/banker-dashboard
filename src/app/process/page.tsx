@@ -380,8 +380,12 @@ function BankCard({ v, cycle, cols, open, onToggle, onDetail, onHide }: { v: Ban
       </div>
       {/* The foot: chats, emails vs. the target, the application. */}
       <div className="num mt-1.5 grid grid-cols-3 gap-px border-t border-black/10 text-center text-[11px]">
-        <span className="px-1 py-1" title="Chats had (logged, or a call that happened)">
-          <b className="block text-[13px] font-semibold">{v.health.chats}</b>chats
+        <span className="px-1 py-1" title={`Chats where your calendar and a thank-you email agree, or you logged / confirmed them${v.health.toCheck ? `. ${v.health.toCheck} more to confirm on Things to think about` : ""}`}>
+          <b className="block text-[13px] font-semibold">
+            {v.health.chats}
+            {v.health.toCheck > 0 && <span className="font-normal opacity-70">+{v.health.toCheck}?</span>}
+          </b>
+          chats
         </span>
         <span className="px-1 py-1" title={`${v.emailed} emailed of your target of ${v.target} contacts here`}>
           <b className="block text-[13px] font-semibold">

@@ -307,12 +307,44 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--app-font), system-ui, sans-serif;
-  font-size: 14px;
+  /* docs/DESIGN.md T-2: 13 px base (Cosmos font-scale-3). */
+  font-size: 13px;
 }
 
 .num {
   font-variant-numeric: tabular-nums;
 
+}
+
+/*
+ * docs/DESIGN.md V-2: page summaries are ONE highlights bar of label-over-value pairs (ui.tsx Kpi), not a row of four
+ * boxed tiles. Two per row on phones, one line from 768 px.
+ */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  margin-bottom: 12px;
+}
+.kpi-strip > :nth-child(even) {
+  border-left: 1px solid var(--line);
+}
+.kpi-strip > :nth-child(n + 3) {
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 768px) {
+  .kpi-strip {
+    display: flex;
+  }
+  .kpi-strip > * {
+    border-top: 0 !important;
+  }
+  .kpi-strip > * + * {
+    border-left: 1px solid var(--line);
+  }
 }
 
 /* Spreadsheet grid */

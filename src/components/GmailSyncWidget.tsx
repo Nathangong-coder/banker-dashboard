@@ -24,7 +24,7 @@ function ago(iso?: string) {
  * Sidebar control + background loop. Google needs one click per browser session to hand over a token;
  * after that (or after any other Gmail action this session) we re-sync quietly every 20 minutes.
  */
-export function GmailSyncWidget() {
+export function GmailSyncWidget({ variant = "panel" }: { variant?: "panel" | "header" }) {
   const settings = useStore((s) => s.settings);
   const last = useStore((s) => s.lastGmailSync);
   const clientId = googleClientId(settings);
@@ -76,6 +76,20 @@ export function GmailSyncWidget() {
       setBusy(false);
     }
   };
+
+  if (variant === "header")
+    return (
+      <button
+        onClick={run}
+        disabled={busy}
+        aria-label={connected ? `Gmail auto-sync on, synced ${ago(last)}. Sync now` : "Connect Gmail sync"}
+        title={connected ? `Gmail auto-sync on · synced ${ago(last)}. Click to sync now.` : "Connect once per session to auto-sync sent dates, follow-ups and replies"}
+        className="hidden h-8 items-center gap-1.5 rounded px-2 text-[12px] text-top-muted hover:bg-top-ink/10 hover:text-top-ink disabled:opacity-70 lg:flex"
+      >
+        {busy ? <Loader2 className="size-3.5 animate-spin" /> : connected ? <RefreshCw className="size-3.5" /> : <Mail className="size-3.5" />}
+        {busy ? "Syncing…" : connected ? `Gmail · ${ago(last)}` : "Connect Gmail"}
+      </button>
+    );
 
   return (
     <button

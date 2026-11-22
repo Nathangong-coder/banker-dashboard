@@ -23,12 +23,12 @@ export function Button({
       {...rest}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass-strong whitespace-nowrap",
-        size === "sm" ? "h-7 px-2.5 text-[12.5px]" : "h-9 px-3.5 text-[13.5px]",
+        "inline-flex items-center justify-center gap-1.5 rounded font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass-strong whitespace-nowrap",
+        size === "sm" ? "h-7 px-2.5 text-[12px]" : "h-8 px-3 text-[13px]",
         // primary = the filled accent (one per view); brass = the accent outline next to it; secondary = neutral.
         variant === "primary" && "bg-brass-strong text-white hover:bg-brass-hover",
         variant === "brass" && "border border-brass-strong bg-panel text-brass-ink hover:bg-brass-soft",
-        variant === "secondary" && "border border-line-2 bg-panel text-ink hover:border-muted/60 hover:bg-subtle",
+        variant === "secondary" && "border border-line-2 bg-panel text-brass-ink hover:bg-hover",
         variant === "ghost" && "text-ink-2 hover:bg-hover",
         variant === "danger" && "border border-red/30 bg-panel text-red hover:bg-red-soft",
         className,
@@ -42,7 +42,7 @@ export function Button({
 
 export function Card({ className, children, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div {...rest} className={cn("rounded-xl border border-line bg-panel", className)}>
+    <div {...rest} className={cn("rounded-lg border border-line bg-panel shadow-[0_1px_2px_rgba(0,0,0,0.06)]", className)}>
       {children}
     </div>
   );
@@ -50,10 +50,10 @@ export function Card({ className, children, ...rest }: React.HTMLAttributes<HTML
 
 export function CardHeader({ title, sub, right }: { title: ReactNode; sub?: ReactNode; right?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-line px-5 py-3.5">
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-line px-4 py-3">
       <div className="min-w-0 flex-1 basis-[220px]">
-        <h3 className="text-[14.5px] font-medium text-ink">{title}</h3>
-        {sub && <p className="mt-0.5 text-[12.5px] text-muted">{sub}</p>}
+        <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
+        {sub && <p className="mt-0.5 text-[12px] text-muted">{sub}</p>}
       </div>
       {/* On phones the actions wrap under the title instead of pushing the card wider than the screen. */}
       {right && <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2 md:shrink-0 [&>*]:max-w-full [&>*]:min-w-0">{right}</div>}
@@ -63,10 +63,10 @@ export function CardHeader({ title, sub, right }: { title: ReactNode; sub?: Reac
 
 export function PageHeader({ title, sub, right }: { title: string; sub?: ReactNode; right?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="text-[26px] leading-tight font-medium tracking-tight text-ink">{title}</h1>
-        {sub && <p className="mt-1 max-w-2xl text-[13.5px] text-muted">{sub}</p>}
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-panel px-4 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.06)]">
+      <div className="min-w-0">
+        <h1 className="text-[18px] leading-tight font-bold text-ink">{title}</h1>
+        {sub && <p className="mt-0.5 max-w-3xl text-[12px] text-muted">{sub}</p>}
       </div>
       {right && <div className="flex flex-wrap items-center gap-2">{right}</div>}
     </div>
@@ -78,7 +78,7 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
     <input
       {...rest}
       className={cn(
-        "h-9 w-full rounded-lg border border-line-2 bg-panel px-2.5 text-[13.5px] text-ink placeholder:text-muted/70 focus:border-brass-strong focus:outline-none focus:ring-2 focus:ring-brass/15",
+        "h-8 w-full rounded border border-line-2 bg-panel px-2.5 text-[13px] text-ink placeholder:text-muted/70 focus:border-brass-strong focus:outline-none focus:ring-2 focus:ring-brass-strong/30",
         className,
       )}
     />
@@ -90,7 +90,7 @@ export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLText
     <textarea
       {...rest}
       className={cn(
-        "w-full rounded-lg border border-line-2 bg-panel px-2.5 py-2 text-[13.5px] leading-relaxed text-ink placeholder:text-muted/70 focus:border-brass-strong focus:outline-none focus:ring-2 focus:ring-brass/15",
+        "w-full rounded border border-line-2 bg-panel px-2.5 py-2 text-[13px] leading-relaxed text-ink placeholder:text-muted/70 focus:border-brass-strong focus:outline-none focus:ring-2 focus:ring-brass-strong/30",
         className,
       )}
     />
@@ -102,7 +102,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
     <select
       {...rest}
       className={cn(
-        "h-9 max-w-full min-w-0 rounded-lg border border-line-2 bg-panel px-2 text-[13px] text-ink focus:border-brass-strong focus:outline-none",
+        "h-8 max-w-full min-w-0 rounded border border-line-2 bg-panel px-2 text-[13px] text-ink focus:border-brass-strong focus:outline-none",
         className,
       )}
     >
@@ -114,7 +114,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
 export function Field({ label, hint, error, children }: { label: string; hint?: ReactNode; error?: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[12px] font-medium text-ink-2">{label}</span>
+      <span className="mb-1 block text-[12px] text-muted">{label}</span>
       {children}
       {error ? (
         <span role="alert" className="mt-1 block text-[11.5px] text-red">
@@ -132,7 +132,7 @@ export function Badge({ tone = "neutral", children, className }: { tone?: Tone; 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap",
+        "inline-flex items-center gap-1 rounded px-1.5 py-px text-[12px] font-medium whitespace-nowrap",
         tone === "neutral" && "bg-hover text-ink-2",
         tone === "green" && "bg-green-soft text-green",
         tone === "red" && "bg-red-soft text-red",
@@ -218,15 +218,15 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
         aria-modal
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className={cn("w-full rounded-2xl border border-line bg-panel shadow-xl", wide ? "max-w-4xl" : "max-w-lg")}
+        className={cn("w-full rounded-lg border border-line bg-panel shadow-[0_0_7px_rgba(0,0,0,0.14),0_5px_5px_rgba(0,0,0,0.14)]", wide ? "max-w-4xl" : "max-w-lg")}
       >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-          <h2 className="text-[15px] font-semibold">{title}</h2>
+        <div className="flex items-center justify-between border-b border-line px-4 py-3">
+          <h2 className="text-[16px] font-semibold">{title}</h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-hover" aria-label="Close">
             <X className="size-4" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="p-4">{children}</div>
       </div>
     </div>
   );
@@ -244,7 +244,7 @@ export function Checkbox({ checked, onChange, label }: { checked: boolean; onCha
   );
 }
 
-/** A pill switch between a few views ("All | Upcoming | Past"). */
+/** Underline tabs between a few views ("All | Upcoming | Past"), docs/DESIGN.md B-2 (was a pill bar). */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -257,7 +257,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="tablist" className={cn("inline-flex max-w-full overflow-x-auto rounded-lg bg-hover p-[3px]", className)}>
+    <div role="tablist" className={cn("inline-flex max-w-full overflow-x-auto overflow-y-hidden border-b border-line [scrollbar-width:none]", className)}>
       {options.map(([v, label]) => (
         <button
           key={v}
@@ -266,8 +266,8 @@ export function Segmented<T extends string>({
           aria-selected={value === v}
           onClick={() => onChange(v)}
           className={cn(
-            "rounded-md px-3 py-1 text-[12.5px] font-medium whitespace-nowrap transition-colors",
-            value === v ? "bg-panel text-ink shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2 hover:text-ink",
+            "-mb-px h-8 border-b-[3px] px-3 text-[13px] whitespace-nowrap transition-colors",
+            value === v ? "border-brass-strong font-semibold text-ink" : "border-transparent text-ink-2 hover:border-line-2 hover:text-ink",
           )}
         >
           {label}
@@ -326,7 +326,7 @@ export function Menu({
         <div
           role="menu"
           className={cn(
-            "absolute z-40 w-[290px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-panel p-1.5 shadow-[0_12px_32px_rgba(15,23,42,0.14)]",
+            "absolute z-40 w-[290px] max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-panel py-1 shadow-[0_0_7px_rgba(0,0,0,0.14),0_5px_5px_rgba(0,0,0,0.14)]",
             align === "right" ? "right-0" : "left-0",
             up ? "bottom-full mb-1.5" : "top-full mt-1.5",
           )}
@@ -345,7 +345,7 @@ export function Menu({
                   it.onClick();
                 }}
                 className={cn(
-                  "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
+                  "flex w-full items-start gap-2.5 px-3 py-2 text-left text-[13px] hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
                   it.danger ? "text-red" : "text-ink",
                 )}
               >
@@ -380,17 +380,19 @@ export function Donut({ value, size = 60, label }: { value: number; size?: numbe
   );
 }
 
-/** A KPI tile: label, big number, one line under it, optional ring on the left. */
-export function Kpi({ label, value, sub, tone, ring }: { label: string; value: ReactNode; sub?: ReactNode; tone?: "good" | "bad"; ring?: number }) {
+/**
+ * One label-over-value pair (docs/DESIGN.md V-2): pages put them inside one `.kpi-strip` (globals.css), a single
+ * highlights bar, instead of a row of four boxed tiles. `ring` is accepted for old callers and ignored.
+ */
+export function Kpi({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: "good" | "bad"; ring?: number }) {
   return (
-    <Card className="flex min-w-0 items-center gap-4 px-5 py-4">
-      {ring !== undefined && <Donut value={ring} />}
-      <div className="min-w-0">
-        <div className="text-[12.5px] text-muted">{label}</div>
-        <div className="num mt-0.5 text-[28px] leading-tight font-medium tracking-tight text-ink">{value}</div>
-        {sub && <div className={cn("mt-0.5 text-[12px]", tone === "good" ? "text-green" : tone === "bad" ? "text-red" : "text-muted")}>{sub}</div>}
+    <div className="min-w-0 flex-1 px-4 py-2">
+      <div className="truncate text-[12px] text-muted">{label}</div>
+      <div className="flex min-w-0 items-baseline gap-2">
+        <span className="num text-[18px] leading-tight font-semibold whitespace-nowrap text-ink">{value}</span>
+        {sub && <span className={cn("min-w-0 truncate text-[12px]", tone === "good" ? "text-green" : tone === "bad" ? "text-red" : "text-muted")}>{sub}</span>}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -421,7 +423,7 @@ export function Toaster() {
         <div
           key={t.id}
           className={cn(
-            "flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[13px] shadow-lg",
+            "flex items-start gap-2 rounded-lg border px-3.5 py-2.5 text-[13px] shadow-[0_0_7px_rgba(0,0,0,0.14),0_5px_5px_rgba(0,0,0,0.14)]",
             t.kind === "ok" && "border-green/20 bg-green-soft text-green",
             t.kind === "err" && "border-red/20 bg-red-soft text-red",
             t.kind === "info" && "border-line bg-panel text-ink",

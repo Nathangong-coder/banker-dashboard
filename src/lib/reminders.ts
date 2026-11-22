@@ -4,6 +4,7 @@ import type { BankMeta, Contact, Settings } from "./types";
 import { nextAction } from "./followups";
 import { LABELS, TEXT_HOUR, afterCallLines, isTextDay, isTodoLabel, nextTextDay, nightMessages, type DigestItem, type NightProgress } from "./digestFormat";
 import { referralRows } from "./referralRows";
+import { chatsToCheck } from "./chatEvidence";
 import { dueReminders, referrers, todoFor, type ReminderRow } from "./thinkAbout";
 
 export interface DayDigest {
@@ -160,6 +161,10 @@ export function nightPlan(contacts: Contact[], banks: Record<string, BankMeta>, 
       const who = r.name ? `${r.name}${r.bank ? ` (${r.bank})` : ""}` : r.bank;
       items.push({ contactId: `rem:${r.id}`, name: `${who ? `${who}: ` : ""}${r.note}`.slice(0, 120), label: LABELS.reminder });
     }
+    // Chats the calendar and your email disagree about: you say whether they happened (Things to think about → Chats to confirm).
+    for (const c of contacts)
+      for (const r of chatsToCheck(c))
+        items.push({ contactId: `chat:${c.id}:${r.day}`, name: `${c.name}${c.bank ? ` (${c.bank})` : ""}, ${new Date(`${r.day}T12:00:00`).toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}`, label: LABELS.confirmChat });
     // Emails that go out by themselves before the next text.
     const tonight = endOf(day);
     const queued = contacts.filter((c) => !QUIET_STATUSES.includes(c.status) && [c.scheduledAt, c.serverSend?.sendAt].some((t) => t && new Date(t) > tonight && new Date(t) <= horizon)).length;

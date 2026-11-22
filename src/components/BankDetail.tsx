@@ -165,7 +165,9 @@ export function BankDetail({ x }: { x: BankDetailView }) {
                   <tr key={c.id} className={cn(c.status === "ignored" && "opacity-55")}>
                     <td className="px-3 py-1.5">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-medium">{c.name}</span>
+                        <Link href={`/person?id=${encodeURIComponent(c.id)}`} className="font-medium text-brass-ink hover:underline">
+                          {c.name}
+                        </Link>
                         <KindBadge c={c} />
                       </div>
                       <div className="truncate text-[11px] text-muted">{c.position || (c.email ? c.email : "no email")}</div>

@@ -2,7 +2,7 @@ import type { Contact } from "./types";
 import { chatRating } from "./smartMention";
 import { isVpPlus } from "./seniority";
 import { gotReply, wasEmailed } from "./bankWork";
-import { chatCount } from "./chatEvidence";
+import { chatCount, chatsToCheck } from "./chatEvidence";
 
 /**
  * How a bank's process is going, 0–100 (owner, 2026-11-21): the Process tracker colors each bank with it and the
@@ -17,6 +17,8 @@ import { chatCount } from "./chatEvidence";
 export interface BankHealth {
   score: number | null;
   chats: number;
+  /** Chats we are not sure about (one source only): not counted until you confirm them. */
+  toCheck: number;
   emailed: number;
   replies: number;
   referrals: number;
@@ -32,11 +34,12 @@ export function bankHealth(contacts: Contact[]): BankHealth {
   const emailed = contacts.filter(wasEmailed);
   const replies = contacts.filter(gotReply).length;
   const chatList = contacts.flatMap((c) => c.chats ?? []);
-  // Chats that happened: logged, a past call, past calendar events with them, thank-you emails (chatEvidence.ts, by day).
+  // Chats that happened, where the calendar and your email agree (or you logged / confirmed them): chatEvidence.ts.
   const chats = contacts.reduce((n, c) => n + chatCount(c), 0);
+  const toCheck = contacts.reduce((n, c) => n + chatsToCheck(c).length, 0);
   const referrers = contacts.filter((c) => !!c.referral);
   const seniorReferral = referrers.some((c) => isVpPlus(c.position || c.headline));
-  const base = { chats, emailed: emailed.length, replies, referrals: referrers.length, seniorReferral };
+  const base = { chats, toCheck, emailed: emailed.length, replies, referrals: referrers.length, seniorReferral };
 
   if (!emailed.length && !chats && !referrers.length) return { ...base, score: null, why: contacts.length ? "Nobody emailed yet" : "Nobody found yet" };
 

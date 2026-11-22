@@ -171,7 +171,7 @@ function LogInner() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="kpi-strip">
         <Kpi label="This week" value={stats.week} sub={`${rows.length} logged in total`} />
         <Kpi label="Conversations" value={stats.talks} sub={`with ${stats.people} ${stats.people === 1 ? "person" : "people"}`} />
         <Kpi label="Average grade" value={stats.avg ?? "–"} ring={stats.avg !== undefined ? stats.avg / 100 : undefined} sub={stats.graded ? `${stats.graded} graded` : "Grade one from its notes"} />

@@ -12,7 +12,7 @@
 - D. ✅ 2026-11-22 (/think) **"Things to think about" list:** dated reminders ("reach out in January"); people who replied then went quiet
   (tabs: 1 day / 1 week / longer; bank, last-reply date, their message when expanded); earlier re-follow-ups (e.g.
   Colin Bryant, Deutsche Bank).
-- E. **Bank coverage redesign** on `banking_pipeline_ranked_list.html`: ranked list in tiers (Act now / This week /
+- E. ✅ 2026-11-22 (CRM redesign phases 1–3 + /person, /bank pages; chats counted only when calendar + email agree, the rest asked on /think → Chats to confirm) **Bank coverage redesign** on `banking_pipeline_ranked_list.html`: ranked list in tiers (Act now / This week /
   Pipeline / Watching), stage chips, row = rank · firm · group/office · next action · stage · days left, detail panel
   (why ranked #N, score bars, contacts); split by office.
 - F. **Gmail add-on proof of concept** (design in progress): sidebar + no-mistakes thank-you first (locked template,

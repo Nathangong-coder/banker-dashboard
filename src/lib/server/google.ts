@@ -195,7 +195,8 @@ export async function eventsOn(access: string, day: string, dayOf: (at: Date) =>
       summary: (e.summary ?? "").slice(0, 200),
       description: (e.description ?? "").slice(0, 2000),
       start: e.start!.dateTime!,
-      attendees: (e.attendees ?? []).filter((a) => !a.self && a.email).map((a) => a.email!.toLowerCase()),
+      // A guest who declined (a rescheduled chat) isn't meeting you.
+      attendees: (e.attendees ?? []).filter((a) => !a.self && a.email && a.responseStatus !== "declined").map((a) => a.email!.toLowerCase()),
     }));
 }
 
@@ -269,7 +270,8 @@ export async function listEvents(access: string, timeMin: string, timeMax: strin
         start,
         end,
         allDay: !e.start?.dateTime,
-        attendees: (e.attendees ?? []).filter((a) => !a.self && a.email).map((a) => a.email!.toLowerCase()),
+        // A guest who declined (a rescheduled chat) isn't meeting you.
+      attendees: (e.attendees ?? []).filter((a) => !a.self && a.email && a.responseStatus !== "declined").map((a) => a.email!.toLowerCase()),
         status: e.status ?? "confirmed",
       });
     }

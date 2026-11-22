@@ -121,7 +121,7 @@ export default function CalendarPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="kpi-strip">
         <Kpi label="Today" value={stats.today} sub={stats.todayChats ? `${stats.todayChats} coffee chat${stats.todayChats === 1 ? "" : "s"}` : "nothing to prep"} />
         <Kpi label="Coffee chats" value={stats.chats} sub="next 7 days" />
         <Kpi label="Info sessions" value={stats.sessions} sub="next 7 days" />

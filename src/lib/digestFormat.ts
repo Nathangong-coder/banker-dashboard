@@ -23,6 +23,8 @@ export const LABELS = {
   quiet: "Went quiet: nudge them (4+ days, no chat yet)",
   /** Dated reminders: "reach out in January" from a reply / chat notes, or added on Things to think about. */
   reminder: "Reminders",
+  /** A chat only one source shows (calendar with no thank-you, or a thank-you with no meeting): not counted until you say (lib/chatEvidence.ts). */
+  confirmChat: "Chats to confirm (calendar and email disagree)",
   referral: "Referral to-do",
   moveOn: "Move on?",
   fillOffices: "Offices to fill (find people / start emailing)",
@@ -31,7 +33,7 @@ export const LABELS = {
 } as const;
 
 /** Section order: tonight's thank-yous, then people who replied, then cold outreach (last chances first). */
-const ORDER: string[] = [LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.reminder, LABELS.referral, LABELS.quiet, LABELS.checkIn, LABELS.prepTomorrow, LABELS.moveOn, LABELS.fillOffices];
+const ORDER: string[] = [LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.reminder, LABELS.confirmChat, LABELS.referral, LABELS.quiet, LABELS.checkIn, LABELS.prepTomorrow, LABELS.moveOn, LABELS.fillOffices];
 /** Follow-ups (people already in flight) go before "move on?" and new offices to fill. */
 const sectionRank = (label: string) => {
   const n = label.match(/^Follow-up #(\d+)/)?.[1];
@@ -185,7 +187,7 @@ export function progressLines(p: NightProgress, max = 10): string[] {
 /* ---------------- the three messages (owner, 2026-11-21: "too long… 2-3 messages") ---------------- */
 
 /** Message 2: people waiting on you. Message 3: new outreach (follow-ups, offices to fill). */
-const TODO = new Set<string>([LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.reminder, LABELS.referral, LABELS.quiet, LABELS.checkIn, LABELS.prepTomorrow]);
+const TODO = new Set<string>([LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.reminder, LABELS.confirmChat, LABELS.referral, LABELS.quiet, LABELS.checkIn, LABELS.prepTomorrow]);
 export const isTodoLabel = (label: string) => TODO.has(label);
 
 /**

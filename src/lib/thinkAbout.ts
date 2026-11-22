@@ -1,6 +1,6 @@
 import type { Contact } from "./types";
 import { DAY, latestIso } from "./util";
-import { chatDays } from "./chatEvidence";
+import { chatDayKey, chatRecords } from "./chatEvidence";
 import { lastExchange } from "./mailLedger";
 
 /**
@@ -302,10 +302,12 @@ export function todoFor(c: Contact, now: number, isReferrer: (c: Contact) => boo
   // Resolved: nothing until they write after it.
   if (resolvedAt && (!heard || heard <= resolvedAt)) return null;
   const calls = [c.call?.at, ...(c.chats ?? []).map((x) => x.at), ...(c.chatEvidence ?? []).filter((e) => e.source === "calendar").map((e) => e.at)]
-    .filter((x): x is string => !!x && Date.parse(x) <= now)
+    // A chat you said didn't happen (Chats to confirm → No) isn't owed a thank-you.
+    .filter((x): x is string => !!x && Date.parse(x) <= now && c.chatVerdicts?.[chatDayKey(x)] !== "no")
     .sort();
   const lastCall = calls[calls.length - 1];
-  const chatted = !!lastCall || chatDays(c, now).length > 0;
+  // Any meeting you didn't rule out (an unconfirmed one still means you talked, for the nudge timing).
+  const chatted = !!lastCall || chatRecords(c, now).some((r) => r.state !== "rejected");
   const mk = (kind: TodoKind, at: string, due: string, key: string, why: string, t?: { text: string; summary?: string }): TodoRow => ({
     c,
     kind,

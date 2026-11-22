@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, BellPlus, Check, ChevronDown, ChevronRight, ExternalLink, RefreshCw, Undo2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowDownLeft, ArrowUpRight, BellPlus, Check, ChevronDown, ChevronRight, ExternalLink, Lightbulb, RefreshCw, Undo2 } from "lucide-react";
+import { chatsToCheck, type ChatRecord } from "@/lib/chatEvidence";
+import { ObjectHeader, Tabs } from "@/components/crm";
 import { useStore } from "@/lib/store";
 import { googleClientId, aiReady } from "@/lib/keys";
 import { connectGmail, latestFrom } from "@/lib/gmail";
 import { DAY, cn } from "@/lib/util";
 import { REASON_LABEL, reminderRows, resolvedPeople, todoRows, wrongAddress, type Age, type Reminder, type ReminderRow, type TodoRow, type Triage } from "@/lib/thinkAbout";
 import type { Contact } from "@/lib/types";
-import { Badge, Button, Card, Empty, Input, Kpi, Menu, PageHeader, Segmented, toast } from "@/components/ui";
+import { Badge, Button, Card, Empty, Input, Menu, Segmented, toast } from "@/components/ui";
 
 /**
  * Things to think about (owner, 2026-11-21/22): who you owe a thank-you or a reply, who replied and went quiet, and
@@ -16,7 +19,7 @@ import { Badge, Button, Card, Empty, Input, Kpi, Menu, PageHeader, Segmented, to
  * email conversation (lib/mailLedger.ts). Noise is filtered by rules and an AI read with safeguards; every filtered or
  * resolved person stays one click away.
  */
-type Tab = "reply" | "quiet" | "reminders";
+type Tab = "reply" | "quiet" | "chats" | "reminders";
 type AgeFilter = "all" | Age;
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -30,7 +33,7 @@ const KIND_LABEL: Record<TodoRow["kind"], string> = { thank: "thank-you owed", r
 
 function initialTab(): Tab {
   const t = new URLSearchParams(window.location.search).get("tab");
-  return t === "quiet" || t === "reminders" ? t : "reply";
+  return t === "quiet" || t === "reminders" || t === "chats" ? t : "reply";
 }
 
 export default function ThinkPage() {
@@ -54,6 +57,7 @@ export default function ThinkPage() {
   const quietDue = shown(quietRows).filter((q) => Date.parse(q.due) <= now).length;
   const remindersDue = reminders.filter((r) => !r.done && r.due <= today()).length;
   const filtered = rows.filter((r) => r.hidden).length;
+  const checks = useMemo(() => contacts.flatMap((c) => chatsToCheck(c, now).map((r) => ({ c, r }))).sort((a, b) => b.r.at.localeCompare(a.r.at)), [contacts, now]);
 
   /** Read conversations from Gmail (the ones due, or everyone on the page), then the AI's noise read. */
   const refresh = async (force: boolean) => {
@@ -80,41 +84,99 @@ export default function ThinkPage() {
     // Once per visit.
   }, []);
 
+  const thanks = shown(replyRows).filter((r) => r.kind === "thank").length;
+  // docs/DESIGN.md L-3: one header (title + one action), counts in the meta line, underline tabs, then the queue.
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
-      <PageHeader
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
+      <ObjectHeader
+        icon={<Lightbulb className="size-5" />}
+        eyebrow="To-do · same list as the 9 PM text"
         title="Things to think about"
-        sub="Who you owe a thank-you or a reply, who went quiet, and dates bankers gave you. The 9 PM text lists exactly the same people."
-        right={
-          <div className="flex items-center gap-2">
-            <Button variant="primary" icon={<RefreshCw className={cn("size-4", busy && "animate-spin")} />} disabled={!!busy || !settings.server?.id} onClick={() => void refresh(true)}>
-              Check Gmail
-            </Button>
-          </div>
+        actions={
+          <Button variant="primary" icon={<RefreshCw className={cn("size-4", busy && "animate-spin")} />} disabled={!!busy || !settings.server?.id} onClick={() => void refresh(true)}>
+            Check Gmail
+          </Button>
+        }
+        meta={
+          busy ??
+          (!settings.server?.id
+            ? "Connect Google (Settings → Account) so Coverage can read each conversation. Until then the list uses the dates it already has."
+            : [
+                `${shown(replyRows).length} to reply or thank${thanks ? ` (${thanks} thank-you${thanks === 1 ? "" : "s"})` : ""}`,
+                `${quietDue} to nudge now`,
+                checks.length ? `${checks.length} chat${checks.length === 1 ? "" : "s"} to confirm` : "",
+                filtered ? `${filtered} filtered out as noise (${Math.round((filtered / rows.length) * 100)}%)` : "",
+                remindersDue ? `${remindersDue} reminder${remindersDue === 1 ? "" : "s"} due` : "",
+              ]
+                .filter(Boolean)
+                .join(" · "))
         }
       />
-      {busy && <div className="text-[12.5px] text-muted">{busy}</div>}
-      {!settings.server?.id && <div className="text-[12.5px] text-muted">Connect Google (Settings → Account) so Coverage can read each conversation. Until then the list uses the dates it already has.</div>}
       {wrong.length > 0 && <WrongAddresses list={wrong} />}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi label="Reply or thank" value={shown(replyRows).length} sub={`${shown(replyRows).filter((r) => r.kind === "thank").length} thank-you${shown(replyRows).filter((r) => r.kind === "thank").length === 1 ? "" : "s"}`} />
-        <Kpi label="Nudge now" value={quietDue} sub={`${shown(quietRows).length} went quiet`} />
-        <Kpi label="Filtered out" value={filtered} sub={rows.length ? `${Math.round((filtered / rows.length) * 100)}% of ${rows.length} looked like noise` : "nothing yet"} />
-        <Kpi label="Reminders due" value={remindersDue} sub={`${reminders.filter((r) => !r.done && r.due > today()).length} coming up`} />
+      <div>
+        <Tabs
+          className="mb-3"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { id: "reply", label: "Reply or thank", count: shown(replyRows).length },
+            { id: "quiet", label: "Went quiet", count: shown(quietRows).length },
+            { id: "chats", label: "Chats to confirm", count: checks.length },
+            { id: "reminders", label: "Reminders", count: remindersDue || undefined },
+          ]}
+        />
+        <div>
+          {tab === "reply" && <TodoTab rows={replyRows} resolved={resolved} now={now} empty="Everyone who wrote to you or talked with you has an answer." />}
+          {tab === "quiet" && <TodoTab rows={quietRows} resolved={[]} now={now} empty="Everyone who replied is either talking to you or waiting on you." quiet />}
+          {tab === "chats" && <ChatsToConfirm list={checks} />}
+          {tab === "reminders" && <RemindersTab rows={reminders} contacts={contacts} />}
+        </div>
       </div>
-      <Segmented
-        value={tab}
-        onChange={setTab}
-        options={[
-          ["reply", `Reply or thank (${shown(replyRows).length})`],
-          ["quiet", `Went quiet (${shown(quietRows).length})`],
-          ["reminders", `Reminders${remindersDue ? ` (${remindersDue})` : ""}`],
-        ]}
-      />
-      {tab === "reply" && <TodoTab rows={replyRows} resolved={resolved} now={now} empty="Everyone who wrote to you or talked with you has an answer." />}
-      {tab === "quiet" && <TodoTab rows={quietRows} resolved={[]} now={now} empty="Everyone who replied is either talking to you or waiting on you." quiet />}
-      {tab === "reminders" && <RemindersTab rows={reminders} contacts={contacts} />}
     </div>
+  );
+}
+
+/* ---------------- chats to confirm ---------------- */
+
+/**
+ * The calendar and your email don't agree about a chat (lib/chatEvidence.ts#chatRecords "check"): it isn't counted
+ * until you say it happened (owner, 2026-11-22: "if they don't [reconcile] and you're uncertain, escalate to user").
+ */
+function ChatsToConfirm({ list }: { list: { c: Contact; r: ChatRecord }[] }) {
+  if (!list.length) return <Card><Empty title="Nothing to confirm">Every chat counted has two sources that agree (calendar + thank-you email), or you logged it.</Empty></Card>;
+  const answer = (c: Contact, day: string, v: "yes" | "no") => {
+    const at = new Date().toISOString();
+    useStore.getState().updateContact(c.id, { chatVerdicts: { ...(c.chatVerdicts ?? {}), [day]: v } }, { at, type: "note", note: v === "yes" ? `You confirmed a chat on ${dayDate(day)}` : `You said there was no chat on ${dayDate(day)}` });
+    toast.ok(v === "yes" ? `Counted the chat with ${c.name}.` : `Won't count that one for ${c.name}.`);
+  };
+  return (
+    <Card className="grid gap-2 p-3">
+      <p className="px-1 text-[12px] text-muted">Each of these has only one source, so it isn&apos;t in your chat counts yet. Say whether it happened; you&apos;re asked once.</p>
+      <ul className="divide-y divide-line rounded-lg border border-line">
+        {list.map(({ c, r }) => (
+          <li key={`${c.id}|${r.day}`} className="flex flex-wrap items-start gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1 basis-[280px]">
+              <div className="text-[13px]">
+                <Link href={`/person?id=${encodeURIComponent(c.id)}`} className="font-semibold text-brass-ink hover:underline">
+                  {c.name}
+                </Link>
+                <span className="text-muted"> · {c.bank} · {dayDate(r.day)}</span>
+              </div>
+              <div className="text-[13px] text-ink-2">{r.why}</div>
+              <div className="mt-0.5 text-[12px] text-muted">{r.sources.map((s) => `${s.label} ${shortDate(s.at)}`).join(" · ")}</div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button size="sm" variant="primary" onClick={() => answer(c, r.day, "yes")}>
+                Yes, we talked
+              </Button>
+              <Button size="sm" onClick={() => answer(c, r.day, "no")}>
+                No
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 

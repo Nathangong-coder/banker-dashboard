@@ -100,7 +100,9 @@ export default function PrivacyPage() {
         scheduled (the <code>gmail.compose</code> permission). If you also allow read-only Gmail access (<code>gmail.readonly</code>), the server
         searches your mail every hour (people you were recently in touch with) or every six hours (everyone else) for messages to or from the people
         your dashboard tracks, and reads the headers of those threads (from, to, cc, subject, date) and the text of their replies, to know whether you
-        thanked them, whether they replied, and whether they introduced you to someone. It reads nothing else in your mailbox, and keeps only what
+        thanked them, whether they replied, and whether they introduced you to someone. To count your coffee chats it also searches your sent
+        mail for chat thank-you wording and reads the text of those emails you wrote (not the quoted history) to check it really is a
+        thank-you; that text isn&apos;t stored, only the date and which person it went to. It reads nothing else in your mailbox, and keeps only what
         section 2 lists. If an AI model is set up in your dashboard, your browser sends those reply texts to it to spot referrals and promises, and those recent emails to decide which conversations still need an email from you. If you also allow read-only Calendar access
         (<code>calendar.events.readonly</code>), the server reads that day&apos;s events once in the evening (9 PM your time), only
         to list the people you met so you remember to thank them, log the conversation and connect on LinkedIn. With WhatsApp reminders on, it also reads the next few hours of your calendar

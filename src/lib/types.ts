@@ -170,6 +170,11 @@ export interface Contact {
    * nothing to do with them until they write again after `at`. Kept out of the page and the 9 PM text.
    */
   resolved?: { at: string; note: string };
+  /**
+   * Your answer on a chat we weren't sure about (lib/chatEvidence.ts#chatRecords, owner 2026-11-22): day of the chat
+   * (YYYY-MM-DD) → "yes" it happened / "no" it didn't. A "check" chat isn't counted until you say yes.
+   */
+  chatVerdicts?: Record<string, "yes" | "no">;
   /** The AI's read of whether they need anything from you (lib/thinkAbout.ts#hiddenBy; api/think/triage). */
   triage?: import("./thinkAbout").Triage;
   /** Conversations with them (coffee chats, calls, info sessions, emails, in person): notes / transcript and the AI's grade. */

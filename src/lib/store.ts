@@ -126,6 +126,8 @@ export interface OffSheetState {
   scannedAt?: string;
   /** Last thank-you email scan (gmailSync.ts#scanThankYous: chats counted from your thank-yous). */
   thanksAt?: string;
+  /** Rules version of the thank-you scan: a new version drops the old thank-you evidence and reads 180 days again. */
+  thanksV?: number;
   /** Last scan the server did (api/server/sent), so the next one starts there. */
   serverAt?: string;
   /** Gmail message ids already read, so a scan only fetches new sent mail. */

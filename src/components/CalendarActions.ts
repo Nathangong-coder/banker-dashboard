@@ -50,12 +50,20 @@ export async function backfillCalendarChats() {
   const chats = chatsIn(r.events ?? [], st.contacts, st.settings.profile.name.trim().split(/\s+/)[0]).filter((c) => Date.parse(c.start) <= now);
   const by = new Map<string, NonNullable<Contact["chatEvidence"]>>();
   for (const c of chats) for (const id of c.contactIds ?? (c.contactId ? [c.contactId] : [])) by.set(id, [...(by.get(id) ?? []), { at: c.start, source: "calendar", ref: c.id }]);
+  // The calendar is the truth for this window (owner, 2026-11-22): an event that was deleted, moved, or that they
+  // declined no longer counts. Evidence used to only ever be added, so a rescheduled chat stayed as two.
+  const from = now - 119 * DAY;
+  const seen = new Set((r.events ?? []).map((e) => e.id));
   let n = 0;
-  for (const [id, add] of by) {
-    const c = useStore.getState().contacts.find((x) => x.id === id);
-    const ev = c && withEvidence(c, add);
-    if (!ev) continue;
-    st.updateContact(id, { chatEvidence: ev });
+  for (const c of useStore.getState().contacts) {
+    const fresh = by.get(c.id) ?? [];
+    const keep = (c.chatEvidence ?? []).filter((e) => e.source !== "calendar" || Date.parse(e.at) < from || fresh.some((f) => f.ref === e.ref));
+    const dropped = (c.chatEvidence?.length ?? 0) - keep.length;
+    const ev = withEvidence({ chatEvidence: keep }, fresh) ?? (dropped ? keep : undefined);
+    // Their `call` points at an event that's gone from the calendar (deleted, or you declined it): it didn't happen.
+    const gone = !!c.call && Date.parse(c.call.at) >= from && Date.parse(c.call.at) <= now && !seen.has(c.call.eventId);
+    if (!ev && !gone) continue;
+    st.updateContact(c.id, { ...(ev ? { chatEvidence: ev.length ? ev : undefined } : {}), ...(gone ? { call: undefined } : {}) }, gone ? { at: new Date().toISOString(), type: "note", note: "Call taken off: the event is no longer on your Google Calendar" } : undefined);
     n++;
   }
   return n;

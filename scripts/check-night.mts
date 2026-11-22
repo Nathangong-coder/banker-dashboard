@@ -5,7 +5,8 @@
  */
 import { LABELS, digestMessages, isTextDay, nextTextDay, nightMessages, type DigestItem } from "../src/lib/digestFormat";
 import { bankHealth, healthColor } from "../src/lib/bankHealth";
-import { chatCount, thanksEvidence, withEvidence } from "../src/lib/chatEvidence";
+import { bankWork } from "../src/lib/bankWork";
+import { chatCount, chatRecords, chatsToCheck, isThankYouText, thanksEvidence, withEvidence } from "../src/lib/chatEvidence";
 import { callPatches, chatsIn } from "../src/lib/calendarDay";
 import { programKind, summerOf, targetSummer } from "../src/lib/programs";
 import { appState } from "../src/lib/nightProgress";
@@ -149,7 +150,71 @@ check("referral from an analyst → 88+", (hb([{ status: "done", position: "Anal
   check("a thank-you the day after the call is the same chat (1 each)", final.every((c) => chatCount(c) === 1), final.map((c) => chatCount(c)));
   check("Bank of America: 2 chats", bankHealth(final).chats === 2, bankHealth(final));
   const thanksOnly = { ...eli, call: undefined, chatEvidence: [{ at: local("2026-11-10T10:00:00"), source: "thanks" as const, ref: "m9" }] };
-  check("a thank-you with no calendar event still counts as a chat", chatCount(thanksOnly) === 1);
+  const NOW = Date.parse("2026-11-22T12:00:00Z");
+  check("a thank-you with no calendar event or notes isn't counted: it's asked about", chatCount(thanksOnly, NOW) === 0 && chatsToCheck(thanksOnly, NOW).length === 1, chatRecords(thanksOnly, NOW));
+  const yes = { ...thanksOnly, chatVerdicts: { [chatsToCheck(thanksOnly, NOW)[0].day]: "yes" as const } };
+  check("…you say yes → counted", chatCount(yes, NOW) === 1 && chatsToCheck(yes, NOW).length === 0);
+}
+
+// Bank coverage's "What to do here" (owner, 2026-11-22): someone who replied, got your answer and went quiet is a
+// nudge, never "Send a thank-you".
+{
+  const now = Date.now();
+  const quietOne: Contact = { ...base, id: "q1", name: "Aisha Patel", firstName: "Aisha", bank: "Jefferies", email: "aisha@x.com", status: "replied", sentAt: new Date(now - 25 * 86_400_000).toISOString(), repliedAt: new Date(now - 22 * 86_400_000).toISOString(), lastHeardAt: new Date(now - 22 * 86_400_000).toISOString(), lastEmailedAt: new Date(now - 6 * 86_400_000).toISOString() };
+  const w = bankWork({ name: "Jefferies", contacts: [quietOne], allContacts: [quietOne], banks: {}, followUp: DEFAULT_SETTINGS.followUp, now });
+  check("went quiet → a nudge on the bank, not a thank-you", !w.todos.some((t) => t.kind === "thank") && w.todos.some((t) => t.kind === "check_in"), w.todos.map((t) => t.label));
+}
+
+// Reconciling calendar + email (owner, 2026-11-22: "UBS with Joe Romagnoli is only 1 — idk how you found 3").
+{
+  const NOW = Date.parse("2026-11-22T12:00:00Z");
+  const joe: Contact = { ...base, id: "joe", name: "Joe Romagnoli", bank: "UBS", email: "joe.romagnoli@ubs.com", status: "replied", repliedAt: local("2026-10-28T10:00:00") };
+  const one = {
+    ...joe,
+    call: { at: local("2026-11-03T16:00:00"), eventId: "evB", link: "", invited: false },
+    chatEvidence: [
+      // Rescheduled: the first event and the real one, two days apart.
+      { at: local("2026-11-01T16:00:00"), source: "calendar" as const, ref: "evA" },
+      { at: local("2026-11-03T16:00:00"), source: "calendar" as const, ref: "evB" },
+      // The thank-you, sent as a new email the same evening.
+      { at: local("2026-11-03T20:00:00"), source: "thanks" as const, ref: "t:thread1" },
+    ],
+    // A sheet row whose Date cell was typed days later.
+    chats: [{ id: "sheet:UBS:5", at: local("2026-11-08T00:00:00"), source: "spreadsheet" }],
+  };
+  check("rescheduled event + call + thank-you + sheet row = ONE chat, confirmed", chatCount(one, NOW) === 1 && chatRecords(one, NOW)[0].state === "confirmed", chatRecords(one, NOW));
+  check("…and nothing to ask", chatsToCheck(one, NOW).length === 0);
+  check("a logged 'email' or 'info session' entry isn't a chat", chatCount({ ...joe, chats: [{ id: "e", at: local("2026-11-02T10:00:00"), kind: "email" }, { id: "i", at: local("2026-11-05T10:00:00"), kind: "info_session" }] }, NOW) === 0);
+  const calOnly = (at: string) => ({ ...joe, chatEvidence: [{ at: local(at), source: "calendar" as const, ref: "ev" }] });
+  check("on the calendar in the last 3 days, no thank-you yet → likely (counted)", chatRecords(calOnly("2026-11-21T10:00:00"), NOW)[0].state === "likely" && chatCount(calOnly("2026-11-21T10:00:00"), NOW) === 1);
+  check("on the calendar 2 weeks ago, no thank-you or notes → asked, not counted", chatRecords(calOnly("2026-11-05T10:00:00"), NOW)[0].state === "check" && chatCount(calOnly("2026-11-05T10:00:00"), NOW) === 0);
+  const resolvedThanks = { ...calOnly("2026-11-05T10:00:00"), resolved: { at: local("2026-11-06T10:00:00"), note: "Already thanked" } };
+  check("…your 'Already thanked' resolve is the thank-you → confirmed", chatRecords(resolvedThanks, NOW)[0].state === "confirmed");
+  const no = { ...calOnly("2026-11-05T10:00:00"), chatVerdicts: { [chatRecords(calOnly("2026-11-05T10:00:00"), NOW)[0].day]: "no" as const } };
+  check("you say no → never counted or asked again", chatCount(no, NOW) === 0 && chatsToCheck(no, NOW).length === 0);
+  const two = { ...joe, chatEvidence: [{ at: local("2026-10-20T10:00:00"), source: "thanks" as const, ref: "t:a" }, { at: local("2026-10-22T10:00:00"), source: "thanks" as const, ref: "t:b" }] };
+  check("two thank-you threads a few days apart with no meeting = one question, not two chats", chatRecords(two, NOW).length === 1);
+  const sent = [
+    { id: "m1", threadId: "th", email: "joe.romagnoli@ubs.com", at: Date.parse(local("2026-11-03T20:00:00")) },
+    { id: "m2", threadId: "th", email: "joe.romagnoli@ubs.com", at: Date.parse(local("2026-11-12T09:00:00")) },
+  ];
+  const ev = thanksEvidence(sent, [joe]);
+  check("one thank-you per thread ('Thanks again!' later in the chain is the same one)", ev[0]?.add.length === 1 && ev[0].add[0].ref === "t:th", ev);
+  // The words: a thank-you for a chat, never an ask or the cold-email close.
+  for (const t of [
+    "Hi Joe, thank you so much for taking the time to chat with me today!",
+    "Thanks again for the call yesterday, I really appreciated your advice.",
+    "It was great speaking with you this afternoon.",
+    "Thank you for speaking with me about UBS's tech group.",
+  ])
+    check(`thank-you: "${t.slice(0, 40)}…"`, isThankYouText(t));
+  for (const t of [
+    "Would you have time to chat sometime next week?",
+    "Looking forward to our call on Thursday!",
+    "Thank you for your time, and I look forward to hearing from you soon!",
+    "Just following up on my previous email. Do you have time to talk?",
+  ])
+    check(`not a thank-you: "${t.slice(0, 40)}…"`, !isThankYouText(t));
 }
 
 // Summer Analyst vs insight programs (owner, 2026-11-21: JP Morgan showed Applied from an insight program).

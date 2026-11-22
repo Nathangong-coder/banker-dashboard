@@ -372,7 +372,7 @@ function AnalyticsTab({ views }: { views: BankView[] }) {
           ]}
         />
       )}
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="kpi-strip">
         <Kpi label={pe ? "Firms reached" : "Banks reached"} value={t.reached} ring={t.banks ? t.reached / t.banks : 0} sub={`of ${t.banks} you're tracking`} />
         <Kpi label={pe ? "Live firms" : "Live banks"} value={t.liveBanks} sub={`a referral or someone live · ${t.livePeople} ${t.livePeople === 1 ? "person" : "people"} live`} tone={t.liveBanks ? "good" : undefined} />
         <Kpi
