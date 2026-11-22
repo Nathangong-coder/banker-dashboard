@@ -3,7 +3,8 @@
  * replies / check-ins for people who replied, follow-up #2 timed from follow-up #1, and calendar-event matching.
  *   npm run check:night
  */
-import { LABELS, digestMessages, isTextDay, nextTextDay } from "../src/lib/digestFormat";
+import { LABELS, digestMessages, isTextDay, nextTextDay, nightMessages, type DigestItem } from "../src/lib/digestFormat";
+import { bankHealth, healthColor } from "../src/lib/bankHealth";
 import { relationshipItem } from "../src/lib/reminders";
 import { earliestSend, nextAction } from "../src/lib/followups";
 import { DEFAULT_SEND_WINDOW, planBatch, planSends, zonedDate } from "../src/lib/sendWindow";
@@ -18,11 +19,10 @@ const check = (what: string, ok: boolean, detail = "") => {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}${!ok && detail ? `\n       got: ${detail}` : ""}`);
 };
 
-// Text nights: Mon–Thu. Oct 19, 2026 is a Monday.
-check("Mon–Thu are text nights", ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22"].every(isTextDay));
-check("Fri–Sun are not", !["2026-10-23", "2026-10-24", "2026-10-25"].some(isTextDay));
+// Text nights: every night (owner, 2026-11-21; it was Mon–Thu). Oct 19, 2026 is a Monday.
+check("every night is a text night", ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25"].every(isTextDay));
 check("Monday night looks through Tuesday", nextTextDay("2026-10-19") === "2026-10-20", nextTextDay("2026-10-19"));
-check("Thursday night looks through Monday", nextTextDay("2026-10-22") === "2026-10-26", nextTextDay("2026-10-22"));
+check("Thursday night looks through Friday", nextTextDay("2026-10-22") === "2026-10-23", nextTextDay("2026-10-22"));
 
 const base: Contact = {
   id: "s:MS:28", name: "Michael Bender", firstName: "Michael", lastName: "Bender", bank: "Morgan Stanley", region: "NY", location: "NY",
@@ -72,6 +72,43 @@ const msgs = digestMessages(
 );
 const text = msgs.join("\n");
 check("sections: thank-you, check-in, follow-up, then extras", text.indexOf("Thank-you") < text.indexOf("Check in") && text.indexOf("Check in") < text.indexOf("Follow-up #1") && text.trim().endsWith("📝 Update the tracker"), text);
+
+// Three messages (owner, 2026-11-21): big banks, to-do, outreach; each section capped with "+N more" and a link.
+const many: DigestItem[] = [
+  ...Array.from({ length: 25 }, (_, i) => ({ contactId: `f${i}`, name: `Follow ${i}`, label: "Follow-up #1" })),
+  ...Array.from({ length: 20 }, (_, i) => ({ contactId: `k${i}`, name: `Check ${i}`, label: LABELS.checkIn })),
+  ...Array.from({ length: 21 }, (_, i) => ({ contactId: `o${i}`, name: `Bank ${i}: SF 0/2`, label: LABELS.fillOffices })),
+  { contactId: "r1", name: "Reply Person", email: "r@x.com", label: LABELS.replyOwed },
+  { contactId: "t1", name: "Thank Person", label: LABELS.thankToday },
+  { contactId: "p1", name: "Jane (GS) at 10:00 AM", label: LABELS.prepTomorrow },
+];
+const progress = {
+  at: "2026-10-19T20:00:00Z",
+  banks: [
+    { bank: "Goldman Sachs", score: 100, column: "First round", chats: 3, emailed: 4, live: 1, app: "applied" as const, next: "Reply to Jane" },
+    { bank: "Citi", score: null, chats: 0, emailed: 0, live: 0 },
+    { bank: "Barclays", score: 15, chats: 0, emailed: 3, live: 0, app: "open" as const },
+  ],
+  tips: ["Nobody emailed yet at Citi: start there."],
+  week: { emails: 6, replies: 2, chats: 1 },
+};
+const three = nightMessages({ items: many, progress, app: "https://x.app", todoExtra: ["📝 Update the tracker"], outreachExtra: ["Already scheduled before tomorrow night: 4"] });
+check("three messages: big banks, to-do, outreach", three.length === 3 && three[0].startsWith("📊") && three[1].startsWith("✅") && three[2].startsWith("📬"), three.map((m) => m.slice(0, 12)).join(" | "));
+check("big banks: colors, column, app, next step, tips", /🟢 Goldman Sachs \(First round\): 3 chats · applied → Reply to Jane/.test(three[0]) && /⚪ Citi: nobody emailed/.test(three[0]) && /🔴 Barclays/.test(three[0]) && /Do better/.test(three[0]), three[0]);
+check("to-do holds thank-you, reply, check-in, prep; not follow-ups", /Thank-you/.test(three[1]) && /They wrote back/.test(three[1]) && /Check in/.test(three[1]) && /Calls tomorrow/.test(three[1]) && !/Follow-up #1/.test(three[1]), three[1]);
+check("outreach holds follow-ups, then offices, ends with the scheduled line", /Follow-up #1\* \(25\)/.test(three[2]) && three[2].indexOf("Follow-up #1") < three[2].indexOf("Offices to fill") && three[2].trim().endsWith("Already scheduled before tomorrow night: 4"), three[2]);
+check("sections capped at 8 with +N more", /\+17 more: https:\/\/x.app\/followups/.test(three[2]) && /\+12 more/.test(three[1]) && /\+13 more: https:\/\/x.app\/coverage/.test(three[2]), three[2]);
+check("each message fits one WhatsApp send (≤1500)", three.every((m) => m.length <= 1500), three.map((m) => m.length).join(","));
+check("nothing to say → no messages", nightMessages({ items: [], app: "x" }).length === 0);
+
+// Bank health (Process tracker colors + the Big banks emoji).
+const hb = (over: Partial<Contact>[]) => bankHealth(over.map((o, i) => ({ ...base, id: `h${i}`, status: "new" as const, sentAt: undefined, followUps: 0, ...o })));
+check("nobody emailed → no score (white)", hb([{}]).score === null && healthColor(null).tone === "none");
+check("emailed, no chat → 30 (neutral)", hb([{ status: "sent", sentAt: local("2026-10-01T10:00:00") }]).score === 30);
+check("all moved on with no reply → red", (hb([{ status: "ignored", sentAt: local("2026-10-01T10:00:00") }]).score ?? 99) < 30);
+check("two chats → green", (hb([{ status: "done", sentAt: local("2026-10-01T10:00:00"), chats: [{ id: "1", at: local("2026-10-05T10:00:00") }, { id: "2", at: local("2026-10-09T10:00:00") }] }]).score ?? 0) >= 60);
+check("referral from a VP → 100", hb([{ status: "done", position: "Vice President", sentAt: local("2026-10-01T10:00:00"), referral: { at: local("2026-10-05T10:00:00") } }]).score === 100);
+check("referral from an analyst → 88+", (hb([{ status: "done", position: "Analyst", sentAt: local("2026-10-01T10:00:00"), referral: { at: local("2026-10-05T10:00:00") } }]).score ?? 0) >= 88);
 
 // Calendar matching.
 const people = [

@@ -15,6 +15,9 @@ import type { ApplyState } from "./apply";
 import { googleClientId } from "./keys";
 import { scheduledByRecipient } from "./gmail";
 import { officeGapItems, officeGaps } from "./officeGaps";
+import { buildCoverage } from "./coverage";
+import { nightProgress } from "./nightProgress";
+import { columnFor, columnsOf } from "./processTracker";
 import type { RawHit } from "./opens";
 import { OPEN_DAYS } from "./pixel";
 import { matchTrackedSends, refreshMx } from "./trackingActions";
@@ -192,6 +195,29 @@ function withOfficeGaps(plan: ReturnType<typeof nightPlan>, st: ReturnType<typeo
   return Object.fromEntries(Object.entries(plan).map(([day, d]) => [day, { ...d, items: [...d.items, ...items] }]));
 }
 
+/** The text's "Big banks" message (lib/nightProgress.ts). Never fails the sync: no message 1 tonight instead. */
+export function progressFor(st: ReturnType<typeof useStore.getState>) {
+  try {
+    const rows = buildCoverage({ contacts: st.contacts, tables: st.tables, targets: st.targets, coverage: { ...st.coverage, plan: undefined }, banks: st.banks, followUp: st.settings.followUp });
+    const cols = columnsOf(st.coverage);
+    return nightProgress({
+      rows,
+      contacts: st.contacts,
+      banks: st.banks,
+      followUp: st.settings.followUp,
+      jobs: st.apply.jobs,
+      starred: st.coverage.processStars,
+      columnOf: (key) => {
+        const row = rows.find((r) => r.key === key);
+        const id = row ? columnFor(row, st.coverage, st.apply.jobs).id : undefined;
+        return cols.find((c) => c.id === id)?.label;
+      },
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 export function syncServer(): Promise<ServerStatus | null> {
   if (inflight) return inflight;
   inflight = (async () => {
@@ -209,6 +235,7 @@ export function syncServer(): Promise<ServerStatus | null> {
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles",
       whatsapp: whatsappOn ? { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } : null,
       digests: whatsappOn ? withOfficeGaps(nightPlan(st.contacts, st.banks, st.settings.followUp), st) : {},
+      progress: whatsappOn ? progressFor(st) : undefined,
       // People you're talking to, so the server can match today's Google Calendar events to them for thank-you reminders.
       people: whatsappOn ? calendarPeople(st.contacts) : [],
       // Everyone the server should watch in Gmail for replies, thank-yous and intros (used only with read access).
@@ -256,12 +283,20 @@ function jobRunOf(apply: ApplyState) {
   return r.on ? { lastAt: apply.finder.lastRunAt, everyDays: r.everyDays } : null;
 }
 
-/** Who a calendar event today could be with: everyone who replied or has a call (name + email, nothing else). */
+/**
+ * Who a calendar event could be with (name + email, nothing else): everyone you've emailed or are talking to.
+ * Engaged people first (replied / met / call), and only they can match by first name alone. It used to be only
+ * the engaged ones (30 on the owner's data), so a chat booked with anyone else never showed up in the text.
+ */
+const engagedWith = (c: Contact) => !!(c.call || c.repliedAt || c.metAt?.length || c.chats?.length || c.referral || ["replied", "call_scheduled", "done"].includes(c.status));
 function calendarPeople(contacts: Contact[]) {
   return contacts
-    .filter((c) => c.call || c.repliedAt || c.metAt?.length || ["replied", "call_scheduled", "done"].includes(c.status))
-    .slice(0, 400)
+    .filter((c) => c.status !== "ignored" || engagedWith(c))
+    .filter((c) => engagedWith(c) || (!!c.email && (!!c.sentAt || ["sent", "followed_up", "drafted"].includes(c.status))))
+    .sort((a, b) => Number(engagedWith(b)) - Number(engagedWith(a)))
+    .slice(0, 600)
     .map((c) => ({
+      engaged: engagedWith(c),
       contactId: c.id,
       name: c.name,
       email: c.email || undefined,

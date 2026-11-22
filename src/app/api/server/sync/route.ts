@@ -26,7 +26,15 @@ export async function POST(req: Request) {
     }
     const sends = b.sends;
     if (!sends) throw new HttpError(400, "The send queue is missing.");
-    const next = { ...a, tz: b.tz, ...(b.digests ? { digests: Object.fromEntries(Object.entries(b.digests).slice(0, 31)) } : {}), ...(b.people ? { people: b.people } : {}), ...(b.track ? { track: b.track } : {}) };
+    const next = {
+      ...a,
+      tz: b.tz,
+      ...(b.digests ? { digests: Object.fromEntries(Object.entries(b.digests).slice(0, 31)), planAt: new Date().toISOString() } : {}),
+      ...(b.people ? { people: b.people } : {}),
+      ...(b.track ? { track: b.track } : {}),
+    };
+    if (b.progress === null) delete next.progress;
+    else if (b.progress) next.progress = b.progress;
     if (b.jobRun === null) delete next.jobRun;
     else if (b.jobRun) next.jobRun = b.jobRun;
     if (b.whatsapp === null) delete next.whatsapp;

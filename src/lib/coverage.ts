@@ -76,6 +76,14 @@ export type CoverageSettings = {
    * `bankWork.ts#stageKey`: canonBank key, or key|office|team for one desk. They win over the stage the contacts imply.
    */
   stages?: Record<string, string>;
+  /** Process tracker (owner, 2026-11-21; lib/processTracker.ts): bank key → column id, set by dragging. */
+  processAt?: Record<string, string>;
+  /** Starred ("most tracked") banks: bank key → true. The 9 PM text's Big banks message lists these first. */
+  processStars?: Record<string, boolean>;
+  /** Target number of contacts per bank (like the workbook's ACTIVE BAY tab). */
+  processTargets?: Record<string, number>;
+  /** The tracker's columns in order (default PROCESS_COLUMNS). */
+  processColumns?: { id: string; label: string }[];
 };
 
 /** A deal the bank advised on, found in web results (api/prep/bank). Every field comes from a cited source. */

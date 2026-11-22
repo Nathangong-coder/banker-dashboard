@@ -268,6 +268,24 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - Tested 2026-10-06 against the real Redis with a local `next start` (create/auth/401/cancel/unsigned-job/disconnect) and Google's auth
   endpoint (prod redirect accepted, unregistered → redirect_uri_mismatch). The full send path needs the deployment.
 
+## 9 PM text v2: every night, three messages (owner, 2026-11-21; `check:night`)
+
+- **Why:** no texts Thu 11/19–Sat 11/21 (Vercel paused the Hobby project: no requests at all 11/19 22:00Z → 11/21
+  23:00Z, back on the Pro upgrade), Mon–Thu only by design, 80–84 items per night in one list, calendar read for today only.
+- `TEXT_DAYS` = every day. `digestFormat.ts#nightMessages` → ≤3 messages: 📊 Big banks (`account.progress`, built in the
+  browser by `lib/nightProgress.ts`: starred banks on the Process tracker, else bulge bracket + elite boutique; health
+  emoji, column, chats / emailed, application state, next step, week counts, ≤3 "do better" tips), ✅ To-do
+  (`isTodoLabel`: thank-yous, info sessions, replies, referrals, check-ins, tomorrow's calls), 📬 Outreach (follow-ups,
+  move on, offices to fill). ≤8 names per section then "+N more: <link>"; split at 1,400 chars (CallMeBot cuts at 1,500).
+- Server (`tick#calendarItems`): `listEvents` for the last 7 days + the next 40 h → thank-yous for any matched call
+  with no email since (today = "call today", earlier = "still owed"), unmatched chat-like events today, "Calls
+  tomorrow: prep". `account.people` = everyone emailed or engaged (≤600, `engaged` flag gates first-name matches; it
+  was 30 people). `account.planAt` = last plan push: older than 3 days or no plan → a "Coverage last synced …" line;
+  progress older than 36 h → "(as of …)".
+- **Bank health** (`lib/bankHealth.ts`): null = nobody emailed (white), 30 = emailed no chat, +4/reply, +14/chat (≤3),
+  ±8 by chat rating, referral ≥88 (VP+ referrer = 100), red penalties (all moved on −15, declined −10, bad chat −8).
+  `healthColor` / `healthEmoji` (in digestFormat so the server can use it).
+
 ## 9 PM text, firms, transcripts (2026-10-19)
 
 - **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's

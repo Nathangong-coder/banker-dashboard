@@ -22,13 +22,18 @@ export const LABELS = {
   referral: "Referral to-do",
   moveOn: "Move on?",
   fillOffices: "Offices to fill (find people / start emailing)",
+  /** Calls on your calendar tomorrow (the server reads them): a prep link each. */
+  prepTomorrow: "Calls tomorrow: prep",
 } as const;
 
 /** Section order: tonight's thank-yous, then people who replied, then cold outreach (last chances first). */
-const ORDER: string[] = [LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.referral, LABELS.checkIn, LABELS.moveOn, LABELS.fillOffices];
+const ORDER: string[] = [LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.referral, LABELS.checkIn, LABELS.prepTomorrow, LABELS.moveOn, LABELS.fillOffices];
+/** Follow-ups (people already in flight) go before "move on?" and new offices to fill. */
 const sectionRank = (label: string) => {
+  const n = label.match(/^Follow-up #(\d+)/)?.[1];
+  if (n) return ORDER.indexOf(LABELS.moveOn) - 1 + Number(n) / 100;
   const i = ORDER.indexOf(label);
-  return i >= 0 ? i : ORDER.length + Number(label.match(/#(\d+)/)?.[1] ?? 9);
+  return i >= 0 ? i : ORDER.length;
 };
 
 /** The closing reminder after a day with calls: names + notes from the notes doc into the tracker. */
@@ -111,7 +116,8 @@ export function jobRunLine(jobRun: { lastAt?: string; everyDays: number } | unde
   return `🔎 Find jobs: press Search (${when}): ${app}/applications?find=1`;
 }
 
-export const TEXT_DAYS = [1, 2, 3, 4];
+/** Every night (owner, 2026-11-21: "it's not sending daily"; it was Mon–Thu, Fri–Sun only after calls). */
+export const TEXT_DAYS = [0, 1, 2, 3, 4, 5, 6];
 export const TEXT_HOUR = 21;
 
 /** Weekday (0 = Sunday) of a YYYY-MM-DD day. */
@@ -126,4 +132,119 @@ export function nextTextDay(day: string) {
     if (isTextDay(d)) return d;
   }
   return plusDays(day, 1);
+}
+
+/* ---------------- the "Big banks" message (lib/nightProgress.ts builds it in the browser) ---------------- */
+
+export interface ProgressBank {
+  bank: string;
+  /** bankHealth score (null = nothing yet). */
+  score: number | null;
+  /** Process tracker column ("Networking", "First round"…), when set. */
+  column?: string;
+  chats: number;
+  emailed: number;
+  live: number;
+  /** Application: "applied" (in, not closed), "open" (a posting is tracked), "closed", or none known. */
+  app?: "applied" | "open" | "closed";
+  next?: string;
+}
+
+export interface NightProgress {
+  /** When the dashboard computed it (the server says "as of …" when it's old). */
+  at: string;
+  banks: ProgressBank[];
+  /** Up to three "do better" lines. */
+  tips: string[];
+  week: { emails: number; replies: number; chats: number };
+}
+
+/** One emoji for a text message: ⚪ nothing, 🔴 bad, 🟡 emailed / early, 🟢 chats or a referral. */
+export function healthEmoji(score: number | null) {
+  if (score === null) return "⚪";
+  if (score < 30) return "🔴";
+  if (score < 44) return "🟡";
+  return "🟢";
+}
+
+/** One line per bank: "🟢 Goldman Sachs (First round): 2 chats · applied → Reply to Jane". */
+export function progressLines(p: NightProgress, max = 10): string[] {
+  return p.banks.slice(0, max).map((b) => {
+    const facts = [
+      b.chats ? `${b.chats} chat${b.chats > 1 ? "s" : ""}` : b.emailed ? `${b.emailed} emailed${b.live ? `, ${b.live} waiting` : ""}` : "nobody emailed",
+      b.app === "applied" ? "applied" : b.app === "open" ? "app open" : b.app === "closed" ? "app closed" : "",
+    ].filter(Boolean);
+    return `${healthEmoji(b.score)} ${b.bank}${b.column ? ` (${b.column})` : ""}: ${facts.join(" · ")}${b.next ? ` → ${b.next}` : ""}`.slice(0, 200);
+  });
+}
+
+/* ---------------- the three messages (owner, 2026-11-21: "too long… 2-3 messages") ---------------- */
+
+/** Message 2: people waiting on you. Message 3: new outreach (follow-ups, offices to fill). */
+const TODO = new Set<string>([LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.referral, LABELS.checkIn, LABELS.prepTomorrow]);
+export const isTodoLabel = (label: string) => TODO.has(label);
+
+/**
+ * Up to three WhatsApp messages: 📊 how the big banks are going (+ what to do better), ✅ to-do (thank-yous, replies,
+ * check-ins, referrals, tomorrow's calls), 📬 outreach (follow-ups due, offices to fill). Each section lists at most
+ * `perSection` people, then "+N more" with a link, so a message stays readable on a phone. A message is skipped when
+ * it has nothing to say; one that still runs past `maxLen` is split.
+ */
+export function nightMessages(o: {
+  items: DigestItem[];
+  progress?: NightProgress;
+  /** "(as of Mon 11/17: open Coverage to refresh)" when the browser hasn't pushed a fresh plan. */
+  progressNote?: string;
+  /** Lines after the to-do sections ("After today's calls", the tracker reminder). */
+  todoExtra?: string[];
+  /** Lines after the outreach sections ("Already scheduled…", the job search reminder). */
+  outreachExtra?: string[];
+  app: string;
+  perSection?: number;
+  maxLen?: number;
+}): string[] {
+  const per = o.perSection ?? 8;
+  const maxLen = o.maxLen ?? 1500;
+  const out: string[] = [];
+
+  if (o.progress && (o.progress.banks.length || o.progress.tips.length)) {
+    const p = o.progress;
+    const lines = ["📊 *Big banks*" + (o.progressNote ? ` ${o.progressNote}` : ""), ...progressLines(p, 10)];
+    if (p.week.emails || p.week.replies || p.week.chats) lines.push("", `This week: ${p.week.emails} emailed · ${p.week.replies} replied · ${p.week.chats} chat${p.week.chats === 1 ? "" : "s"}`);
+    if (p.tips.length) lines.push("", "*Do better*", ...p.tips.map((t) => `• ${t}`));
+    lines.push("", `Process tracker: ${o.app}/process`);
+    out.push(...split(lines.join("\n"), maxLen));
+  }
+
+  const section = (label: string, list: DigestItem[], link: string) => {
+    const shown = list.slice(0, per).map((it) => (it.email ? `• ${it.name}: ${it.email}` : `• ${it.name}`));
+    if (list.length > per) shown.push(`  +${list.length - per} more: ${link}`);
+    return [`*${label}* (${list.length})`, ...shown].join("\n");
+  };
+  const group = (title: string, keep: (label: string) => boolean, link: (label: string) => string, extra: string[] = []) => {
+    const by = new Map<string, DigestItem[]>();
+    for (const it of o.items) if (keep(it.label)) by.set(it.label, [...(by.get(it.label) ?? []), it]);
+    const blocks = [...by.entries()].sort((a, b) => sectionRank(a[0]) - sectionRank(b[0])).map(([label, list]) => section(label, list, link(label)));
+    if (!blocks.length && !extra.length) return;
+    out.push(...split([title, ...blocks, ...extra].join("\n\n"), maxLen));
+  };
+  group("✅ *To-do*", isTodoLabel, () => `${o.app}/followups`, o.todoExtra);
+  group("📬 *Outreach*", (l) => !isTodoLabel(l), (l) => (l === LABELS.fillOffices ? `${o.app}/coverage` : `${o.app}/followups`), o.outreachExtra);
+  return out;
+}
+
+/** A message over `maxLen` is cut at line breaks into several (the first line stays the header of the first). */
+function split(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+  const out: string[] = [];
+  let cur = "";
+  for (const line of text.split("\n")) {
+    if (cur && cur.length + line.length + 1 > maxLen) {
+      out.push(cur.trimEnd());
+      cur = "";
+    }
+    cur += (cur ? "\n" : "") + line;
+  }
+  if (cur.trim()) out.push(cur.trimEnd());
+  return out;
 }

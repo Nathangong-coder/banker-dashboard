@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEq
 import { Redis } from "@upstash/redis";
 import { HttpError } from "./http";
 import { PgStore, type Store } from "./store";
-import type { DigestItem } from "../digestFormat";
+import type { DigestItem, NightProgress } from "../digestFormat";
 import type { CaptureItem } from "../infoSessions";
 
 /**
@@ -38,6 +38,10 @@ export interface Account {
   whatsapp?: { phone: string; apiKey: string };
   /** Local day (YYYY-MM-DD in `tz`) → what the 9 PM text says. */
   digests: Record<string, { items: DigestItem[]; queued: number }>;
+  /** When the dashboard last pushed `digests` (the text says "as of …" when it's old). */
+  planAt?: string;
+  /** The text's "Big banks" message, computed by the dashboard (lib/nightProgress.ts). */
+  progress?: NightProgress;
   /** When you last searched for jobs + how often the 9 PM text reminds you (unset = no reminder). */
   jobRun?: { lastAt?: string; everyDays: number };
   /** People today's calendar events are matched against (name + email only). */
@@ -78,6 +82,8 @@ export interface CalPerson {
   linkedin?: string;
   /** Your latest logged conversation with them (Activity log): no "log how it went" once today's is logged. */
   loggedAt?: string;
+  /** Replied, met you, or has a call: only they can be matched by first name alone. */
+  engaged?: boolean;
 }
 
 let store: Store | null = null;

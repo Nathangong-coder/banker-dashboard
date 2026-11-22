@@ -1,38 +1,58 @@
 import { errorResponse } from "@/lib/server/http";
 import { DIGEST_DAY, DIGEST_ERR, accountIds, appUrl, captureUrl, db, getSends, loadAccount, localNow, type Account } from "@/lib/server/accounts";
-import { accessToken, eventsOn, infoSessionsBetween } from "@/lib/server/google";
+import { accessToken, infoSessionsBetween, listEvents } from "@/lib/server/google";
 import { verifyQstash } from "@/lib/server/jobs";
 import { trackAccount, trackStates, type TrackState } from "@/lib/server/gmailTrack";
 import { ensureWatch } from "@/lib/server/gmailPush";
 import { PgStore } from "@/lib/server/store";
 import { planItems } from "@/lib/server/tonight";
 import { sendWhatsApp } from "@/lib/server/whatsapp";
-import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, jobRunLine, nextTextDay, type CallPerson, type DigestItem } from "@/lib/digestFormat";
+import { LABELS, TEXT_HOUR, afterCallLines, jobRunLine, nextTextDay, nightMessages, type CallPerson, type DigestItem } from "@/lib/digestFormat";
 import { looksLikeChat, matchEvent } from "@/lib/calendarMatch";
 import { followUpTiming, reminderDue } from "@/lib/infoSessions";
 
 export const maxDuration = 300;
 
 /**
- * Today's calls from Google Calendar that haven't been thanked yet (no email to them since the call started).
- * Unmatched events that look like a chat are listed by their title. Fails soft: the text still goes out without them.
+ * Calls from Google Calendar (owner, 2026-11-21: the text "isn't syncing with gcal"; it only read today's events):
+ * - the last 7 days: a matched person with no email to them since the call started → thank-you (today's) / thank-you
+ *   still owed (earlier days); an unmatched event that looks like a chat (≤ 3 guests) only for today, by its title;
+ * - tomorrow: each call → "Calls tomorrow: prep".
+ * Fails soft: the text still goes out without them, with a note.
  */
-async function calendarThankYous(a: Account, day: string, tracked: Record<string, TrackState> = {}): Promise<{ items: DigestItem[]; met: CallPerson[]; note?: string }> {
+async function calendarItems(a: Account, day: string, tracked: Record<string, TrackState> = {}): Promise<{ items: DigestItem[]; met: CallPerson[]; note?: string }> {
   if (!a.google?.calendar) return { items: [], met: [] };
   try {
-    const events = await eventsOn(await accessToken(a), day, (at) => localNow(a.tz, at).day);
+    const now = Date.now();
+    const events = (await listEvents(await accessToken(a), new Date(now - 7 * 86_400_000).toISOString(), new Date(now + 40 * 3600_000).toISOString())).filter((e) => !e.allDay);
+    const tomorrow = localNow(a.tz, new Date(now + 24 * 3600_000)).day;
     const people = a.people ?? [];
     const items: DigestItem[] = [];
     const met: CallPerson[] = [];
+    const listed = new Set<string>();
     for (const e of events) {
-      if (new Date(e.start) > new Date()) continue;
-      const p = matchEvent(e, people);
-      if (p && !met.some((m) => m.contactId === p.contactId)) met.push({ contactId: p.contactId, name: p.name, bank: p.bank, linkedin: p.linkedin });
+      const at = new Date(e.start);
+      const eDay = localNow(a.tz, at).day;
+      const p = matchEvent({ id: e.id, summary: e.summary, description: e.description, attendees: e.attendees }, people);
+      if (eDay === tomorrow && at.getTime() > now) {
+        if (p || looksLikeChat(e.summary)) {
+          const id = p?.contactId ?? `cal:${e.id}`;
+          if (listed.has(`prep:${id}`)) continue;
+          listed.add(`prep:${id}`);
+          const who = p ? `${p.name}${p.bank ? ` (${p.bank})` : ""}` : e.summary || "Call";
+          items.push({ contactId: id, name: `${who} at ${timeIn(a.tz, at)}`.slice(0, 200), label: LABELS.prepTomorrow });
+        }
+        continue;
+      }
+      if (at.getTime() > now) continue;
       if (p) {
-        // Thanked = any email to them after the call started (Gmail, read by the server when it can).
+        if (eDay === day && !met.some((m) => m.contactId === p.contactId)) met.push({ contactId: p.contactId, name: p.name, bank: p.bank, linkedin: p.linkedin });
+        // Thanked = any email to them after the call started (Gmail, read by the server when it can), or done by hand.
         const thanked = [p.thankedAt, tracked[p.contactId]?.result.lastEmailedAt].filter(Boolean).sort().pop();
-        if (!thanked || thanked < e.start) items.push({ contactId: p.contactId, name: p.name, email: p.email, label: LABELS.thankToday });
-      } else if (looksLikeChat(e.summary) && e.attendees.length <= 3) {
+        if ((thanked && thanked >= e.start) || listed.has(p.contactId)) continue;
+        listed.add(p.contactId);
+        items.push({ contactId: p.contactId, name: p.name, email: p.email, label: eDay === day ? LABELS.thankToday : LABELS.thankOwed });
+      } else if (eDay === day && looksLikeChat(e.summary) && e.attendees.length <= 3) {
         items.push({ contactId: `cal:${e.id}`, name: e.summary || "Untitled call", email: e.attendees[0], label: LABELS.thankToday });
       }
     }
@@ -42,41 +62,35 @@ async function calendarThankYous(a: Account, day: string, tracked: Record<string
   }
 }
 
+const shortDay = (iso: string, tz: string) => new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", month: "numeric", day: "numeric" }).format(new Date(iso));
+
 /**
- * The 9 PM list (Mon–Thu, from 9 PM local, once a night): today's calls to thank (Google Calendar + the dashboard's
- * plan), replies and check-ins owed, and follow-ups due before the next text, then for each person you talked to today
- * a "log how it went" + LinkedIn link. Fri–Sun there's a text only when you had calls that day (thank-yous + those
- * links, no follow-ups). People the server has followed up with since the dashboard last synced are left out.
- * Returns whether a text went out.
+ * The 9 PM text, every night (owner, 2026-11-21), as up to three messages (digestFormat.ts#nightMessages):
+ * 📊 big banks (the dashboard's `progress`), ✅ to-do (calendar thank-yous for the last week, tomorrow's calls, and the
+ * dashboard's plan: replies, check-ins, referrals), 📬 outreach (follow-ups, offices to fill). People the server has
+ * emailed or followed up with since the dashboard last synced are left out. Returns whether a text went out.
  */
 async function nightText(a: Account, app: string) {
   const id = a.id;
   const { day, hour } = localNow(a.tz);
   if (hour < TEXT_HOUR) return false;
-  const textDay = isTextDay(day);
-  // Off nights: only worth a text when there were calls today (read before claiming the night).
-  const tracked = a.google?.read ? await trackStates(id) : {};
-  const offCal = textDay ? undefined : await calendarThankYous(a, day, tracked);
-  if (offCal && !offCal.met.length && !offCal.items.length) return false;
-  // (An off night where everyone's already logged and thanked sends nothing: see `messages` below.)
   // Claim tonight first, so an overlapping run can't send it twice.
   const prev = await db().getset<string>(DIGEST_DAY(id), day);
   if (prev === day) return false;
-  const plan = textDay ? a.digests[day] : undefined;
+  const tracked = a.google?.read ? await trackStates(id) : {};
+  const plan = a.digests[day];
   const sends = Object.values(await getSends(id));
-  const cal = offCal ?? (await calendarThankYous(a, day, tracked));
+  const cal = await calendarItems(a, day, tracked);
   const calIds = new Set(cal.items.map((i) => i.contactId));
-  const fromPlan = planItems(a, day, tracked, sends, calIds, textDay);
+  const fromPlan = planItems(a, day, tracked, sends, calIds, true);
   const items = [...cal.items, ...fromPlan.items];
-  const until = textDay ? nextTextDay(day) : day;
+  const until = nextTextDay(day);
   const queued = sends.filter((s) => {
     if (s.status !== "queued") return false;
     const d = localNow(a.tz, new Date(s.sendAt)).day;
     return d > day && d <= until;
   }).length;
-  const extra: string[] = [];
-  const ahead = Math.max(queued, plan?.queued ?? 0);
-  if (ahead) extra.push(`Already scheduled before your next text: ${ahead}`);
+
   // Everyone you talked to today: on the calendar, or a call / chat the dashboard knows about (thank-you items).
   const people = a.people ?? [];
   const met = [...cal.met];
@@ -90,17 +104,35 @@ async function nightText(a: Account, app: string) {
     const at = people.find((p) => p.contactId === m.contactId)?.loggedAt;
     return !at || localNow(a.tz, new Date(at)).day < day;
   });
-  if (toLog.length || (!met.length && items.some((i) => i.label === LABELS.thankToday))) extra.push(...afterCallLines(toLog, app, day));
-  if (cal.note) extra.push(cal.note);
-  // Text nights also remind you to search for jobs when it's been a while (never on its own on an off night).
-  const jobLine = textDay ? jobRunLine(a.jobRun, day, app) : null;
-  if (jobLine) extra.push(jobLine);
-  const messages = items.length || toLog.length || jobLine ? digestMessages(items, extra) : [];
+  const todoExtra: string[] = [];
+  if (toLog.length || (!met.length && items.some((i) => i.label === LABELS.thankToday))) todoExtra.push(...afterCallLines(toLog, app, day));
+  if (cal.note) todoExtra.push(cal.note);
+  // The plan comes from the dashboard: say so when it's old (it's only refreshed while Coverage is open somewhere).
+  const planAge = a.planAt ? Date.now() - Date.parse(a.planAt) : Infinity;
+  if (!plan || planAge > 3 * 86_400_000)
+    todoExtra.push(`⚠️ Coverage last synced ${a.planAt ? shortDay(a.planAt, a.tz) : "a while ago"}: open it (${app}) so replies, check-ins and follow-ups here are current.`);
+
+  const outreachExtra: string[] = [];
+  const ahead = Math.max(queued, plan?.queued ?? 0);
+  if (ahead) outreachExtra.push(`Already scheduled before tomorrow night: ${ahead}`);
+  const jobLine = jobRunLine(a.jobRun, day, app);
+  if (jobLine) outreachExtra.push(jobLine);
+
+  const progressAge = a.progress ? Date.now() - Date.parse(a.progress.at) : Infinity;
+  const messages = nightMessages({
+    items,
+    progress: a.progress,
+    progressNote: a.progress && progressAge > 36 * 3600_000 ? `(as of ${shortDay(a.progress.at, a.tz)})` : undefined,
+    todoExtra,
+    outreachExtra,
+    app,
+    maxLen: 1400,
+  });
   if (!messages.length) return false;
   try {
     for (let i = 0; i < messages.length; i++) {
       if (i) await new Promise((r) => setTimeout(r, 4000));
-      await sendWhatsApp(a, `*${digestTitle(i, messages.length)}*\n${messages[i]}`);
+      await sendWhatsApp(a, messages[i]);
     }
     await db().del(DIGEST_ERR(id));
     return true;
@@ -163,7 +195,7 @@ async function infoSessionReminders(a: Account, req: Request) {
 
 /**
  * Hourly (QStash schedule), for every account with WhatsApp: info-session reminders (any day, needs Calendar access)
- * and, on text nights (Mon–Thu) from 9 PM local, the night's list via CallMeBot.
+ * and, every night from 9 PM local, the night's messages via CallMeBot.
  */
 export async function POST(req: Request) {
   try {

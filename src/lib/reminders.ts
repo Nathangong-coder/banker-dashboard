@@ -2,7 +2,7 @@
 
 import type { BankMeta, Contact, Settings } from "./types";
 import { nextAction } from "./followups";
-import { LABELS, TEXT_HOUR, afterCallLines, digestMessages, digestTitle, isTextDay, nextTextDay, type DigestItem } from "./digestFormat";
+import { LABELS, TEXT_HOUR, afterCallLines, isTextDay, isTodoLabel, nextTextDay, nightMessages, type DigestItem, type NightProgress } from "./digestFormat";
 import { DAY, latestIso } from "./util";
 import { referralRows } from "./referralRows";
 
@@ -49,18 +49,31 @@ export function todayDigest(contacts: Contact[], banks: Record<string, BankMeta>
 }
 
 const QUIET_STATUSES = ["replied", "call_scheduled", "done", "ignored"];
-/** The evening WhatsApp text for today (lib/digestFormat.ts), or null on a non-text day / nothing to say. */
-export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], maxLen = 900) {
+/**
+ * The evening WhatsApp text for today as the server sends it (lib/digestFormat.ts#nightMessages): big banks, to-do,
+ * outreach. Without the server, calendar calls aren't in it. Null when there's nothing to say.
+ */
+export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], opts: { progress?: NightProgress; extraItems?: DigestItem[]; maxLen?: number } = {}) {
   const today = localDay(new Date());
-  const plan = nightPlan(contacts, banks, s, 1)[today];
-  if (!plan) return null;
-  return { day: today, count: plan.items.length, messages: digestMessages(plan.items, nightExtras(plan, contacts, today), maxLen) };
+  const plan = nightPlan(contacts, banks, s, 1)[today] ?? { items: [], queued: 0 };
+  const items = [...plan.items, ...(opts.extraItems ?? [])];
+  const extras = nightExtras(plan, contacts, today);
+  const app = typeof window !== "undefined" ? window.location.origin : "";
+  const messages = nightMessages({
+    items,
+    progress: opts.progress,
+    todoExtra: extras.filter((l) => !l.startsWith("Already scheduled")),
+    outreachExtra: extras.filter((l) => l.startsWith("Already scheduled")),
+    app,
+    maxLen: opts.maxLen ?? 1400,
+  });
+  return messages.length ? { day: today, count: items.length, todo: items.filter((i) => isTodoLabel(i.label)).length, messages } : null;
 }
 
 /** Lines after the sections: what's already scheduled, and after a day with calls, a log + LinkedIn link per person. */
 export function nightExtras(plan: { items: DigestItem[]; queued: number }, contacts: Contact[] = [], day = localDay(new Date())) {
   const out: string[] = [];
-  if (plan.queued) out.push(`Already scheduled before your next text: ${plan.queued}`);
+  if (plan.queued) out.push(`Already scheduled before tomorrow night: ${plan.queued}`);
   const talked = plan.items.filter((i) => i.label === LABELS.thankToday);
   if (talked.length) {
     const start = startOf(day).getTime();
@@ -177,7 +190,7 @@ export async function sendWhatsAppDigest(digest: { messages: string[] }, send: (
   const n = digest.messages.length;
   for (let i = 0; i < n; i++) {
     if (i) await new Promise((r) => setTimeout(r, 4000));
-    await send(digestTitle(i, n), digest.messages[i]);
+    await send(n > 1 ? `Tonight (${i + 1}/${n})` : "Tonight", digest.messages[i]);
   }
   return n;
 }

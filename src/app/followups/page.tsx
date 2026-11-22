@@ -14,8 +14,8 @@ import { notePixelDraft, pixelFor } from "@/lib/trackingActions";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { buildIcs } from "@/lib/ics";
-import { digestText, nightExtras, nightPlan, sendWhatsAppDigest, textTime, upcomingDigests, whatsappDigest } from "@/lib/reminders";
-import { digestMessages } from "@/lib/digestFormat";
+import { digestText, nightPlan, sendWhatsAppDigest, textTime, upcomingDigests, whatsappDigest } from "@/lib/reminders";
+import { officeGapItems, officeGaps } from "@/lib/officeGaps";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
@@ -25,7 +25,7 @@ import { FilterBar, useContactFilter, type Filters } from "@/components/Contacts
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
 import { FOLLOW_UP_SPREAD } from "@/lib/sendWindow";
-import { cancelSend, earlySends, fixEarlySends, gmailScheduledOverlap, lateSends, markServerConnected, moveLateSends, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
+import { cancelSend, earlySends, fixEarlySends, gmailScheduledOverlap, lateSends, markServerConnected, moveLateSends, progressFor, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
 import { AutoSendCard } from "@/components/AutoSend";
 import { repliedToSchedule, ScheduleCallsTable } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
@@ -1232,21 +1232,30 @@ function SetupHint({ text }: { text: string }) {
   );
 }
 
-/** What the next 9 PM WhatsApp text will say (Mon–Thu), from the same plan the server gets. */
+/** What tonight's 9 PM WhatsApp text will say (every night), from the same plan + big-banks summary the server gets. */
 function NightTextPreview() {
   const contacts = useStore((s) => s.contacts);
   const banks = useStore((s) => s.banks);
   const followUp = useStore((s) => s.settings.followUp);
+  const coverage = useStore((s) => s.coverage);
   const next = useMemo(() => {
-    const plan = nightPlan(contacts, banks, followUp, 8);
-    const day = Object.keys(plan).sort()[0];
-    return day ? { day, messages: digestMessages(plan[day].items, nightExtras(plan[day], contacts, day), 4000) } : null;
-  }, [contacts, banks, followUp]);
+    const st = useStore.getState();
+    const plan = nightPlan(contacts, banks, followUp, 2);
+    const day = Object.keys(plan).sort()[0] ?? null;
+    let office: ReturnType<typeof officeGapItems> = [];
+    try {
+      office = officeGapItems(officeGaps({ contacts, tables: st.tables, targets: st.targets, coverage, banks, followUp }), Math.max(1, followUp.livePerBank));
+    } catch {
+      /* coverage couldn't be built */
+    }
+    const d = whatsappDigest(contacts, banks, followUp, { progress: progressFor(st), extraItems: office, maxLen: 4000 });
+    return d ? { day: day ?? d.day, messages: d.messages } : null;
+  }, [contacts, banks, followUp, coverage]);
   return (
     <Card className="lg:col-span-2">
       <CardHeader
         title={next ? `Next 9 PM text · ${textTime(next.day).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : "Next 9 PM text"}
-        sub="Mon–Thu nights. Google Calendar calls are added by the server when it sends; check-ins stop once you mark someone referred (Coffee chat prep) or Done."
+        sub="Every night, as up to 3 messages. The server adds Google Calendar calls (the past week's thank-yous, tomorrow's calls) when it sends; check-ins stop once you mark someone referred or Done."
       />
       {next ? (
         <div className="p-4">

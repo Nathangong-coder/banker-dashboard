@@ -18,9 +18,34 @@ export const SyncBody = z.object({
         bank: z.string().max(200).optional(),
         linkedin: z.string().max(300).optional(),
         loggedAt: z.string().max(40).optional(),
+        /** Replied / met / has a call: a first name alone may match them (calendarMatch.ts). */
+        engaged: z.boolean().optional(),
       }),
     )
-    .max(400)
+    .max(600)
+    .optional(),
+  /** The 9 PM text's "Big banks" message (lib/nightProgress.ts). null = none. */
+  progress: z
+    .object({
+      at: z.string().max(40),
+      banks: z
+        .array(
+          z.object({
+            bank: z.string().max(200),
+            score: z.number().min(0).max(100).nullable(),
+            column: z.string().max(60).optional(),
+            chats: z.number().int().min(0).max(9999),
+            emailed: z.number().int().min(0).max(9999),
+            live: z.number().int().min(0).max(9999),
+            app: z.enum(["applied", "open", "closed"]).optional(),
+            next: z.string().max(200).optional(),
+          }),
+        )
+        .max(15),
+      tips: z.array(z.string().max(300)).max(5),
+      week: z.object({ emails: z.number().int().min(0), replies: z.number().int().min(0), chats: z.number().int().min(0) }),
+    })
+    .nullable()
     .optional(),
   /** People whose replies / thank-yous / intros the server watches in Gmail (needs read access). */
   track: z
