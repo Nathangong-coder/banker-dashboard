@@ -306,14 +306,30 @@ export function scanThankYous(opts: { force?: boolean } = {}) {
  * The server's read of your sent mail (api/server/sent: To, Cc and Bcc, no popup), since the last server scan or 120
  * days. Null when the server has no read access (or isn't connected), so the browser scan runs instead.
  */
+/** Set when the last server read stopped early (Gmail's per-user quota): the next scan starts from the same date. */
+let serverPartial = false;
+
 async function serverRecipients(sinceMs: number): Promise<SentRecipient[] | null> {
   if (!useStore.getState().settings.server?.id) return null;
   const { serverCall } = await import("./serverSync");
   const out: SentRecipient[] = [];
   const have = new Set<string>();
   let page: string | undefined;
+  serverPartial = false;
   for (let round = 0; round < 12; round++) {
-    const r = await serverCall<{ read: boolean; recipients: (SentRecipient & { id: string })[]; next?: string | null }>("/api/server/sent", { after: gmailDay(sinceMs), page });
+    let r: { read: boolean; recipients: (SentRecipient & { id: string })[]; next?: string | null; rateLimited?: boolean };
+    try {
+      r = await serverCall<typeof r>("/api/server/sent", { after: gmailDay(sinceMs), page });
+    } catch (e) {
+      // A later page failing used to throw away every page already read (owner's scan: 320 recipients lost to a 403).
+      if (!round) throw e;
+      serverPartial = true;
+      return out;
+    }
+    if (r.rateLimited) {
+      serverPartial = true;
+      return round ? out : null;
+    }
     if (!r.read) return round ? out : null;
     for (const x of r.recipients) {
       const k = `${x.id}|${x.email}`;
@@ -359,7 +375,8 @@ export function scanOffSheet(opts: { interactive: boolean; force?: boolean }): P
     const seenKey = new Set(cur.recipients.map((r) => `${r.email}|${r.at}`));
     useStore.getState().setOffSheet({
       scannedAt: new Date().toISOString(),
-      ...(fromServer ? { serverAt: new Date().toISOString() } : {}),
+      // A scan cut short keeps the old start date, so the next one reads the rest (duplicates are skipped below).
+      ...(fromServer && !serverPartial ? { serverAt: new Date().toISOString() } : {}),
       seen: [...cur.seen, ...read].slice(-4000),
       recipients: [...cur.recipients.filter((r) => r.at >= cutoff), ...keep.filter((r) => !seenKey.has(`${r.email}|${r.at}`))].slice(-4000),
     });

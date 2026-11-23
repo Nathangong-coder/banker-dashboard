@@ -132,6 +132,14 @@ export default function PrivacyPage() {
         and adds a &ldquo;⚠ VP+ check&rdquo; label to those messages. Nothing else in your mailbox is changed.
       </p>
       <p>
+        <b>Gmail labels</b> (Outreach → Gmail labels) is off until you use it. With the same label permission, your browser reads the labels on the
+        threads you wrote to the people in your tracker, shows you the labels it would add or remove (where each person is, and their office, bank
+        and group), and changes them only when you press Apply, or on each sync if you turn that on. The thread ids, names and labels of your last
+        five runs are kept in your account so you can undo one. With automatic sending connected, the server also lists your scheduled Gmail emails
+        (recipients, subject, send time and label names, nothing else) when you sync, so people with an email already scheduled aren&apos;t shown as
+        due. That list is kept in your account until the next sync.
+      </p>
+      <p>
         <b>Check Gmail</b> on Applications reads, in your browser, the emails firms send about your job applications (found by a search for
         application-system senders such as Workday or Greenhouse and subjects like &ldquo;Thank you for applying&rdquo;). If an AI model is set up,
         each email&apos;s sender, subject, date and text is sent once to it to say what it is (confirmation, interview, rejection…), the firm, the role

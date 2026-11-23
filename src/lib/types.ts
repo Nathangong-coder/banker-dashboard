@@ -71,6 +71,8 @@ export interface Contact {
   lastName: string;
   bank: string;
   region: Region;
+  /** Where the office came from (lib/officeEvidence.ts). "manual" = you picked it; it is never changed for you. */
+  regionSource?: "manual" | "location" | "signature" | "phone" | "profile" | "default";
   /** Office, e.g. "SF", "NY", "Menlo Park" (see locationTeam.ts). */
   location: string;
   /** Coverage group, e.g. "Tech", "Healthcare", "RX", as on the sheet. Blank = not set (see locationTeam.ts#teamOf for inference). */
@@ -549,6 +551,19 @@ export interface Settings {
    * schedule (or manual if they press it)"). undefined = every 6 hours. lib/backgroundJobs.ts.
    */
   syncEvery?: "manual" | "2h" | "6h" | "24h";
+  /** Gmail labels Coverage keeps in step with your tracker (lib/gmailLabels.ts; /labels). undefined = off. */
+  labels?: GmailLabelSettings;
+}
+
+export interface GmailLabelSettings {
+  /** Outreach/Sent - waiting · Replied · Moved on · Bounced on each person's threads. */
+  state: boolean;
+  /** IB/<office>, IB/<office>/Bank/<bank>, IB/<office>/Group/<team>. */
+  office: boolean;
+  /** Apply on every Sync, when Gmail's label permission was granted in this tab. */
+  auto: boolean;
+  /** Recent runs, newest first (≤ 5), so one can be undone. */
+  log?: { at: string; changes: { threadId: string; contactId: string; name: string; add: string[]; remove: string[] }[] }[];
 }
 
 /**

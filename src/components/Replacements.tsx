@@ -17,8 +17,14 @@ const WHY: Record<NonNullable<Contact["outcome"]>["kind"], string> = { bounced: 
 
 /** Failed outreach still open: `suspected` = a reply that looks like a no (to confirm), `failed` = confirmed (desk needs someone new). */
 export function replacementLists(contacts: Contact[]) {
-  const open = contacts.filter((c) => c.outcome && !c.outcome.replaced);
-  return { suspected: open.filter((c) => !c.outcome!.confirmed), failed: open.filter((c) => c.outcome!.confirmed) };
+  // Only real failures: a bounce, someone who left, someone who said no (owner, 2026-11-23: 73 rows, 57 of them
+  // "no reply, moved on", which is how most cold emails end; 34 of those banks already had someone live). Empty
+  // offices are what Bank coverage → Offices to fill is for. A failure whose bank already has someone live (sent,
+  // followed up, replied, call) isn't urgent either, so it's left out.
+  const live = (c: Contact) => !c.outcome && ["sent", "followed_up", "replied", "call_scheduled"].includes(c.status);
+  const covered = new Set(contacts.filter(live).map((c) => `${canonBank(c.bank)}|${c.region}`));
+  const open = contacts.filter((c) => c.outcome && !c.outcome.replaced && c.outcome.kind !== "no_reply");
+  return { suspected: open.filter((c) => !c.outcome!.confirmed), failed: open.filter((c) => c.outcome!.confirmed && !covered.has(`${canonBank(c.bank)}|${c.region}`)) };
 }
 
 const linkBtn = "inline-flex h-7 items-center gap-1.5 rounded-lg bg-brass-strong px-2.5 text-[12.5px] font-medium whitespace-nowrap text-white hover:bg-brass-hover";

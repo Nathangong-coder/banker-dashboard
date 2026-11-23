@@ -301,6 +301,8 @@ export function todoFor(c: Contact, now: number, isReferrer: (c: Contact) => boo
   const resolvedAt = c.resolved?.at;
   // Resolved: nothing until they write after it.
   if (resolvedAt && (!heard || heard <= resolvedAt)) return null;
+  // An email to them is already queued (Gmail Schedule send or Coverage's queue): handled until it goes out.
+  if (queuedFor(c, now)) return null;
   const calls = [c.call?.at, ...(c.chats ?? []).map((x) => x.at), ...(c.chatEvidence ?? []).filter((e) => e.source === "calendar").map((e) => e.at)]
     // A chat you said didn't happen (Chats to confirm → No) isn't owed a thank-you.
     .filter((x): x is string => !!x && Date.parse(x) <= now && c.chatVerdicts?.[chatDayKey(x)] !== "no")
@@ -393,6 +395,10 @@ export const wrongAddress = (contacts: Contact[]) => contacts.filter((c) => c.ma
  * Where someone you've talked with stands, and why they are or aren't on Warm follow-ups (owner, 2026-11-22: "the BMO
  * chat with Rohan Desai is not there, which is really weird"). `engaged` = replied, met you, or referred you.
  */
+/** A send already queued to them (Gmail Schedule send, or Coverage's own queue) that hasn't gone out. */
+export const queuedFor = (c: Pick<Contact, "scheduledAt" | "serverSend">, now = Date.now()) =>
+  [c.scheduledAt, c.serverSend?.sendAt].filter((x): x is string => !!x && Date.parse(x) > now).sort()[0];
+
 export function standing(c: Contact, now: number, isReferrer: (c: Contact) => boolean = () => false): { engaged: boolean; listed: boolean; text: string } {
   const met = chatRecords(c, now).some((r) => r.state !== "rejected") || !!c.call;
   const engaged = !!(c.repliedAt || c.lastHeardAt || c.mail?.lastIn || met || c.referral || isReferrer(c));
@@ -401,6 +407,8 @@ export function standing(c: Contact, now: number, isReferrer: (c: Contact) => bo
     const what = row.kind === "thank" ? "Thank-you owed" : row.kind === "reply" ? "They wrote last: reply" : Date.parse(row.due) <= now ? "Nudge now" : `Next nudge ${md(row.due)}`;
     return { engaged, listed: !row.hidden, text: row.hidden ? `Filtered out as noise: ${row.hidden.why}` : `${what}. ${row.why}` };
   }
+  const q = queuedFor(c, now);
+  if (q) return { engaged, listed: false, text: `An email to them is scheduled for ${md(q)}: nothing to do until it goes out.` };
   if (c.mail?.otherPerson) return { engaged, listed: false, text: `The address on file belongs to ${c.mail.otherPerson}: fix it to track them.` };
   if (c.status === "done") return { engaged, listed: false, text: "Status is Done, so they're not tracked. Change the status to track them again." };
   if (c.status === "ignored") return { engaged, listed: false, text: "Moved on. Bring them back on Bank coverage to track them again." };

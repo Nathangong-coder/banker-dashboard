@@ -27,7 +27,7 @@ export function AutoSendCard() {
     <Card>
       <CardHeader
         title="Automatic sending"
-        sub="Coverage sends the emails you schedule inside your send window (Settings → Email → Sending) and texts your 9 PM WhatsApp list (Mon–Thu: today's thank-yous, check-ins, follow-ups due before the next text), even when this dashboard is closed."
+        sub="Coverage sends the emails you schedule inside your send window (Settings → Email → Sending) and texts your 9 PM WhatsApp list every night (thank-yous, replies owed, check-ins, follow-ups due before the next text), even when this dashboard is closed."
         right={<Clock className="size-4 text-muted" />}
       />
       <div className="space-y-2 p-4 text-[13px]">
@@ -39,7 +39,7 @@ export function AutoSendCard() {
                 Sends from <b>{server.email}</b> · {queued} queued
               </span>
             </div>
-            {status?.whatsapp && <div className="text-[12px] text-muted">WhatsApp 9 PM text (Mon–Thu): on{status.lastDigestDay ? ` · last sent ${status.lastDigestDay}` : ""}</div>}
+            {status?.whatsapp && <div className="text-[12px] text-muted">WhatsApp 9 PM text (every night): on{status.lastDigestDay ? ` · last sent ${status.lastDigestDay}` : ""}</div>}
             {status && !status.calendar && (
               <div className="text-[12px] text-ink-2">
                 Google Calendar isn&apos;t connected, so tonight&apos;s thank-you list only knows calls booked from this dashboard.{" "}

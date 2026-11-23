@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { BriefcaseBusiness, Building2, CalendarDays, Coffee, FileText, Flame, FlaskConical, Home, LayoutGrid, Mail, MailCheck, NotebookPen, Presentation, Search, Settings2, Sheet, Workflow, Wrench } from "lucide-react";
+import { BellRing, MessagesSquare, Tags, BriefcaseBusiness, Building2, CalendarDays, Coffee, FileText, Flame, FlaskConical, Home, LayoutGrid, Mail, MailCheck, NotebookPen, Presentation, Search, Settings2, Sheet, Workflow, Wrench } from "lucide-react";
 
 /** An ice cube (owner, 2026-11-22: "cold outreach" with an ice-cube logo); lucide has none. Same API as a lucide icon. */
 export function IceCube({ className }: { className?: string }) {
@@ -29,6 +29,8 @@ export const NAV: NavCategory[] = [
     pages: [
       { href: "/followups", label: "Cold outreach", icon: IceCube, hint: "Follow up on emails with no reply yet" },
       { href: "/think", label: "Warm follow-ups", icon: Flame, hint: "Replies, thank-yous and check-ins with people you've talked to" },
+      { href: "/ongoing", label: "Ongoing threads", icon: MessagesSquare, hint: "Every live conversation, and what's already scheduled to go out" },
+      { href: "/reminders", label: "Reminders", icon: BellRing, hint: "Your 9 PM text: what's in it, when it updates, where it goes" },
     ],
   },
   {
@@ -48,6 +50,7 @@ export const NAV: NavCategory[] = [
       { href: "/find", label: "Find people", icon: Search, hint: "Search LinkedIn results for bankers to email" },
       { href: "/drafts", label: "Email drafts", icon: Mail, hint: "Write and send first emails" },
       { href: "/tracking", label: "Email tracking", icon: MailCheck, hint: "Who opened your emails" },
+      { href: "/labels", label: "Gmail labels", icon: Tags, hint: "Label banker threads in Gmail to match your tracker" },
       { href: "/templates", label: "Templates", icon: FileText, hint: "Your email templates, hooks and resume" },
       { href: "/lab", label: "Email lab", icon: FlaskConical, hint: "What wording gets replies" },
     ],

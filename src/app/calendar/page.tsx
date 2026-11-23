@@ -115,7 +115,7 @@ export default function CalendarPage() {
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-line bg-panel px-4 py-2.5 text-[13px] text-ink-2">
           <CalendarSync className="size-4 shrink-0 text-brass" />
           {calendar === false ? "Your Google connection doesn't include Calendar yet: reconnect with Calendar ticked." : "To read Google Calendar, turn on automatic sending with Calendar ticked."}
-          <Link href="/followups?tab=reminders" className="font-medium text-navy hover:underline">
+          <Link href="/reminders" className="font-medium text-navy hover:underline">
             Open Reminders
           </Link>
         </div>

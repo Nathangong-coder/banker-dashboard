@@ -191,7 +191,7 @@ function InfoSessionsInner() {
                 connected && { label: "Sync calendar now", hint: "Reads 6 months back, 2 ahead", icon: <CalendarSync />, onClick: () => refresh(false), disabled: loading },
                 connected && { label: "Check phone captures", hint: "Also runs every 2 minutes on this page", icon: <Smartphone />, onClick: () => pull(false), disabled: pulling },
                 connected && "divider",
-                { label: "Phone capture link & texting", hint: "Follow-ups → Reminders", icon: <Link2 />, onClick: () => router.push("/followups?tab=reminders") },
+                { label: "Phone capture link & texting", hint: "Follow-ups → Reminders", icon: <Link2 />, onClick: () => router.push("/reminders") },
               ]}
             />
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
@@ -205,7 +205,7 @@ function InfoSessionsInner() {
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-line bg-panel px-4 py-2.5 text-[13px] text-ink-2">
           <CalendarSync className="size-4 shrink-0 text-brass" />
           {calendar === false ? "Your Google connection doesn't include Calendar yet: reconnect with Calendar ticked." : "Read sessions from Google Calendar: turn on automatic sending with Calendar ticked."}
-          <Link href="/followups?tab=reminders" className="font-medium text-navy hover:underline">
+          <Link href="/reminders" className="font-medium text-navy hover:underline">
             Open Reminders
           </Link>
         </div>

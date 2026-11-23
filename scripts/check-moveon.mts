@@ -23,7 +23,7 @@ const check = (what: string, ok: boolean, detail: unknown = "") => {
 
 const fu: Settings["followUp"] = { firstAfterDays: 7, nextAfterDays: 7, maxFollowUps: 2, moveOnAfterDays: 7, livePerBank: 2 };
 const person = (p: Partial<Contact>): Contact =>
-  ({ id: "x", name: "Mohammed Ali", firstName: "Mohammed", lastName: "Ali", bank: "Houlihan Lokey", region: "SF", location: "SF", position: "Analyst", email: "m@hl.com", linkedin: "", comment: "", status: "followed_up", followUps: 2, source: "sheet", history: [], ...p }) as Contact;
+  ({ id: "x", name: "Mohammed Ali", firstName: "Mohammed", lastName: "Ali", bank: "Houlihan Lokey", region: "SF", location: "SF", position: "Analyst", email: "m@hl.com", linkedin: "", comment: "", status: "followed_up", followUps: 2, source: "sheet", history: [], regionSource: "location", ...p }) as Contact;
 const local = (y: number, m: number, d: number, h = 10) => new Date(y, m - 1, d, h).toISOString();
 
 // Names

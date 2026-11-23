@@ -11,7 +11,15 @@ export interface NextAction {
   isDue: boolean;
   label: string;
   unknownDate?: boolean;
+  /**
+   * A follow-up more than a week past due that you never sent (owner, 2026-11-23 audit: 31 of 48 "due" rows were
+   * 14+ days late, first emails from Oct 27–29 you had let go). Kept out of Due and the 9 PM text, listed apart as
+   * "Went cold" with Follow up anyway / Move on.
+   */
+  stale?: boolean;
 }
+
+export const STALE_AFTER_DAYS = 7;
 
 const QUIET = new Set(["replied", "call_scheduled", "done", "ignored"]);
 
@@ -43,7 +51,8 @@ export function nextAction(c: Contact, s: Settings["followUp"], bank?: BankMeta)
   }
   let due = addDays(last, c.followUps === 0 ? s.firstAfterDays : s.nextAfterDays);
   if (c.snoozeUntil && new Date(c.snoozeUntil) > due) due = new Date(c.snoozeUntil);
-  return { kind: "follow_up", due, isDue: due <= endOfToday, label: `Follow-up #${c.followUps + 1}` };
+  const stale = !c.snoozeUntil && now.getTime() - due.getTime() > STALE_AFTER_DAYS * 86_400_000;
+  return { kind: "follow_up", due, isDue: due <= endOfToday, label: `Follow-up #${c.followUps + 1}`, ...(stale ? { stale } : {}) };
 }
 
 /** Your latest email to them before a reply (Gmail's latest sent date when synced, else the sheet's dates). */

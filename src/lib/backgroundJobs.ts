@@ -55,7 +55,7 @@ export function runBackgroundJobs(opts: { manual?: boolean } = {}) {
     const server = !!st().settings.server?.id;
     const google = !!st().settings.server?.email;
     if (opts.manual) await quietly("Saving and pulling your account…", async () => (await import("./sync")).syncNow());
-    if (server || st().settings.tracking?.on) await quietly("Syncing with the server…", async () => (await import("./serverSync")).syncServer());
+    if (server) await quietly("Reading Gmail's scheduled emails…", async () => (await import("./gmailScheduled")).applyGmailScheduled());
     const g = await import("./gmailSync");
     await quietly("Reading sent mail…", () => g.scanOffSheet({ interactive: false }));
     await quietly("Counting chats from thank-yous…", () => g.scanThankYous({ force: opts.manual }));
@@ -67,6 +67,9 @@ export function runBackgroundJobs(opts: { manual?: boolean } = {}) {
     const { gmailConnected } = await import("./gmail");
     const { googleClientId } = await import("./keys");
     if (gmailConnected(googleClientId(st().settings))) await quietly("Syncing Gmail…", () => g.syncAllWithGmail({ interactive: false }));
+    await quietly("Updating Gmail labels…", async () => (await import("./gmailLabelsRun")).autoLabels());
+    // Last, so tonight's 9 PM plan the server gets is built from everything just read.
+    if (server || st().settings.tracking?.on) await quietly("Syncing with the server…", async () => (await import("./serverSync")).syncServer());
   })().finally(() => {
     running = null;
     useBackground.setState({ running: false, at: Date.now(), step: undefined });

@@ -13,19 +13,20 @@ import { Badge, Button, Card, CardHeader, Empty, Input, PageHeader, Segmented, S
 import { SpecialtyPicker } from "@/components/RecruitingPlan";
 import { setFirmKind } from "@/components/useBankViews";
 import { OfficeFactsTable } from "@/components/OfficeFactsTable";
+import { ChatsTab, PeopleTab } from "@/components/CorrectionsPeople";
 
 /**
  * Corrections (owner, 2026-11-21: "super manual… override any info that the program/AI automatically assumed"). Every
  * guess Coverage makes about a firm, a program or an office can be set by hand here, and what you set wins everywhere
  * (Process tracker, Bank coverage, the 9 PM text). Each change shows "set by you" with a way back to automatic.
  */
-type Tab = "firms" | "programs" | "offices";
+type Tab = "people" | "chats" | "firms" | "programs" | "offices";
 const KIND_LABEL: Record<ProgramKind, string> = { sa: "Summer Analyst", insight: "Insight / early program", other: "Other" };
 const STARTER_TIER = new Map(STARTER_TARGETS.map((t) => [canonBank(t.name), t.tier]));
 
 function initialTab(): Tab {
   const t = new URLSearchParams(window.location.search).get("tab");
-  return t === "programs" || t === "offices" ? t : "firms";
+  return t === "programs" || t === "offices" || t === "people" || t === "chats" ? t : "firms";
 }
 
 export default function CorrectionsPage() {
@@ -44,6 +45,8 @@ export default function CorrectionsPage() {
             value={tab}
             onChange={setTab}
             options={[
+              ["people", "People"],
+              ["chats", "Chats & calendar"],
               ["firms", "Firms"],
               ["programs", "Programs & applications"],
               ["offices", "Offices"],
@@ -51,6 +54,8 @@ export default function CorrectionsPage() {
           />
         }
       />
+      {tab === "people" && <PeopleTab />}
+      {tab === "chats" && <ChatsTab />}
       {tab === "firms" && <FirmsTab />}
       {tab === "programs" && <ProgramsTab />}
       {tab === "offices" && <OfficesTab />}

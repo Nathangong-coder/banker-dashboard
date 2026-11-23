@@ -783,3 +783,15 @@ export async function threadMessages(clientId: string, threadId: string): Promis
 
 /** Deep link to a thread in Gmail's web app. */
 export const gmailThreadUrl = (threadId: string) => `https://mail.google.com/mail/u/0/#all/${threadId}`;
+
+/** A Gmail API caller with the modify permission (asked for on the first click; reused for the session). */
+export async function gmailModify(clientId: string, interactive = true) {
+  if (!interactive && !(modifyToken && modifyToken.exp > Date.now())) return null;
+  const t = await connectModify(clientId);
+  return async <T,>(path: string, init?: RequestInit): Promise<T> => {
+    const res = await fetch(`${API}${path}`, { ...init, headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } });
+    if (!res.ok) throw new Error(`Gmail: ${(await res.text()).slice(0, 200)}`);
+    const body = await res.text();
+    return (body ? JSON.parse(body) : {}) as T;
+  };
+}

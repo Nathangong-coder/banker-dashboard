@@ -1,15 +1,17 @@
 import type { BankMeta, Contact, HistoryEvent, Settings } from "./types";
 import { dayLabel, lastEmailOf, moveOnDate, queuedAt } from "./followups";
 import { personName, splitName } from "./util";
+import { officePatch } from "./officeEvidence";
 
 /**
  * Upkeep the dashboard does by itself (owner, 2026-10-27), run on load and after changes (Shell#useContactUpkeep):
  * - names read First Last ("Zhu, Kevin" → "Kevin Zhu");
+ * - the office (region) follows the best evidence: lib/officeEvidence.ts;
  * - someone whose last follow-up went unanswered through the end of that work week is moved on (status ignored,
  *   outcome no_reply). It's never a to-do: the desk frees up and the bank shows it needs new people. A reply later
  *   brings them back (Gmail sync / tracking).
  */
-export function upkeepPatches(contacts: Contact[], s: Settings["followUp"], banks: Record<string, BankMeta> = {}, now = new Date()) {
+export function upkeepPatches(contacts: Contact[], s: Settings["followUp"], banks: Record<string, BankMeta> = {}, now = new Date(), myPhone?: string) {
   const out: { id: string; patch: Partial<Contact>; event?: HistoryEvent }[] = [];
   for (const c of contacts) {
     const patch: Partial<Contact> = {};
@@ -21,6 +23,12 @@ export function upkeepPatches(contacts: Contact[], s: Settings["followUp"], bank
       // The title that was stuck on the name ("— Analyst, IBD") becomes the position when there is none.
       const rest = c.name.split(/ [—–] /).slice(1).join(" ").replace(/[—–\s]+$/, "").trim();
       if (rest && !c.position) patch.position = rest;
+    }
+    // The office follows the best evidence (Location column > their signature > phone > LinkedIn), unless you set it.
+    const office = officePatch(c, myPhone);
+    if (office) {
+      Object.assign(patch, office);
+      if (office.region !== c.region) event = { at: now.toISOString(), type: "note", note: `Office ${c.region} → ${office.region} (from ${office.regionSource})` };
     }
     const due = shouldMoveOn(c, s, banks[`${c.bank}|${c.region}`], now);
     if (due) {

@@ -143,7 +143,7 @@ function useContactUpkeep(ready: boolean) {
     if (!ready) return;
     const run = () => {
       const st = useStore.getState();
-      const list = upkeepPatches(st.contacts, st.settings.followUp, st.banks);
+      const list = upkeepPatches(st.contacts, st.settings.followUp, st.banks, new Date(), st.settings.profile.phone);
       if (list.length) st.updateContacts(list);
     };
     const t = setTimeout(run, 1500);
@@ -200,7 +200,16 @@ function useServerSync(ready: boolean) {
     };
     const wait = sends !== lastServerSync.sends ? 4000 : Math.max(4000, lastServerSync.at + 120_000 - Date.now());
     const t = setTimeout(run, wait);
-    return () => clearTimeout(t);
+    // Before the 9 PM text: a tab open between 7 and 9 PM sends a fresh plan (at most hourly), so tonight's list
+    // reflects today even with a 6-hour (or manual) background schedule.
+    const evening = setInterval(() => {
+      const h = new Date().getHours();
+      if (h >= 19 && h < 21 && Date.now() - lastServerSync.at > 3600_000) void run();
+    }, 10 * 60_000);
+    return () => {
+      clearTimeout(t);
+      clearInterval(evening);
+    };
   }, [ready, syncing, sends, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
 }
 

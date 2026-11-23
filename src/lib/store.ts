@@ -135,6 +135,9 @@ export interface OffSheetState {
   recipients: SentRecipient[];
   /** Addresses you said aren't bankers to track. */
   ignored: string[];
+  /** Gmail's Schedule send, as of `scheduledAt` (lib/gmailScheduled.ts): who, when, subject, the labels on it. */
+  scheduled?: { at: string; to: string[]; subject: string; labels: string[]; threadId: string }[];
+  scheduledCheckedAt?: string;
 }
 
 interface State {

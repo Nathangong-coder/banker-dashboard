@@ -2,24 +2,22 @@
 
 import { addSmartMention } from "@/lib/mentionDrafts";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "@/components/Link";
-import { Bell, CalendarClock, CalendarPlus, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Smartphone, Trash2, UserPlus, UserX, X } from "lucide-react";
+import { CalendarClock, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Trash2, UserPlus, UserX, X } from "lucide-react";
 import { bankKey, useStore } from "@/lib/store";
 import { isVpPlus } from "@/lib/seniority";
-import { nextAction, pendingFollowUpDraft, rollupBanks, sendLabel, type BankRollup, type NextAction } from "@/lib/followups";
+import { STALE_AFTER_DAYS, nextAction, pendingFollowUpDraft, rollupBanks, sendLabel, type BankRollup, type NextAction } from "@/lib/followups";
 import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
 import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
 import { connectGmail, deleteDraft, gmailConnected, upsertDraft } from "@/lib/gmail";
 import { notePixelDraft, pixelFor } from "@/lib/trackingActions";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
-import { buildIcs } from "@/lib/ics";
-import { digestText, nightPlan, sendWhatsAppDigest, textTime, upcomingDigests, whatsappDigest } from "@/lib/reminders";
-import { officeGapItems, officeGaps } from "@/lib/officeGaps";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
 import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
-import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Menu, Modal, Progress, Segmented, Select, StatusBadge, toast } from "@/components/ui";
+import { addDays, cn, fmtDate, relDays } from "@/lib/util";
+import { Badge, Button, Card, CardHeader, Empty, Field, Input, Menu, Modal, Progress, Segmented, Select, StatusBadge, toast } from "@/components/ui";
 import { ObjectHeader, Tabs } from "@/components/crm";
 import { IceCube } from "@/components/AppNav";
 import { ContactModal } from "@/components/ContactModal";
@@ -27,8 +25,7 @@ import { FilterBar, useContactFilter, type Filters } from "@/components/Contacts
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
 import { FOLLOW_UP_SPREAD } from "@/lib/sendWindow";
-import { cancelSend, earlySends, fixEarlySends, gmailScheduledOverlap, lateSends, markServerConnected, moveLateSends, progressFor, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
-import { AutoSendCard } from "@/components/AutoSend";
+import { cancelSend, earlySends, fixEarlySends, gmailScheduledOverlap, lateSends, moveLateSends, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
 import { repliedToSchedule, ScheduleCallsTable } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
 import { replacementLists, ReplacementsTable } from "@/components/Replacements";
@@ -40,24 +37,23 @@ import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
 import { OpenBadge } from "@/components/OpenBadge";
 
-type Tab = "due" | "bankers" | "banks" | "reminders";
+type Tab = "due" | "bankers" | "banks";
 
 export default function FollowupsPage() {
-  // ?tab=reminders (where Google sends you back after connecting automatic sending).
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>(() => {
     const t = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("tab");
-    return t === "reminders" || t === "bankers" || t === "banks" ? t : "due";
+    return t === "bankers" || t === "banks" ? t : "due";
   });
+  // Reminders moved to its own page (owner, 2026-11-23); old links and Google's return (?server=…) land there.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    const t = q.get("tab");
-    if (q.get("server") === "connected" && q.get("email")) {
-      markServerConnected(q.get("email")!);
-      toast.ok(`Automatic sending is on for ${q.get("email")}.`);
-      syncServer().catch((e: Error) => toast.err(e.message));
-    } else if (q.get("server") === "error") toast.err(`Automatic sending wasn't connected: ${q.get("reason") ?? "unknown error"}`);
-    if (q.get("server")) window.history.replaceState(null, "", "/followups" + (t ? `?tab=${t}` : ""));
-  }, []);
+    if (q.get("tab") === "reminders" || q.get("server")) {
+      q.delete("tab");
+      router.replace(`/reminders${q.size ? `?${q}` : ""}`);
+    }
+  }, [router]);
+  const toReminders = () => router.push("/reminders");
   const [open, setOpen] = useState<Contact | null>(null);
   const [sync, setSync] = useState<{ done: number; total: number } | null>(null);
   const s = useStore();
@@ -84,7 +80,7 @@ export default function FollowupsPage() {
         meta={`Follow up ${s.settings.followUp.firstAfterDays} days after the first email, up to ${s.settings.followUp.maxFollowUps} times, then move on.`}
         actions={
           <>
-            <SendModeMenu onAuto={() => setTab("reminders")} />
+            <SendModeMenu onAuto={toReminders} />
             {sync ? (
               <div className="w-56">
                 <Progress value={sync.done} max={sync.total} label={`${sync.done}/${sync.total} checked`} />
@@ -106,14 +102,12 @@ export default function FollowupsPage() {
           { id: "due", label: "Queue" },
           { id: "bankers", label: "By banker" },
           { id: "banks", label: "By bank" },
-          { id: "reminders", label: "Reminders & alerts" },
         ]}
       />
 
-      {tab === "due" && <DueList onOpen={setOpen} onSync={runSync} syncing={!!sync} onAuto={() => setTab("reminders")} />}
+      {tab === "due" && <DueList onOpen={setOpen} onSync={runSync} syncing={!!sync} onAuto={toReminders} />}
       {tab === "bankers" && <BankerTable onOpen={setOpen} />}
       {tab === "banks" && <BankBoard onOpen={setOpen} />}
-      {tab === "reminders" && <Reminders />}
 
       <ContactModal contact={open} onClose={() => setOpen(null)} />
     </>
@@ -149,7 +143,7 @@ function SendModeMenu({ onAuto }: { onAuto: () => void }) {
           label: "Coverage sends them",
           hint: connected
             ? "Sent from your Gmail at each person's slot, even with the dashboard closed. They wait in Gmail Drafts until then."
-            : "Needs a one-time Google sign-in (opens Reminders & alerts).",
+            : "Needs a one-time Google sign-in (opens Reminders).",
           icon: mark("coverage"),
           onClick: () => pick("coverage"),
         },
@@ -267,7 +261,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const [batch, setBatch] = useState<Contact[] | null>(null);
   const toggle = (id: string) => setSel((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const setAll = (ids: string[], on: boolean) => setSel((x) => { const n = new Set(x); for (const id of ids) if (on) n.add(id); else n.delete(id); return n; });
-  const { behind, drafted, due, upcoming, scheduled, unknown } = useMemo(() => {
+  const { behind, cold, drafted, due, upcoming, scheduled, unknown } = useMemo(() => {
     const all = contacts
       .map((c) => ({ c, a: nextAction(c, settings.followUp, banks[bankKey(c.bank, c.region)]) }))
       .filter(({ a }) => ["follow_up", "move_on", "send", "scheduled"].includes(a.kind));
@@ -276,7 +270,8 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     const due = dated.filter((x) => x.a.isDue);
     return {
       due,
-      behind: due.filter((x) => x.a.kind !== "send"),
+      behind: due.filter((x) => x.a.kind !== "send" && !x.a.stale),
+      cold: due.filter((x) => x.a.stale),
       // Oldest draft first.
       drafted: due.filter((x) => x.a.kind === "send").sort((x, y) => (x.c.draft?.createdAt ?? "").localeCompare(y.c.draft?.createdAt ?? "")),
       upcoming: dated.filter((x) => !x.a.isDue).slice(0, 15),
@@ -430,6 +425,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
 
   // Which list the card shows. "replace" (Needs a new contact) only appears when someone's outreach failed.
   const [view, setView] = useState<View>("due");
+  const [showCold, setShowCold] = useState(false);
   const replied = useMemo(() => repliedToSchedule(contacts).length, [contacts]);
   const fails = useMemo(() => replacementLists(contacts), [contacts]);
   const replaceCount = fails.suspected.length + fails.failed.length;
@@ -740,7 +736,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
         <p className="border-b border-line px-4 py-2 text-[12px] text-muted">{caption[shownView]}</p>
 
         {shownView === "due" &&
-          (behind.length === 0 && !upcoming.length ? (
+          (behind.length === 0 && !upcoming.length && !cold.length ? (
             <Empty icon={<Check className="size-6" />} title={due.length || scheduled.length ? "You’re caught up" : "No follow-ups pending"}>
               Once you mark people as sent (or sync with Gmail), reminders show up here {settings.followUp.firstAfterDays} days later.
             </Empty>
@@ -772,6 +768,24 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
                       <Cell className="max-lg:hidden" />
                     </Row>
                   ))}
+                </>
+              )}
+              {cold.length > 0 && (
+                <>
+                  <tr className="bg-subtle max-lg:block">
+                    <td colSpan={5} className="px-4 py-1.5 max-lg:block">
+                      <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted">
+                        <button type="button" onClick={() => setShowCold((v) => !v)} className="font-semibold text-ink-2 hover:text-ink">
+                          {showCold ? "▾" : "▸"} Went cold · {cold.length}
+                        </button>
+                        <span>Follow-up was due more than {STALE_AFTER_DAYS} days ago and never sent. Not in Due or the 9 PM text.</span>
+                        <Button size="sm" variant="secondary" className="ml-auto" icon={<UserX className="size-3.5" />} onClick={() => stopFollowingUp(cold.map(({ c }) => c))}>
+                          Move all {cold.length} on
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                  {showCold && cold.map(row)}
                 </>
               )}
             </ListTable>
@@ -997,282 +1011,6 @@ function BankBoard({ onOpen }: { onOpen: (c: Contact) => void }) {
 function confirmMoveOn(bank: string, n: number) {
   // Inline confirm is acceptable here: it's a deliberate bulk status change.
   return window.confirm(`Also mark ${n} un-replied contact${n > 1 ? "s" : ""} at ${bank} as "Moved on"?`);
-}
-
-function Reminders() {
-  const { contacts, banks, settings, scheduled, markScheduled, setSettings } = useStore();
-  const k = settings.keys;
-  const [busy, setBusy] = useState<string | null>(null);
-  const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
-  const digests = useMemo(() => upcomingDigests(contacts, banks, settings.followUp, 35), [contacts, banks, settings.followUp]);
-  const todayDigest = digests[0]?.date === new Date().toLocaleDateString("en-CA") ? digests[0] : undefined;
-
-  const send = async (channel: "ntfy" | "twilio" | "whatsapp", message: string, at?: Date, title = "Follow-ups due") =>
-    callApi(
-      "/api/notify",
-      {
-        channel,
-        title,
-        message,
-        at: at?.toISOString(),
-        ntfy: k.ntfyTopic ? { server: k.ntfyServer || "https://ntfy.sh", topic: k.ntfyTopic } : undefined,
-        twilio: k.twilioSid
-          ? { sid: k.twilioSid, token: k.twilioToken, from: k.twilioFrom || undefined, messagingServiceSid: k.twilioMessagingServiceSid || undefined, to: k.twilioTo }
-          : undefined,
-        whatsapp: k.whatsappPhone && k.whatsappApiKey ? { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } : undefined,
-      },
-      settings,
-    );
-
-  const schedule = async (channel: "ntfy" | "twilio") => {
-    const maxDays = channel === "ntfy" ? 3 : 35;
-    const horizon = Date.now() + maxDays * 86_400_000;
-    const list = digests.filter((d) => d.when.getTime() <= horizon && !scheduled[`${channel}:${d.date}`]);
-    if (!list.length) return toast.info("Nothing new to schedule in that window.");
-    setBusy(channel);
-    let n = 0;
-    for (const d of list) {
-      try {
-        const at = d.when.getTime() < Date.now() + 20 * 60_000 ? undefined : d.when;
-        await send(channel, digestText(d), at, `${d.items.length} follow-up${d.items.length > 1 ? "s" : ""} due`);
-        markScheduled(`${channel}:${d.date}`, new Date().toISOString());
-        n++;
-      } catch (e) {
-        toast.err((e as Error).message);
-        break;
-      }
-    }
-    setBusy(null);
-    if (n) toast.ok(`Scheduled ${n} daily reminder${n > 1 ? "s" : ""} via ${channel === "ntfy" ? "push" : "SMS"}.`);
-  };
-
-  const test = async (channel: "ntfy" | "twilio" | "whatsapp") => {
-    setBusy(`test-${channel}`);
-    try {
-      const wa = channel === "whatsapp" ? whatsappDigest(contacts, banks, settings.followUp) : null;
-      if (wa) {
-        const n = await sendWhatsAppDigest(wa, (title, message) => send("whatsapp", message, undefined, title));
-        toast.ok(`Sent${n > 1 ? ` as ${n} messages` : ""}. Check your phone.`);
-      } else {
-        await send(channel, todayDigest ? digestText(todayDigest) : "Test from your networking dashboard ✔ (nothing due today)", undefined, "Coverage test");
-        toast.ok("Sent. Check your phone.");
-      }
-    } catch (e) {
-      toast.err((e as Error).message);
-    }
-    setBusy(null);
-  };
-
-  const ics = () => {
-    const events = contacts.flatMap((c) => {
-      const a = nextAction(c, settings.followUp, banks[bankKey(c.bank, c.region)]);
-      if ((a.kind !== "follow_up" && a.kind !== "move_on") || !a.due) return [];
-      const start = a.due < new Date() ? new Date() : a.due;
-      return [
-        {
-          uid: `${c.id}-${c.followUps}`,
-          start,
-          title: `${a.kind === "follow_up" ? "Follow up" : "Move on?"}: ${c.name} (${c.bank})`,
-          description: `${c.position} · ${c.bank} ${c.region}\nEmail: ${c.email}\nFirst emailed: ${fmtDate(c.sentAt)} · follow-ups: ${c.followUps}`,
-          url: c.linkedin || undefined,
-        },
-      ];
-    });
-    if (!events.length) return toast.info("No follow-up dates to export yet.");
-    download(buildIcs(events), "follow-ups.ics", "text/calendar");
-    toast.ok(`Exported ${events.length} reminders. Open the file to add them to Google or Apple Calendar.`);
-  };
-
-  const ntfyReady = !!k.ntfyTopic;
-  const twilioReady = !!(k.twilioSid && k.twilioToken && k.twilioTo && (k.twilioFrom || k.twilioMessagingServiceSid));
-  const whatsappReady = !!(k.whatsappPhone && k.whatsappApiKey);
-
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
-      <NightTextPreview />
-      <Card className="overflow-hidden">
-        <CardHeader title="Upcoming reminder digests" sub="Push / SMS / calendar: one message per day at 9am, listing everyone to follow up with" />
-        {digests.length === 0 ? (
-          <div className="p-6 text-center text-[13px] text-muted">No follow-ups scheduled in the next 5 weeks.</div>
-        ) : (
-          <ul className="max-h-[520px] divide-y divide-line overflow-y-auto">
-            {digests.map((d) => (
-              <li key={d.date} className="px-5 py-2.5 hover:bg-subtle">
-                <div className="flex items-center gap-2 text-[12.5px] font-medium">
-                  {d.when.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                  <span className="num rounded-full bg-track px-1.5 text-[11px] text-muted">{d.items.length}</span>
-                  {scheduled[`ntfy:${d.date}`] && <Badge tone="green">push</Badge>}
-                  {scheduled[`twilio:${d.date}`] && <Badge tone="green">SMS</Badge>}
-                </div>
-                <div className="mt-0.5 truncate text-[12px] text-muted">{d.items.map((i) => i.c.name).join(", ")}</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <div className="space-y-6">
-        <AutoSendCard />
-        <Card>
-          <CardHeader title="Alert channels" sub="Where your daily follow-up list goes. Keys and numbers live in Settings → Reminders." />
-          <ul className="divide-y divide-line">
-            <Channel
-              icon={<Bell />}
-              title="Browser notifications"
-              sub="A daily alert whenever this dashboard is open"
-              status={
-                perm === "granted" ? <Badge tone="green">On</Badge> : <Badge tone="neutral">{perm === "denied" ? "Blocked in browser settings" : perm === "unsupported" ? "Not supported here" : "Off"}</Badge>
-              }
-            >
-              {perm === "default" && (
-                <Button size="sm" onClick={async () => setPerm(await Notification.requestPermission())}>
-                  Enable
-                </Button>
-              )}
-            </Channel>
-
-            <Channel
-              icon={<Smartphone />}
-              title="Phone push (ntfy)"
-              sub={ntfyReady ? "Free push notifications through the ntfy app. Can schedule up to 3 days ahead." : <SetupHint text="Install the ntfy app, subscribe to a hard-to-guess topic, and paste that topic in" />}
-            >
-              {ntfyReady && (
-                <>
-                  <Button size="sm" variant="ghost" loading={busy === "test-ntfy"} onClick={() => test("ntfy")}>
-                    Send test
-                  </Button>
-                  <Button size="sm" variant="brass" loading={busy === "ntfy"} onClick={() => schedule("ntfy")}>
-                    Schedule next 3 days
-                  </Button>
-                </>
-              )}
-            </Channel>
-
-            <Channel
-              icon={<MessageSquare />}
-              title="Text messages (Twilio)"
-              sub={
-                twilioReady ? (
-                  "SMS digests. Scheduling up to 35 days out needs a Messaging Service SID."
-                ) : (
-                  <SetupHint text="Add your Twilio Account SID, auth token, a From number or Messaging Service, and your phone number in" />
-                )
-              }
-            >
-              {twilioReady && (
-                <>
-                  <Button size="sm" variant="ghost" loading={busy === "test-twilio"} onClick={() => test("twilio")}>
-                    Text me today’s list
-                  </Button>
-                  <Button size="sm" variant="brass" loading={busy === "twilio"} disabled={!k.twilioMessagingServiceSid} onClick={() => schedule("twilio")}>
-                    Schedule upcoming
-                  </Button>
-                </>
-              )}
-            </Channel>
-
-            <Channel
-              icon={<MessageSquare />}
-              title="WhatsApp (CallMeBot)"
-              sub={
-                whatsappReady ? (
-                  <span title="With automatic sending on, the server sends it even when the dashboard is closed; otherwise it goes out the first time the dashboard is open after 9 PM.">
-                    Free. Your list at 9 PM, Mon–Thu: today&apos;s thank-yous, replies and check-ins owed, and follow-ups due before the next text. The server sends it when automatic sending is on.
-                  </span>
-                ) : (
-                  <SetupHint text="Message +34 694 23 41 84 on WhatsApp: “I allow callmebot to send me messages”, then paste the API key it replies with into" />
-                )
-              }
-              status={whatsappReady && scheduled[`whatsapp:${new Date().toLocaleDateString("en-CA")}`] ? <Badge tone="green">sent today</Badge> : undefined}
-            >
-              {whatsappReady && (
-                <>
-                  <label className="flex items-center gap-1.5 text-[12.5px] whitespace-nowrap">
-                    <Checkbox checked={settings.alerts?.whatsappDaily !== false} onChange={(on) => setSettings((x) => ({ ...x, alerts: { ...x.alerts, whatsappDaily: on } }))} />
-                    Send automatically
-                  </label>
-                  <Button size="sm" variant="ghost" loading={busy === "test-whatsapp"} onClick={() => test("whatsapp")}>
-                    WhatsApp me today’s list
-                  </Button>
-                </>
-              )}
-            </Channel>
-
-            <Channel icon={<CalendarPlus />} title="Calendar" sub="Each follow-up becomes an all-day event with a 9am alert on your phone">
-              <Button size="sm" onClick={ics} icon={<CalendarPlus className="size-3.5" />}>
-                Download .ics
-              </Button>
-            </Channel>
-          </ul>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-/** One alert channel: icon, name, one muted line, its status and buttons on the right. */
-function Channel({ icon, title, sub, status, children }: { icon: React.ReactNode; title: string; sub: React.ReactNode; status?: React.ReactNode; children?: React.ReactNode }) {
-  return (
-    <li className="flex flex-wrap items-start gap-x-3 gap-y-2 px-5 py-3.5">
-      <span className="mt-0.5 text-muted [&>svg]:size-4">{icon}</span>
-      <div className="min-w-0 flex-1 basis-[200px]">
-        <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-ink">
-          {title}
-          {status}
-        </div>
-        <div className="mt-0.5 text-[12px] text-muted">{sub}</div>
-      </div>
-      {children && <div className="flex flex-wrap items-center gap-1.5">{children}</div>}
-    </li>
-  );
-}
-
-function SetupHint({ text }: { text: string }) {
-  return (
-    <>
-      {text}{" "}
-      <Link href="/settings?tab=reminders" className="font-medium text-brass-ink underline">
-        Settings
-      </Link>
-      .
-    </>
-  );
-}
-
-/** What tonight's 9 PM WhatsApp text will say (every night), from the same plan + big-banks summary the server gets. */
-function NightTextPreview() {
-  const contacts = useStore((s) => s.contacts);
-  const banks = useStore((s) => s.banks);
-  const followUp = useStore((s) => s.settings.followUp);
-  const coverage = useStore((s) => s.coverage);
-  const next = useMemo(() => {
-    const st = useStore.getState();
-    const plan = nightPlan(contacts, banks, followUp, 2);
-    const day = Object.keys(plan).sort()[0] ?? null;
-    let office: ReturnType<typeof officeGapItems> = [];
-    try {
-      office = officeGapItems(officeGaps({ contacts, tables: st.tables, targets: st.targets, coverage, banks, followUp }), Math.max(1, followUp.livePerBank));
-    } catch {
-      /* coverage couldn't be built */
-    }
-    const d = whatsappDigest(contacts, banks, followUp, { progress: progressFor(st), extraItems: office, maxLen: 4000 });
-    return d ? { day: day ?? d.day, messages: d.messages } : null;
-  }, [contacts, banks, followUp, coverage]);
-  return (
-    <Card className="lg:col-span-2">
-      <CardHeader
-        title={next ? `Next 9 PM text · ${textTime(next.day).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : "Next 9 PM text"}
-        sub="Every night, as up to 3 messages. The server adds Google Calendar calls (the past week's thank-yous, tomorrow's calls) when it sends; check-ins stop once you mark someone referred or Done."
-      />
-      {next ? (
-        <div className="p-4">
-          <pre className="max-h-[360px] overflow-y-auto rounded-lg border border-line bg-subtle p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-ink-2">{next.messages.join("\n\n")}</pre>
-        </div>
-      ) : (
-        <div className="p-6 text-center text-[13px] text-muted">Nothing to send in the next week.</div>
-      )}
-    </Card>
-  );
 }
 
 /** "3 not on the first open day: Tara Goel (window full on Tue …)…" */

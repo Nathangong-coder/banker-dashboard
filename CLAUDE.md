@@ -455,6 +455,39 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   (`/log?new=1`), reminder, find people). Sidebar sticks at `top-[92px]`. Grid progress colors = `bg-step-1..4`
   tokens (dark mode brightens with progress).
 
+## Cold outreach audit, offices, Gmail labels, Ongoing, Reminders (owner, 2026-11-23; `check:accuracy`)
+
+- **Audit of the owner's real data** (Chrome, their IndexedDB + Gmail): of 48 "Due", 31 were follow-up #1s 14+ days
+  late from Oct 27–29 (never sent, so they never moved on); 16 emails sat in Gmail's Schedule send and the dashboard
+  knew 5; 19 people stuck at "drafted" whose Schedule-send emails went out (conversations were only read for people
+  with a sent date); "Needs new contact" had 73 rows, 57 of them plain "no reply, moved on" (34 at banks with someone
+  live).
+- **Fixes:** `NextAction.stale` (follow-up > `STALE_AFTER_DAYS` = 7 past due, not snoozed) → Cold outreach's collapsed
+  "Went cold" group with "Move all N on"; out of Due, the 9 PM text and the 9am digests. `api/server/scheduled` +
+  `lib/gmailScheduled.ts#applyGmailScheduled` (background jobs) set `scheduledAt` from Gmail's Schedule send (clears
+  ones no longer there) and keep the list in `offSheet.scheduled`; `thinkAbout.ts#queuedFor` keeps queued people off
+  Warm follow-ups / the text. `ledgerCandidates` reads drafted people always and "new" ones weekly; `ledgerPatch`
+  moves new/drafted → sent / followed_up (count = emails before the first reply) and raises `followUps` from Gmail.
+  `replacementLists` = bounced / left / declined only (no `no_reply`), confirmed ones only when that office has nobody live.
+  Background jobs: the server sync runs LAST so tonight's plan includes everything just read.
+- **Offices from evidence** (`lib/officeEvidence.ts`, `contact.regionSource`): manual > Location column > their
+  signature city (own text, quotes cut) > phone area code (not yours) > LinkedIn > default (a guess). The upkeep pass
+  (`contactUpkeep.ts`) applies it; a weaker clue that disagrees is shown (`bestOffice().conflict`), never applied.
+  ContactModal's office change = manual.
+- **Gmail labels** (`/labels`, `lib/gmailLabels.ts` pure + `gmailLabelsRun.ts`, `settings.labels`): the owner's own
+  scheme (`IB/SF/Bank/<bank>` reusing their bank label, `IB/SF/Group/<team>`, `Outreach/Sent - waiting | Replied |
+  Moved on | Bounced`). Preview (browser `gmail.modify` token, `threads?format=minimal`) → Apply → log of 5 runs with
+  Undo; "Keep up to date" runs in background jobs only when the token is already there. Only the four state labels
+  are ever removed.
+- **Ongoing threads** (`/ongoing`, `lib/ongoing.ts`): two-way threads ≤ 45 days + anything queued: Your move /
+  Scheduled (flags a scheduled email labelled DO NOT SEND / HOLD, lists scheduled mail to people not tracked) /
+  Waiting on them. **Reminders** (`/reminders`, `components/RemindersPanel.tsx`): moved out of Cold outreach
+  (`/followups?tab=reminders` and Google's `?server=` return redirect there) with "How the 9 PM text works" (plan
+  freshness, last text, Update tonight's list). Shell pushes a fresh plan hourly between 7 and 9 PM while a tab is open.
+- **Corrections → People / Chats & calendar** (`components/CorrectionsPeople.tsx`): `personIssues` (office guessed or
+  contradicted, team guessed, email looks like someone else's, status vs Gmail) with inline office / team / title /
+  status / email edits; chats one source supports (yes / no), calendar matches (Not them).
+
 ## Navigation v2, light/dark, editable firms, invites from the phone (owner, 2026-11-22)
 
 - **Nav:** `components/navData.tsx` (NAV, PROFILE_PAGES, `categoryOf`, `IceCube`) is the one list. (Header: see "two-row header" above.) Categories

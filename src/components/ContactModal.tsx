@@ -37,6 +37,7 @@ function Editor({ c, onClose }: { c: Contact; onClose: () => void }) {
       c.id,
       {
         ...d,
+        regionSource: d.region !== c.region ? "manual" : c.regionSource,
         location: d.region !== c.region ? locationForRegion(normLocation(d.location), d.region, detectRegion) : normLocation(d.location),
         team: d.team?.trim() ? normTeam(d.team) : undefined,
         sentAt: d.sentAt ?? (outreach ? now : undefined),

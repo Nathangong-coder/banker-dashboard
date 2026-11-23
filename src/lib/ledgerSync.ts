@@ -27,12 +27,19 @@ function cleanAliases(c: Contact) {
   return (c.aliases ?? []).filter((a) => !last || !a.split("@")[0].replace(/[^a-z]/g, "").includes(last) || addressIsPerson({ name: "", email: a }, c.firstName || c.name.split(" ")[0], c.lastName || c.name.split(" ").slice(1).join(" ")));
 }
 
+/**
+ * Owner, 2026-11-23 audit: 19 people sat at "drafted" (Kirsty Gao, Ally Connors, Colin Bryant…) although their
+ * Schedule-send emails went out Oct 28–29, because only people with a first-email date were ever read. Now drafted
+ * people are always read, and "new" people with an email at most weekly (`ledgerDue` below), so a send, a follow-up
+ * or a reply the tracker missed moves them on.
+ */
 export function ledgerCandidates(contacts: Contact[], now = Date.now()) {
   return contacts.filter((c) => {
     if (!c.email || !/@/.test(c.email)) return false;
     if (c.outcome?.kind === "bounced" || c.outcome?.kind === "left") return false;
     const recent = [c.lastEmailedAt, c.lastTouchAt, c.sentAt].some((d) => d && now - Date.parse(d) < 60 * DAY);
-    return isEngaged(c) || recent || (RANK_OF[c.status] ?? 0) >= 4;
+    const unsent = c.status === "drafted" || (c.status === "new" && (!c.mail || now - Date.parse(c.mail.checkedAt) > 7 * DAY));
+    return isEngaged(c) || recent || unsent || (RANK_OF[c.status] ?? 0) >= 4;
   });
 }
 
@@ -102,6 +109,26 @@ export function ledgerPatch(c: Contact, mail: MailLedger): Partial<Contact> {
     p.status = "replied";
     if (c.outcome?.kind === "no_reply") p.outcome = undefined;
   }
+  // Emails out but the status says nothing went (a Schedule-send email that went out, a send from Gmail itself):
+  // sent, or followed up with the count of emails before their first reply.
+  if (outs.length && (c.status === "new" || c.status === "drafted")) {
+    const before = outs.filter((m) => !firstReply || m.at < firstReply.at);
+    const fu = Math.max(0, before.length - 1);
+    if (!ins.length) p.status = fu > 0 ? "followed_up" : "sent";
+    if (fu > (c.followUps ?? 0)) p.followUps = fu;
+    const lastBefore = before[before.length - 1]?.at;
+    if (lastBefore && (!c.lastTouchAt || lastBefore > c.lastTouchAt)) p.lastTouchAt = lastBefore;
+  } else if (outs.length && !ins.length && (c.status === "sent" || c.status === "followed_up")) {
+    // Follow-ups sent from Gmail directly count too.
+    const fu = outs.length - 1;
+    if (fu > (c.followUps ?? 0)) {
+      p.followUps = fu;
+      p.status = "followed_up";
+      if (!c.lastTouchAt || outs[outs.length - 1].at > c.lastTouchAt) p.lastTouchAt = outs[outs.length - 1].at;
+    }
+  }
+  // A Schedule-send time that has passed is history (it went out, or you cancelled it).
+  if (c.scheduledAt && Date.parse(c.scheduledAt) < Date.now() && outs.some((m) => m.at >= c.scheduledAt!.slice(0, 10))) p.scheduledAt = undefined;
   if (mail.lastIn && (!c.lastReply || mail.lastIn.at >= c.lastReply.at) && c.lastReply?.messageId !== mail.lastIn.id) {
     const thread = ins.find((m) => m.id === mail.lastIn!.id)?.threadId;
     p.lastReply = { at: mail.lastIn.at, messageId: mail.lastIn.id, threadId: thread, text: mail.lastIn.text };

@@ -42,16 +42,16 @@ export const FEATURES: Feature[] = [
   { slug: "smart", label: "Smart mentions", line: "\"I just talked to Ben…\" pulled from your chat notes.", href: "/drafts", icon: Sparkles, group: "Reach out", mock: "smart", slab: "bg-red-soft" },
   { slug: "lab", label: "Email lab", line: "A/B test subjects, asks and send times on real replies.", href: "/lab", icon: FlaskConical, group: "Reach out", mock: "lab", slab: "bg-chart-soft" },
   { slug: "followups", label: "Follow-ups that send", line: "Scheduled in their time zone, stopped the moment they reply.", href: "/followups", icon: BellRing, group: "Prep & follow up", mock: "followups", slab: "bg-blue-soft" },
-  { slug: "text", label: "The 9 PM text", line: "Tonight's thank-yous and follow-ups, on WhatsApp.", href: "/followups?tab=reminders", icon: MessageCircle, group: "Prep & follow up", mock: "text", slab: "bg-green-soft" },
+  { slug: "text", label: "The 9 PM text", line: "Tonight's thank-yous and follow-ups, on WhatsApp.", href: "/reminders", icon: MessageCircle, group: "Prep & follow up", mock: "text", slab: "bg-green-soft" },
   { slug: "prep", label: "Coffee chat prep", line: "A brief, common ground and questions before every call.", href: "/prep", icon: Coffee, group: "Prep & follow up", mock: "prep", slab: "bg-amber-soft" },
   { slug: "calendar", label: "Calendar & chat log", line: "Calls from Google Calendar, graded notes after.", href: "/calendar", icon: CalendarDays, group: "Prep & follow up", mock: "log", slab: "bg-brass-soft" },
   { slug: "info", label: "Info sessions", line: "Snap the name tags. Thank-yous drafted that night.", href: "/info-sessions", icon: Presentation, group: "Prep & follow up", mock: "info", slab: "bg-red-soft" },
 ];
 
 export const INTEGRATIONS: { label: string; line: string; href: string; icon: LucideIcon }[] = [
-  { label: "Gmail", line: "Drafts, sends and reply tracking", href: "/followups?tab=reminders", icon: Mail },
+  { label: "Gmail", line: "Drafts, sends and reply tracking", href: "/reminders", icon: Mail },
   { label: "Google Calendar", line: "Coffee chats and info sessions", href: "/calendar", icon: CalendarDays },
   { label: "Excel", line: "Your .xlsx, saved in place", href: "/sheet", icon: Sheet },
-  { label: "WhatsApp", line: "The 9 PM to-do text", href: "/followups?tab=reminders", icon: MessageCircle },
+  { label: "WhatsApp", line: "The 9 PM to-do text", href: "/reminders", icon: MessageCircle },
   { label: "Claude", line: "Connector + Recruitify plugin", href: "/welcome#claude", icon: Bot },
 ];

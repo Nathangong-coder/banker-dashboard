@@ -52,7 +52,7 @@ const TOOLS: Tool[] = [
     name: "due_tonight",
     title: "What's due tonight",
     description:
-      "The to-do list for a text night (Mon–Thu; default: tonight, or the next text night): thank-yous owed, people who wrote back, check-ins and follow-ups due, from the plan the dashboard last pushed, minus anything settled by emails Coverage has seen since. Grouped by action.",
+      "The to-do list for a text night (every night; default: tonight, or the next text night): thank-yous owed, people who wrote back, check-ins and follow-ups due, from the plan the dashboard last pushed, minus anything settled by emails Coverage has seen since. Grouped by action.",
     readOnly: true,
     schema: obj({ day: { type: "string", description: "YYYY-MM-DD (the user's time zone). Omit for tonight / the next text night." } }),
     run: async (a, args) => {

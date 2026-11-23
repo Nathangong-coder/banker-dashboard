@@ -33,10 +33,19 @@ export async function POST(req: Request) {
     const b = Body.parse(await req.json());
     if (!a.google?.read) return Response.json({ read: false, recipients: [] });
     const access = await accessToken(a);
-    const list = await gmail<{ messages?: { id: string }[]; nextPageToken?: string }>(
-      access,
-      `/messages?q=${encodeURIComponent(`in:sent after:${b.after}${b.kind === "thanks" ? ` ${THANKS_QUERY}` : ""}`)}&maxResults=${PER_CALL}${b.page ? `&pageToken=${encodeURIComponent(b.page)}` : ""}`,
-    );
+    let list: { messages?: { id: string }[]; nextPageToken?: string };
+    try {
+      list = await gmail<{ messages?: { id: string }[]; nextPageToken?: string }>(
+        access,
+        `/messages?q=${encodeURIComponent(`in:sent after:${b.after}${b.kind === "thanks" ? ` ${THANKS_QUERY}` : ""}`)}&maxResults=${PER_CALL}${b.page ? `&pageToken=${encodeURIComponent(b.page)}` : ""}`,
+      );
+    } catch (e) {
+      // Gmail's per-user quota ("Total Query Cost", 2026-11-23: the third page of the owner's scan got a 403 and the
+      // whole scan was thrown away): say so, the dashboard keeps what it has and tries again next sync.
+      if (e instanceof HttpError && (e.status === 429 || (e.status === 403 && /rate.?limit|quota/i.test(e.message))))
+        return Response.json({ read: true, recipients: [], next: b.page ?? "", partial: true, rateLimited: true });
+      throw e;
+    }
     const ids = (list.messages ?? []).map((m) => m.id);
     const started = Date.now();
     const out: { id: string; email: string; name: string; at: number; subject: string; threadId: string }[] = [];

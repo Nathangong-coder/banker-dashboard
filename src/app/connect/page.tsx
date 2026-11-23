@@ -60,7 +60,7 @@ export default function ConnectPage() {
         {!connected ? (
           <p className="text-ink-2">
             Turn on automatic sending first (it&apos;s what keeps your data on Coverage&apos;s server):{" "}
-            <Link className="underline" href="/followups?tab=reminders">
+            <Link className="underline" href="/reminders">
               Follow-ups → Reminders
             </Link>
             , then start connecting again from the app.

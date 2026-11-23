@@ -760,7 +760,7 @@ function ThankYous({ session, people }: { session: InfoSession; people: Contact[
             <>
               {status.length ? " · " : ""}Automatic sending is off, so drafts wait in Gmail.{" "}
               {!settings.server?.email && (
-                <Link href="/followups?tab=reminders" className="text-navy hover:underline">
+                <Link href="/reminders" className="text-navy hover:underline">
                   Turn it on
                 </Link>
               )}

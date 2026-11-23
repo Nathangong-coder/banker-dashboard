@@ -72,7 +72,7 @@ export function serverCall<T>(path: string, body: unknown): Promise<T> {
 }
 
 /** Send the user to Google to give the server Gmail access; comes back to `returnTo` with ?server=connected. */
-export async function connectServer(returnTo = "/followups?tab=reminders") {
+export async function connectServer(returnTo = "/reminders") {
   const { url } = await call<{ url: string }>("/api/server/google/start", { returnTo, loginHint: useSession.getState().user?.email || useStore.getState().settings.profile.email || undefined });
   window.location.href = url;
 }

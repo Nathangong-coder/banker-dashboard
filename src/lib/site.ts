@@ -16,5 +16,5 @@ export const SITE = {
     version: "1.19.1",
   },
   /** Last time the privacy policy / terms were changed (shown on the pages). */
-  legalUpdated: "November 22, 2026",
+  legalUpdated: "November 23, 2026",
 };

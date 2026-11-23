@@ -25,7 +25,7 @@ export function upcomingDigests(contacts: Contact[], banks: Record<string, BankM
     const a = nextAction(c, s, banks[`${c.bank}|${c.region}`]);
     // No sent date: there's nothing to time a reminder from (sync with Gmail or fill in the Contacted column).
     // Moving on is automatic (contactUpkeep.ts), so it never goes in a reminder.
-    if (a.kind !== "follow_up" || a.unknownDate) continue;
+    if (a.kind !== "follow_up" || a.unknownDate || a.stale) continue;
     const due = a.due && a.due > today ? new Date(a.due) : new Date(today);
     if (due > limit) continue;
     due.setHours(9, 0, 0, 0);
@@ -122,14 +122,14 @@ export function relationshipItem(c: Contact, day: string, horizonEnd: Date, isRe
 }
 
 /**
- * What the 9 PM text says on each text night (Mon–Thu) of the next `days` days: people you talked to or who replied
+ * What the 9 PM text says on each text night of the next `days` days: people you talked to or who replied
  * (relationshipItem), and every follow-up due by the end of the next text night (overdue keeps rolling forward), so
  * tomorrow's emails get scheduled tonight instead of on the day. The dashboard re-sends this whenever it's open, and
  * the server adds today's Google Calendar calls and drops people its own sends have since followed up with.
  */
 export function nightPlan(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], days = 14, reminders: ReminderRow[] = []) {
   const out: Record<string, { items: DigestItem[]; queued: number }> = {};
-  const actions = contacts.map((c) => ({ c, a: nextAction(c, s, banks[`${c.bank}|${c.region}`]) })).filter(({ a }) => a.kind === "follow_up" && !a.unknownDate && a.due);
+  const actions = contacts.map((c) => ({ c, a: nextAction(c, s, banks[`${c.bank}|${c.region}`]) })).filter(({ a }) => a.kind === "follow_up" && !a.unknownDate && !a.stale && a.due);
   for (let i = 0; i < days; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
