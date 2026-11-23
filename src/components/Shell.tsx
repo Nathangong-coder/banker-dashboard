@@ -3,16 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, type ReactNode } from "react";
-import { KeyRound, Loader2, Settings2 } from "lucide-react";
+import { KeyRound, Loader2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useExtensionBridge } from "@/lib/applyBridge";
 import { useSaveShortcut } from "./useSaveShortcut";
 import { nextAction } from "@/lib/followups";
 import { upkeepPatches } from "@/lib/contactUpkeep";
-import { cn } from "@/lib/util";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
-import { AppNavBar, MobileMenu } from "./AppNav";
+import { CategoryTabs, MobileMenu, ProfileMenu, SideNav, ThemeToggle } from "./AppNav";
 import { GlobalSearch } from "./GlobalSearch";
 import { ConsentBanner } from "./Consent";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
@@ -24,7 +23,7 @@ import { savedSignatureLogo } from "@/lib/signatureLogo";
 import { Logo } from "./Logo";
 import { useBoot } from "./useBoot";
 import { useSession } from "@/lib/session";
-import { AccountMenu, DemoBar, LegacyBar, MoveData, SignInNeededModal, SignInScreen, SyncBadge, linkServerAccount } from "./Account";
+import { DemoBar, LegacyBar, MoveData, SignInNeededModal, SignInScreen, SyncBadge, linkServerAccount } from "./Account";
 
 // Every Gmail draft gets the signature logo saved in Settings (gmail.ts stays store-free for the check scripts).
 setSignatureLogoSource(savedSignatureLogo);
@@ -318,72 +317,56 @@ export function Shell({ children }: { children: ReactNode }) {
       </>
     );
 
-  const footerLinks = (
-    <div className="flex gap-3 text-[12px] text-muted">
-      <Link href="/privacy" className="hover:text-ink">
-        Privacy
-      </Link>
-      <Link href="/terms" className="hover:text-ink">
-        Terms
-      </Link>
-    </div>
-  );
-
   // docs/DESIGN.md G-1 (global header: navy, 48 px, logo, search, utilities) + G-2 (white navigation bar of tabs).
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 bg-top pr-2 text-top-ink md:gap-3 md:px-3">
-        <MobileMenu path={path} badge={badge} footer={<div className="space-y-3">{ready && <GmailSyncWidget />}{footerLinks}</div>} />
-        <Link href="/" className="flex shrink-0 items-center gap-2">
+      <header className="sticky top-0 z-30 flex h-12 shrink-0 items-stretch gap-2 border-b border-top-line bg-top pr-2 text-top-ink md:gap-2 md:px-3">
+        <div className="flex items-center">
+          <MobileMenu path={path} badge={badge} footer={ready ? <GmailSyncWidget /> : null} />
+        </div>
+        <Link href="/" className="flex shrink-0 items-center gap-2 md:mr-2">
           <Logo size={26} />
-          <span className="hidden text-[15px] font-semibold tracking-tight sm:inline">Coverage</span>
+          <span className="hidden text-[15px] font-semibold tracking-tight lg:inline">Coverage</span>
         </Link>
-        <div className="flex min-w-0 flex-1 justify-center">{ready && !isPublic && <GlobalSearch className="w-full max-w-[480px]" />}</div>
+        <CategoryTabs path={path} badge={badge} />
+        <div className="flex min-w-0 flex-1 items-center justify-end">{ready && !isPublic && <GlobalSearch className="w-full max-w-[420px]" />}</div>
         <div className="flex shrink-0 items-center gap-0.5">
           {ready && <GmailSyncWidget variant="header" />}
           <Link
             href="/settings?tab=data"
             title={`${keyCount}/4 services connected`}
-            className="hidden h-8 items-center gap-1.5 rounded px-2 text-[12px] text-top-muted hover:bg-top-ink/10 hover:text-top-ink xl:flex"
+            className="hidden h-8 items-center gap-1.5 rounded px-2 text-[12px] text-top-muted hover:bg-hover hover:text-top-ink 2xl:flex"
           >
             <KeyRound className="size-3.5" />
             {keyCount}/4
           </Link>
           <SyncBadge />
-          <Link
-            href="/settings"
-            aria-label="Settings"
-            title="Settings"
-            className={cn("grid size-9 place-items-center rounded transition-colors hover:bg-top-ink/10", path.startsWith("/settings") ? "text-top-ink" : "text-top-muted")}
-          >
-            <Settings2 className="size-[18px]" />
-          </Link>
-          <AccountMenu />
+          <ThemeToggle />
+          <ProfileMenu path={path} />
         </div>
       </header>
-      <AppNavBar path={path} badge={badge} />
       {booted && !isPublic && mode === "demo" && <DemoBar />}
       {booted && !isPublic && mode === "legacy" && <LegacyBar />}
 
-      <main className="min-w-0 flex-1 px-4 pt-3 pb-16 md:px-3 md:pb-6">
-        {/* Legal pages and the 404 don't need the store: render them straight away (crawlers and Google's reviewers read them). */}
-        {isPublic ? (
-          <div className="mx-auto max-w-[1440px]">{children}</div>
-        ) : move ? (
-          <MoveData legacy={move.legacy} onDone={finishMove} />
-        ) : booted && mode === "blocked" ? (
-          <SignInScreen />
-        ) : ready ? (
-          <div className="mx-auto max-w-[1440px]">{children}</div>
-        ) : (
-          <div className="flex h-[60vh] items-center justify-center text-muted">
-            <Loader2 className="size-5 animate-spin" />
-          </div>
-        )}
-      </main>
-      <footer className="hidden px-3 pb-3 md:block">
-        <div className="mx-auto max-w-[1440px]">{footerLinks}</div>
-      </footer>
+      <div className="flex min-h-0 flex-1">
+        {!isPublic && <SideNav path={path} badge={badge} />}
+        <main className="min-w-0 flex-1 px-4 pt-3 pb-16 md:px-3 md:pb-6">
+          {/* Legal pages and the 404 don't need the store: render them straight away (crawlers and Google's reviewers read them). */}
+          {isPublic ? (
+            <div className="mx-auto max-w-[1440px]">{children}</div>
+          ) : move ? (
+            <MoveData legacy={move.legacy} onDone={finishMove} />
+          ) : booted && mode === "blocked" ? (
+            <SignInScreen />
+          ) : ready ? (
+            <div className="mx-auto max-w-[1440px]">{children}</div>
+          ) : (
+            <div className="flex h-[60vh] items-center justify-center text-muted">
+              <Loader2 className="size-5 animate-spin" />
+            </div>
+          )}
+        </main>
+      </div>
       <Toaster />
       <SignInNeededModal />
       <ConsentBanner />

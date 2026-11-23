@@ -3,6 +3,8 @@ import { accountFromBearer } from "@/lib/server/oauth";
 import { trackStates } from "@/lib/server/gmailTrack";
 import { planItems } from "@/lib/server/tonight";
 import { isTextDay, nextTextDay } from "@/lib/digestFormat";
+import { findPerson, startFrom, whenLabel } from "@/lib/inviteCommand";
+import { createInvite, inviteTitle } from "@/lib/server/invite";
 
 export const maxDuration = 60;
 
@@ -144,6 +146,55 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: "find_person",
+    title: "Find a banker",
+    description: "Look up someone the user emailed or talked to by name (or part of it, or with their bank), to get their email before sending a calendar invite.",
+    readOnly: true,
+    schema: obj({ name: { type: "string", description: "Full or partial name, optionally with the bank (\"Rohan BMO\")." } }, ["name"]),
+    run: async (a, args) => {
+      const q = String(args.name ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+      const hits = (a.people ?? []).filter((p) => q.every((w) => p.name.toLowerCase().split(/\s+/).some((x) => x.startsWith(w)) || (p.bank ?? "").toLowerCase().includes(w)));
+      return { matches: hits.slice(0, 8).map((p) => ({ name: p.name, bank: p.bank, email: p.email ?? null, talkedBefore: !!p.engaged })) };
+    },
+  },
+  {
+    name: "send_calendar_invite",
+    title: "Send a calendar invite",
+    description:
+      "Put a coffee chat on the user's Google Calendar with a banker as the guest; by default Google emails them the invite. The person must be someone Coverage knows (use find_person). Times without an offset are in the user's time zone. Only call this after the user confirmed who, the day and the time.",
+    readOnly: false,
+    destructive: false,
+    schema: obj(
+      {
+        person: { type: "string", description: "Their email (best) or name." },
+        start: { type: "string", description: "Start time, e.g. 2026-11-25T15:00 (user's zone) or a full ISO time with an offset." },
+        minutes: { type: "number", description: "Length in minutes (default 30)." },
+        title: { type: "string", description: "Event title (default \"<First name> Coffee Chat\")." },
+        description: { type: "string", description: "Event description, e.g. who calls whom and the phone numbers." },
+        notify: { type: "boolean", description: "Email them the invite now (default true). False = only on the user's calendar." },
+      },
+      ["person", "start"],
+    ),
+    run: async (a, args) => {
+      const found = findPerson(a.people ?? [], String(args.person ?? ""));
+      if ("error" in found) throw new Error(found.error);
+      const start = startFrom(String(args.start ?? ""), a.tz);
+      if (!start) throw new Error("start must look like 2026-11-25T15:00.");
+      if (start.getTime() < Date.now()) throw new Error("That time has already passed.");
+      const minutes = Math.min(180, Math.max(10, Number(args.minutes) || 30));
+      const notify = args.notify !== false;
+      const ev = await createInvite(a, {
+        email: found.person.email!,
+        title: typeof args.title === "string" && args.title.trim() ? args.title : inviteTitle(found.person.name),
+        description: typeof args.description === "string" ? args.description : undefined,
+        start,
+        minutes,
+        notify,
+      });
+      return { sent: notify, name: found.person.name, email: found.person.email, when: whenLabel(start, a.tz), minutes, link: ev.htmlLink };
+    },
+  },
+  {
     name: "cancel_send",
     title: "Cancel a scheduled send",
     description: "Stop one queued automatic send (by draftId from scheduled_sends). The Gmail draft stays; the dashboard shows it as cancelled. Only do this when the user asks.",
@@ -173,7 +224,7 @@ async function handle(a: Account, m: { id?: unknown; method?: string; params?: J
         capabilities: { tools: {} },
         serverInfo: { name: "coverage", title: "Coverage", version: "0.1.0" },
         instructions:
-          "Coverage tracks a student's investment-banking networking. These tools read what Coverage's server keeps: tonight's to-dos, replies, thank-yous, intros, scheduled sends. Contacts and the spreadsheet aren't here. Only cancel a send when the user asks.",
+          "Coverage tracks a student's investment-banking networking. These tools read what Coverage's server keeps: tonight's to-dos, replies, thank-yous, intros, scheduled sends, and the people the user emailed or talked to (names + emails). send_calendar_invite puts a chat on their Google Calendar: confirm who and when with the user first. Only cancel a send when the user asks.",
       };
     }
     case "ping":
@@ -185,7 +236,7 @@ async function handle(a: Account, m: { id?: unknown; method?: string; params?: J
           title: t.title,
           description: t.description,
           inputSchema: t.schema,
-          annotations: { title: t.title, readOnlyHint: t.readOnly, destructiveHint: !!t.destructive, idempotentHint: true, openWorldHint: false },
+          annotations: { title: t.title, readOnlyHint: t.readOnly, destructiveHint: !!t.destructive, idempotentHint: t.readOnly, openWorldHint: false },
         })),
       };
     case "tools/call": {

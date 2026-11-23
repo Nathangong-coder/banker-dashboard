@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Cloud, CloudOff, Download, Loader2, LogOut, Settings2, UserRound } from "lucide-react";
+import { Cloud, CloudOff, Download, Loader2, LogOut } from "lucide-react";
 import { copyNamespace, currentNamespace, dropNamespace, useStore } from "@/lib/store";
 import { signInHref, useSession } from "@/lib/session";
 import { dropSyncMeta, flushSync, stopSync, useSyncStatus } from "@/lib/sync";
@@ -135,40 +134,6 @@ export async function signOut(force = false) {
   // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   window.location.assign("/");
   return true;
-}
-
-export function AccountMenu() {
-  const user = useSession((s) => s.user);
-  const mode = useSession((s) => s.mode);
-  const [open, setOpen] = useState(false);
-  if (mode === "demo" || mode === "legacy" || mode === "blocked") return <SignInButton label="Sign in" className="hidden h-8 border-top-line bg-transparent px-2.5 text-[12.5px] text-top-ink hover:bg-top-ink/10 sm:inline-flex" />;
-  if (!user) return null;
-  return (
-    <div className="relative">
-      <button onClick={() => setOpen((o) => !o)} aria-label="Account" title={user.email} className="grid size-9 place-items-center overflow-hidden rounded-full hover:bg-top-ink/10">
-        {user.picture ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={user.picture} alt="" referrerPolicy="no-referrer" className="size-7 rounded-full" />
-        ) : (
-          <UserRound className="size-[18px] text-top-muted" />
-        )}
-      </button>
-      {open && (
-        <div className="absolute right-0 z-40 mt-1 w-64 rounded-xl border border-line bg-panel p-1.5 text-ink shadow-lg" onMouseLeave={() => setOpen(false)}>
-          <div className="px-2.5 py-2 text-[12.5px]">
-            <div className="font-medium">{user.name ?? user.email}</div>
-            <div className="truncate text-muted">{user.email}</div>
-          </div>
-          <Link href="/settings?tab=account" onClick={() => setOpen(false)} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] hover:bg-hover">
-            <Settings2 className="size-4" /> Account settings
-          </Link>
-          <button onClick={() => void signOut()} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] hover:bg-hover">
-            <LogOut className="size-4" /> Sign out
-          </button>
-        </div>
-      )}
-    </div>
-  );
 }
 
 /**

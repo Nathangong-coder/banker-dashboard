@@ -13,7 +13,7 @@ import { appState } from "../src/lib/nightProgress";
 import { isBankFirm } from "../src/lib/processTracker";
 import { canonBank } from "../src/lib/banks";
 import { nightPlan, relationshipItem } from "../src/lib/reminders";
-import { laterDate, laterMentions, reminderRows, dueReminders, todoFor, todoRows, referrers, isAckOnly, type Triage } from "../src/lib/thinkAbout";
+import { laterDate, laterMentions, reminderRows, dueReminders, standing, todoFor, todoRows, referrers, isAckOnly, type Triage } from "../src/lib/thinkAbout";
 import { addressIsPerson } from "../src/lib/nameMatch";
 import { buildLedger, otherPersonOnAddress } from "../src/lib/mailLedger";
 import type { MailMsg } from "../src/lib/replyTracking";
@@ -163,6 +163,18 @@ check("referral from an analyst → 88+", (hb([{ status: "done", position: "Anal
   const quietOne: Contact = { ...base, id: "q1", name: "Aisha Patel", firstName: "Aisha", bank: "Jefferies", email: "aisha@x.com", status: "replied", sentAt: new Date(now - 25 * 86_400_000).toISOString(), repliedAt: new Date(now - 22 * 86_400_000).toISOString(), lastHeardAt: new Date(now - 22 * 86_400_000).toISOString(), lastEmailedAt: new Date(now - 6 * 86_400_000).toISOString() };
   const w = bankWork({ name: "Jefferies", contacts: [quietOne], allContacts: [quietOne], banks: {}, followUp: DEFAULT_SETTINGS.followUp, now });
   check("went quiet → a nudge on the bank, not a thank-you", !w.todos.some((t) => t.kind === "thank") && w.todos.some((t) => t.kind === "check_in"), w.todos.map((t) => t.label));
+}
+
+// A chat set up outside email (owner, 2026-11-22: Rohan Desai at BMO wasn't on Warm follow-ups): no email reply ever,
+// a calendar chat, your thank-you 10 days ago → a check-in, not nothing.
+{
+  const now = Date.now();
+  const callAt = new Date(now - 11 * 86_400_000).toISOString();
+  const rohan: Contact = { ...base, id: "rd", name: "Rohan Desai", bank: "BMO", email: "rohan.desai@bmo.com", status: "call_scheduled", sentAt: undefined, call: { at: callAt, eventId: "evR", link: "", invited: false }, chatEvidence: [{ at: callAt, source: "calendar", ref: "evR" }], lastEmailedAt: new Date(now - 10 * 86_400_000).toISOString() };
+  const row = todoFor(rohan, now);
+  check("chat with no email reply, thanked 10 days ago → check-in on Warm follow-ups", row?.kind === "check_in" && Date.parse(row.due) <= now, row && { kind: row.kind, due: row.due });
+  check("…and Everyone explains it", standing(rohan, now).engaged && standing(rohan, now).listed, standing(rohan, now));
+  check("status Done says why it's off the list", /Done/.test(standing({ ...rohan, status: "done" }, now).text));
 }
 
 // Reconciling calendar + email (owner, 2026-11-22: "UBS with Joe Romagnoli is only 1 — idk how you found 3").

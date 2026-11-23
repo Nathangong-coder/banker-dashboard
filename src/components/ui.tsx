@@ -3,6 +3,9 @@
 import { create } from "zustand";
 import { Loader2, MoreHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
+import { ALL_PAGES, categoryOf, isActive } from "./navData";
 import { cn } from "@/lib/util";
 import { STATUS_LABEL, type Status } from "@/lib/types";
 
@@ -61,12 +64,28 @@ export function CardHeader({ title, sub, right }: { title: ReactNode; sub?: Reac
   );
 }
 
+/**
+ * The page header (docs/DESIGN.md L-1): one white bar with the page's icon tile, its category as the eyebrow (both from
+ * the navigation, components/navData.tsx), the title, one muted line and the actions on the right.
+ */
 export function PageHeader({ title, sub, right }: { title: string; sub?: ReactNode; right?: ReactNode }) {
+  const path = usePathname() ?? "";
+  const page = [...ALL_PAGES].sort((x, y) => y.href.length - x.href.length).find((p) => isActive(p.href, path));
+  const cat = categoryOf(path);
+  const Icon = page?.icon;
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-panel px-4 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.06)]">
-      <div className="min-w-0">
-        <h1 className="text-[18px] leading-tight font-bold text-ink">{title}</h1>
-        {sub && <p className="mt-0.5 max-w-3xl text-[12px] text-muted">{sub}</p>}
+      <div className="flex min-w-0 items-center gap-3">
+        {Icon && (
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brass-strong text-white" aria-hidden="true">
+            <Icon className="size-5" />
+          </span>
+        )}
+        <div className="min-w-0">
+          {page && <div className="text-[12px] leading-tight text-muted">{cat?.label ?? "You"}</div>}
+          <h1 className="text-[18px] leading-tight font-bold text-ink">{title}</h1>
+          {sub && <p className="mt-0.5 max-w-3xl text-[12px] text-muted">{sub}</p>}
+        </div>
       </div>
       {right && <div className="flex flex-wrap items-center gap-2">{right}</div>}
     </div>
@@ -297,24 +316,48 @@ export function Menu({
   up?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  // Where the menu goes (fixed, in a portal): a menu inside a scrolling board or table used to be cut off by it.
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left?: number; right?: number; maxH: number } | null>(null);
+  // The wrapper as state (not a ref): the toggle measures it, and the React compiler forbids reading refs there.
+  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const close = (e: MouseEvent) => !anchor?.contains(e.target as Node) && !panel.current?.contains(e.target as Node) && setOpen(false);
     const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    // Scrolling the page (not the menu itself) or resizing closes it, like a native menu.
+    const away = (e: Event) => !panel.current?.contains(e.target as Node) && setOpen(false);
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", esc);
+    window.addEventListener("scroll", away, true);
+    window.addEventListener("resize", away);
     return () => {
       window.removeEventListener("mousedown", close);
       window.removeEventListener("keydown", esc);
+      window.removeEventListener("scroll", away, true);
+      window.removeEventListener("resize", away);
     };
-  }, [open]);
+  }, [open, anchor]);
   const real = items.filter((it): it is MenuItem => !!it);
   // No leading, trailing or doubled dividers once conditional items drop out.
   const shown = real.filter((it, i) => it !== "divider" || (i > 0 && i < real.length - 1 && real[i - 1] !== "divider"));
-  const toggle = () => setOpen((o) => !o);
+  const toggle = () => {
+    if (open) return setOpen(false);
+    const r = anchor?.getBoundingClientRect();
+    if (r) {
+      const below = window.innerHeight - r.bottom;
+      const goUp = up || (below < 260 && r.top > below);
+      const h = (goUp ? r.top : below) - 12;
+      setPos({
+        ...(goUp ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }),
+        ...(align === "right" ? { right: Math.max(8, window.innerWidth - r.right) } : { left: Math.max(8, r.left) }),
+        maxH: Math.max(160, h),
+      });
+    }
+    setOpen(true);
+  };
   return (
-    <div ref={ref} className="relative inline-flex">
+    <div ref={setAnchor} className="relative inline-flex">
       {trigger ? (
         trigger(toggle, open)
       ) : (
@@ -322,14 +365,14 @@ export function Menu({
           <MoreHorizontal className="size-4" />
         </Button>
       )}
-      {open && (
+      {open &&
+        pos &&
+        createPortal(
         <div
+          ref={panel}
           role="menu"
-          className={cn(
-            "absolute z-40 w-[290px] max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-panel py-1 shadow-[0_0_7px_rgba(0,0,0,0.14),0_5px_5px_rgba(0,0,0,0.14)]",
-            align === "right" ? "right-0" : "left-0",
-            up ? "bottom-full mb-1.5" : "top-full mt-1.5",
-          )}
+          style={{ position: "fixed", top: pos.top, bottom: pos.bottom, left: pos.left, right: pos.right, maxHeight: pos.maxH }}
+          className="z-[70] w-[290px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-line bg-panel py-1 shadow-[0_0_7px_rgba(0,0,0,0.14),0_5px_5px_rgba(0,0,0,0.14)]"
         >
           {shown.map((it, i) =>
             it === "divider" ? (
@@ -357,7 +400,8 @@ export function Menu({
               </button>
             ),
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, Building2, CalendarDays, Coffee, ExternalLink, Mail, MessageSquareText, NotebookPen, StickyNote, UserRound } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Building2, CalendarDays, CalendarPlus, Coffee, ExternalLink, Mail, MessageSquareText, NotebookPen, StickyNote, UserRound } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { canonBank } from "@/lib/banks";
 import { chatRecords, type ChatRecord } from "@/lib/chatEvidence";
 import { teamSourceLabel } from "@/lib/coverageGrid";
 import { STATUS_LABEL, type Contact } from "@/lib/types";
 import { Path, RecordHeader, RelatedCard, Tabs, Timeline, type TimelineItem } from "@/components/crm";
-import { Badge, Button, Card, Empty, toast } from "@/components/ui";
+import { Badge, Button, Card, Empty, Modal, toast } from "@/components/ui";
+import { CallInvite } from "@/components/Scheduling";
 
 /**
  * A person (docs/DESIGN.md L-2, HubSpot's record layout): About on the left, activity in the middle, related records
@@ -50,6 +51,7 @@ function Person() {
   const contacts = useStore((s) => s.contacts);
   const c = contacts.find((x) => x.id === id);
   const [tab, setTab] = useState<"activity" | "chats" | "history">("activity");
+  const [inviting, setInviting] = useState(false);
   const [now] = useState(() => Date.now());
   const chats = useMemo(() => (c ? chatRecords(c, now) : []), [c, now]);
 
@@ -78,6 +80,9 @@ function Person() {
         title={c.name}
         actions={
           <>
+            <Button icon={<CalendarPlus className="size-4" />} onClick={() => setInviting(true)}>
+              Send invite
+            </Button>
             <Link href={`/log?log=${encodeURIComponent(c.id)}&kind=coffee_chat`} className="inline-flex h-8 items-center gap-1.5 rounded border border-line-2 bg-panel px-3 text-[13px] font-medium text-brass-ink hover:bg-hover">
               <NotebookPen className="size-4" /> Log a chat
             </Link>
@@ -193,6 +198,9 @@ function Person() {
           )}
         </div>
       </div>
+      <Modal open={inviting} onClose={() => setInviting(false)} title={`Invite ${c.name} to a call`} wide>
+        {inviting && <CallInvite c={c} onClose={() => setInviting(false)} />}
+      </Modal>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { looksLikeDecline, stripQuoted } from "../src/lib/gmail";
 import { isVpPlus, vpPlusWarning } from "../src/lib/seniority";
 import { zonedDate } from "../src/lib/sendWindow";
 import { DEFAULT_SETTINGS } from "../src/lib/defaults";
+import { findPerson, parseInviteText, startFrom, type InviteAsk } from "../src/lib/inviteCommand";
 
 let failed = 0;
 const check = (what: string, ok: boolean, detail = "") => {
@@ -126,6 +127,39 @@ const replies: [string, boolean][] = [
   ["Thanks Nathan, let's find a time next week.", false],
 ];
 for (const [text, want] of replies) check(`${want ? "reads as a no" : "not a no"}: "${text.slice(0, 50)}…"`, looksLikeDecline(text) === want);
+
+// Invites by text / Claude (owner, 2026-11-22). "Now" = Sun Nov 22 2026, 2 PM Pacific.
+{
+  const tz = "America/Los_Angeles";
+  const now = zonedDate(2026, 11, 22, 14, 0, tz);
+  const ok = (text: string, want: Partial<InviteAsk>) => {
+    const r = parseInviteText(text, tz, now);
+    const good = !("error" in r) && Object.entries(want).every(([k, v]) => (r as unknown as Record<string, unknown>)[k] === v);
+    check(`invite text: "${text}"`, good, JSON.stringify(r));
+  };
+  ok("invite Rohan Desai tue 3pm", { who: "rohan desai", m: 11, d: 24, h: 15, min: 0, minutes: 30 });
+  ok("Invite joe tomorrow 10:30am 45m", { who: "joe", d: 23, h: 10, min: 30, minutes: 45 });
+  ok("invite maya 1/5 4pm for 1 hour", { who: "maya", y: 2027, m: 1, d: 5, h: 16, minutes: 60 });
+  ok("invite colin at db sat 1pm", { who: "colin db", d: 28, h: 13 });
+  ok("invite colin sun 1pm", { d: 29, h: 13 });
+  ok("invite colin sun 4pm", { d: 22, h: 16 });
+  check("no time → asks for one", "error" in parseInviteText("invite rohan tue", tz, now));
+  check("no day → asks for one", "error" in parseInviteText("invite rohan 3pm", tz, now));
+  const people = [
+    { contactId: "1", name: "Rohan Desai", email: "rohan.desai@bmo.com", bank: "BMO", engaged: true },
+    { contactId: "2", name: "Rohan Gupta", email: "r.gupta@jpm.com", bank: "J.P. Morgan" },
+    { contactId: "3", name: "Joe Romagnoli", email: "joe@ubs.com", bank: "UBS", engaged: true },
+    { contactId: "4", name: "Joe Smith", email: "joe.smith@gs.com", bank: "Goldman Sachs", engaged: true },
+  ];
+  const who = (q: string) => findPerson(people, q);
+  check("first name + engaged picks the one you talked to", "person" in who("rohan") && (who("rohan") as { person: { contactId: string } }).person.contactId === "1");
+  check("two engaged Joes → asks which", "error" in who("joe") && /Joe Romagnoli/.test((who("joe") as { error: string }).error));
+  check("name + bank settles it", "person" in who("joe ubs"));
+  check("an email matches exactly", "person" in who("joe.smith@gs.com"));
+  check("unknown → says so", "error" in who("lev"));
+  check("a time with no offset is in your zone", startFrom("2026-11-25T15:00", tz)?.toISOString() === "2026-11-25T23:00:00.000Z");
+  check("a time with an offset is kept", startFrom("2026-11-25T15:00:00-05:00", tz)?.toISOString() === "2026-11-25T20:00:00.000Z");
+}
 
 if (failed) {
   console.error(`\n${failed} scheduling check(s) failed`);

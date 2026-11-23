@@ -1,85 +1,94 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ComponentType } from "react";
-import {
-  BellRing,
-  BriefcaseBusiness,
-  Building2,
-  CalendarDays,
-  Check,
-  ChevronDown,
-  Coffee,
-  FileText,
-  FlaskConical,
-  Home,
-  Lightbulb,
-  Mail,
-  MailCheck,
-  Menu as MenuIcon,
-  NotebookPen,
-  Presentation,
-  Search,
-  Settings2,
-  Sheet,
-  Workflow,
-  Wrench,
-  X,
-} from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { LogOut, Menu as MenuIcon, Moon, Sun, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/util";
+import { NAV, PROFILE_PAGES, categoryOf, isActive, type NavPage } from "./navData";
 
-/**
- * App navigation (docs/DESIGN.md G-2): one white bar of object tabs under the global header, like Salesforce's
- * navigation bar. A tab is either one page or a group with a ▾ menu. Replaced the group switcher + sidebar
- * (owner, 2026-11-22: "copy more of a CRM style").
- */
-export type NavPage = { href: string; label: string; icon: ComponentType<{ className?: string }> };
-export type NavTab = { label: string; href?: string; icon: NavPage["icon"]; pages?: NavPage[] };
+export { ALL_PAGES, IceCube, NAV, PROFILE_PAGES, categoryOf, isActive, type NavCategory, type NavPage } from "./navData";
+import { useSession } from "@/lib/session";
+import { isDark, toggleDark } from "./ThemePicker";
+import { SignInButton, signOut } from "./Account";
 
-export const NAV: NavTab[] = [
-  { label: "Home", href: "/", icon: Home },
-  { label: "Things to think about", href: "/think", icon: Lightbulb },
-  { label: "Follow-ups", href: "/followups", icon: BellRing },
-  { label: "Bank coverage", href: "/coverage", icon: Building2 },
-  { label: "Process", href: "/process", icon: Workflow },
-  {
-    label: "Outreach",
-    icon: Mail,
-    pages: [
-      { href: "/find", label: "Find people", icon: Search },
-      { href: "/drafts", label: "Email drafts", icon: Mail },
-      { href: "/tracking", label: "Email tracking", icon: MailCheck },
-      { href: "/templates", label: "Templates", icon: FileText },
-      { href: "/lab", label: "Email lab", icon: FlaskConical },
-    ],
-  },
-  {
-    label: "Prep",
-    icon: Coffee,
-    pages: [
-      { href: "/calendar", label: "Calendar", icon: CalendarDays },
-      { href: "/prep", label: "Coffee chat prep", icon: Coffee },
-      { href: "/log", label: "Activity log", icon: NotebookPen },
-      { href: "/info-sessions", label: "Info sessions", icon: Presentation },
-    ],
-  },
-  { label: "Applications", href: "/applications", icon: BriefcaseBusiness },
-  {
-    label: "More",
-    icon: MenuIcon,
-    pages: [
-      { href: "/sheet", label: "Spreadsheet", icon: Sheet },
-      { href: "/corrections", label: "Corrections", icon: Wrench },
-      { href: "/settings", label: "Settings", icon: Settings2 },
-    ],
-  },
-];
+const Count = ({ n }: { n: number }) => (n > 0 ? <span className="num rounded bg-brass-strong px-1.5 text-[11px] leading-[18px] font-semibold text-white">{n}</span> : null);
 
-/** Every page once, for search and the phone menu. */
-export const ALL_PAGES: NavPage[] = NAV.flatMap((t) => t.pages ?? [{ href: t.href!, label: t.label, icon: t.icon }]);
+/** The categories, inside the header (≥ 768 px). */
+export function CategoryTabs({ path, badge }: { path: string; badge: (href: string) => number }) {
+  const current = categoryOf(path);
+  return (
+    <nav aria-label="Categories" className="hidden h-full items-stretch md:flex">
+      {NAV.map((c) => {
+        const on = c === current;
+        const n = c.pages.reduce((s, p) => s + badge(p.href), 0);
+        return (
+          <Link
+            key={c.label}
+            href={c.pages[0].href}
+            aria-current={on ? "true" : undefined}
+            className={cn("relative flex items-center gap-1.5 px-3 text-[13px] whitespace-nowrap", on ? "font-semibold text-top-ink" : "text-top-muted hover:text-top-ink")}
+          >
+            {c.label}
+            <Count n={n} />
+            {on && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-t bg-brass-strong" />}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
 
-export const isActive = (href: string, path: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`) || path.startsWith(`${href}?`));
-const tabActive = (t: NavTab, path: string) => (t.href ? isActive(t.href, path) : !!t.pages?.some((p) => isActive(p.href, path)));
+/** The current category's pages, down the left (only when it has more than one). */
+export function SideNav({ path, badge }: { path: string; badge: (href: string) => number }) {
+  const c = categoryOf(path);
+  if (!c || c.pages.length < 2) return null;
+  return (
+    <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] w-[208px] shrink-0 overflow-y-auto border-r border-top-line bg-side px-2 py-3 text-side-ink md:block">
+      <div className="px-2.5 pb-2 text-[12px] text-side-muted">{c.label}</div>
+      <nav aria-label={c.label} className="grid gap-0.5">
+        {c.pages.map((p) => {
+          const on = isActive(p.href, path);
+          return (
+            <Link
+              key={p.href}
+              href={p.href}
+              aria-current={on ? "page" : undefined}
+              className={cn("relative flex items-center gap-2.5 rounded px-2.5 py-2 text-[13px]", on ? "bg-side-active font-semibold" : "hover:bg-side-hover")}
+            >
+              {on && <span className="absolute top-1.5 bottom-1.5 -left-2 w-[3px] rounded-r bg-side-mark" />}
+              <p.icon className="size-4 shrink-0 opacity-80" />
+              <span className="flex-1">{p.label}</span>
+              <Count n={badge(p.href)} />
+            </Link>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+const subscribeTheme = (cb: () => void) => {
+  const o = new MutationObserver(cb);
+  o.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => o.disconnect();
+};
+export const useDarkMode = () => useSyncExternalStore(subscribeTheme, isDark, () => false);
+
+/** Sun / moon: all-light ↔ all-dark. */
+export function ThemeToggle() {
+  const dark = useDarkMode();
+  return (
+    <button
+      type="button"
+      onClick={toggleDark}
+      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+      title={dark ? "Light mode" : "Dark mode"}
+      className="grid size-9 place-items-center rounded text-top-muted hover:bg-hover hover:text-top-ink"
+    >
+      {dark ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
+    </button>
+  );
+}
 
 function useOutside(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -97,73 +106,75 @@ function useOutside(open: boolean, close: () => void) {
   return ref;
 }
 
-const Count = ({ n }: { n: number }) => (n > 0 ? <span className="num rounded bg-brass-strong px-1.5 text-[11px] leading-[18px] font-semibold text-white">{n}</span> : null);
-
-function GroupTab({ tab, path, badge }: { tab: NavTab; path: string; badge: (href: string) => number }) {
+/** The profile menu: you, Settings / Corrections / Applications, light or dark, sign in / out. */
+export function ProfileMenu({ path }: { path: string }) {
+  const user = useSession((s) => s.user);
+  const mode = useSession((s) => s.mode);
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
-  const on = tabActive(tab, path);
-  const current = tab.pages?.find((p) => isActive(p.href, path));
-  const total = (tab.pages ?? []).reduce((n, p) => n + badge(p.href), 0);
+  const dark = useDarkMode();
+  const signedOut = mode === "demo" || mode === "legacy" || mode === "blocked" || !user;
+  const onProfilePage = PROFILE_PAGES.some((p) => isActive(p.href, path));
   return (
-    <div ref={ref} className="relative flex h-full">
+    <div ref={ref} className="relative">
       <button
         type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className={cn("relative flex h-full items-center gap-1 px-3 text-[13px] whitespace-nowrap", on ? "font-semibold text-ink" : "text-ink-2 hover:bg-hover")}
+        aria-label="Profile and settings"
+        aria-expanded={open}
+        title={user?.email ?? "Profile and settings"}
+        className={cn("grid size-9 place-items-center overflow-hidden rounded-full hover:bg-hover", onProfilePage && "ring-2 ring-brass-strong")}
       >
-        {current && tab.label !== "More" ? current.label : tab.label}
-        <Count n={total} />
-        <ChevronDown className="size-3.5 text-muted" />
-        {on && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-brass-strong" />}
+        {user?.picture ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={user.picture} alt="" referrerPolicy="no-referrer" className="size-7 rounded-full" />
+        ) : (
+          <UserRound className="size-[18px] text-top-muted" />
+        )}
       </button>
       {open && (
-        <div role="menu" className="absolute top-full left-0 z-40 mt-px w-[240px] rounded-lg border border-line bg-panel py-1 shadow-[0_0_7px_rgba(0,0,0,0.14),0_5px_5px_rgba(0,0,0,0.14)]">
-          {tab.pages!.map((p) => {
-            const a = isActive(p.href, path);
-            return (
-              <Link key={p.href} role="menuitem" href={p.href} onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-ink hover:bg-hover">
-                <p.icon className="size-4 text-muted" />
-                <span className="flex-1">{p.label}</span>
-                <Count n={badge(p.href)} />
-                {a && <Check className="size-3.5 text-brass-strong" />}
-              </Link>
-            );
-          })}
+        <div role="menu" className="absolute top-full right-0 z-50 mt-1 w-64 rounded-lg border border-line bg-panel py-1 text-ink shadow-[0_0_7px_rgba(0,0,0,0.14),0_5px_5px_rgba(0,0,0,0.14)]">
+          <div className="border-b border-line px-3 py-2 text-[13px]">
+            {user && !signedOut ? (
+              <>
+                <div className="font-semibold">{user.name ?? user.email}</div>
+                <div className="truncate text-[12px] text-muted">{user.email}</div>
+              </>
+            ) : (
+              <SignInButton label="Sign in with Google" className="h-8 w-full text-[13px]" />
+            )}
+          </div>
+          {PROFILE_PAGES.map((p) => (
+            <Link key={p.href} role="menuitem" href={p.href} onClick={() => setOpen(false)} className={cn("flex items-center gap-2.5 px-3 py-2 text-[13px] hover:bg-hover", isActive(p.href, path) && "font-semibold")}>
+              <p.icon className="size-4 text-muted" />
+              {p.label}
+            </Link>
+          ))}
+          <button type="button" role="menuitem" onClick={toggleDark} className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] hover:bg-hover">
+            {dark ? <Sun className="size-4 text-muted" /> : <Moon className="size-4 text-muted" />}
+            {dark ? "Light mode" : "Dark mode"}
+          </button>
+          {user && !signedOut && (
+            <button type="button" role="menuitem" onClick={() => void signOut()} className="flex w-full items-center gap-2.5 border-t border-line px-3 py-2 text-left text-[13px] hover:bg-hover">
+              <LogOut className="size-4 text-muted" /> Sign out
+            </button>
+          )}
+          <div className="flex gap-3 border-t border-line px-3 pt-2 pb-1 text-[12px] text-muted">
+            <Link href="/privacy" onClick={() => setOpen(false)} className="hover:text-ink">
+              Privacy
+            </Link>
+            <Link href="/terms" onClick={() => setOpen(false)} className="hover:text-ink">
+              Terms
+            </Link>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-/** The navigation bar (≥ 768 px). */
-export function AppNavBar({ path, badge }: { path: string; badge: (href: string) => number }) {
-  return (
-    <nav aria-label="App" className="sticky top-12 z-20 hidden h-10 shrink-0 items-stretch border-b border-line bg-side px-2 text-side-ink shadow-[0_1px_2px_rgba(0,0,0,0.05)] md:flex">
-      {NAV.map((t) =>
-        t.pages ? (
-          <GroupTab key={t.label} tab={t} path={path} badge={badge} />
-        ) : (
-          <Link
-            key={t.href}
-            href={t.href!}
-            aria-current={tabActive(t, path) ? "page" : undefined}
-            className={cn("relative flex h-full items-center gap-1.5 px-3 text-[13px] whitespace-nowrap", tabActive(t, path) ? "font-semibold text-ink" : "text-ink-2 hover:bg-hover")}
-          >
-            {t.label}
-            <Count n={badge(t.href!)} />
-            {tabActive(t, path) && <span className="absolute inset-x-0 bottom-0 h-[3px] bg-brass-strong" />}
-          </Link>
-        ),
-      )}
-    </nav>
-  );
-}
-
 /** Phones: a menu button in the header opens every page as a list (DESIGN.md §8). */
-export function MobileMenu({ path, badge, footer }: { path: string; badge: (href: string) => number; footer?: React.ReactNode }) {
+export function MobileMenu({ path, badge, footer }: { path: string; badge: (href: string) => number; footer?: ReactNode }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -171,6 +182,7 @@ export function MobileMenu({ path, badge, footer }: { path: string; badge: (href
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [open]);
+  const groups: { label: string; pages: NavPage[] }[] = [...NAV, { label: "You", pages: PROFILE_PAGES }];
   return (
     <>
       <button type="button" aria-label="Menu" aria-expanded={open} onClick={() => setOpen(true)} className="grid size-11 shrink-0 place-items-center text-top-ink md:hidden">
@@ -186,10 +198,10 @@ export function MobileMenu({ path, badge, footer }: { path: string; badge: (href
                 <X className="size-5" />
               </button>
             </div>
-            {NAV.map((t) => (
-              <div key={t.label} className="border-b border-line py-1">
-                {t.pages && <div className="px-4 pt-2 pb-1 text-[12px] text-muted">{t.label}</div>}
-                {(t.pages ?? [{ href: t.href!, label: t.label, icon: t.icon }]).map((p) => (
+            {groups.map((g) => (
+              <div key={g.label} className="border-b border-line py-1">
+                {g.pages.length > 1 && <div className="px-4 pt-2 pb-1 text-[12px] text-muted">{g.label}</div>}
+                {g.pages.map((p) => (
                   <Link
                     key={p.href}
                     href={p.href}
@@ -210,3 +222,4 @@ export function MobileMenu({ path, badge, footer }: { path: string; badge: (href
     </>
   );
 }
+

@@ -9,7 +9,8 @@ import { cn } from "@/lib/util";
  * <html data-theme> here and before first paint by layout.tsx's script. Recruitly (the logo's colors) is the default since 2026-10-23; slate was before.
  */
 export const THEMES = [
-  { id: "crm", name: "CRM", note: "Neutral gray, navy header, green actions (docs/DESIGN.md)", top: "#0e1a2b", side: "#ffffff", paper: "#f3f3f3", accent: "#1f7a5c" },
+  { id: "crm", name: "Light", note: "All white, gray page, green actions (docs/DESIGN.md)", top: "#ffffff", side: "#ffffff", paper: "#f3f3f3", accent: "#1f7a5c" },
+  { id: "dark", name: "Dark", note: "All navy, green actions", top: "#0e1a2b", side: "#0e1a2b", paper: "#0b1320", accent: "#1f7a5c" },
   { id: "recruitly", name: "Recruitly", note: "Navy, cream and green (the logo)", top: "#0e1a2b", side: "#0e1a2b", paper: "#f4f3ef", accent: "#1f7a5c" },
   { id: "slate", name: "Slate", note: "Slate bars, orange accent", top: "#2d3e50", side: "#33475b", paper: "#f5f8fa", accent: "#ff7a59" },
   { id: "cream", name: "Cream", note: "Warm cream, black bar, orange", top: "#1f1f1f", side: "#fffdf8", paper: "#f8f5ee", accent: "#ff4800" },
@@ -33,6 +34,10 @@ export function setTheme(id: ThemeId) {
   }
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEMES.find((t) => t.id === id)!.top);
 }
+
+/** The header's sun / moon: Light ↔ Dark (any other theme counts as light and switches to Dark). */
+export const isDark = () => typeof document !== "undefined" && document.documentElement.dataset.theme === "dark";
+export const toggleDark = () => setTheme(isDark() ? "crm" : "dark");
 
 export function ThemePicker() {
   // Settings renders only in the browser (after the store loads), so the DOM can be read on first render.

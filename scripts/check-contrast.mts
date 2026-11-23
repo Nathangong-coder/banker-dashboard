@@ -56,7 +56,14 @@ let failed = 0;
 for (const t of themes) {
   console.log(`\n${t.name}`);
   const c = (name: string) => (name.startsWith("#") ? name : t.tok[name]);
-  for (const [fg, bg, what, min] of pairs) {
+  // Dark mode: accent text is brass-ink and navy chips get dark text (globals.css overrides at the end).
+  const mine =
+    t.name === "dark"
+      ? pairs.map(([fg, bg, what, min]): [string, string, string, number] =>
+          fg === "brass-strong" && bg === "panel" ? ["brass-ink", bg, what + " (dark: brass-ink)", min] : fg === "#ffffff" && bg === "navy" ? ["paper", bg, what + " (dark: dark text)", min] : [fg, bg, what, min],
+        )
+      : pairs;
+  for (const [fg, bg, what, min] of mine) {
     if (!c(fg) || !c(bg)) {
       failed++;
       console.log(`FAIL missing token ${fg} or ${bg}`);

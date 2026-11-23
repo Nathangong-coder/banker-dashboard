@@ -68,7 +68,7 @@ export default function PrivacyPage() {
           removed) waits for at most 14 days until your dashboard reads it, and is deleted from there as soon as it does. Your dashboard then keeps,
           with each person&apos;s contact in your account, your recent emails with them (up to 12: date, direction, subject and a short preview, plus
           the full text of the newest email each way, at most 1,500 characters), read on request through our server, which stores none of it. They
-          are shown on Things to think about and replaced on the next read, and removed when you delete the contact.
+          are shown on Warm follow-ups and replaced on the next read, and removed when you delete the contact.
         </li>
         <li>
           If you use <b>info-session capture</b>: the photos, screenshots and text you send from your phone (the capture page, your phone&apos;s share
@@ -155,6 +155,7 @@ export default function PrivacyPage() {
       </p>
       <ul className="list-disc space-y-1 pl-6">
         <li>Apollo, Hunter: a contact&apos;s name, firm and LinkedIn URL, to find a work email.</li>
+        <li>Wikipedia and Wikidata: only a firm&apos;s name, when you open a bank&apos;s page (or press Fill from Wikipedia), to show a public summary, its website, headquarters and size.</li>
         <li>Serper, Brave: search queries, to find bankers and public background for coffee-chat prep, including a bank&apos;s name and your sector interests for its recent deals (bank brief).</li>
         <li>
           Your AI provider (Anthropic, OpenAI, Google Gemini, DeepSeek, Z.ai, Vercel AI Gateway, or one you configure): contact details and draft text, to

@@ -12,7 +12,7 @@ import { PROCESS_COLUMNS, columnsOf, type ProcessColumn } from "@/lib/processTra
 import { cn, fmtDate } from "@/lib/util";
 import { Button, Card, Empty, Input, Menu, Modal, PageHeader, Segmented, Select, toast } from "@/components/ui";
 import { BankDetail, NextStep } from "@/components/BankDetail";
-import { moveToColumn, setColor, setFirmKind, setTarget, toggleStar, useBankViews, type BankView } from "@/components/useBankViews";
+import { moveToColumn, setBoard, setColor, setFirmKind, setTarget, toggleStar, useBankViews, type BankView } from "@/components/useBankViews";
 import type { Cycle } from "@/lib/processTracker";
 
 /**
@@ -334,6 +334,7 @@ const SWATCHES: { score: number; label: string }[] = [
 ];
 
 function BankCard({ v, cycle, cols, open, onToggle, onDetail, onHide }: { v: BankView; cycle: Cycle; cols: ProcessColumn[]; open: boolean; onToggle: () => void; onDetail: () => void; onHide: () => void }) {
+  const router = useRouter();
   const color = healthColor(v.color);
   const app = v.app === "applied" ? "Applied" : v.app === "open" ? "Open" : v.app === "closed" ? "Closed" : "—";
   return (
@@ -370,6 +371,14 @@ function BankCard({ v, cycle, cols, open, onToggle, onDetail, onHide }: { v: Ban
             v.column.set && "divider",
             v.column.set && { label: "Back to automatic", icon: <Undo2 />, onClick: () => moveToColumn(v.r.key, null, cycle) },
             "divider",
+            ...[cycle.target, cycle.target - 1]
+              .filter((y) => y !== cycle.cycle)
+              .map((y) => ({ label: `Move to the Summer ${y} board`, hint: `Takes it off Summer ${cycle.cycle}`, onClick: () => (setBoard(v.r.key, y), toast.ok(`${v.r.name} → Summer ${y} board.`)) })),
+            ...[cycle.target, cycle.target - 1]
+              .filter((y) => y !== cycle.cycle)
+              .map((y) => ({ label: `Also show on Summer ${y}`, hint: "On both boards", onClick: () => (setBoard(v.r.key, "both"), toast.ok(`${v.r.name} is on both boards.`)) })),
+            v.pinned && { label: "Board: back to automatic", icon: <Undo2 />, onClick: () => setBoard(v.r.key, null) },
+            { label: "Edit bank…", hint: "Name, tier, website, careers page, offices", onClick: () => router.push(`/bank?key=${encodeURIComponent(v.r.key)}&edit=1`) },
             { label: "Open details", onClick: onDetail },
             v.other
               ? { label: "This is a bank", hint: "Show it with the banks", onClick: () => setFirmKind(v.r.key, "bank") }
@@ -380,7 +389,7 @@ function BankCard({ v, cycle, cols, open, onToggle, onDetail, onHide }: { v: Ban
       </div>
       {/* The foot: chats, emails vs. the target, the application. */}
       <div className="num mt-1.5 grid grid-cols-3 gap-px border-t border-black/10 text-center text-[11px]">
-        <span className="px-1 py-1" title={`Chats where your calendar and a thank-you email agree, or you logged / confirmed them${v.health.toCheck ? `. ${v.health.toCheck} more to confirm on Things to think about` : ""}`}>
+        <span className="px-1 py-1" title={`Chats where your calendar and a thank-you email agree, or you logged / confirmed them${v.health.toCheck ? `. ${v.health.toCheck} more to confirm on Warm follow-ups` : ""}`}>
           <b className="block text-[13px] font-semibold">
             {v.health.chats}
             {v.health.toCheck > 0 && <span className="font-normal opacity-70">+{v.health.toCheck}?</span>}

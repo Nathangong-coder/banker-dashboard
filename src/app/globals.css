@@ -39,10 +39,11 @@
   --subtle: #fafafa;
   --hover: #f0f0f0;
   --track: #e5e5e5;
-  --top: #0e1a2b;
-  --top-ink: #ffffff;
-  --top-muted: #a5aebb;
-  --top-line: #0e1a2b;
+  /* Light mode = all white chrome (owner, 2026-11-22: the white bar under a navy header looked off). Dark = [data-theme="dark"]. */
+  --top: #ffffff;
+  --top-ink: #181818;
+  --top-muted: #5c5c5c;
+  --top-line: #e5e5e5;
   --side: #ffffff;
   --side-ink: #2e2e2e;
   --side-muted: #5c5c5c;
@@ -51,6 +52,53 @@
   --side-mark: #1f7a5c;
   --chart: #6fb59a;
   --chart-soft: #dcefe6;
+}
+
+/*
+ * Dark mode (owner, 2026-11-22: "either all blue/dark or all white/light"): the logo navy everywhere, same green accent.
+ * One token can't be both a fill under white text and readable text on a dark card, so text in the accent / navy uses
+ * the lighter token here (overrides at the end of this file); check:contrast checks those pairs for this theme.
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --app-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --paper: #0b1320;
+  --panel: #111c2d;
+  --ink: #edf1f6;
+  --ink-2: #d0d8e3;
+  --muted: #a1adbe;
+  --line: #24324a;
+  --line-2: #3a4a66;
+  --navy: #a9c1e6;
+  --navy-hover: #c3d4ee;
+  --brass: #3fb68b;
+  --brass-soft: #163b30;
+  --brass-strong: #1f7a5c;
+  --brass-hover: #18644b;
+  --brass-ink: #74d8ad;
+  --green: #5fd4a5;
+  --green-soft: #12352c;
+  --red: #ff8fb5;
+  --red-soft: #3d1626;
+  --blue: #8fbcff;
+  --blue-soft: #142a4a;
+  --amber: #f3c06b;
+  --amber-soft: #3a2a10;
+  --subtle: #0e1827;
+  --hover: #1a2638;
+  --track: #24324a;
+  --top: #0e1a2b;
+  --top-ink: #ffffff;
+  --top-muted: #a5b1c2;
+  --top-line: #1d2a40;
+  --side: #0e1a2b;
+  --side-ink: #d0d8e3;
+  --side-muted: #a1adbe;
+  --side-active: #163b30;
+  --side-hover: #18253a;
+  --side-mark: #3fb68b;
+  --chart: #3fb68b;
+  --chart-soft: #1d3a32;
 }
 
 [data-theme="recruitly"] {
@@ -393,4 +441,23 @@ body {
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* Dark mode: accent / navy as TEXT use the light tokens; chips filled with navy get dark text. */
+[data-theme="dark"] .text-brass-strong {
+  color: var(--brass-ink);
+}
+[data-theme="dark"] .bg-navy {
+  color: var(--paper);
+}
+
+/* docs/DESIGN.md D-1 / T-3: table headers are sentence case, 12 px semibold (many tables still say uppercase). */
+thead,
+thead * {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+thead th {
+  font-size: 12px;
+  font-weight: 600;
 }

@@ -3,6 +3,11 @@ import { HttpError } from "@/lib/server/http";
 import { TWNUM, addInboxItem, appUrl, db, loadAccount, newItemId, unseal } from "@/lib/server/accounts";
 import { currentSession, infoSessionsBetween } from "@/lib/server/google";
 import type { CaptureItem } from "@/lib/infoSessions";
+import { findPerson, parseInviteText, whenLabel } from "@/lib/inviteCommand";
+import { zonedDate } from "@/lib/sendWindow";
+import { createInvite, inviteTitle } from "@/lib/server/invite";
+
+const INVITE_ASK = (id: string) => `invq:${id}`;
 
 export const maxDuration = 30;
 
@@ -39,6 +44,30 @@ export async function POST(req: Request) {
   if (params.get("AccountSid") !== sid || !validSignature(token, `${appUrl(req)}/api/server/twilio/inbound`, params, req.headers.get("x-twilio-signature") ?? ""))
     return new Response("Bad signature", { status: 403 });
   if ((params.get("From") ?? "") !== a.twilio.myPhone) return twiml();
+
+  // Calendar invites by text (owner, 2026-11-22): "invite Rohan Desai tue 3pm" → Coverage replies with who / when →
+  // "yes" sends it (an invite reaches the banker, so it's never sent on the first text). Pending ask: 10 minutes.
+  const typed = (params.get("Body") ?? "").trim();
+  if (/^invite\s/i.test(typed) || /^(yes|y|send)$/i.test(typed)) {
+    try {
+      if (/^invite\s/i.test(typed)) {
+        const ask = parseInviteText(typed, a.tz);
+        if ("error" in ask) return twiml(ask.error);
+        const found = findPerson(a.people ?? [], ask.who);
+        if ("error" in found) return twiml(found.error);
+        const start = zonedDate(ask.y, ask.m, ask.d, ask.h, ask.min, a.tz);
+        if (start.getTime() < Date.now()) return twiml("That time has already passed.");
+        await db().set(INVITE_ASK(a.id), { contactId: found.person.contactId, name: found.person.name, email: found.person.email, start: start.toISOString(), minutes: ask.minutes }, { ex: 600 });
+        return twiml(`Invite ${found.person.name} (${found.person.email}) for ${whenLabel(start, a.tz)}, ${ask.minutes} min? Reply YES to send it.`);
+      }
+      const p = await db().getdel<{ name: string; email: string; start: string; minutes: number }>(INVITE_ASK(a.id));
+      if (!p) return twiml('Nothing to send. Text "invite <name> <day> <time>" first, e.g. "invite Rohan Desai tue 3pm".');
+      const ev = await createInvite(a, { email: p.email, title: inviteTitle(p.name), start: new Date(p.start), minutes: p.minutes, notify: true });
+      return twiml(`Sent: ${p.name}, ${whenLabel(new Date(p.start), a.tz)}. ${ev.htmlLink}`);
+    } catch (e) {
+      return twiml(e instanceof HttpError ? e.message : "Coverage couldn't make that invite. Try again in a minute.");
+    }
+  }
 
   try {
     const at = new Date().toISOString();

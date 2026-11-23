@@ -80,7 +80,7 @@ export function GlobalSearch({ className }: { className?: string }) {
 
   return (
     <div ref={box} className={cn("relative", className)}>
-      <label className="flex h-8 items-center gap-2 rounded border border-white/20 bg-white/10 px-2.5 text-top-muted focus-within:border-white/60 focus-within:bg-panel focus-within:text-muted">
+      <label className="flex h-8 items-center gap-2 rounded border border-line-2 bg-paper px-2.5 text-muted focus-within:border-brass-strong focus-within:bg-panel">
         <Search className="size-4 shrink-0" />
         <input
           ref={input}
@@ -109,7 +109,7 @@ export function GlobalSearch({ className }: { className?: string }) {
           aria-controls="global-search-list"
           aria-label="Search people, banks and pages"
           placeholder="Search people, banks, pages…"
-          className="min-w-0 flex-1 bg-transparent text-[13px] text-top-ink outline-none placeholder:text-top-muted focus:text-ink focus:placeholder:text-muted"
+          className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-muted"
         />
         <kbd className="hidden rounded border border-current/30 px-1 text-[11px] leading-4 opacity-70 lg:inline">/</kbd>
       </label>

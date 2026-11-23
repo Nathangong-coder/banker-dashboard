@@ -431,6 +431,36 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **Bank "What to do here":** `bankWork` mapped every relationship label but reply / check-in to "Send a thank-you",
   so someone who went quiet showed as a thank-you; quiet → "Nudge / check in".
 
+## Navigation v2, light/dark, editable firms, invites from the phone (owner, 2026-11-22)
+
+- **Nav:** `components/navData.tsx` (NAV, PROFILE_PAGES, `categoryOf`, `IceCube`) is the one list. Header = categories
+  only (Home, Follow-ups, Banks, Outreach, Prep: `AppNav.tsx#CategoryTabs`), the current category's pages in a left
+  `SideNav` (only when it has 2+), `ProfileMenu` = Settings, Corrections, Applications (hidden from the bar), light /
+  dark, privacy / terms, sign in / out; `MobileMenu` under 768 px. Follow-ups = **Cold outreach** (/followups, ice cube)
+  + **Warm follow-ups** (/think, flame). Banks = Bank coverage, Process, Spreadsheet (+ /bank, /person). `PageHeader`
+  reads the icon + category from navData, so every page has the record-style header.
+- **Themes:** `crm` = Light (white header and sidebar), new `dark` (all navy; `.text-brass-strong` / `.bg-navy`
+  overrides at the end of globals.css, check:contrast checks those pairs for dark). Header sun / moon =
+  `ThemePicker.tsx#toggleDark`; theme ids must be `\w+` (check:contrast's regex).
+- **Menus** (`ui.tsx#Menu`) render in a portal with fixed position (flip up near the bottom, close on scroll): a ⋯ on a
+  Process card was clipped by the board's sideways scroll.
+- **Process boards:** `coverage.processCycle[key]` = a summer year (only that board) or "both"; card ⋯ → "Move to the
+  Summer X board" / "Also show on…" / "Board: back to automatic" / "Edit bank…" (`useBankViews#onBoard`, `setBoard`).
+- **Firms are records:** `coverage.firms[key]` (`lib/firmProfile.ts`: name override applied in `buildCoverage`, website,
+  careersUrl, about, hq, founded, employees, notes, source). Bank page: Edit (`components/FirmEditor.tsx`: also tier,
+  kind, specialty, offices = `OfficeFactsTable` shared with Corrections, hide), About card, Website / Job portal in the
+  highlights. First visit fills About from `api/firms/info` (Wikipedia search → REST summary → Wikidata P856 website,
+  P159 HQ, P571 founded, P1128 employees; only the firm name is sent; privacy §3 lists it). Job portal =
+  yours → a Find-jobs board for that firm → the board of a tracked job → a Google search link (never a guessed URL).
+- **Warm follow-ups → Everyone** (`thinkAbout.ts#standing`): everyone who replied / met you / referred you and why
+  they are or aren't on the list. `todoFor` now treats a chat with no email reply as engagement (Rohan Desai at BMO:
+  chat set up outside email, thanked, then nothing tracked him).
+- **Invites:** person page → Send invite (`Scheduling.tsx#CallInvite`, browser / server token). Phone:
+  `lib/server/invite.ts#createInvite` (needs Connect Google's calendar.events) used by the MCP tools `find_person` +
+  `send_calendar_invite` (Claude app: "invite Rohan Tuesday 3pm") and by Twilio texts: "invite Rohan Desai tue 3pm"
+  → Coverage replies who / when → "yes" sends (pending ask `invq:<id>`, 10 min). Parser + person match:
+  `lib/inviteCommand.ts`, covered by `check:scheduling`.
+
 ## 9 PM text, firms, transcripts (2026-10-19)
 
 - **The WhatsApp text is 9 PM Mon–Thu** (replaced the 9am one; `digestFormat.ts#TEXT_DAYS/TEXT_HOUR/nextTextDay`). It lists what's

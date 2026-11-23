@@ -3,7 +3,7 @@
 import { addSmartMention } from "@/lib/mentionDrafts";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bell, BellRing, CalendarClock, CalendarPlus, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Smartphone, Trash2, UserPlus, UserX, X } from "lucide-react";
+import { Bell, CalendarClock, CalendarPlus, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Smartphone, Trash2, UserPlus, UserX, X } from "lucide-react";
 import { bankKey, useStore } from "@/lib/store";
 import { isVpPlus } from "@/lib/seniority";
 import { nextAction, pendingFollowUpDraft, rollupBanks, sendLabel, type BankRollup, type NextAction } from "@/lib/followups";
@@ -21,6 +21,7 @@ import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regio
 import { addDays, cn, download, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Checkbox, Empty, Field, Input, Menu, Modal, Progress, Segmented, Select, StatusBadge, toast } from "@/components/ui";
 import { ObjectHeader, Tabs } from "@/components/crm";
+import { IceCube } from "@/components/AppNav";
 import { ContactModal } from "@/components/ContactModal";
 import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
@@ -77,9 +78,9 @@ export default function FollowupsPage() {
   return (
     <>
       <ObjectHeader
-        icon={<BellRing className="size-5" />}
-        eyebrow="Queue"
-        title="Follow-ups"
+        icon={<IceCube className="size-5" />}
+        eyebrow="Follow-ups · people who haven't replied yet"
+        title="Cold outreach"
         meta={`Follow up ${s.settings.followUp.firstAfterDays} days after the first email, up to ${s.settings.followUp.maxFollowUps} times, then move on.`}
         actions={
           <>
@@ -692,7 +693,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
       </div>
 
       {selected.length > 0 && (
-        <div className="sticky top-14 md:top-[92px] z-20 flex flex-wrap items-center gap-2 rounded-xl border border-brass-strong/40 bg-panel px-4 py-2 shadow-[0_6px_20px_rgba(15,23,42,0.10)]">
+        <div className="sticky top-14 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-brass-strong/40 bg-panel px-4 py-2 shadow-[0_6px_20px_rgba(15,23,42,0.10)]">
           <span className="text-[13px] font-medium">{selected.length} selected</span>
           <span className="hidden text-[12px] text-muted sm:inline">List buttons use only these.</span>
           <div className="flex-1" />

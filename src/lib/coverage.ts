@@ -78,6 +78,12 @@ export type CoverageSettings = {
   stages?: Record<string, string>;
   /** Process tracker (owner, 2026-11-21; lib/processTracker.ts): bank key → column id, set by dragging. */
   processAt?: Record<string, string>;
+  /**
+   * Which Process tracker board a bank is on, by hand (owner, 2026-11-22: "can't move something from 2028 to 2027"):
+   * a summer year = only that board, "both" = both. Unset = the automatic rule (the target summer always; the year
+   * before when there's an application or you placed it there).
+   */
+  processCycle?: Record<string, number | "both">;
   /** Starred ("most tracked") banks: bank key → true. The 9 PM text's Big banks message lists these first. */
   processStars?: Record<string, boolean>;
   /** Target number of contacts per bank (like the workbook's ACTIVE BAY tab). */
@@ -94,6 +100,8 @@ export type CoverageSettings = {
   reminders?: Record<string, import("./thinkAbout").Reminder>;
   /** A firm is / isn't a bank, set by you (else: a tier from your lists, or a known bank = bank; anything else = other). */
   firmKind?: Record<string, "bank" | "other">;
+  /** Company record facts (the bank page's Edit, lib/firmProfile.ts): name, links, about text. Bank key → profile. */
+  firms?: Record<string, import("./firmProfile").FirmProfile>;
   /** The tracker's columns in order (default PROCESS_COLUMNS). */
   processColumns?: { id: string; label: string; hint?: string }[];
 };
@@ -239,6 +247,9 @@ export function buildCoverage(args: {
       ? { emailed: open.reduce((n, d) => n + Math.min(perDesk, emailedOn(d.people)), 0), max: perDesk * open.length }
       : { emailed: Math.min(r.reached, perDesk), max: perDesk };
     r.stage = r.reached > 0 ? (r.slots.emailed >= r.slots.max ? "awaiting" : "could_max") : working.length > 0 ? "not_reached" : "cold";
+    // Your name for the firm (bank page → Edit) wins over the spelling in the sheet.
+    const rename = coverage.firms?.[r.key]?.name?.trim();
+    if (rename) r.name = rename;
     out.push(r);
   }
   return out;

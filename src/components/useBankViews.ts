@@ -38,9 +38,28 @@ export interface BankView extends BankDetailView {
   colorSet: boolean;
   /** This cycle has an application / program here, or you placed it on this cycle's board. */
   inCycle: boolean;
+  /** You pinned which board(s) it is on (`coverage.processCycle`). */
+  pinned: boolean;
 }
 
 const NO_RATINGS: Record<string, FirmRating> = {};
+
+/** Is a bank on this cycle's board? Your pin (a year or "both") wins; else the target board always, the other when used. */
+export function onBoard(pin: number | "both" | undefined, cyc: Cycle, usedHere: boolean) {
+  if (pin === "both") return true;
+  if (typeof pin === "number") return pin === cyc.cycle;
+  return cyc.cycle === cyc.target || usedHere;
+}
+
+/** Pin a bank to one Process tracker board (a summer year), both, or back to automatic (null). */
+export function setBoard(key: string, pin: number | "both" | null) {
+  useStore.getState().setCoverage((c) => {
+    const m = { ...(c.processCycle ?? {}) };
+    if (pin === null) delete m[key];
+    else m[key] = pin;
+    return { ...c, processCycle: m };
+  });
+}
 const CLOSED = new Set(["rejected", "withdrawn", "offer"]);
 
 /**
@@ -103,7 +122,8 @@ export function useBankViews(scoped: boolean, cycleYear?: number): { views: Bank
         other: !isBankFirm(r, coverage),
         color: mine ?? health.score,
         colorSet: mine !== undefined,
-        inCycle: cyc.cycle === cyc.target || !!app || column.set || !!coverage.processAt?.[placeKey(r.key, cyc)],
+        pinned: coverage.processCycle?.[r.key] !== undefined,
+        inCycle: onBoard(coverage.processCycle?.[r.key], cyc, !!app || column.set || !!coverage.processAt?.[placeKey(r.key, cyc)]),
       });
     }
     return { views, rows, cycle: cyc };

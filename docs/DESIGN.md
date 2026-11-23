@@ -161,10 +161,12 @@ per section.
 
 ## 6. Components
 
-- **G-1 Global header:** navy, 48 px: logo + "Coverage", global search (center, 480 px), help, settings, account.
-- **G-2 App navigation:** white bar under the header, object tabs (Home, Banks, People, Outreach, Applications,
-  Calendar, Things to think about…), active = 3 px accent underline + ink text, overflow in "More ▾". Replaces the
-  group switcher + sidebar (phase 3).
+- **G-1 Global header (owner, 2026-11-22):** 48 px, the same color as the sidebar (all white in Light, all navy in
+  Dark; never a white bar under a navy one): logo + "Coverage", the categories, global search, Gmail sync, light /
+  dark toggle, the profile menu (Settings, Corrections, Applications, sign out).
+- **G-2 App navigation:** the header lists categories only (Home, Follow-ups, Banks, Outreach, Prep), active = 3 px
+  accent underline; the current category's pages are a 208 px vertical list on the left (hidden when it has one
+  page). Phones: one menu with every page.
 - **B-1 Buttons:** *Neutral* (white, `line-2` border, accent text): the default. *Brand* (accent fill, white text):
   one per header. *Destructive* (red text, neutral shape). *Icon button* 32 × 32 with border. *Button group*:
   joined neutral buttons, 1 px separators, ends rounded 4 px.

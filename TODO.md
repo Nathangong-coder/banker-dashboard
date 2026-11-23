@@ -1,5 +1,19 @@
 # TODO
 
+## 00. Owner's reminders (2026-11-22, "remind me")
+
+- **Re-bundle the site by feature**: organize the products and regroup the navigation / landing around features
+  (Outreach, Tracking, Insights, …) instead of today's Follow-ups / Banks / Outreach / Prep categories.
+- **Location accuracy**: offices / regions read wrong for some people (sheet text, LinkedIn, Apollo disagree); audit
+  `detectRegion`, `officeOf`, the enrichment city check, and show where each location came from (like teams).
+- **Email labelling + organization** for manual users: Gmail labels that mirror state (outreach-rules A5:
+  Outreach/SEND NOW, HOLD, Sent - waiting, Replied, Bounced, CHECK), a visible log of what Coverage changed and why,
+  and an undo per change.
+- **Corrections needs more things to correct**: people's team / office / title / status source, chat verdicts,
+  wrong calendar matches, email addresses / aliases, referral links, application rows. (Now under the profile menu.)
+- **Applications** is hidden under the profile menu until the auto-application work resumes (or a partnership, e.g.
+  Simplify, for job applications).
+
 ## 000. Queued 2026-11-21
 
 **Owner's asks after the Process tracker shipped (in the agreed order, see the chat of 2026-11-21):**

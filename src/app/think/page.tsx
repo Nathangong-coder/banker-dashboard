@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowDownLeft, ArrowUpRight, BellPlus, Check, ChevronDown, ChevronRight, ExternalLink, Lightbulb, RefreshCw, Undo2 } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, BellPlus, Check, ChevronDown, ChevronRight, ExternalLink, Flame, RefreshCw, Undo2 } from "lucide-react";
 import { chatsToCheck, type ChatRecord } from "@/lib/chatEvidence";
 import { ObjectHeader, Tabs } from "@/components/crm";
 import { useStore } from "@/lib/store";
 import { googleClientId, aiReady } from "@/lib/keys";
 import { connectGmail, latestFrom } from "@/lib/gmail";
 import { DAY, cn } from "@/lib/util";
-import { REASON_LABEL, reminderRows, resolvedPeople, todoRows, wrongAddress, type Age, type Reminder, type ReminderRow, type TodoRow, type Triage } from "@/lib/thinkAbout";
+import { REASON_LABEL, referrers, reminderRows, resolvedPeople, standing, todoRows, wrongAddress, type Age, type Reminder, type ReminderRow, type TodoRow, type Triage } from "@/lib/thinkAbout";
 import type { Contact } from "@/lib/types";
 import { Badge, Button, Card, Empty, Input, Menu, Segmented, toast } from "@/components/ui";
 
@@ -19,7 +19,7 @@ import { Badge, Button, Card, Empty, Input, Menu, Segmented, toast } from "@/com
  * email conversation (lib/mailLedger.ts). Noise is filtered by rules and an AI read with safeguards; every filtered or
  * resolved person stays one click away.
  */
-type Tab = "reply" | "quiet" | "chats" | "reminders";
+type Tab = "reply" | "quiet" | "chats" | "reminders" | "everyone";
 type AgeFilter = "all" | Age;
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -33,7 +33,7 @@ const KIND_LABEL: Record<TodoRow["kind"], string> = { thank: "thank-you owed", r
 
 function initialTab(): Tab {
   const t = new URLSearchParams(window.location.search).get("tab");
-  return t === "quiet" || t === "reminders" || t === "chats" ? t : "reply";
+  return t === "quiet" || t === "reminders" || t === "chats" || t === "everyone" ? t : "reply";
 }
 
 export default function ThinkPage() {
@@ -89,9 +89,9 @@ export default function ThinkPage() {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
       <ObjectHeader
-        icon={<Lightbulb className="size-5" />}
-        eyebrow="To-do · same list as the 9 PM text"
-        title="Things to think about"
+        icon={<Flame className="size-5" />}
+        eyebrow="Follow-ups · people you've talked to, same list as the 9 PM text"
+        title="Warm follow-ups"
         actions={
           <Button variant="primary" icon={<RefreshCw className={cn("size-4", busy && "animate-spin")} />} disabled={!!busy || !settings.server?.id} onClick={() => void refresh(true)}>
             Check Gmail
@@ -123,6 +123,7 @@ export default function ThinkPage() {
             { id: "quiet", label: "Went quiet", count: shown(quietRows).length },
             { id: "chats", label: "Chats to confirm", count: checks.length },
             { id: "reminders", label: "Reminders", count: remindersDue || undefined },
+            { id: "everyone", label: "Everyone" },
           ]}
         />
         <div>
@@ -130,9 +131,57 @@ export default function ThinkPage() {
           {tab === "quiet" && <TodoTab rows={quietRows} resolved={[]} now={now} empty="Everyone who replied is either talking to you or waiting on you." quiet />}
           {tab === "chats" && <ChatsToConfirm list={checks} />}
           {tab === "reminders" && <RemindersTab rows={reminders} contacts={contacts} />}
+          {tab === "everyone" && <Everyone contacts={contacts} now={now} />}
         </div>
       </div>
     </div>
+  );
+}
+
+/* ---------------- everyone ---------------- */
+
+/**
+ * Everyone you've talked with (replied, met, referred you) and why each one is or isn't on the list, so nobody is
+ * silently missing (owner, 2026-11-22: Rohan Desai at BMO wasn't there).
+ */
+function Everyone({ contacts, now }: { contacts: Contact[]; now: number }) {
+  const [q, setQ] = useState("");
+  const rows = useMemo(() => {
+    const isRef = referrers(contacts);
+    return contacts
+      .map((c) => ({ c, s: standing(c, now, isRef) }))
+      .filter((x) => x.s.engaged)
+      .sort((a, b) => Number(b.s.listed) - Number(a.s.listed) || a.c.name.localeCompare(b.c.name));
+  }, [contacts, now]);
+  const t = q.trim().toLowerCase();
+  const shown = t ? contacts.filter((c) => `${c.name} ${c.bank}`.toLowerCase().includes(t)).map((c) => rows.find((r) => r.c.id === c.id) ?? { c, s: standing(c, now) }) : rows;
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find anyone: why aren't they on the list?" className="max-w-[360px]" aria-label="Find a person" />
+        <span className="text-[12px] text-muted">
+          {rows.filter((r) => r.s.listed).length} on the list · {rows.length} you&apos;ve talked with
+        </span>
+      </div>
+      {!shown.length ? (
+        <Empty title="Nobody matches">Try a last name or the bank.</Empty>
+      ) : (
+        <ul className="divide-y divide-line">
+          {shown.slice(0, 200).map(({ c, s }) => (
+            <li key={c.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5 text-[13px]">
+              <span className="min-w-[200px]">
+                <Link href={`/person?id=${encodeURIComponent(c.id)}`} className="font-semibold text-brass-ink hover:underline">
+                  {c.name}
+                </Link>
+                <span className="text-muted"> · {c.bank}</span>
+              </span>
+              {s.listed && <Badge tone="green">On the list</Badge>}
+              <span className="min-w-0 flex-1 basis-[300px] text-ink-2">{s.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

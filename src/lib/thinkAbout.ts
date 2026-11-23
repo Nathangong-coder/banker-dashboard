@@ -331,7 +331,9 @@ export function todoFor(c: Contact, now: number, isReferrer: (c: Contact) => boo
     const row = mk("reply", heard, heard, `reply:${t?.id ?? heard}`, `They wrote ${md(heard)}${you ? `; your last email was ${md(you)}` : ""}.`, t);
     return withHidden(row, c, t?.text);
   }
-  const replied = heard ?? c.repliedAt;
+  // A chat set up outside email (LinkedIn, text, a referral) counts as them engaging (owner, 2026-11-22: the BMO chat
+  // with Rohan Desai wasn't on the list: he never replied by email, so after the thank-you nothing tracked him).
+  const replied = heard ?? c.repliedAt ?? (chatted ? lastCall : undefined);
   if (!replied || !you || you <= replied) return null;
   let due = Date.parse(you) + (chatted ? CHECK_IN_DAYS : QUIET_DAYS) * DAY;
   if (c.snoozeUntil && Date.parse(c.snoozeUntil) > due) due = Date.parse(c.snoozeUntil);
@@ -386,3 +388,27 @@ export function resolvedPeople(contacts: Contact[]) {
 
 /** The address on file is someone else's (by the names Gmail shows on it). */
 export const wrongAddress = (contacts: Contact[]) => contacts.filter((c) => c.mail?.otherPerson && !closed(c));
+
+/**
+ * Where someone you've talked with stands, and why they are or aren't on Warm follow-ups (owner, 2026-11-22: "the BMO
+ * chat with Rohan Desai is not there, which is really weird"). `engaged` = replied, met you, or referred you.
+ */
+export function standing(c: Contact, now: number, isReferrer: (c: Contact) => boolean = () => false): { engaged: boolean; listed: boolean; text: string } {
+  const met = chatRecords(c, now).some((r) => r.state !== "rejected") || !!c.call;
+  const engaged = !!(c.repliedAt || c.lastHeardAt || c.mail?.lastIn || met || c.referral || isReferrer(c));
+  const row = todoFor(c, now, isReferrer);
+  if (row) {
+    const what = row.kind === "thank" ? "Thank-you owed" : row.kind === "reply" ? "They wrote last: reply" : Date.parse(row.due) <= now ? "Nudge now" : `Next nudge ${md(row.due)}`;
+    return { engaged, listed: !row.hidden, text: row.hidden ? `Filtered out as noise: ${row.hidden.why}` : `${what}. ${row.why}` };
+  }
+  if (c.mail?.otherPerson) return { engaged, listed: false, text: `The address on file belongs to ${c.mail.otherPerson}: fix it to track them.` };
+  if (c.status === "done") return { engaged, listed: false, text: "Status is Done, so they're not tracked. Change the status to track them again." };
+  if (c.status === "ignored") return { engaged, listed: false, text: "Moved on. Bring them back on Bank coverage to track them again." };
+  if (c.outcome) return { engaged, listed: false, text: `Closed: ${c.outcome.kind.replace("_", " ")}.` };
+  if (c.resolved) return { engaged, listed: false, text: `Resolved by you ${md(c.resolved.at)}: ${c.resolved.note}. Back on the list when they write again.` };
+  if (c.call && Date.parse(c.call.at) > now) return { engaged, listed: false, text: `Call on ${md(c.call.at)}: nothing to chase before it.` };
+  if (!engaged) return { engaged, listed: false, text: "No reply or chat yet: they're on Cold outreach." };
+  const ex = lastExchange(c);
+  if (!ex.you) return { engaged, listed: false, text: "You haven't emailed them since you talked: send a thank-you or note (it shows here once a chat or reply is on record)." };
+  return { engaged, listed: false, text: `You wrote last (${md(ex.you)}); nothing to follow up on yet.` };
+}
