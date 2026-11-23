@@ -3,7 +3,7 @@
 import { addSmartMention } from "@/lib/mentionDrafts";
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { FileText, Mail, Send, Sparkles, Wand2 } from "lucide-react";
 import { blobs, useStore } from "@/lib/store";
 import { canonBank } from "@/lib/banks";

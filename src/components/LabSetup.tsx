@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Beaker, Copy, Layers, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";

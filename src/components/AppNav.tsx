@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { LogOut, Menu as MenuIcon, Moon, Sun, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/util";
@@ -13,37 +13,12 @@ import { SignInButton, signOut } from "./Account";
 
 const Count = ({ n }: { n: number }) => (n > 0 ? <span className="num rounded bg-brass-strong px-1.5 text-[11px] leading-[18px] font-semibold text-white">{n}</span> : null);
 
-/** The categories, inside the header (≥ 768 px). */
-export function CategoryTabs({ path, badge }: { path: string; badge: (href: string) => number }) {
-  const current = categoryOf(path);
-  return (
-    <nav aria-label="Categories" className="hidden h-full items-stretch md:flex">
-      {NAV.map((c) => {
-        const on = c === current;
-        const n = c.pages.reduce((s, p) => s + badge(p.href), 0);
-        return (
-          <Link
-            key={c.label}
-            href={c.pages[0].href}
-            aria-current={on ? "true" : undefined}
-            className={cn("relative flex items-center gap-1.5 px-3 text-[13px] whitespace-nowrap", on ? "font-semibold text-top-ink" : "text-top-muted hover:text-top-ink")}
-          >
-            {c.label}
-            <Count n={n} />
-            {on && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-t bg-brass-strong" />}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-}
-
 /** The current category's pages, down the left (only when it has more than one). */
 export function SideNav({ path, badge }: { path: string; badge: (href: string) => number }) {
   const c = categoryOf(path);
   if (!c || c.pages.length < 2) return null;
   return (
-    <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] w-[208px] shrink-0 overflow-y-auto border-r border-top-line bg-side px-2 py-3 text-side-ink md:block">
+    <aside className="sticky top-[92px] hidden h-[calc(100vh-92px)] w-[208px] shrink-0 overflow-y-auto border-r border-top-line bg-side px-2 py-3 text-side-ink md:block">
       <div className="px-2.5 pb-2 text-[12px] text-side-muted">{c.label}</div>
       <nav aria-label={c.label} className="grid gap-0.5">
         {c.pages.map((p) => {

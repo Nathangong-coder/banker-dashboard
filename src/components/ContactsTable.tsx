@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useMemo, useState, type ReactNode } from "react";
 import { Check, ExternalLink, Plus, Search, Trash2, X } from "lucide-react";
 import { useStore } from "@/lib/store";

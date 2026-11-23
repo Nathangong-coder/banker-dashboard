@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, CheckCheck, Forward, MailCheck, Search, Settings2 } from "lucide-react";
 import { useStore } from "@/lib/store";

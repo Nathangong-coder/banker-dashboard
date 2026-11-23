@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ChevronRight, EyeOff, Plus, Search, Settings2, Star, Trash2, Undo2 } from "lucide-react";

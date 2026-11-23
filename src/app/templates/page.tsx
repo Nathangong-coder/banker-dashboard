@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { FileText, FileUp, Paperclip, Pencil, Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { Template } from "@/lib/types";

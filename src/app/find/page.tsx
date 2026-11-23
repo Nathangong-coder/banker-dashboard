@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Bookmark, ExternalLink, Filter, Plus, Search, Sparkles, UserSearch, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";

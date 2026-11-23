@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarSync, ExternalLink, Link2, Plus, Presentation, RotateCw, Search, Smartphone, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -101,7 +101,7 @@ function InfoSessionsInner() {
     void loadUnsorted();
   }, []);
 
-  // Calendar + phone inbox on open; the inbox again every 2 minutes while the page is visible.
+  // Calendar + phone inbox on open; the inbox again every 15 minutes while the page is visible.
   useEffect(() => {
     if (!connected) return;
     const first = setTimeout(() => {
@@ -111,7 +111,8 @@ function InfoSessionsInner() {
     const tick = () => {
       if (document.visibilityState === "visible") void pull(true);
     };
-    const t = setInterval(tick, 120_000);
+    // Every 15 minutes (owner, 2026-11-23: background requests were too frequent; it was every 2).
+    const t = setInterval(tick, 15 * 60_000);
     document.addEventListener("visibilitychange", tick);
     return () => {
       clearTimeout(first);

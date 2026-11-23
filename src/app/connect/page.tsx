@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { CheckCircle2, Plug } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { serverCall } from "@/lib/serverSync";

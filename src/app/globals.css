@@ -99,6 +99,11 @@
   --side-mark: #3fb68b;
   --chart: #3fb68b;
   --chart-soft: #1d3a32;
+  /* Dark: the progress steps get brighter as they go (found → referral). */
+  --step-1: #1d3a32;
+  --step-2: #1f7a5c;
+  --step-3: #3fb68b;
+  --step-4: #a7f3d0;
 }
 
 [data-theme="recruitly"] {
@@ -345,6 +350,11 @@
   --color-side-mark: var(--side-mark);
   --color-chart: var(--chart);
   --color-chart-soft: var(--chart-soft);
+  /* Progress steps on the coverage grid (nobody → found → emailed → talked → referral; docs/DESIGN.md C-3). */
+  --color-step-1: var(--step-1, var(--chart-soft));
+  --color-step-2: var(--step-2, var(--chart));
+  --color-step-3: var(--step-3, var(--brass-strong));
+  --color-step-4: var(--step-4, var(--navy));
   --font-sans: var(--app-font);
   --font-mono: var(--font-app-mono);
   /* Headings use the body font (owner, 2026-10-19). */

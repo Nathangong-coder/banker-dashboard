@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Building2, ChevronDown, ChevronRight, LayoutGrid, List, Pin, Search, SlidersHorizontal, Star } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/util";
@@ -19,7 +19,7 @@ import type { BankView } from "./useBankViews";
  */
 
 const LAST = "coverage:lastView";
-const FILL = ["", "bg-chart-soft", "bg-chart", "bg-brass-strong", "bg-navy"];
+const FILL = ["", "bg-step-1", "bg-step-2", "bg-step-3", "bg-step-4"];
 
 function readLast() {
   try {

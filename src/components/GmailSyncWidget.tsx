@@ -7,9 +7,9 @@ import { googleClientId } from "@/lib/keys";
 import { connectGmail, gmailConnected, onGmailConnected } from "@/lib/gmail";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { cn } from "@/lib/util";
+import { syncEveryMs } from "@/lib/backgroundJobs";
 import { toast } from "./ui";
 
-const EVERY_MS = 20 * 60_000;
 
 function ago(iso?: string) {
   if (!iso) return "never";
@@ -22,7 +22,7 @@ function ago(iso?: string) {
 
 /**
  * Sidebar control + background loop. Google needs one click per browser session to hand over a token;
- * after that (or after any other Gmail action this session) we re-sync quietly every 20 minutes.
+ * after that (or after any other Gmail action this session) we re-sync quietly on your Background sync schedule.
  */
 export function GmailSyncWidget({ variant = "panel" }: { variant?: "panel" | "header" }) {
   const settings = useStore((s) => s.settings);
@@ -37,7 +37,10 @@ export function GmailSyncWidget({ variant = "panel" }: { variant?: "panel" | "he
     const quiet = async () => {
       if (!gmailConnected(clientId)) return setConnected(false);
       setConnected(true);
-      const stale = !useStore.getState().lastGmailSync || Date.now() - new Date(useStore.getState().lastGmailSync!).getTime() > EVERY_MS - 60_000;
+      // On your schedule (Settings → Data → Background sync), never more often (owner, 2026-11-23).
+      const every = syncEveryMs(useStore.getState().settings);
+      const last = useStore.getState().lastGmailSync;
+      const stale = every !== null && (!last || Date.now() - new Date(last).getTime() > every - 60_000);
       if (!stale) return;
       setBusy(true);
       try {
@@ -96,7 +99,7 @@ export function GmailSyncWidget({ variant = "panel" }: { variant?: "panel" | "he
       onClick={run}
       disabled={busy}
       className="mb-2 flex w-full items-center gap-2 rounded-lg border border-side-ink/15 px-3 py-2 text-left text-[12px] hover:bg-side-hover disabled:opacity-70"
-      title={connected ? "Gmail auto-syncs every 20 minutes while this tab is open. Click to sync now." : "Connect once per session to auto-sync sent dates, follow-ups and replies"}
+      title={connected ? "Gmail syncs on your Background sync schedule (Settings → Data). Click to sync now." : "Connect once per session to auto-sync sent dates, follow-ups and replies"}
     >
       {busy ? <Loader2 className="size-3.5 animate-spin text-brass" /> : connected ? <RefreshCw className="size-3.5 text-brass" /> : <Mail className="size-3.5 text-brass" />}
       <span className="flex-1">

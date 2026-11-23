@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Building2, ChevronRight, ClipboardCopy, ExternalLink, NotebookPen, RefreshCw, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { callApi } from "@/lib/api";

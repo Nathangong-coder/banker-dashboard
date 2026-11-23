@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { BookOpen, Briefcase, Building2, ExternalLink, Globe, MessageSquareText, Pencil, Search, Star } from "lucide-react";

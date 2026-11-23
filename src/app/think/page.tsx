@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { ArrowDownLeft, ArrowUpRight, BellPlus, Check, ChevronDown, ChevronRight, ExternalLink, Flame, RefreshCw, Undo2 } from "lucide-react";
 import { chatsToCheck, type ChatRecord } from "@/lib/chatEvidence";
 import { ObjectHeader, Tabs } from "@/components/crm";
@@ -79,6 +79,11 @@ export default function ThinkPage() {
   };
   useEffect(() => {
     if (!useStore.getState().settings.server?.id) return;
+    // On open at most every 30 minutes (owner, 2026-11-23); "Check Gmail" always reads now.
+    try {
+      if (Date.now() - Number(localStorage.getItem("coverage:thinkReadAt") ?? 0) < 30 * 60_000) return;
+      localStorage.setItem("coverage:thinkReadAt", String(Date.now()));
+    } catch {}
     const t = setTimeout(() => void refresh(false), 600);
     return () => clearTimeout(t);
     // Once per visit.

@@ -34,14 +34,36 @@ export type SyncState = "off" | "starting" | "saved" | "saving" | "offline" | "e
 export const useSyncStatus = create<{ state: SyncState; at?: string; error?: string }>(() => ({ state: "off" }));
 
 const PART = 3 * 1024 * 1024;
-const PUSH_DELAY = 3000;
 /**
- * Background pulls (owner, 2026-10-26: every-30-s polling used up the Upstash plan; 2026-11-02: every 2 min was still
- * most of the Redis bill). Changes from elsewhere only matter when you look, so: when the tab gets focus again (at
- * most every 30 s), when another tab here pushed, and every 15 min while visible as a safety net.
+ * Owner, 2026-11-23: Vercel showed /api/sync/pull 1,404 times in one hour (one every ~2.5 s) and push 350. Every store
+ * change pushed 3 s later AND pulled, and a push told the other open tabs to pull, whose merge could push back. Now a
+ * change only pushes (20 s after things go quiet, at most 60 s after the first change), pulls happen on start, when you
+ * come back to the tab after 10+ minutes, every 30 minutes while visible, or when you press Sync, and a burst of more
+ * than 8 syncs in 2 minutes pauses background syncing for 5 minutes.
  */
-const POLL = 15 * 60_000;
-const FOCUS_GAP = 30_000;
+const PUSH_DELAY = 20_000;
+const PUSH_MAX_WAIT = 60_000;
+const POLL = 30 * 60_000;
+const FOCUS_GAP = 10 * 60_000;
+const OTHER_TAB_GAP = 60_000;
+const BURST = { n: 8, within: 2 * 60_000, pause: 5 * 60_000 };
+const recent: number[] = [];
+let pausedUntil = 0;
+/** True when background syncing should hold off (a loop is suspected). Your own Sync / sign-out / leave still run. */
+function tooBusy() {
+  const now = Date.now();
+  if (now < pausedUntil) return true;
+  while (recent.length && now - recent[0] > BURST.within) recent.shift();
+  recent.push(now);
+  if (recent.length > BURST.n) {
+    pausedUntil = now + BURST.pause;
+    recent.length = 0;
+    console.warn("[sync] many syncs in a row: pausing background sync for 5 minutes");
+    return true;
+  }
+  return false;
+}
+let firstChangeAt = 0;
 let lastPullAt = 0;
 const META_KEY = (uid: string) => `sync:${uid}`;
 
@@ -144,7 +166,7 @@ async function pullNow(force = false) {
   }
 }
 
-async function pushNow() {
+async function pushNow(tellOtherTabs = true) {
   const local = localDocs();
   const { changed, removed } = diffDocs(meta.synced, local);
   if (!Object.keys(changed).length && !removed.length) return false;
@@ -155,7 +177,7 @@ async function pushNow() {
     for (const k of b.removed) delete meta.synced[k];
     await saveMeta();
   }
-  channel?.postMessage("pushed");
+  if (tellOtherTabs) channel?.postMessage("pushed");
   return true;
 }
 
@@ -297,10 +319,29 @@ async function localBlobNames(): Promise<BlobName[]> {
 
 function schedulePush() {
   if (pushTimer) clearTimeout(pushTimer);
+  if (!firstChangeAt) firstChangeAt = Date.now();
+  const wait = Math.max(0, Math.min(PUSH_DELAY, firstChangeAt + PUSH_MAX_WAIT - Date.now()));
   pushTimer = setTimeout(() => {
     pushTimer = null;
-    void syncNow();
-  }, PUSH_DELAY);
+    firstChangeAt = 0;
+    if (tooBusy()) return schedulePush();
+    void pushOnly();
+  }, wait);
+}
+
+/** Your changes go up (files too); nothing is pulled. */
+function pushOnly() {
+  return queue(async () => {
+    if (!uid) return;
+    try {
+      await pushNow();
+      await sendDirtyBlobs(false);
+      useSyncStatus.setState({ state: "saved", at: new Date().toISOString(), error: undefined });
+      retryMs = RETRY_MIN;
+    } catch (e) {
+      failAndRetry(e);
+    }
+  });
 }
 
 /** Push what changed here, upload changed files, then pull what changed elsewhere. */
@@ -313,38 +354,47 @@ const RETRY_MIN = 15_000;
 let retryMs = RETRY_MIN;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+async function sendDirtyBlobs(final: boolean) {
+  for (const name of [...dirtyBlobs]) {
+    // The workbook (2+ MB) and its parsed sheets (~1 MB) change on every save and every Excel autosave Coverage
+    // picks up (it checks once a minute), and each upload passes through a function and Blob, then down to every
+    // other signed-in browser. So they go up at most every 15 min (everything on sign-out / Download: `final`).
+    if ((name === "snapshots" || name === "workbook") && !final && Date.now() - (lastSent.get(name) ?? 0) < 900_000) continue;
+    dirtyBlobs.delete(name);
+    lastSent.set(name, Date.now());
+    try {
+      await sendBlob(name);
+    } catch (e) {
+      dirtyBlobs.add(name);
+      throw e;
+    }
+  }
+}
+
+function failAndRetry(e: unknown) {
+  fail(e);
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (uid) void syncNow();
+  }, retryMs);
+  retryMs = Math.min(retryMs * 2, 15 * 60_000);
+}
+
 export function syncNow(final = false) {
   return queue(async () => {
     if (!uid) return;
     try {
       await pushNow();
-      for (const name of [...dirtyBlobs]) {
-        // The workbook (2+ MB) and its parsed sheets (~1 MB) change on every save and every Excel autosave Coverage
-        // picks up (it checks once a minute), and each upload passes through a function and Blob, then down to every
-        // other signed-in browser. So they go up at most every 15 min (everything on sign-out / Download: `final`).
-        if ((name === "snapshots" || name === "workbook") && !final && Date.now() - (lastSent.get(name) ?? 0) < 900_000) continue;
-        dirtyBlobs.delete(name);
-        lastSent.set(name, Date.now());
-        try {
-          await sendBlob(name);
-        } catch (e) {
-          dirtyBlobs.add(name);
-          throw e;
-        }
-      }
+      await sendDirtyBlobs(final);
       await pullNow();
-      // A pull can bring docs a local merge then fills in (new settings defaults): push those back once.
-      await pushNow();
+      // A pull can bring docs a local merge then fills in (new settings defaults): push those back once, quietly
+      // (no message to other tabs, so two tabs can't keep answering each other).
+      await pushNow(false);
       useSyncStatus.setState({ state: "saved", at: new Date().toISOString(), error: undefined });
       retryMs = RETRY_MIN;
     } catch (e) {
-      fail(e);
-      if (retryTimer) clearTimeout(retryTimer);
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        if (uid) void syncNow();
-      }, retryMs);
-      retryMs = Math.min(retryMs * 2, 15 * 60_000);
+      failAndRetry(e);
     }
   });
 }
@@ -391,9 +441,9 @@ export async function startSync(userId: string, opts: { localWins?: boolean } = 
     schedulePush();
   });
   setBlobFetcher(fetchPending);
-  const onFocus = () => document.visibilityState === "visible" && Date.now() - lastPullAt > FOCUS_GAP && void syncNow();
+  const onFocus = () => document.visibilityState === "visible" && Date.now() - lastPullAt > FOCUS_GAP && !tooBusy() && void syncNow();
   const timer = setInterval(() => {
-    if (document.visibilityState !== "visible" || Date.now() - lastPullAt < POLL - 5000) return;
+    if (document.visibilityState !== "visible" || Date.now() - lastPullAt < POLL - 5000 || tooBusy()) return;
     void syncNow();
   }, 60_000);
   const onLeave = (e: BeforeUnloadEvent) => {
@@ -402,7 +452,8 @@ export async function startSync(userId: string, opts: { localWins?: boolean } = 
     e.preventDefault();
   };
   channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(`coverage-sync:${userId}`) : null;
-  if (channel) channel.onmessage = () => void syncNow();
+  // Another tab saved: pull its changes, at most once a minute (only when this tab is being looked at).
+  if (channel) channel.onmessage = () => document.visibilityState === "visible" && Date.now() - lastPullAt > OTHER_TAB_GAP && !tooBusy() && void syncNow();
   window.addEventListener("focus", onFocus);
   document.addEventListener("visibilitychange", onFocus);
   window.addEventListener("beforeunload", onLeave);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Check, ChevronDown, ClipboardPaste, Coffee, ExternalLink, ImagePlus, List, MapPin, MessageSquareText, Search, Send, Star, Trash2, UserPlus, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { emailVerified } from "@/lib/outreach";

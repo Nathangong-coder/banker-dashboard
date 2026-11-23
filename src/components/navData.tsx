@@ -18,26 +18,26 @@ export function IceCube({ className }: { className?: string }) {
  * sidebar once you're in it (Salesforce's app navigation + a vertical sub-nav). Settings, Corrections and
  * Applications live in the profile menu.
  */
-export type NavPage = { href: string; label: string; icon: ComponentType<{ className?: string }> };
+export type NavPage = { href: string; label: string; icon: ComponentType<{ className?: string }>; /** One line under it in the category menu. */ hint?: string };
 export type NavCategory = { label: string; icon: NavPage["icon"]; pages: NavPage[]; /** Other paths that belong here (record pages). */ also?: string[] };
 
 export const NAV: NavCategory[] = [
-  { label: "Home", icon: Home, pages: [{ href: "/", label: "Dashboard", icon: LayoutGrid }] },
+  { label: "Home", icon: Home, pages: [{ href: "/", label: "Dashboard", icon: LayoutGrid, hint: "Tonight's list, this week's numbers" }] },
   {
     label: "Follow-ups",
     icon: IceCube,
     pages: [
-      { href: "/followups", label: "Cold outreach", icon: IceCube },
-      { href: "/think", label: "Warm follow-ups", icon: Flame },
+      { href: "/followups", label: "Cold outreach", icon: IceCube, hint: "Follow up on emails with no reply yet" },
+      { href: "/think", label: "Warm follow-ups", icon: Flame, hint: "Replies, thank-yous and check-ins with people you've talked to" },
     ],
   },
   {
     label: "Banks",
     icon: Building2,
     pages: [
-      { href: "/coverage", label: "Bank coverage", icon: Building2 },
-      { href: "/process", label: "Process", icon: Workflow },
-      { href: "/sheet", label: "Spreadsheet", icon: Sheet },
+      { href: "/coverage", label: "Bank coverage", icon: Building2, hint: "Every bank by office: who you know, what's next" },
+      { href: "/process", label: "Process", icon: Workflow, hint: "Each bank's recruiting step, Watching to Offer" },
+      { href: "/sheet", label: "Spreadsheet", icon: Sheet, hint: "Your workbook, grid or contact list" },
     ],
     also: ["/bank", "/person"],
   },
@@ -45,30 +45,30 @@ export const NAV: NavCategory[] = [
     label: "Outreach",
     icon: Mail,
     pages: [
-      { href: "/find", label: "Find people", icon: Search },
-      { href: "/drafts", label: "Email drafts", icon: Mail },
-      { href: "/tracking", label: "Email tracking", icon: MailCheck },
-      { href: "/templates", label: "Templates", icon: FileText },
-      { href: "/lab", label: "Email lab", icon: FlaskConical },
+      { href: "/find", label: "Find people", icon: Search, hint: "Search LinkedIn results for bankers to email" },
+      { href: "/drafts", label: "Email drafts", icon: Mail, hint: "Write and send first emails" },
+      { href: "/tracking", label: "Email tracking", icon: MailCheck, hint: "Who opened your emails" },
+      { href: "/templates", label: "Templates", icon: FileText, hint: "Your email templates, hooks and resume" },
+      { href: "/lab", label: "Email lab", icon: FlaskConical, hint: "What wording gets replies" },
     ],
   },
   {
     label: "Prep",
     icon: Coffee,
     pages: [
-      { href: "/calendar", label: "Calendar", icon: CalendarDays },
-      { href: "/prep", label: "Coffee chat prep", icon: Coffee },
-      { href: "/log", label: "Activity log", icon: NotebookPen },
-      { href: "/info-sessions", label: "Info sessions", icon: Presentation },
+      { href: "/calendar", label: "Calendar", icon: CalendarDays, hint: "Coffee chats and info sessions on your calendar" },
+      { href: "/prep", label: "Coffee chat prep", icon: Coffee, hint: "Brief, questions and grading for a chat" },
+      { href: "/log", label: "Activity log", icon: NotebookPen, hint: "Every conversation you've logged" },
+      { href: "/info-sessions", label: "Info sessions", icon: Presentation, hint: "Sessions, who you met, thank-yous" },
     ],
   },
 ];
 
 /** In the profile menu, not the bar. */
 export const PROFILE_PAGES: NavPage[] = [
-  { href: "/settings", label: "Settings", icon: Settings2 },
-  { href: "/corrections", label: "Corrections", icon: Wrench },
-  { href: "/applications", label: "Applications", icon: BriefcaseBusiness },
+  { href: "/settings", label: "Settings", icon: Settings2, hint: "Profile, email, keys, reminders" },
+  { href: "/corrections", label: "Corrections", icon: Wrench, hint: "Fix anything Coverage guessed" },
+  { href: "/applications", label: "Applications", icon: BriefcaseBusiness, hint: "Jobs you're applying to" },
 ];
 
 /** Every page once, for search and the phone menu. */

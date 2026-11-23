@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { SITE } from "@/lib/site";
 import { FEATURES } from "./features";
 import { StartLink } from "./StartLink";

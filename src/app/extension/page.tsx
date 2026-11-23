@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { ArrowRight, Coffee, EyeOff, MousePointerClick, Search, ShieldCheck, Users } from "lucide-react";
 import { SITE } from "@/lib/site";
 import { Logo } from "@/components/Logo";

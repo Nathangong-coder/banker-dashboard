@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useStore } from "@/lib/store";
 import { openSummary } from "@/lib/opens";
 import { contactOpenBadge, kindLabel, tzFor, whenIn } from "@/lib/trackingView";

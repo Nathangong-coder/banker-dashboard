@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Bookmark, Check, ClipboardCopy, Coffee, ExternalLink, Pencil, Printer, RefreshCw, Search, Sparkles, UserSearch } from "lucide-react";
 import { useStore } from "@/lib/store";

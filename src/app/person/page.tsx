@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, Building2, CalendarDays, CalendarPlus, Coffee, ExternalLink, Mail, MessageSquareText, NotebookPen, StickyNote, UserRound } from "lucide-react";

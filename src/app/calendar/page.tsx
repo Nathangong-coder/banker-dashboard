@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { CalendarDays, CalendarSync, Coffee, ExternalLink, NotebookPen, Presentation, Video } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { chatsIn, linkedinFor, needsLog, type CalendarChat } from "@/lib/calendarDay";
@@ -61,7 +61,7 @@ export default function CalendarPage() {
 
   // Read it on open (unless it was read in the last 5 minutes).
   useEffect(() => {
-    if (!connected || (syncedAt && Date.now() - syncedAt < 5 * 60_000)) return;
+    if (!connected || (syncedAt && Date.now() - syncedAt < 30 * 60_000)) return;
     const t = setTimeout(() => void sync(true), 0);
     return () => clearTimeout(t);
   }, [connected, syncedAt, sync]);

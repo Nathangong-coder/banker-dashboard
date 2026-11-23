@@ -431,9 +431,33 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **Bank "What to do here":** `bankWork` mapped every relationship label but reply / check-in to "Send a thank-you",
   so someone who went quiet showed as a thank-you; quiet → "Nudge / check in".
 
+## Usage diet + two-row header (owner, 2026-11-23)
+
+- **Why:** Vercel metrics (`npx vercel metrics vercel.request.count --since 3d -p banker-dashboard --group-by route
+  --aggregation count`) showed /api/sync/pull 1,404×/hour and push 350×/hour (every store change pushed 3 s later
+  AND pulled; a push told other tabs to pull and their merge could push back), /api/server/sync ~15×/h (every contact
+  change), /api/server/sent ~20×/h, ~1,900 link prefetches in 3 days, icons/manifest refetched per page.
+- **Account sync (`lib/sync.ts`):** a change only pushes (20 s after things go quiet, ≤ 60 s after the first change);
+  pulls on start, focus after 10+ min, every 30 min visible, another tab's push (≤ 1/min, visible only), or Sync.
+  The pull's follow-up push doesn't message other tabs. > 8 background syncs in 2 min = 5-min pause. Server side:
+  `proxy.ts` limits /api/sync/* to 30/min per IP in memory (no Redis).
+- **One schedule (`lib/backgroundJobs.ts`, `settings.syncEvery`: 2h / 6h default / 24h / manual):** server sync, sent
+  scans, thank-yous, conversations + triage, calendar chats, chat docs, the browser Gmail sync. Shell checks it every
+  5 min while visible. The header's Sync button (`NavBar.tsx#SyncButton`, ▾ = schedule; also Settings → Data) runs
+  everything now. `useServerSync` still syncs right away when the SEND QUEUE or text settings change, never for
+  contact edits. Page-level: Info sessions inbox every 15 min, Calendar on open ≤ every 30 min, Warm follow-ups on
+  open ≤ every 30 min.
+- **No prefetch:** import `@/components/Link` (prefetch off by default), never `next/link` directly. Icons + manifest
+  cached a day (`next.config.ts`).
+- **Header = two rows:** row 1 logo, search (560 px), Sync, keys, saved badge, light/dark, profile; row 2
+  `NavBar.tsx#CategoryBar` (categories with icons, growing underline, hover/▾ menu of pages with one-line hints from
+  navData, "You are here", **+ New**: person (AddContactModal), calendar invite (pick → CallInvite), chat log
+  (`/log?new=1`), reminder, find people). Sidebar sticks at `top-[92px]`. Grid progress colors = `bg-step-1..4`
+  tokens (dark mode brightens with progress).
+
 ## Navigation v2, light/dark, editable firms, invites from the phone (owner, 2026-11-22)
 
-- **Nav:** `components/navData.tsx` (NAV, PROFILE_PAGES, `categoryOf`, `IceCube`) is the one list. Header = categories
+- **Nav:** `components/navData.tsx` (NAV, PROFILE_PAGES, `categoryOf`, `IceCube`) is the one list. (Header: see "two-row header" above.) Categories
   only (Home, Follow-ups, Banks, Outreach, Prep: `AppNav.tsx#CategoryTabs`), the current category's pages in a left
   `SideNav` (only when it has 2+), `ProfileMenu` = Settings, Corrections, Applications (hidden from the bar), light /
   dark, privacy / terms, sign in / out; `MobileMenu` under 768 px. Follow-ups = **Cold outreach** (/followups, ice cube)

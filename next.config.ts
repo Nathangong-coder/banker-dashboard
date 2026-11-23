@@ -19,7 +19,13 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    // Icons and the manifest are cached for a day (owner, 2026-11-23: they were fetched again on every page load,
+    // ~190 requests each in 3 days). They only change with a new logo.
+    const cache = [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      ...["/icon-192.png", "/icon-512.png", "/manifest.webmanifest", "/favicon.ico", "/apple-icon.png", "/icon.svg"].map((source) => ({ source, headers: cache })),
+    ];
   },
   async redirects() {
     // Firms moved into Bank coverage → Analytics (owner, 2026-11-21).

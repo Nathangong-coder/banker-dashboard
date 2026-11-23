@@ -544,6 +544,11 @@ export interface Settings {
   sendWindow?: import("./sendWindow").SendWindow;
   /** Open tracking: `on` adds an invisible image to emails Coverage makes (lib/trackingActions.ts). undefined = off. */
   tracking?: { on?: boolean };
+  /**
+   * How often Coverage checks Gmail, your calendar and the server in the background (owner, 2026-11-23: "run on a
+   * schedule (or manual if they press it)"). undefined = every 6 hours. lib/backgroundJobs.ts.
+   */
+  syncEvery?: "manual" | "2h" | "6h" | "24h";
 }
 
 /**

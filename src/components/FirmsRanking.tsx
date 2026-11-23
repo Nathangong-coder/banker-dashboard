@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { ChevronDown, ChevronRight, Star, Trophy, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { firmScore, firmStats, gotReplied, overallReplyRate, wasEmailed, type FirmScore, type FirmStats } from "@/lib/firmScore";

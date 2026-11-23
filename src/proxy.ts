@@ -25,8 +25,29 @@ const capture = redis && new Ratelimit({ redis, limiter: Ratelimit.fixedWindow(6
 const EXEMPT = ["/api/server/run-send", "/api/server/tick", "/api/server/google/callback", "/api/server/twilio/inbound", "/api/gmail/push"];
 const isCapture = (path: string) => path.startsWith("/api/server/capture") || path.startsWith("/api/capture-share");
 
+/**
+ * Account sync gets its own limit without Redis (owner, 2026-11-23: one tab pulled every ~2.5 s for an hour): at most
+ * 30 sync calls a minute per IP, counted in memory on each server instance (Fluid compute reuses instances, so it
+ * catches a runaway tab; the browser backs off on a 429 and retries 15 s → 15 min).
+ */
+const syncHits = new Map<string, { n: number; start: number }>();
+function syncLimited(ip: string) {
+  const now = Date.now();
+  const h = syncHits.get(ip);
+  if (!h || now - h.start > 60_000) {
+    if (syncHits.size > 5000) syncHits.clear();
+    syncHits.set(ip, { n: 1, start: now });
+    return false;
+  }
+  return ++h.n > 30;
+}
+
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
+  if (path.startsWith("/api/sync/")) {
+    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || req.headers.get("x-real-ip") || "unknown";
+    if (syncLimited(ip)) return NextResponse.json({ error: "Syncing too often. Coverage will try again shortly." }, { status: 429, headers: { "Retry-After": "60" } });
+  }
   // Account sync and the session check run every couple of minutes per open tab and require a signed-in session
   // already, so they skip the per-IP limiter (it cost 1-2 Redis commands per call; owner hit the Upstash limit).
   if (!general || EXEMPT.includes(path) || path.startsWith("/api/sync/") || path.startsWith("/api/o/") || path === "/api/auth/me") return NextResponse.next();

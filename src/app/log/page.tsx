@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, Suspense, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Coffee, ExternalLink, FileText, GraduationCap, NotebookPen, Plus, ShieldCheck, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -47,6 +47,8 @@ type LogStart = { contactId?: string; orphan?: ConversationRow; kind?: Conversat
 
 /** `?log=<contactId>&kind=coffee_chat&date=YYYY-MM-DD` (the Calendar page and the evening text) opens the log form for them. */
 function startFromParams(p: URLSearchParams): LogStart | null {
+  // "+ New → Chat log" in the header: the empty form.
+  if (p.get("new") === "1") return {};
   const id = p.get("log");
   if (!id) return null;
   const kind = p.get("kind") as ConversationKind | null;
@@ -304,7 +306,7 @@ function LogInner() {
           start={logging}
           onClose={() => {
             setLogging(null);
-            if (params.get("log")) router.replace("/log");
+            if (params.get("log") || params.get("new")) router.replace("/log");
           }}
         />
       )}

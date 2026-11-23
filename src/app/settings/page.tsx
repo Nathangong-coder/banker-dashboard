@@ -18,13 +18,14 @@ import { SchedulingSettingsEditor } from "@/components/SchedulingSettings";
 import { AutoSendCard, SendModeSwitch } from "@/components/AutoSend";
 import { SendWindowEditor } from "@/components/SendWindowEditor";
 import { AnalyticsSetting } from "@/components/Consent";
+import { SYNC_EVERY } from "@/lib/backgroundJobs";
 import { checkEmail, checkLinkedIn, checkName, checkPhone } from "@/lib/validate";
 import { bodyToHtml, unwrapRedirects, withSignature } from "@/lib/emailFormat";
 import { ResumeCard } from "@/components/ResumeCard";
 import { InterestsEditor } from "@/components/PrepInterests";
 import { SignatureLogoEditor, useSignatureLogoPreview } from "@/components/SignatureLogo";
 import { ThemePicker } from "@/components/ThemePicker";
-import Link from "next/link";
+import Link from "@/components/Link";
 
 function Secret({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false);
@@ -360,6 +361,7 @@ export default function SettingsPage() {
         {tab === "outreach" && <OutreachRulesEditor />}
         {tab === "data" && (
           <>
+        <BackgroundSync />
         <Card>
           <CardHeader
             title="Data & AI services"
@@ -685,6 +687,29 @@ function TrackOpensSetting() {
           Adds an invisible image to emails Coverage makes, so you can see when they&apos;re opened. Banks often block images, so missing opens mean unknown.
         </p>
       </div>
+    </Card>
+  );
+}
+
+/** How often the background jobs run (lib/backgroundJobs.ts): Gmail, calendar, conversations, the server. */
+function BackgroundSync() {
+  const every = useStore((s) => s.settings.syncEvery ?? "6h");
+  const setSettings = useStore((s) => s.setSettings);
+  return (
+    <Card>
+      <CardHeader
+        title="Background sync"
+        sub="How often Coverage reads Gmail and your calendar, re-reads conversations and syncs with the server. Your own edits always save on their own; the Sync button at the top runs everything now."
+        right={
+          <Select value={every} onChange={(e) => setSettings((x) => ({ ...x, syncEvery: e.target.value as typeof every }))} aria-label="Background sync">
+            {SYNC_EVERY.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </Select>
+        }
+      />
     </Card>
   );
 }

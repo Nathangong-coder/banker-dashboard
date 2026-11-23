@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { FlaskConical } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { experimentResults, verdict, type Arm } from "@/lib/experiments";

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { BriefcaseBusiness, ChevronDown, ChevronRight, ExternalLink, Eye, Mail, Plus, Puzzle, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { scanApplicationEmails, scanSummary } from "@/lib/appEmailsRun";
 import { useStore } from "@/lib/store";

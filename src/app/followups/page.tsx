@@ -2,7 +2,7 @@
 
 import { addSmartMention } from "@/lib/mentionDrafts";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Bell, CalendarClock, CalendarPlus, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Smartphone, Trash2, UserPlus, UserX, X } from "lucide-react";
 import { bankKey, useStore } from "@/lib/store";
 import { isVpPlus } from "@/lib/seniority";
@@ -693,7 +693,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
       </div>
 
       {selected.length > 0 && (
-        <div className="sticky top-14 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-brass-strong/40 bg-panel px-4 py-2 shadow-[0_6px_20px_rgba(15,23,42,0.10)]">
+        <div className="sticky top-14 md:top-[100px] z-20 flex flex-wrap items-center gap-2 rounded-xl border border-brass-strong/40 bg-panel px-4 py-2 shadow-[0_6px_20px_rgba(15,23,42,0.10)]">
           <span className="text-[13px] font-medium">{selected.length} selected</span>
           <span className="hidden text-[12px] text-muted sm:inline">List buttons use only these.</span>
           <div className="flex-1" />

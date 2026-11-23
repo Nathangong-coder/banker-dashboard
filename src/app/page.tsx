@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Search } from "lucide-react";

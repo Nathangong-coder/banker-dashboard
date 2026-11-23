@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Check, MailX, Search, UserPlus, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { canonBank } from "@/lib/banks";

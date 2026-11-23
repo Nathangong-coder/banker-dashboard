@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { KeyRound, Loader2 } from "lucide-react";
@@ -11,8 +11,10 @@ import { nextAction } from "@/lib/followups";
 import { upkeepPatches } from "@/lib/contactUpkeep";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
-import { CategoryTabs, MobileMenu, ProfileMenu, SideNav, ThemeToggle } from "./AppNav";
+import { MobileMenu, ProfileMenu, SideNav, ThemeToggle } from "./AppNav";
+import { CategoryBar, SyncButton } from "./NavBar";
 import { GlobalSearch } from "./GlobalSearch";
+import { lastRun, runBackgroundJobs, syncEveryMs } from "@/lib/backgroundJobs";
 import { ConsentBanner } from "./Consent";
 import { aiReady, googleClientId, hasKey } from "@/lib/keys";
 import { sendWhatsAppDigest, textTime, whatsappDigest } from "@/lib/reminders";
@@ -154,42 +156,26 @@ function useContactUpkeep(ready: boolean) {
 }
 
 /**
- * Who you emailed that the tracker doesn't know (gmailSync.ts#scanOffSheet): 20 s after load, then hourly (the scan
- * itself runs at most every 3 h). With the server's Gmail read access it needs no popup.
+ * The background jobs (Gmail scans, conversations, the AI's noise read, calendar chats, chat docs, the server sync,
+ * the browser's Gmail sync) on one schedule: `settings.syncEvery` (default every 6 hours; "manual" = only the Sync
+ * button). Checked 30 s after load and every 5 minutes while the tab is visible (lib/backgroundJobs.ts).
  */
 function useSentScan(ready: boolean) {
+  const every = useStore((s) => s.settings.syncEvery);
   useEffect(() => {
     if (!ready) return;
-    const run = () => {
-      void import("@/lib/gmailSync").then((m) => m.scanOffSheet({ interactive: false })).catch(() => undefined);
-      // Chats: thank-you emails (≤ every 3 h, inside) and the last 120 days of calendar guests (≤ every 6 h).
-      void import("@/lib/gmailSync").then((m) => m.scanThankYous()).catch(() => undefined);
-      // Each engaged person's email conversation (Things to think about + the 9 PM text read from it), then the AI's
-      // noise read for anything new. Both only touch people whose conversation is due / changed.
-      void import("@/lib/ledgerSync")
-        .then((m) => m.syncLedgers({ max: 30 }))
-        .then(() => import("@/lib/triageRun"))
-        .then((m) => m.runTriage())
-        .catch(() => undefined);
-      let last = 0;
-      try {
-        last = Number(localStorage.getItem("coverage:calChatsAt") ?? 0);
-      } catch {}
-      if (Date.now() - last > 6 * 3600_000 && useStore.getState().settings.server?.email)
-        void import("./CalendarActions").then(async (m) => {
-          await m.backfillCalendarChats();
-          try {
-            localStorage.setItem("coverage:calChatsAt", String(Date.now()));
-          } catch {}
-        }).catch(() => undefined);
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      const ms = syncEveryMs({ syncEvery: every });
+      if (ms !== null && Date.now() - lastRun() >= ms) void runBackgroundJobs();
     };
-    const t = setTimeout(run, 20_000);
-    const i = setInterval(run, 60 * 60_000);
+    const t = setTimeout(check, 30_000);
+    const i = setInterval(check, 5 * 60_000);
     return () => {
       clearTimeout(t);
       clearInterval(i);
     };
-  }, [ready]);
+  }, [ready, every]);
 }
 
 function useServerSync(ready: boolean) {
@@ -199,8 +185,8 @@ function useServerSync(ready: boolean) {
   const syncing = connected || tracking;
   const contacts = useStore((s) => s.contacts);
   const settings = useStore((s) => s.settings);
-  // Changes sync a few seconds later, but at most every 2 minutes (each sync is several Redis commands plus Gmail
-  // tracking; owner hit the Upstash plan limit 2026-10-26), except when the queue of emails to send changed.
+  // Only the send queue and the text settings sync right away (a few seconds later, at most every 2 minutes unless the
+  // queue changed). Contact edits wait for the schedule (owner, 2026-11-23: it ran ~15×/hour on every contact change).
   const sends = contacts
     .filter((c) => c.serverSend)
     .map((c) => `${c.serverSend!.draftId}@${c.serverSend!.sendAt}`)
@@ -215,33 +201,7 @@ function useServerSync(ready: boolean) {
     const wait = sends !== lastServerSync.sends ? 4000 : Math.max(4000, lastServerSync.at + 120_000 - Date.now());
     const t = setTimeout(run, wait);
     return () => clearTimeout(t);
-  }, [ready, syncing, contacts, sends, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
-  useEffect(() => {
-    if (!ready || !syncing) return;
-    // Every 15 min while visible, and when you come back to the tab (replies Gmail push brought in show up then).
-    const run = () => {
-      if (document.visibilityState !== "visible" || Date.now() - lastServerSync.at < 2 * 60_000) return;
-      lastServerSync.at = Date.now();
-      syncServer().catch(() => undefined);
-    };
-    const i = setInterval(run, 15 * 60_000);
-    document.addEventListener("visibilitychange", run);
-    return () => {
-      clearInterval(i);
-      document.removeEventListener("visibilitychange", run);
-    };
-  }, [ready, syncing]);
-  // Chats → their Google Docs (lib/chatDocs.ts): a Drive search for chats with no doc, at most once a day each.
-  useEffect(() => {
-    if (!ready || !connected) return;
-    const run = () => void import("@/lib/chatDocs").then((m) => m.linkChatDocs()).catch(() => undefined);
-    const t = setTimeout(run, 20_000);
-    const i = setInterval(run, 30 * 60_000);
-    return () => {
-      clearTimeout(t);
-      clearInterval(i);
-    };
-  }, [ready, connected]);
+  }, [ready, syncing, sends, settings.followUp, settings.keys.whatsappPhone, settings.keys.whatsappApiKey, settings.alerts]);
 }
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -320,18 +280,16 @@ export function Shell({ children }: { children: ReactNode }) {
   // docs/DESIGN.md G-1 (global header: navy, 48 px, logo, search, utilities) + G-2 (white navigation bar of tabs).
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-30 flex h-12 shrink-0 items-stretch gap-2 border-b border-top-line bg-top pr-2 text-top-ink md:gap-2 md:px-3">
-        <div className="flex items-center">
-          <MobileMenu path={path} badge={badge} footer={ready ? <GmailSyncWidget /> : null} />
-        </div>
-        <Link href="/" className="flex shrink-0 items-center gap-2 md:mr-2">
+      {/* Two rows (owner, 2026-11-23): logo + search + utilities, then the categories (components/NavBar.tsx). */}
+      <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 border-b border-top-line bg-top pr-2 text-top-ink md:gap-3 md:px-3">
+        <MobileMenu path={path} badge={badge} footer={ready ? <GmailSyncWidget /> : null} />
+        <Link href="/" className="flex shrink-0 items-center gap-2">
           <Logo size={26} />
-          <span className="hidden text-[15px] font-semibold tracking-tight lg:inline">Coverage</span>
+          <span className="hidden text-[15px] font-semibold tracking-tight sm:inline">Coverage</span>
         </Link>
-        <CategoryTabs path={path} badge={badge} />
-        <div className="flex min-w-0 flex-1 items-center justify-end">{ready && !isPublic && <GlobalSearch className="w-full max-w-[420px]" />}</div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          {ready && <GmailSyncWidget variant="header" />}
+        <div className="flex min-w-0 flex-1 justify-center">{ready && !isPublic && <GlobalSearch className="w-full max-w-[560px]" />}</div>
+        <div className="flex shrink-0 items-center gap-1">
+          {ready && !isPublic && <SyncButton />}
           <Link
             href="/settings?tab=data"
             title={`${keyCount}/4 services connected`}
@@ -345,6 +303,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <ProfileMenu path={path} />
         </div>
       </header>
+      {!isPublic && <CategoryBar path={path} badge={badge} />}
       {booted && !isPublic && mode === "demo" && <DemoBar />}
       {booted && !isPublic && mode === "legacy" && <LegacyBar />}
 

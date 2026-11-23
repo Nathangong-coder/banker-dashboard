@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Coffee, ExternalLink } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { STATUS_LABEL, type Contact, type Region, type Status, REGIONS } from "@/lib/types";

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import type { ReactNode } from "react";
 
 /** Set once a visitor chooses the dashboard, so "/" stops sending them to the landing page (app/page.tsx#useLandingRedirect). */
