@@ -28,6 +28,7 @@ export const PLACEHOLDERS: { key: string; desc: string }[] = [
   { key: "original_subject", desc: "Subject of the first email (follow-ups)" },
   { key: "session", desc: "Info-session thank-yous: the session's name" },
   { key: "session_when", desc: "Info-session thank-yous: when it was (today, yesterday, on Tuesday, last week)" },
+  { key: "holiday", desc: "Holiday check-ins: the holiday (Thanksgiving, holiday, New Year)" },
   { key: "base_opener", desc: "Base: pleasantry (Email lab)" },
   { key: "base_intro", desc: "Base: who you are (Email lab)" },
   { key: "base_ask", desc: "Base: the ask (Email lab)" },

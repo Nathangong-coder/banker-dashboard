@@ -140,7 +140,18 @@ export default function ThinkPage() {
           ]}
         />
         <div>
-          {tab === "overview" && <WarmOverview />}
+          {tab === "overview" && (
+            <WarmOverview
+              onDraft={async (people) => {
+                try {
+                  const { draftCheckIns } = await import("@/lib/checkIns");
+                  toast.ok(await draftCheckIns(people));
+                } catch (e) {
+                  toast.err((e as Error).message);
+                }
+              }}
+            />
+          )}
           {tab === "referrals" && (
             <Card className="overflow-hidden">
               <ReferralsTable onOpen={(c) => router.push(`/person?id=${encodeURIComponent(c.id)}`)} />

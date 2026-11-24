@@ -27,7 +27,17 @@ export async function addToHandoff(people: Contact[], opts: { checkIn?: boolean 
   }
   // First-email drafts don't keep their message id: ask Gmail (the draft link needs it).
   for (const r of ready) if (!r.messageId && clientId) r.messageId = (await draftMessageId(clientId, r.draftId).catch(() => null)) ?? undefined;
-  const usable = ready.filter((r) => r.messageId);
+  return listDrafts(
+    ready.filter((r): r is ListDraft => !!r.messageId),
+    opts,
+  );
+}
+
+export type ListDraft = { c: Contact; draftId: string; messageId: string; subject: string; step: number };
+
+/** Give these Gmail drafts their send slots and put them on the list. A check-in isn't timed from your last email. */
+export async function listDrafts(usable: ListDraft[], opts: { checkIn?: boolean } = {}): Promise<number> {
+  const st = useStore.getState();
   const ids = new Set(usable.map((r) => r.c.id));
   const taken = st.contacts
     .filter((c) => !ids.has(c.id))
@@ -46,7 +56,7 @@ export async function addToHandoff(people: Contact[], opts: { checkIn?: boolean 
   for (const r of usable) {
     const at = plan.get(r.c.id);
     if (!at) continue;
-    const g: GmailSchedule = { draftId: r.draftId, messageId: r.messageId!, subject: r.subject, step: r.step, at: at.toISOString(), state: "waiting", updatedAt: now };
+    const g: GmailSchedule = { draftId: r.draftId, messageId: r.messageId, subject: r.subject, step: r.step, at: at.toISOString(), state: "waiting", updatedAt: now };
     patches.push({ id: r.c.id, patch: { gmailSchedule: g } });
   }
   if (patches.length) {

@@ -408,6 +408,39 @@ Kind regards,
  * first time it drafts thank-yous. The [[AI: …]] slot is written from your note about the person (in their Comment after
  * "Met at …") and removed before drafting when there's no note.
  */
+/**
+ * Holiday check-in (owner, 2026-11-23: "so I know who to email over Thanksgiving"): Warm follow-ups → Overview →
+ * Draft check-ins. Not a starter template: added to your templates the first time it's used, then yours to edit.
+ * In their thread when there is one; no resume.
+ */
+export const HOLIDAY_TEMPLATE: Template = {
+  id: "tpl_holiday",
+  name: "Holiday check-in",
+  whenToUse: "A short check-in with bankers you've already talked to, around a holiday (Warm follow-ups → Overview).",
+  kind: "initial",
+  attachResume: false,
+  subject: "Checking in",
+  body: `Hi {{first_name}},
+
+I hope you're doing well and enjoying the {{holiday}} break! I wanted to reach out and say thank you again for your time and advice this fall.[[AI: Add ONE short sentence that mentions something specific from your last conversation with them, taken ONLY from the chat notes or their last email (e.g. " Your advice about getting to know the team before applying has really stuck with me."). Start with a space. If there are no notes, write nothing. Never invent details.]]
+
+Wishing you and your family a happy {{holiday}}!
+
+Best,
+{{my_first_name}}`,
+};
+
+/**
+ * The holiday a check-in is for, from the date. Each value reads right in "enjoying the {{holiday}} break" and "a
+ * happy {{holiday}}": Thanksgiving (November), holiday (December), New Year (early January).
+ */
+export function holidayFor(d = new Date()): string {
+  const m = d.getMonth();
+  if (m === 10) return "Thanksgiving";
+  if (m === 0 && d.getDate() <= 15) return "New Year";
+  return "holiday";
+}
+
 export const INFO_SESSION_TEMPLATE: Template = {
   id: "tpl_infosession",
   name: "Info session thank-you",

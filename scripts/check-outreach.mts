@@ -10,7 +10,7 @@
 <full name>
 <signature>" (signOffIssues).
  */
-import { DEFAULT_BASES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, ORIGINAL_BASE, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "../src/lib/defaults";
+import { DEFAULT_BASES, DEFAULT_SETTINGS, DEFAULT_TEMPLATES, HOLIDAY_TEMPLATE, ORIGINAL_BASE, OUTREACH_TEMPLATE, THREE_PARAGRAPH_BASE } from "../src/lib/defaults";
 import { expandBase, fillPlaceholders } from "../src/lib/template";
 import { bodyToHtml, bodyToPlain, normalizeBody, withSignature, signatureLine, signOffFor, signOffIssues, templateSignOff, unwrapRedirects } from "../src/lib/emailFormat";
 import { DEFAULT_REPLY } from "../src/lib/scheduling";
@@ -206,6 +206,14 @@ for (const [what, ok] of checks) {
       return [`Template "${t.name}" ends ${want} / first name / blank / signature`, ok];
     }),
     ...DEFAULT_BASES.map((b): [string, boolean] => [`Base "${b.name}" signs "Sincerely," + first name`, /\nSincerely,\n\{\{my_first_name\}\}$/.test(b.close) && !signOffIssues(expandBase("Hi\n\nx\n\n{{base_close}}", b)).length]),
+    (() => {
+      // Holiday check-in (Warm follow-ups → Draft check-ins): {{holiday}} filled, no resume, "Best," + signature.
+      const b = normalizeBody(withSignature(fillPlaceholders(HOLIDAY_TEMPLATE.body, cc, settings, { holiday: "Thanksgiving" }).replace(/\[\[AI:[^\]]*\]\]/g, ""), settings.profile));
+      const ok = b.includes("Thanksgiving") && !/\{\{/.test(b) && b.endsWith(`Best,
+${ENDING}`) && !HOLIDAY_TEMPLATE.attachResume && !signOffIssues(b, settings.profile).length;
+      if (!ok) console.log(b);
+      return ["Holiday check-in: holiday filled, no resume, Best, / first name / blank / signature", ok] as [string, boolean];
+    })(),
     ["Scheduling reply: Best, / first name / blank / signature", normalizeBody(withSignature(fillPlaceholders(DEFAULT_REPLY.replace("{{my_first_name}}", "Nathan"), cc, settings), settings.profile)).endsWith(`Best,\n${ENDING}`)],
     ["Major is italic in the Gmail HTML", html.includes("<div><i>Economics &amp; Applied Mathematics</i></div>")],
     ["First name, then one blank line, then the full name (HTML)", html.includes("<div>Sincerely,</div><div>Nathan</div><div><br></div><div>Nathan Gong</div>")],
