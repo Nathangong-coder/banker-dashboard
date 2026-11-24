@@ -40,6 +40,8 @@ import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
 import { OpenBadge } from "@/components/OpenBadge";
 import { ColdOverview } from "@/components/ColdOverview";
+import { HandoffPanel } from "@/components/HandoffPanel";
+import { addToHandoff } from "@/lib/handoffActions";
 
 type Tab = "overview" | "queue";
 
@@ -324,7 +326,12 @@ function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, o
       setBulk((b) => b && { ...b, done: b.done + 1 });
     }
     setBulk(null);
-    if (made) toast.ok(`${made} follow-up draft${made > 1 ? "s" : ""} in Gmail, each in its original thread. Schedule them for the times shown here.`);
+    if (made) {
+      // Onto the "to schedule in Gmail" list (Scheduled tab): the extension or Claude puts them in Gmail's Schedule send.
+      const ids = new Set(toDraft.map(({ c }) => c.id));
+      const listed = await addToHandoff(useStore.getState().contacts.filter((c) => ids.has(c.id))).catch(() => 0);
+      toast.ok(`${made} follow-up draft${made > 1 ? "s" : ""} in Gmail, each in its original thread${listed ? `; ${listed} on your list to schedule (Scheduled tab)` : ""}.`);
+    }
     if (failed.length) toast.err(`Not drafted: ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? ` (+${failed.length - 3} more)` : ""}`);
   };
   const { draftFollowUp } = act;
@@ -387,6 +394,18 @@ function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, o
     setBusy(null);
   };
 
+  /** The extension schedules the waiting drafts in Gmail (lib/gmailScheduleRun.ts). */
+  const scheduleInGmail = async () => {
+    setBusy("handoff");
+    try {
+      const { runGmailSchedule } = await import("@/lib/gmailScheduleRun");
+      toast.ok(await runGmailSchedule());
+    } catch (e) {
+      toast.err((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
   const selected = contacts.filter((c) => sel.has(c.id));
   const store = useStore.getState;
   const noteNow = () => new Date().toISOString();
@@ -632,6 +651,23 @@ function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, o
       <Link href="/drafts" className="inline-flex h-7 items-center rounded-lg px-2.5 text-[12.5px] font-medium text-ink-2 hover:bg-hover">
         Open drafts
       </Link>
+      {!auto && schedulable.length > 0 && (
+        <Button
+          size="sm"
+          variant="primary"
+          icon={<Clock className="size-3.5" />}
+          onClick={async () => {
+            const n = await addToHandoff(schedulable.map(({ c }) => c)).catch((e: Error) => (toast.err(e.message), 0));
+            if (n) {
+              toast.ok(`${n} on your list to schedule in Gmail, each at its send slot.`);
+              setView("scheduled");
+            }
+          }}
+          title="Puts each draft on the list the extension or Claude schedules in Gmail, at its send slot"
+        >
+          Schedule {draftedSelected ? `${schedulable.length} selected` : `all ${schedulable.length}`} in Gmail
+        </Button>
+      )}
       {auto && schedulable.length > 0 && (
         <Button size="sm" variant="primary" loading={busy === "schedule-drafted"} icon={<Clock className="size-3.5" />} onClick={() => setBatch(schedulable.map(({ c }) => c))} title="Pick the day and time (only drafts already in Gmail can be scheduled)">
           Schedule {draftedSelected ? `${schedulable.length} selected` : `all ${schedulable.length}`}
@@ -825,6 +861,7 @@ function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, o
             <ListTable head={[selectAll(drafted), "Contact", "Next step", "Drafted", ""]}>{drafted.map(row)}</ListTable>
           ))}
 
+        {shownView === "scheduled" && <HandoffPanel onExtension={scheduleInGmail} busy={busy === "handoff"} />}
         {shownView === "scheduled" &&
           (sRows.length === 0 ? (
             <Empty icon={<Clock className="size-6" />} title="Nothing scheduled">

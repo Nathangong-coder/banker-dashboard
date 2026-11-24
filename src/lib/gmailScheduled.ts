@@ -35,6 +35,14 @@ export function applyGmailScheduled(): Promise<number> {
       if (at && at !== c.scheduledAt) patches.push({ id: c.id, patch: { scheduledAt: at } });
       else if (!at && future) patches.push({ id: c.id, patch: { scheduledAt: undefined } });
     }
+    // The "to schedule in Gmail" list: confirmed only by what's really in Gmail's Scheduled folder (lib/handoff.ts).
+    const { confirmHandoff } = await import("./handoff");
+    const confirmed = confirmHandoff(useStore.getState().contacts, r.items, now);
+    for (const p of confirmed) {
+      const i = patches.findIndex((x) => x.id === p.id);
+      if (i >= 0) patches[i] = { id: p.id, patch: { ...patches[i].patch, ...p.patch } };
+      else patches.push(p);
+    }
     if (patches.length) useStore.getState().updateContacts(patches);
     useStore.getState().setOffSheet({ scheduled: r.items, scheduledCheckedAt: new Date().toISOString() });
     return patches.length;

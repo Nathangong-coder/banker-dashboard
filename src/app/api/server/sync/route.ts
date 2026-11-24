@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       ...(b.digests ? { digests: Object.fromEntries(Object.entries(b.digests).slice(0, 31)), planAt: new Date().toISOString() } : {}),
       ...(b.people ? { people: b.people } : {}),
       ...(b.track ? { track: b.track } : {}),
+      ...(b.handoff ? { handoff: b.handoff, handoffAt: new Date().toISOString() } : {}),
     };
     if (b.progress === null) delete next.progress;
     else if (b.progress) next.progress = b.progress;

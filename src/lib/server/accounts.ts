@@ -1,3 +1,4 @@
+import type { HandoffItem } from "@/lib/handoff";
 import "server-only";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Redis } from "@upstash/redis";
@@ -39,6 +40,9 @@ export interface Account {
   /** Local day (YYYY-MM-DD in `tz`) → what the 9 PM text says. */
   digests: Record<string, { items: DigestItem[]; queued: number }>;
   /** When the dashboard last pushed `digests` (the text says "as of …" when it's old). */
+  /** The "to schedule in Gmail" list the dashboard last pushed (lib/handoff.ts), and when. */
+  handoff?: HandoffItem[];
+  handoffAt?: string;
   planAt?: string;
   /** The text's "Big banks" message, computed by the dashboard (lib/nightProgress.ts). */
   progress?: NightProgress;

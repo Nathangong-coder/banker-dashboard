@@ -120,6 +120,11 @@ export interface Contact {
    * Cleared when the server reports it sent (then status / dates move on) or when it's cancelled.
    */
   serverSend?: { draftId: string; sendAt: string; step: number; queuedAt: string; /** Why it isn't on the first open day (window full, spacing). */ why?: string };
+  /**
+   * On the "to schedule in Gmail" list (owner, 2026-11-23): a Gmail draft the extension or Claude in Chrome opens and
+   * puts in Gmail's own Schedule send at `at`. `scheduled` only once Gmail's Scheduled folder shows it (lib/handoff.ts).
+   */
+  gmailSchedule?: GmailSchedule;
   sentAt?: string;
   lastTouchAt?: string;
   /** A send queued in Gmail ("Schedule send") that hasn't gone out yet. Follow-ups are timed from the real send. */
@@ -690,3 +695,17 @@ export const EMAIL_FONTS = {
   tahoma: { label: "Tahoma", css: "tahoma,sans-serif" },
 } as const;
 export type EmailFont = keyof typeof EMAIL_FONTS;
+
+export interface GmailSchedule {
+  /** Gmail draft id and its message id (the draft link is #drafts?compose=<messageId>). */
+  draftId: string;
+  messageId: string;
+  subject: string;
+  /** 0 = first email, n = follow-up #n, -1 = a check-in. */
+  step: number;
+  /** When it should go out (the send slot). */
+  at: string;
+  state: "waiting" | "scheduled" | "failed";
+  error?: string;
+  updatedAt: string;
+}

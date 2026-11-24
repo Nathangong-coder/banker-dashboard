@@ -252,6 +252,20 @@ export async function draftExists(clientId: string, id: string): Promise<boolean
   return true;
 }
 
+/** A draft's message id (its link is #drafts?compose=<id>), or null when the draft is gone. */
+export async function draftMessageId(clientId: string, id: string): Promise<string | null> {
+  const t = await connectGmail(clientId);
+  const res = await fetch(`${API}/drafts/${encodeURIComponent(id)}?format=minimal`, { headers: { Authorization: `Bearer ${t}` } });
+  if (res.status === 404) return null;
+  if (res.status === 401) {
+    token = null;
+    dropServerGoogleToken();
+    throw new Error("Gmail session expired — click Connect Gmail again.");
+  }
+  if (!res.ok) throw new Error(`Gmail: ${(await res.text()).slice(0, 200)}`);
+  return ((await res.json()) as { message?: { id?: string } }).message?.id ?? null;
+}
+
 /** Delete a draft from Gmail (only ever called from an explicit button). Already gone counts as done. */
 export async function deleteDraft(clientId: string, id: string) {
   const t = await connectGmail(clientId);

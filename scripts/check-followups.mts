@@ -7,6 +7,7 @@ import { dayLinks, gmailDraftUrl, gmailSearchUrl, gmailThreadUrl, personQuery } 
 import { scheduledRows } from "../src/lib/scheduledRows";
 import { calendarDays, coldByBank, coldDueCount, dayKey, warmByBank } from "../src/lib/followupsOverview";
 import { DEFAULT_SETTINGS } from "../src/lib/defaults";
+import { confirmHandoff, handoffItems } from "../src/lib/handoff";
 import type { Contact } from "../src/lib/types";
 
 let failed = 0;
@@ -99,6 +100,23 @@ const gs = warm.find((g) => /goldman/i.test(g.bank));
 check("warm: only people in a conversation (not cold ones)", warm.flatMap((g) => g.people).every((p) => p.c.id !== "a"), warm.map((g) => g.people.map((p) => p.c.id)));
 check("warm: someone who wrote you is listed with what's owed", warm.flatMap((g) => g.people).find((p) => p.c.id === "o")?.owed === "reply");
 check("warm: how you know them is said (chat)", /chat/i.test(gs?.people.find((p) => p.c.id === "x")?.how ?? ""), gs?.people);
+
+/* ---- Task 6: the hand-off list (to schedule in Gmail) ---- */
+const slot = at(30);
+const hs = (state: "waiting" | "scheduled" | "failed", when = slot) => ({ draftId: "r-1", messageId: "m-1", subject: "Re: Fellow Bruin", step: 1, at: when, state, updatedAt: at(-1) });
+const waitingJane: Contact = { ...jane, gmailSchedule: hs("waiting") };
+const items = handoffItems([waitingJane, { ...jane, id: "y", gmailSchedule: hs("scheduled") }]);
+check("only waiting ones are on the list", items.length === 1 && items[0].id === jane.id && items[0].to === "jane@gs.com" && items[0].messageId === "m-1", items);
+check("someone queued for Coverage sending is never also handed to Gmail", handoffItems([{ ...waitingJane, serverSend: { draftId: "d", sendAt: slot, step: 1, queuedAt: at(-1) } }]).length === 0);
+const near = { at: new Date(Date.parse(slot) + 60_000).toISOString(), to: ["jane@gs.com"], subject: "Re: Fellow Bruin", labels: [], threadId: "t" };
+const far = { ...near, at: new Date(Date.parse(slot) + 10 * 60_000).toISOString() };
+const ok1 = confirmHandoff([waitingJane], [near]);
+check("in Gmail's Scheduled 1 minute off → confirmed", ok1.length === 1 && ok1[0].patch.gmailSchedule?.state === "scheduled", ok1);
+check("10 minutes off → not confirmed", confirmHandoff([waitingJane], [far]).length === 0);
+check("an alias address confirms too", confirmHandoff([waitingJane], [{ ...near, to: ["jpark@gs.com"] }]).length === 1);
+const gone = confirmHandoff([{ ...jane, gmailSchedule: hs("scheduled") }], []);
+check("confirmed, then gone from Gmail before its time → back to waiting", gone.length === 1 && gone[0].patch.gmailSchedule?.state === "waiting", gone);
+check("confirmed and its time passed (it went out) → left alone", confirmHandoff([{ ...jane, gmailSchedule: hs("scheduled", at(-2)) }], []).length === 0);
 
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");
 if (failed) process.exit(1);

@@ -69,13 +69,13 @@ export const useFinderStatus = create<{ text?: string; running: boolean; set: (t
 
 let cmdSeq = 0;
 /** Ask the extension to do something (only these commands exist; see extension/content/dashboard.js). */
-export function sendCommand<T = unknown>(type: "fillJobs" | "focusJob" | "linkedinJobs" | "handshakeJobs", payload: unknown): Promise<T> {
+export function sendCommand<T = unknown>(type: "fillJobs" | "focusJob" | "linkedinJobs" | "handshakeJobs" | "scheduleInGmail", payload: unknown, timeoutMs = 15_000): Promise<T> {
   const id = `cmd${Date.now()}_${cmdSeq++}`;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener("message", onMsg);
       reject(new Error("The Coverage extension didn't answer. If you just installed, updated or reloaded it, reload this tab (Ctrl+R); otherwise check it's turned on in chrome://extensions."));
-    }, 15_000);
+    }, timeoutMs);
     const onMsg = (e: MessageEvent) => {
       if (e.source !== window || e.origin !== window.location.origin) return;
       const m = e.data as { channel?: string; kind?: string; id?: string; ok?: boolean; result?: T; error?: string };

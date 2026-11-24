@@ -70,6 +70,25 @@ export const SyncBody = z.object({
     .array(z.object({ draftId: z.string().min(5).max(200), contactId: z.string().max(200), name: z.string().max(200), step: z.number().int().min(0).max(10), sendAt: z.string().datetime() }))
     .max(400)
     .optional(),
+  /**
+   * The "to schedule in Gmail" list (lib/handoff.ts): Gmail drafts the extension or Claude in Chrome puts in Gmail's
+   * Schedule send. Served to Claude by the connector's emails_to_schedule. undefined = leave as is.
+   */
+  handoff: z
+    .array(
+      z.object({
+        id: z.string().max(200),
+        name: z.string().max(200),
+        to: z.string().max(320),
+        subject: z.string().max(400),
+        draftId: z.string().max(200),
+        messageId: z.string().max(200),
+        step: z.number().int().min(-1).max(10),
+        at: z.string().datetime(),
+      }),
+    )
+    .max(200)
+    .optional(),
   /** Read pixel hits only when tracking is on (saves a Redis call per sync). */
   opens: z.boolean().optional(),
   /**

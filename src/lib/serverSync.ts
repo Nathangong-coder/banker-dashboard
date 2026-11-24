@@ -1,5 +1,6 @@
 "use client";
 
+import { handoffItems } from "./handoff";
 import { create } from "zustand";
 import { useStore } from "./store";
 import { requireAccount, useSession } from "./session";
@@ -248,6 +249,7 @@ export function syncServer(): Promise<ServerStatus | null> {
       jobRun: jobRunOf(st.apply),
       trackAck: pendingAck,
       sends: queuedSends(st.contacts),
+      handoff: handoffItems(st.contacts),
       ack: [] as string[],
       opens,
     };
@@ -358,7 +360,8 @@ export async function queueSends(contacts: Contact[], why = new Map<string, stri
   // Never two emails at once: anyone with a Gmail Schedule-send email waiting is left out (owner, 2026-10-27).
   const inGmail = await gmailScheduledOverlap(contacts);
   for (const c of contacts) if (inGmail.has(c.id)) overlap.push(c.name);
-  contacts = contacts.filter((c) => !inGmail.has(c.id));
+  // On the "to schedule in Gmail" list: Gmail sends it, not Coverage (lib/handoff.ts).
+  contacts = contacts.filter((c) => !inGmail.has(c.id) && c.gmailSchedule?.state !== "waiting" && c.gmailSchedule?.state !== "scheduled");
   const ids = new Set(contacts.map((c) => c.id));
   // Your rule: no VP and above (unless one of your exception ties applies). Never sent automatically.
   const ready = contacts
