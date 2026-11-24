@@ -11,7 +11,7 @@
 (() => {
   const CHANNEL = "coverage-ext";
   const ALLOWED = new Set(["plan", "submitted", "fillStatus", "foundJob", "finderStatus", "vault", "agentBrief", "pickOption", "accountInfo", "accountCreated", "verifyLink", "learnAnswer", "agentRun", "aiKeys", "pixelKey", "pixelSent", "pixelSeen", "pixelStatus"]);
-  const COMMANDS = new Set(["fillJobs", "focusJob", "linkedinJobs", "handshakeJobs"]);
+  const COMMANDS = new Set(["fillJobs", "focusJob", "linkedinJobs", "handshakeJobs", "scheduleInGmail"]);
   const pending = new Map();
   // After the extension is reloaded or updated, this copy (already in the open tab) can't reach it any more: every
   // chrome.* call throws "Extension context invalidated". Say so to the page (it shows "reload this tab") instead.

@@ -72,7 +72,7 @@ const add = (dir) => {
   for (const name of fs.readdirSync(dir)) {
     const full = path.join(dir, name);
     const rel = path.relative(src, full).split(path.sep).join("/");
-    if (name.startsWith(".") || name === "README.md" || (!withAgent && (rel === "agent" || rel === "sites/gmail.js"))) continue;
+    if (name.startsWith(".") || name === "README.md" || (!withAgent && (rel === "agent" || rel === "sites/gmail.js" || rel === "sites/gmailSchedule.js"))) continue;
     if (fs.statSync(full).isDirectory()) add(full);
     else if (rel === "manifest.json") zip.file(rel, JSON.stringify(manifest, null, 2) + "\n");
     else if ((rel === "popup.html" || rel === "options.html") && !withAgent) zip.file(rel, fs.readFileSync(full, "utf8").replace(/[ \t]*<!-- agent:start[\s\S]*?<!-- agent:end -->\r?\n?/, "").replace(/[ \t]*<!-- gmail:start[\s\S]*?<!-- gmail:end -->\r?\n?/, ""));
@@ -84,6 +84,9 @@ add(src);
 // turns it off, so the store build still has no agent code.
 const AGENT_STUB = "// Store build: no AI agent (the test build has extension/agent/).\nexport const runAgent = null;\nexport const runFill = null;\n";
 if (!withAgent) zip.file("agent/agent.js", AGENT_STUB);
+// Gmail Schedule send (test build only): the worker imports it, so the store build gets a stand-in with nothing in it.
+const GMAIL_SCHEDULE_STUB = "// Store build: no Gmail scheduling (the test build has sites/gmailSchedule.js).\nexport const scheduleDraftInPage = null;\n";
+if (!withAgent) zip.file("sites/gmailSchedule.js", GMAIL_SCHEDULE_STUB);
 fs.mkdirSync(path.join(root, "dist"), { recursive: true });
 const out = path.join(root, "dist", `coverage-extension-${manifest.version}${withAgent ? "-agent" : ""}.zip`);
 fs.writeFileSync(out, await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
@@ -93,7 +96,7 @@ if (!withAgent && (popup.includes('id="agent"') || options.includes('id="liOn"')
   console.error("The store build still contains the agent.");
   process.exit(1);
 }
-if (!withAgent && (options.includes('id="gmOn"') || options.includes("gmail:start") || manifest.optional_host_permissions.includes(GMAIL) || zip.file("sites/gmail.js"))) {
+if (!withAgent && (options.includes('id="gmOn"') || options.includes('id="gsOn"') || options.includes("gmail:start") || manifest.optional_host_permissions.includes(GMAIL) || zip.file("sites/gmail.js") || (await zip.file("sites/gmailSchedule.js").async("string")) !== GMAIL_SCHEDULE_STUB)) {
   console.error("The store build still contains Gmail tracking.");
   process.exit(1);
 }

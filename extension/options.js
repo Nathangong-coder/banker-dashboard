@@ -141,6 +141,10 @@ function siteToggle(box, status, origin, flag, button, after) {
 siteToggle($("liOn"), $("liStatus"), "https://www.linkedin.com/*", "linkedinAgent", "Search LinkedIn");
 siteToggle($("hsOn"), $("hsStatus"), "https://*.joinhandshake.com/*", "handshakeAgent", "Search Handshake");
 siteToggle($("anySiteOn"), $("agentStatus"), "<all_urls>", "anySite", "Fill selected");
+// Gmail Schedule send (background.js#scheduleInGmail): the same optional mail.google.com access.
+siteToggle($("gsOn"), $("gsStatus"), "https://mail.google.com/*", "gmailSchedule", "", (ok) => {
+  $("gsStatus").textContent = ok ? "On. Use “Schedule N in Gmail” on Cold outreach → Scheduled." : "Off.";
+});
 // Gmail open tracking: the worker registers / unregisters sites/gmail.js (extension/tracking.js#ensureGmailScript).
 siteToggle($("gmOn"), $("gmStatus"), "https://mail.google.com/*", "gmailTrack", "", (ok, turnedOff) => {
   chrome.runtime.sendMessage({ type: "gmailScript" }).then(

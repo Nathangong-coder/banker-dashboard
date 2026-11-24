@@ -41,6 +41,7 @@ import { runFill } from "./agent/agent.js";
 // Tracking never opens a tab: with no Coverage tab open its calls fail fast and wait in the outbox.
 const askQuiet = (type, payload) => askDashboard(type, payload, { create: false });
 import { GMAIL_ORIGIN, TRACKING_TYPES, flushOutbox, fromGmail, syncPixelKey, watchGmailScript } from "./tracking.js";
+import { scheduleDraftInPage } from "./sites/gmailSchedule.js";
 import { captureHandshakeJob, clickApplyExternally, handshakeJobUrl, handshakePage, isHandshake, isHandshakeWall, readHandshakeJobs } from "./sites/handshake.js";
 
 const progress = (tabId, text) => chrome.runtime.sendMessage({ type: "autofill-progress", tabId, text }).catch(() => {});
@@ -382,7 +383,41 @@ async function detachDebugger(tabId) {
 if (canDebug()) chrome.debugger.onDetach.addListener((src) => attached.delete(src.tabId));
 chrome.tabs.onRemoved.addListener((tabId) => attached.delete(tabId));
 
+/**
+ * The cursor you see (owner, 2026-11-23: "it doesn't show the cursor, it just randomly clicks / disappears"): CDP input
+ * is invisible, so before each real click an arrow glides from its last spot to the target and pulses, then the click
+ * lands there. Drawn in the page (pointer-events: none, so it never takes the click), gone 6 s after the last action.
+ */
+const CURSOR_JS = (x, y) => `(() => {
+  const id = "__coverage_cursor";
+  let c = document.getElementById(id);
+  if (!c) {
+    c = document.createElement("div");
+    c.id = id;
+    c.setAttribute("aria-hidden", "true");
+    c.style.cssText = "position:fixed;left:0;top:0;width:24px;height:24px;pointer-events:none;z-index:2147483647;transition:transform 380ms cubic-bezier(.2,.8,.2,1);transform:translate(" + (innerWidth / 2) + "px," + (innerHeight / 2) + "px)";
+    c.innerHTML = '<span style="position:absolute;left:-12px;top:-12px;width:24px;height:24px;border-radius:50%;border:2px solid #1f7a5c;opacity:0;transform:scale(.3);transition:opacity 220ms,transform 220ms"></span><svg width="24" height="24" viewBox="0 0 24 24" style="position:absolute;left:-3px;top:-2px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))"><path d="M4 2.5l6.8 18.2 2.5-7.3 7.4-2.6z" fill="#0e1a2b" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+    document.documentElement.appendChild(c);
+    void c.offsetWidth;
+  }
+  c.style.transform = "translate(${x}px,${y}px)";
+  const ring = c.firstElementChild;
+  clearTimeout(window.__covCursorPulse);
+  window.__covCursorPulse = setTimeout(() => {
+    ring.style.opacity = "1"; ring.style.transform = "scale(1)";
+    setTimeout(() => { ring.style.opacity = "0"; ring.style.transform = "scale(.3)"; }, 260);
+  }, 360);
+  clearTimeout(window.__covCursorBye);
+  window.__covCursorBye = setTimeout(() => c.remove(), 6000);
+  return true;
+})()`;
+async function showCursor(tabId, x, y) {
+  await cdp(tabId, "Runtime.evaluate", { expression: CURSOR_JS(Math.round(x), Math.round(y)) }).catch(() => {});
+  await sleep(430);
+}
+
 async function trustedClick(tabId, x, y) {
+  await showCursor(tabId, x, y);
   const at = { x: Math.round(x), y: Math.round(y) };
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", buttons: 1, clickCount: 1 });
@@ -772,7 +807,7 @@ function canSee(m) {
   if (m.provider === "anthropic" || m.provider === "google") return true;
   if (m.provider === "openai") return /gpt-4o|gpt-4\.1|gpt-5|^o\d/i.test(m.model);
   if (m.provider === "deepseek") return false;
-  return /vl|vision|omni|(^|-)v(\d|$|-)|\dv|4v|5v/i.test(m.model);
+  return /vl|vision|omni|(^|-)v(\d|$|-)|\dv\b|4v|5v/i.test(m.model);
 }
 
 /** The optional vision helper (Options): reads the screenshots when the agent's own model can't (DeepSeek). */
@@ -1108,6 +1143,52 @@ function cleanJobs(raw) {
   });
 }
 
+/* ---------------- Gmail Schedule send (test build; owner, 2026-11-23) ----------------
+ * The dashboard's "to schedule in Gmail" list (src/lib/handoff.ts): open each draft in your Gmail tab and use Gmail's
+ * own Schedule send at its time (sites/gmailSchedule.js). One at a time, 2 s apart, real input with the visible cursor.
+ * Gmail's Scheduled folder is what the dashboard trusts afterwards; this only reports failures. Needs Options →
+ * "Schedule emails in Gmail" (the optional mail.google.com access). */
+function cleanSchedule(raw) {
+  return (Array.isArray(raw) ? raw : []).slice(0, 50).flatMap((i) => {
+    if (!i || typeof i !== "object" || !ID.test(String(i.id)) || !/^[0-9a-f]{6,24}$/i.test(String(i.messageId)) || !/^[^\s@]+@[^\s@]+$/.test(String(i.to)) || Number.isNaN(Date.parse(i.at))) return [];
+    return [{ id: String(i.id), to: String(i.to).slice(0, 320), subject: String(i.subject ?? "").slice(0, 300), messageId: String(i.messageId), at: String(i.at) }];
+  });
+}
+async function scheduleInGmail(items) {
+  if (!items.length) return { results: [] };
+  if (!(await chrome.permissions.contains({ origins: [`${GMAIL_ORIGIN}/*`] }).catch(() => false)))
+    throw new Error("Turn on “Schedule emails in Gmail” in the Coverage extension's Options (it asks for access to Gmail), then try again.");
+  if (typeof scheduleDraftInPage !== "function") throw new Error("This copy of the extension can't schedule in Gmail (store build).");
+  const [existing] = await chrome.tabs.query({ url: `${GMAIL_ORIGIN}/mail/u/0/*` });
+  const tab = existing ?? (await chrome.tabs.create({ url: `${GMAIL_ORIGIN}/mail/u/0/#drafts`, active: true }));
+  const tabId = tab.id;
+  await chrome.tabs.update(tabId, { active: true });
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  if (!existing) await loadedWithin(tabId, 30_000);
+  const results = [];
+  try {
+    for (const it of items) {
+      const d = new Date(it.at);
+      if (d.getTime() < Date.now() + 2 * 60_000) {
+        results.push({ id: it.id, ok: false, error: "its time has passed (pick a new one)" });
+        continue;
+      }
+      // Gmail's picker takes your browser's local time ("Nov 24, 2026" / "9:07 AM").
+      const when = { date: d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), time: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) };
+      await chrome.tabs.update(tabId, { url: `${GMAIL_ORIGIN}/mail/u/0/#drafts?compose=${it.messageId}` });
+      await sleep(2500);
+      const [{ result }] = await chrome.scripting
+        .executeScript({ target: { tabId }, func: scheduleDraftInPage, args: [it, when] })
+        .catch((e) => [{ result: { ok: false, error: e.message } }]);
+      results.push({ id: it.id, ok: !!result?.ok, error: result?.ok ? undefined : String(result?.error ?? "no answer").slice(0, 200) });
+      await sleep(2000);
+    }
+  } finally {
+    await detachDebugger(tabId);
+  }
+  return { results };
+}
+
 /** Commands from your Coverage tab (through content/dashboard.js), only from the dashboard address you set. */
 async function fromDashboard(msg, sender) {
   const dashboard = await getDashboard();
@@ -1119,6 +1200,7 @@ async function fromDashboard(msg, sender) {
     return syncVault();
   }
   if (msg.type === "fillJobs") return fillJobs({ jobs: cleanJobs(p.jobs), watch: p.watch === true });
+  if (msg.type === "scheduleInGmail") return scheduleInGmail(cleanSchedule(p.items));
   if (msg.type === "focusJob" && ID.test(String(p.jobId))) return focusJob(String(p.jobId));
   const known = (Array.isArray(p.known) ? p.known : []).map(String).filter((x) => /^\d{3,15}$/.test(x)).slice(-3000);
   const max = Math.min(Number(p.max) || PER_RUN, PER_RUN);
