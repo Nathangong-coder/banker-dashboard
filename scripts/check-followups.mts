@@ -7,6 +7,7 @@ import { dayLinks, gmailDraftUrl, gmailSearchUrl, gmailThreadUrl, personQuery } 
 import { scheduledRows } from "../src/lib/scheduledRows";
 import { calendarDays, coldByBank, coldDueCount, dayKey, warmByBank } from "../src/lib/followupsOverview";
 import { DEFAULT_SETTINGS } from "../src/lib/defaults";
+import { nextAction } from "../src/lib/followups";
 import { confirmHandoff, handoffItems } from "../src/lib/handoff";
 import type { Contact } from "../src/lib/types";
 
@@ -117,6 +118,12 @@ check("an alias address confirms too", confirmHandoff([waitingJane], [{ ...near,
 const gone = confirmHandoff([{ ...jane, gmailSchedule: hs("scheduled") }], []);
 check("confirmed, then gone from Gmail before its time → back to waiting", gone.length === 1 && gone[0].patch.gmailSchedule?.state === "waiting", gone);
 check("confirmed and its time passed (it went out) → left alone", confirmHandoff([{ ...jane, gmailSchedule: hs("scheduled", at(-2)) }], []).length === 0);
+
+/* ---- Final review: a draft waiting on the Gmail list counts as handled ---- */
+const dueWaiting: Contact = { ...mix[0], gmailSchedule: { draftId: "r", messageId: "m", subject: "", step: 1, at: at(20), state: "waiting", updatedAt: at(-1) } };
+check("a follow-up waiting on the Gmail list isn't in Due or the nav count", coldDueCount([dueWaiting], {}, fu) === 0, nextAction(dueWaiting, fu));
+check("…and it shows as scheduled", nextAction(dueWaiting, fu).kind === "scheduled");
+check("a failed one is due again", coldDueCount([{ ...dueWaiting, gmailSchedule: { ...dueWaiting.gmailSchedule!, state: "failed" } }], {}, fu) === 1);
 
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");
 if (failed) process.exit(1);

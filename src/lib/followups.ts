@@ -96,9 +96,12 @@ export function earliestSend(c: Pick<Contact, "lastEmailedAt" | "lastTouchAt" | 
   return last ? addDays(last, Math.max(1, (step === 1 ? s.firstAfterDays : s.nextAfterDays) - FOLLOW_UP_SPREAD)) : undefined;
 }
 
-/** When the next email to this person goes out by itself: Gmail Schedule send, or a send queued on the server. */
-export function queuedAt(c: Pick<Contact, "scheduledAt" | "serverSend">) {
-  const t = [c.scheduledAt, c.serverSend?.sendAt].filter((x): x is string => !!x).sort();
+/**
+ * When the next email to this person goes out by itself: Gmail Schedule send, a send queued on the server, or a draft
+ * on the "to schedule in Gmail" list (lib/handoff.ts; a failed one isn't).
+ */
+export function queuedAt(c: Pick<Contact, "scheduledAt" | "serverSend" | "gmailSchedule">) {
+  const t = [c.scheduledAt, c.serverSend?.sendAt, c.gmailSchedule && c.gmailSchedule.state !== "failed" ? c.gmailSchedule.at : undefined].filter((x): x is string => !!x).sort();
   return t[0];
 }
 

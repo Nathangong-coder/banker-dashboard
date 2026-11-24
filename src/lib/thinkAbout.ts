@@ -396,8 +396,10 @@ export const wrongAddress = (contacts: Contact[]) => contacts.filter((c) => c.ma
  * chat with Rohan Desai is not there, which is really weird"). `engaged` = replied, met you, or referred you.
  */
 /** A send already queued to them (Gmail Schedule send, or Coverage's own queue) that hasn't gone out. */
-export const queuedFor = (c: Pick<Contact, "scheduledAt" | "serverSend">, now = Date.now()) =>
-  [c.scheduledAt, c.serverSend?.sendAt].filter((x): x is string => !!x && Date.parse(x) > now).sort()[0];
+export const queuedFor = (c: Pick<Contact, "scheduledAt" | "serverSend" | "gmailSchedule">, now = Date.now()) =>
+  [c.scheduledAt, c.serverSend?.sendAt, c.gmailSchedule && c.gmailSchedule.state !== "failed" ? c.gmailSchedule.at : undefined]
+    .filter((x): x is string => !!x && Date.parse(x) > now)
+    .sort()[0];
 
 export function standing(c: Contact, now: number, isReferrer: (c: Contact) => boolean = () => false): { engaged: boolean; listed: boolean; text: string } {
   const met = chatRecords(c, now).some((r) => r.state !== "rejected") || !!c.call;
