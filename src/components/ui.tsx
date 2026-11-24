@@ -1,7 +1,8 @@
 "use client";
 
 import { create } from "zustand";
-import { Loader2, MoreHorizontal, X } from "lucide-react";
+import { ArrowUpRight, Loader2, MoreHorizontal, X } from "lucide-react";
+import Link from "./Link";
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
@@ -222,7 +223,8 @@ export function Progress({ value, max, label }: { value: number; max: number; la
   );
 }
 
-export function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+/** `titleHref` makes the title a link (a record's name opens its own page, like Salesforce's preview panels). */
+export function Modal({ open, onClose, title, titleHref, children, wide }: { open: boolean; onClose: () => void; title: string; titleHref?: string; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
     if (!open) return;
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -240,7 +242,16 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
         className={cn("w-full rounded-lg border border-line bg-panel shadow-[0_0_7px_rgba(0,0,0,0.14),0_5px_5px_rgba(0,0,0,0.14)]", wide ? "max-w-4xl" : "max-w-lg")}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
-          <h2 className="text-[16px] font-semibold">{title}</h2>
+          <h2 className="text-[16px] font-semibold">
+            {titleHref ? (
+              <Link href={titleHref} onClick={onClose} className="inline-flex items-center gap-1 text-brass-ink hover:underline" title={`Open ${title}'s page`}>
+                {title}
+                <ArrowUpRight className="size-4" aria-hidden="true" />
+              </Link>
+            ) : (
+              title
+            )}
+          </h2>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-hover" aria-label="Close">
             <X className="size-4" />
           </button>

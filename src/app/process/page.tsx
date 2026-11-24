@@ -274,7 +274,7 @@ export default function ProcessPage() {
         Relationship = 30 once you&apos;ve emailed, more for replies and chats (your ratings count), 88+ with a referral, 100 from a VP or above.
       </p>
 
-      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? detail.r.name : ""} wide>
+      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? detail.r.name : ""} titleHref={detail ? `/bank?key=${encodeURIComponent(detail.r.key)}` : undefined} wide>
         {detail && <BankDetail x={detail} />}
       </Modal>
       <ColumnsEditor open={editCols} onClose={() => setEditCols(false)} />
