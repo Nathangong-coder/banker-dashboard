@@ -27,6 +27,14 @@ export default function RemindersPage() {
   const whatsapp = useStore((s) => !!(s.settings.keys.whatsappPhone && s.settings.keys.whatsappApiKey));
   const [busy, setBusy] = useState(false);
 
+  // Opening Reminders sends tonight's list (owner, 2026-11-23: "the 9 PM text is not being auto-updated"). It also fills
+  // in "Last sent" / "Last text", which only exist after a sync in this tab (they showed "never" on every fresh page).
+  useEffect(() => {
+    if (useServerStatus.getState().status || new URLSearchParams(window.location.search).get("server")) return;
+    if (!useStore.getState().settings.server?.email) return;
+    void syncServer().catch(() => undefined);
+  }, []);
+
   // Google sends you back here after connecting automatic sending (?server=connected&email=…).
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);

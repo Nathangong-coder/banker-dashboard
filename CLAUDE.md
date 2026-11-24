@@ -488,6 +488,37 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
   contradicted, team guessed, email looks like someone else's, status vs Gmail) with inline office / team / title /
   status / email edits; chats one source supports (yes / no), calendar matches (Not them).
 
+## Follow-ups overviews + scheduling in Gmail (owner, 2026-11-23; spec + plan in docs/superpowers, `check:followups`)
+
+- **Why:** Follow-ups couldn't be checked by hand (no Gmail links), "74 outstanding" had no breakdown, Replied
+  duplicated Warm follow-ups, Scheduled showed 13 of Gmail's 18, and the owner stopped trusting Coverage's own sending.
+- **Overview tabs** (first on Cold outreach and Warm follow-ups): `lib/followupsOverview.ts` (`coldDueCount` = the nav
+  badge = the Due list, went-cold excluded; `coldByBank`; `warmByBank`; `calendarDays` green = your email with no reply
+  since, red = a `todoFor` reply). `components/{ColdOverview,WarmOverview,FollowupCalendar}.tsx`. A day panel has
+  "Open this day in Gmail" (`gmailLinks.ts#dayLinks`: epoch-second `after:/before:`, split ≤1,800 chars) and "No reply
+  needed" (= `handledAt`, Undo in place). Cold overview counts open the Queue filtered by bank (state, not URL).
+- **Cold outreach** = Overview · Queue (Due / Drafted / Scheduled). Replied → Warm follow-ups reply rows ("Offer times",
+  "Send invite"); Referrals → a Warm follow-ups tab; Not in tracker / Needs new contact open in a modal from their
+  notices; By banker / By bank removed. Every row: `components/PersonLinks.tsx` (Thread, Search Gmail = every address +
+  name, LinkedIn).
+- **Scheduled = one row per EMAIL** (`lib/scheduledRows.ts`): Gmail's Scheduled folder (`offSheet.scheduled`) + Coverage
+  sends not within ±2 min of a Gmail one; untracked recipients and warm people included (the 13 vs 18 cause).
+- **To schedule in Gmail** (Gmail send mode): `contact.gmailSchedule` (`lib/handoff.ts`, `handoffActions.ts#addToHandoff /
+  listDrafts`, slots from `planSends`); never with a `serverSend` (`queueSends` skips them). "scheduled" ONLY when
+  `applyGmailScheduled` → `confirmHandoff` finds it in Gmail's Scheduled folder (±2 min). Pushed as `handoff` on the
+  server sync (`account.handoff`). Two hands: **A** extension 1.20.0 test build (`background.js#scheduleInGmail` +
+  `sites/gmailSchedule.js`, Options "Let Coverage schedule my drafts in Gmail", store build gets a stub; never presses
+  plain Send; recipient checked, subject too unless blank for in-thread follow-ups) via `lib/gmailScheduleRun.ts`;
+  **B** connector tools `emails_to_schedule` / `confirm_scheduled` (`lib/server/scheduled.ts#readScheduled`) + plugin
+  skill `schedule-in-gmail` (Recruitify 0.3.0). Gmail selectors are in `gmailSchedule.js` SEL: **not yet checked on live
+  Gmail**.
+- **Visible cursor:** `background.js#trustedClick` draws an arrow (CDP `Runtime.evaluate`) that glides and pulses before
+  every real click (test build; pointer-events none, removed after 6 s).
+- **Holiday check-ins:** Warm overview → tick → "Draft check-ins" (`lib/checkIns.ts`, `HOLIDAY_TEMPLATE` `tpl_holiday`,
+  `{{holiday}}` = `holidayFor`: Thanksgiving / holiday / New Year; in their thread; no resume; step -1 on the list).
+- **9 PM text:** Reminders page syncs on open (its "Last sent / Last text" only exist after a sync in that tab, so they
+  read "never"); header Sync ▾ → "Update tonight's text". The plan still only reaches the server from an open tab.
+
 ## Navigation v2, light/dark, editable firms, invites from the phone (owner, 2026-11-22)
 
 - **Nav:** `components/navData.tsx` (NAV, PROFILE_PAGES, `categoryOf`, `IceCube`) is the one list. (Header: see "two-row header" above.) Categories

@@ -55,6 +55,11 @@ export default function PrivacyPage() {
         </li>
         <li>The queue of emails you scheduled: Gmail draft IDs, the contact&apos;s name, and the send time. Not the email text.</li>
         <li>
+          Your list of drafts to schedule in Gmail (when you use Gmail scheduling): each one&apos;s Gmail draft and message IDs, the contact&apos;s
+          name and email address, the subject, and the time. It&apos;s what the Coverage connector shows Claude when you ask it to schedule them. Not the
+          email text.
+        </li>
+        <li>
           If you use WhatsApp reminders: your WhatsApp number and CallMeBot key (encrypted), and the next two weeks of reminder lists (names, email addresses
           and labels such as &ldquo;Follow-up #1&rdquo;, and the text of reminders you set), plus the names, email addresses, firms, LinkedIn profile links, last-emailed dates and
           last-logged-conversation dates of people who replied to you, have a call with you or met you at an info session (to recognize them on your

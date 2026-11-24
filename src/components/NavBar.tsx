@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BellPlus, CalendarPlus, Check, ChevronDown, ChevronRight, Loader2, NotebookPen, Plus, RefreshCw, Search, UserPlus } from "lucide-react";
+import { BellPlus, CalendarPlus, Check, ChevronDown, ChevronRight, Loader2, MessageSquareText, NotebookPen, Plus, RefreshCw, Search, UserPlus } from "lucide-react";
 import Link from "./Link";
 import { cn } from "@/lib/util";
 import { useStore } from "@/lib/store";
@@ -221,12 +221,25 @@ export function SyncButton() {
             <ChevronDown className="size-3.5" />
           </button>
         )}
-        items={SYNC_EVERY.map((s) => ({
-          label: s.label,
-          hint: s.id === "manual" ? "Nothing runs in the background; press Sync" : undefined,
-          icon: s.id === every ? <Check /> : <span className="block size-4" />,
-          onClick: () => setSettings((x) => ({ ...x, syncEvery: s.id })),
-        }))}
+        items={[
+          ...SYNC_EVERY.map((s) => ({
+            label: s.label,
+            hint: s.id === "manual" ? "Nothing runs in the background; press Sync" : undefined,
+            icon: s.id === every ? <Check /> : <span className="block size-4" />,
+            onClick: () => setSettings((x) => ({ ...x, syncEvery: s.id })),
+          })),
+          "divider" as const,
+          {
+            label: "Update tonight's text",
+            hint: "Send the server tonight's 9 PM list now (Sync does this too, last)",
+            icon: <MessageSquareText />,
+            onClick: () =>
+              void import("@/lib/serverSync")
+                .then((m) => m.syncServer())
+                .then((st) => (st ? toast.ok("Tonight's 9 PM list is up to date on the server.") : toast.info("Automatic sending is off, so there's no 9 PM text to update.")))
+                .catch((e: Error) => toast.err(e.message)),
+          },
+        ]}
       />
     </div>
   );

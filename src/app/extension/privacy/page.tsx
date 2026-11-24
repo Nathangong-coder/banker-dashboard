@@ -161,6 +161,14 @@ export default function ExtensionPrivacyPage() {
           (§8). Turning the option off stops it immediately.
         </p>
 
+        <H2>5b. Scheduling drafts in Gmail (test build only, off by default)</H2>
+        <p>
+          Not in the store version. If you turn on <b>Let Coverage schedule my drafts in Gmail</b> (this asks for access to <code>mail.google.com</code>), and
+          press &ldquo;Schedule in Gmail&rdquo; in your dashboard, the extension opens each draft on your list in your Gmail tab, checks its recipient and
+          subject, and uses Gmail&apos;s Schedule send at the time your dashboard gave. It reads only that draft&apos;s window, never presses Send, and
+          tells your dashboard only whether each one worked. Nothing goes to any other site.
+        </p>
+
         <H2>6. Removing it</H2>
         <p>
           Remove the extension from <code>chrome://extensions</code> (or <code>edge://extensions</code>) and its one setting is deleted with it. To delete profiles you
