@@ -19,7 +19,9 @@ const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6
  * One email in Follow-ups → Scheduled (a table row inside `ListTable`). Sends queued with Coverage can be moved to any time (or cancelled); the time is
  * entered in your zone and shown in theirs. Gmail Schedule-send emails can only be changed in Gmail (no API for it).
  */
-export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Contact; label: string; onOpen: (c: Contact) => void; selected?: boolean; onSelect?: () => void }) {
+export function ScheduledRow({ c, label, onOpen, selected, onSelect, gmail }: { c: Contact; label: string; onOpen: (c: Contact) => void; selected?: boolean; onSelect?: () => void; gmail?: boolean }) {
+  // `gmail`: this row is an email in Gmail's Scheduled folder (the person may ALSO have a Coverage send queued: that's its own row).
+  const coverage = !gmail && !!c.serverSend;
   // Select the stored value and derive outside: windowOf returns a new object each call, which loops forever in zustand v5.
   const saved = useStore((s) => s.settings.sendWindow);
   const w = windowOf({ sendWindow: saved });
@@ -73,15 +75,15 @@ export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Cont
       ) : (
         <>
           <Cell>
-            {c.serverSend ? (
-              <Badge tone="blue">{c.serverSend.step ? `Follow-up #${c.serverSend.step}` : "First email"} · by Coverage</Badge>
+            {coverage ? (
+              <Badge tone="blue">{c.serverSend?.step ? `Follow-up #${c.serverSend.step}` : "First email"} · by Coverage</Badge>
             ) : (
               <Badge tone="neutral">Gmail Schedule send</Badge>
             )}
           </Cell>
           <Cell>
             <span className="num whitespace-nowrap text-ink-2">{label}</span>
-            {c.serverSend && (
+            {coverage && (
               <div className="mt-0.5">
                 <SendNote c={c} />
               </div>
@@ -89,7 +91,7 @@ export function ScheduledRow({ c, label, onOpen, selected, onSelect }: { c: Cont
           </Cell>
           <Cell>
             <RowActions show={selected}>
-              {c.serverSend ? (
+              {coverage ? (
                 <>
                   <Button size="sm" variant="secondary" icon={<Clock className="size-3.5" />} onClick={() => setEditing(true)} title={`Your send window is ${windowLabel(w)}; you can pick any time here.`}>
                     Change time

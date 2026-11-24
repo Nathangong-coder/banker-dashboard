@@ -19,6 +19,11 @@ import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regio
 import { addDays, cn, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Empty, Field, Input, Menu, Modal, Progress, Segmented, Select, StatusBadge, toast } from "@/components/ui";
 import { PersonLinks } from "@/components/PersonLinks";
+import { scheduledRows } from "@/lib/scheduledRows";
+import { gmailSearchUrl } from "@/lib/gmailLinks";
+
+/** "Tue 11/24, 9:07 AM" (your time). */
+const whenLabel = (iso: string) => new Date(iso).toLocaleString("en-US", { weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
 import { ObjectHeader, Tabs } from "@/components/crm";
 import { IceCube } from "@/components/AppNav";
 import { ContactModal } from "@/components/ContactModal";
@@ -432,6 +437,9 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const replaceCount = fails.suspected.length + fails.failed.length;
   const referrals = useMemo(() => referralCount(contacts), [contacts]);
   const offSheet = useOffSheet().filter((p) => p.bankDomain).length;
+  // Every scheduled EMAIL (Gmail's Scheduled folder + Coverage's queue), not one row per person (lib/scheduledRows.ts).
+  const gmailScheduled = useStore((s) => s.offSheet.scheduled);
+  const sRows = useMemo(() => scheduledRows(gmailScheduled, contacts), [gmailScheduled, contacts]);
   const shownView: View = view === "replace" && !replaceCount ? "due" : view;
 
   /** "Select all" for one list (the table header checkbox). */
@@ -568,7 +576,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   const views: [View, string, number][] = [
     ["due", "Due", behind.length],
     ["drafted", "Drafted", drafted.length],
-    ["scheduled", "Scheduled", scheduled.length],
+    ["scheduled", "Scheduled", sRows.length],
     ["replied", "Replied", replied],
     ["referrals", "Referrals", referrals],
     ["offsheet", "Not in tracker", offSheet],
@@ -803,15 +811,34 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           ))}
 
         {shownView === "scheduled" &&
-          (scheduled.length === 0 ? (
+          (sRows.length === 0 ? (
             <Empty icon={<Clock className="size-6" />} title="Nothing scheduled">
               Emails queued with Coverage or Gmail&apos;s Schedule send show up here.
             </Empty>
           ) : (
             <ListTable head={[selectAll(scheduled), "Contact", "Email", "Sends", ""]}>
-              {scheduled.map(({ c, a }) => (
-                <ScheduledRow key={c.id} c={c} label={a.label.replace(/^.*scheduled · /, "")} onOpen={onOpen} selected={sel.has(c.id)} onSelect={() => toggle(c.id)} />
-              ))}
+              {sRows.map((r) =>
+                r.contact ? (
+                  <ScheduledRow key={r.key} c={r.contact} gmail={r.via === "gmail"} label={whenLabel(r.at)} onOpen={onOpen} selected={sel.has(r.contact.id)} onSelect={() => toggle(r.contact!.id)} />
+                ) : (
+                  <Row key={r.key}>
+                    <Cell shrink className="max-lg:hidden" />
+                    <Cell main>
+                      <div className="truncate font-medium text-ink">{r.to}</div>
+                      <div className="truncate text-[12px] text-muted">Not in your tracker{r.subject ? ` · ${r.subject}` : ""}</div>
+                    </Cell>
+                    <Cell>
+                      <Badge tone={r.stop ? "red" : "neutral"}>{r.stop ? "Labelled HOLD" : "Gmail Schedule send"}</Badge>
+                    </Cell>
+                    <Cell className="num whitespace-nowrap text-ink-2">{whenLabel(r.at)}</Cell>
+                    <Cell>
+                      <a href={gmailSearchUrl(`in:scheduled to:${r.to}`)} target="_blank" rel="noreferrer" className="text-[12px] text-brass-ink hover:underline">
+                        Open in Gmail
+                      </a>
+                    </Cell>
+                  </Row>
+                ),
+              )}
             </ListTable>
           ))}
 
