@@ -5,6 +5,9 @@ import { planItems } from "@/lib/server/tonight";
 import { isTextDay, nextTextDay } from "@/lib/digestFormat";
 import { findPerson, startFrom, whenLabel } from "@/lib/inviteCommand";
 import { createInvite, inviteTitle } from "@/lib/server/invite";
+import { readScheduled } from "@/lib/server/scheduled";
+import { inGmail } from "@/lib/handoff";
+import { gmailDraftUrl, gmailSearchUrl } from "@/lib/gmailLinks";
 
 export const maxDuration = 60;
 
@@ -192,6 +195,55 @@ const TOOLS: Tool[] = [
         notify,
       });
       return { sent: notify, name: found.person.name, email: found.person.email, when: whenLabel(start, a.tz), minutes, link: ev.htmlLink };
+    },
+  },
+  {
+    name: "emails_to_schedule",
+    title: "Emails to schedule in Gmail",
+    description:
+      "The user's Gmail drafts waiting to be put in Gmail's own Schedule send (Coverage → Cold outreach → Scheduled → To schedule in Gmail). For each: who, the address, the draft's link, and the exact date and time to schedule it for, in the user's time zone as Gmail's \"Pick date & time\" box wants it. Use with Claude in Chrome: open each draftUrl in Gmail, check the To address, then More send options (the arrow next to Send) → Schedule send → Pick date & time → type gmailDate and gmailTime → Schedule send. NEVER press Send. Afterwards call confirm_scheduled.",
+    readOnly: true,
+    schema: obj(),
+    run: async (a) => {
+      const items = (a.handoff ?? []).filter((i) => Date.parse(i.at) > Date.now()).sort((x, y) => x.at.localeCompare(y.at));
+      const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", { timeZone: a.tz, ...o }).format(new Date(iso));
+      return {
+        count: items.length,
+        timeZone: a.tz,
+        listUpdated: when(a, a.handoffAt),
+        note: items.length ? "Gmail's date/time box uses the browser's time zone; these are in the user's time zone (the same unless they're travelling)." : "Nothing waiting. The list fills when the user drafts follow-ups in Coverage with Gmail scheduling.",
+        items: items.map((i) => ({
+          name: i.name,
+          to: i.to,
+          email: i.step === 0 ? "First email" : i.step === -1 ? "Check-in" : `Follow-up #${i.step}`,
+          subject: i.subject || undefined,
+          sendAt: when(a, i.at),
+          gmailDate: fmt(i.at, { month: "short", day: "numeric", year: "numeric" }),
+          gmailTime: fmt(i.at, { hour: "numeric", minute: "2-digit" }),
+          draftUrl: gmailDraftUrl(i.messageId),
+        })),
+        allScheduledUrl: gmailSearchUrl("in:scheduled"),
+      };
+    },
+  },
+  {
+    name: "confirm_scheduled",
+    title: "Check what's in Gmail's Scheduled folder",
+    description: "After scheduling emails in Gmail, check each one on the emails_to_schedule list is really in Gmail's Scheduled folder at its time (within 2 minutes). Read-only; Coverage marks them on its next sync.",
+    readOnly: true,
+    schema: obj(),
+    run: async (a) => {
+      const r = await readScheduled(a);
+      if (!r.read) return { checked: false, why: "Coverage can't read Gmail for this account (reconnect Google in Coverage → Settings → Account with read access)." };
+      const items = (a.handoff ?? []).filter((i) => Date.parse(i.at) > Date.now());
+      const found = items.filter((i) => inGmail({ email: i.to, aliases: [] }, i.at, r.items));
+      const missing = items.filter((i) => !found.includes(i));
+      return {
+        checked: true,
+        found: found.map((i) => ({ name: i.name, sendAt: when(a, i.at) })),
+        missing: missing.map((i) => ({ name: i.name, sendAt: when(a, i.at), draftUrl: gmailDraftUrl(i.messageId) })),
+        totalInGmailScheduled: r.items.length,
+      };
     },
   },
   {

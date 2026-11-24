@@ -1,7 +1,7 @@
 {
   "name": "recruitify",
-  "version": "0.2.1",
-  "description": "Recruitify (by Coverage) for IB recruiting: update your tracker spreadsheet, record and grade coffee chats, tag Gmail threads by how the chat went, plan follow-ups, and mention good chats in new emails.",
+  "version": "0.3.0",
+  "description": "Recruitify (by Coverage) for IB recruiting: update your tracker spreadsheet, record and grade coffee chats, tag Gmail threads by how the chat went, plan follow-ups, mention good chats in new emails, and schedule Coverage drafts in Gmail with Claude in Chrome.",
   "author": { "name": "Nathan Gong" },
   "homepage": "https://banker-dashboard-three.vercel.app",
   "license": "MIT",

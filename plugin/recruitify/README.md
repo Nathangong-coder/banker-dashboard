@@ -12,12 +12,13 @@ Claude works on your IB recruiting tracker (.xlsx) the same way the Coverage das
 | `/recruitify:record-chat` | log a coffee chat or call (from Granola, a transcript, or your notes), grade it, update the row |
 | `/recruitify:tag-chatted-emails` | label Gmail threads `Chatted` → `Follow-up - Good` / `OK` / `Bad - Ghost` |
 | `/recruitify:follow-up-planner` | see who's due, when to send (Tue–Thu, 9–11 AM their time, 6–8 days), draft follow-ups |
+| `/recruitify:schedule-in-gmail` | with Claude in Chrome, put Coverage's drafts into Gmail's own Schedule send at their times (never presses Send) |
 
 **Tools** (`coverage-sheet`, runs on your computer with Node 20+): `find_workbooks`, `set_workbook`, `list_contacts`,
 `get_contact`, `update_contact`, `log_chat`, `grading_rubric`, `chatted_people`, `due_followups`.
 
 **Connector** (`coverage`, on Coverage's website): tonight's to-dos, recent replies, thank-yous, intros found in
-replies, and scheduled sends (with cancel). It works in Claude Code, Cowork and on claude.ai. The first use asks you to
+replies, scheduled sends (with cancel), and the drafts waiting to be scheduled in Gmail (`emails_to_schedule`, `confirm_scheduled`). It works in Claude Code, Cowork and on claude.ai. The first use asks you to
 sign in: approve on the Connect page in the browser where you use Coverage (automatic sending must be on).
 
 ## Install

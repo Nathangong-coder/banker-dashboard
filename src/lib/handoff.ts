@@ -34,7 +34,7 @@ export function handoffItems(contacts: Contact[]): HandoffItem[] {
 }
 
 /** Is there a scheduled email in Gmail to this person within ±2 minutes of `at`? */
-export function inGmail(c: Contact, at: string, items: GmailScheduledItem[]): boolean {
+export function inGmail(c: Pick<Contact, "email" | "aliases">, at: string, items: Pick<GmailScheduledItem, "at" | "to">[]): boolean {
   const mine = new Set([c.email, ...(c.aliases ?? [])].filter(Boolean).map((e) => e.trim().toLowerCase()));
   const t = Date.parse(at);
   return items.some((it) => Math.abs(Date.parse(it.at) - t) <= SAME_SEND_MS && it.to.some((e) => mine.has(e.trim().toLowerCase())));
