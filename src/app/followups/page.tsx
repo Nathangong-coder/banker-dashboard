@@ -18,6 +18,7 @@ import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI
 import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
 import { addDays, cn, fmtDate, relDays } from "@/lib/util";
 import { Badge, Button, Card, CardHeader, Empty, Field, Input, Menu, Modal, Progress, Segmented, Select, StatusBadge, toast } from "@/components/ui";
+import { PersonLinks } from "@/components/PersonLinks";
 import { ObjectHeader, Tabs } from "@/components/crm";
 import { IceCube } from "@/components/AppNav";
 import { ContactModal } from "@/components/ContactModal";
@@ -472,6 +473,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
             sub={`${c.position || "—"} · ${c.bank}${c.region !== "Other" ? ` (${c.region})` : ""}`}
             onOpen={() => onOpen(c)}
           />
+          <PersonLinks c={c} className="mt-0.5" />
         </Cell>
         <Cell>
           {a.kind === "send" ? (

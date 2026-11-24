@@ -12,6 +12,7 @@ import { DAY, cn } from "@/lib/util";
 import { REASON_LABEL, referrers, reminderRows, resolvedPeople, standing, todoRows, wrongAddress, type Age, type Reminder, type ReminderRow, type TodoRow, type Triage } from "@/lib/thinkAbout";
 import type { Contact } from "@/lib/types";
 import { Badge, Button, Card, Empty, Input, Menu, Segmented, toast } from "@/components/ui";
+import { PersonLinks } from "@/components/PersonLinks";
 
 /**
  * Things to think about (owner, 2026-11-21/22): who you owe a thank-you or a reply, who replied and went quiet, and
@@ -532,6 +533,7 @@ function TodoTab({ rows, resolved, now, empty, quiet }: { rows: TodoRow[]; resol
           {tr && !r.hidden && <span> AI read: {tr.needed ? "needs you" : `${REASON_LABEL[tr.reason] ?? tr.reason}, not sure enough to hide`} ({tr.why})</span>}
           {r.hidden && <span> Filtered out by {r.hidden.by === "ai" ? "the AI" : "a rule"}: {r.hidden.why}</span>}
         </div>
+        <PersonLinks c={r.c} />
         <Conversation row={r} />
         <div className="flex flex-wrap items-center gap-2">
           <a href={gmailLink(r.c, r.c.mail?.messages[r.c.mail.messages.length - 1]?.threadId ?? r.c.lastReply?.threadId)} target="_blank" rel="noreferrer">
