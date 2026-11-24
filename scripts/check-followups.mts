@@ -5,6 +5,8 @@
  */
 import { dayLinks, gmailDraftUrl, gmailSearchUrl, gmailThreadUrl, personQuery } from "../src/lib/gmailLinks";
 import { scheduledRows } from "../src/lib/scheduledRows";
+import { calendarDays, coldByBank, coldDueCount, dayKey, warmByBank } from "../src/lib/followupsOverview";
+import { DEFAULT_SETTINGS } from "../src/lib/defaults";
 import type { Contact } from "../src/lib/types";
 
 let failed = 0;
@@ -56,6 +58,47 @@ check("rows come soonest first", scheduledRows([gItem("jane@gs.com", 50), gItem(
 const never = scheduledRows(undefined, [{ ...jane, scheduledAt: at(10) }]);
 check("Gmail never read yet → contacts' own scheduledAt are the Gmail rows", never.length === 1 && never[0].via === "gmail" && never[0].contact?.id === jane.id, never);
 check("a HOLD label is flagged", scheduledRows([gItem("jane@gs.com", 5, ["HOLD"])], [jane])[0]?.stop === true);
+
+/* ---- Task 4: overview numbers + calendar ---- */
+const DAY = 86_400_000;
+const ago = (d: number) => new Date(Date.now() - d * DAY).toISOString();
+const fu = DEFAULT_SETTINGS.followUp;
+const mix: Contact[] = [
+  { ...base, id: "a", name: "Due Person", bank: "Goldman Sachs", email: "a@gs.com", status: "sent", sentAt: ago(fu.firstAfterDays + 1), lastTouchAt: ago(fu.firstAfterDays + 1) },
+  { ...base, id: "b", name: "Cold Person", bank: "Goldman Sachs & Co.", email: "b@gs.com", status: "sent", sentAt: ago(fu.firstAfterDays + 20), lastTouchAt: ago(fu.firstAfterDays + 20) },
+  { ...base, id: "c", name: "Draft Person", bank: "Morgan Stanley", email: "c@ms.com", status: "drafted", draft: { subject: "s", body: "b", createdAt: ago(2) } as Contact["draft"] },
+  { ...base, id: "d", name: "Fresh Person", bank: "Morgan Stanley", email: "d@ms.com", status: "sent", sentAt: ago(1), lastTouchAt: ago(1) },
+];
+const ov = coldByBank(mix, {}, fu, []);
+check("overview's due total = the nav count (went cold not in it)", ov.totals.due === coldDueCount(mix, {}, fu) && ov.totals.due === 1, { totals: ov.totals, nav: coldDueCount(mix, {}, fu) });
+check("went cold counted apart", ov.totals.cold === 1, ov.totals);
+check("'Goldman Sachs & Co.' and 'Goldman Sachs' are one bank row", ov.rows.filter((r) => /goldman/i.test(r.bank)).length === 1, ov.rows.map((r) => r.bank));
+check("bank rows sorted by total, biggest first", ov.rows[0].total >= ov.rows[ov.rows.length - 1].total);
+const schedOv = coldByBank(mix, {}, fu, [{ key: "g1", at: ago(-1), to: "d@ms.com", contact: mix[3], via: "gmail" }]);
+check("scheduled emails counted on the person's bank", schedOv.rows.find((r) => /morgan/i.test(r.bank))?.scheduled === 1, schedOv.rows);
+
+const month = new Date(); month.setDate(1);
+const emailedDay = new Date(Date.now() - 3 * DAY);
+const waiting: Contact = { ...base, id: "w", status: "sent", sentAt: emailedDay.toISOString(), lastTouchAt: emailedDay.toISOString() };
+const cal = calendarDays([waiting], new Date(emailedDay.getFullYear(), emailedDay.getMonth(), 1));
+check("an email with no reply → green on that day", cal.get(dayKey(emailedDay))?.green.some((c) => c.id === "w") === true, [...cal.keys()]);
+const answered: Contact = { ...waiting, id: "r", status: "replied", repliedAt: ago(1), lastHeardAt: ago(1) };
+const cal2 = calendarDays([answered], new Date(emailedDay.getFullYear(), emailedDay.getMonth(), 1));
+check("they replied since → not green on the old day", !cal2.get(dayKey(emailedDay))?.green.length);
+const heardDay = new Date(Date.now() - 2 * DAY);
+const owe: Contact = { ...base, id: "o", status: "replied", sentAt: ago(6), lastTouchAt: ago(6), lastEmailedAt: ago(6), repliedAt: heardDay.toISOString(), lastHeardAt: heardDay.toISOString() };
+const cal3 = calendarDays([owe], new Date(heardDay.getFullYear(), heardDay.getMonth(), 1));
+check("they wrote and you didn't answer → red on that day", cal3.get(dayKey(heardDay))?.red.some((c) => c.id === "o") === true, [...cal3.entries()].map(([k, v]) => [k, v.red.length, v.green.length]));
+const done = calendarDays([{ ...owe, handledAt: ago(0) }], new Date(heardDay.getFullYear(), heardDay.getMonth(), 1));
+check("'No reply needed' (done by hand) → not red", !done.get(dayKey(heardDay))?.red.length);
+const moved = calendarDays([{ ...waiting, status: "ignored" }], new Date(emailedDay.getFullYear(), emailedDay.getMonth(), 1));
+check("moved on → not green", !moved.get(dayKey(emailedDay))?.green.length);
+
+const warm = warmByBank([owe, { ...mix[0] }, { ...base, id: "x", name: "Chat Person", bank: "Goldman Sachs", chats: [{ id: "k", at: ago(30), notes: "" } as never], lastEmailedAt: ago(28) }]);
+const gs = warm.find((g) => /goldman/i.test(g.bank));
+check("warm: only people in a conversation (not cold ones)", warm.flatMap((g) => g.people).every((p) => p.c.id !== "a"), warm.map((g) => g.people.map((p) => p.c.id)));
+check("warm: someone who wrote you is listed with what's owed", warm.flatMap((g) => g.people).find((p) => p.c.id === "o")?.owed === "reply");
+check("warm: how you know them is said (chat)", /chat/i.test(gs?.people.find((p) => p.c.id === "x")?.how ?? ""), gs?.people);
 
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");
 if (failed) process.exit(1);

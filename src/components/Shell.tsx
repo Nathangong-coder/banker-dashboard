@@ -7,7 +7,7 @@ import { KeyRound, Loader2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useExtensionBridge } from "@/lib/applyBridge";
 import { useSaveShortcut } from "./useSaveShortcut";
-import { nextAction } from "@/lib/followups";
+import { coldDueCount } from "@/lib/followupsOverview";
 import { upkeepPatches } from "@/lib/contactUpkeep";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
@@ -226,10 +226,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const settings = useStore((s) => s.settings);
   const due = useMemo(
     () =>
-      contacts.filter((c) => {
-        const a = nextAction(c, fu, banks[`${c.bank}|${c.region}`]);
-        return a.isDue && (a.kind === "follow_up" || a.kind === "move_on");
-      }).length,
+      // Same number as Cold outreach's Due list and its Overview (lib/followupsOverview.ts): went-cold follow-ups aren't in it.
+      coldDueCount(contacts, banks, fu),
     [contacts, banks, fu],
   );
   useDailyNudge(ready ? due : 0);
