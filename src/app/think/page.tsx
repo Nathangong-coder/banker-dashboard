@@ -11,8 +11,12 @@ import { connectGmail, latestFrom } from "@/lib/gmail";
 import { DAY, cn } from "@/lib/util";
 import { REASON_LABEL, referrers, reminderRows, resolvedPeople, standing, todoRows, wrongAddress, type Age, type Reminder, type ReminderRow, type TodoRow, type Triage } from "@/lib/thinkAbout";
 import type { Contact } from "@/lib/types";
-import { Badge, Button, Card, Empty, Input, Menu, Segmented, toast } from "@/components/ui";
+import { Badge, Button, Card, Empty, Input, Menu, Modal, Segmented, toast } from "@/components/ui";
 import { PersonLinks } from "@/components/PersonLinks";
+import { WarmOverview } from "@/components/WarmOverview";
+import { referralCount, ReferralsTable } from "@/components/Referrals";
+import { AvailabilityReply, CallInvite } from "@/components/Scheduling";
+import { useRouter } from "next/navigation";
 
 /**
  * Things to think about (owner, 2026-11-21/22): who you owe a thank-you or a reply, who replied and went quiet, and
@@ -20,7 +24,7 @@ import { PersonLinks } from "@/components/PersonLinks";
  * email conversation (lib/mailLedger.ts). Noise is filtered by rules and an AI read with safeguards; every filtered or
  * resolved person stays one click away.
  */
-type Tab = "reply" | "quiet" | "chats" | "reminders" | "everyone";
+type Tab = "overview" | "reply" | "quiet" | "chats" | "referrals" | "reminders" | "everyone";
 type AgeFilter = "all" | Age;
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -34,7 +38,7 @@ const KIND_LABEL: Record<TodoRow["kind"], string> = { thank: "thank-you owed", r
 
 function initialTab(): Tab {
   const t = new URLSearchParams(window.location.search).get("tab");
-  return t === "quiet" || t === "reminders" || t === "chats" || t === "everyone" ? t : "reply";
+  return t === "reply" || t === "quiet" || t === "reminders" || t === "chats" || t === "referrals" || t === "everyone" ? t : "overview";
 }
 
 export default function ThinkPage() {
@@ -42,11 +46,12 @@ export default function ThinkPage() {
   const mine = useStore((s) => s.coverage.reminders);
   const settings = useStore((s) => s.settings);
   const [tab, setTabState] = useState<Tab>(initialTab);
+  const router = useRouter();
   const [now] = useState(() => Date.now());
   const [busy, setBusy] = useState<string | null>(null);
   const setTab = (t: Tab) => {
     setTabState(t);
-    window.history.replaceState(null, "", t === "reply" ? "/think" : `/think?tab=${t}`);
+    window.history.replaceState(null, "", t === "overview" ? "/think" : `/think?tab=${t}`);
   };
   const rows = useMemo(() => todoRows(contacts, now), [contacts, now]);
   const reminders = useMemo(() => reminderRows(contacts, mine), [contacts, mine]);
@@ -125,14 +130,22 @@ export default function ThinkPage() {
           value={tab}
           onChange={setTab}
           tabs={[
+            { id: "overview", label: "Overview" },
             { id: "reply", label: "Reply or thank", count: shown(replyRows).length },
             { id: "quiet", label: "Went quiet", count: shown(quietRows).length },
             { id: "chats", label: "Chats to confirm", count: checks.length },
+            { id: "referrals", label: "Referrals", count: referralCount(contacts) || undefined },
             { id: "reminders", label: "Reminders", count: remindersDue || undefined },
             { id: "everyone", label: "Everyone" },
           ]}
         />
         <div>
+          {tab === "overview" && <WarmOverview />}
+          {tab === "referrals" && (
+            <Card className="overflow-hidden">
+              <ReferralsTable onOpen={(c) => router.push(`/person?id=${encodeURIComponent(c.id)}`)} />
+            </Card>
+          )}
           {tab === "reply" && <TodoTab rows={replyRows} resolved={resolved} now={now} empty="Everyone who wrote to you or talked with you has an answer." />}
           {tab === "quiet" && <TodoTab rows={quietRows} resolved={[]} now={now} empty="Everyone who replied is either talking to you or waiting on you." quiet />}
           {tab === "chats" && <ChatsToConfirm list={checks} />}
@@ -293,6 +306,30 @@ function RowShell({ open, onToggle, head, children }: { open: boolean; onToggle:
       </button>
       {open && <div className="grid gap-3 px-4 pb-4 pl-10">{children}</div>}
     </li>
+  );
+}
+
+/**
+ * They wrote back: offer your free times in their zone, or send the invite (was Cold outreach's "Replied" tab; owner,
+ * 2026-11-23: it duplicated this list).
+ */
+function CallButtons({ c }: { c: Contact }) {
+  const [open, setOpen] = useState<"times" | "invite" | null>(null);
+  return (
+    <>
+      <Button size="sm" variant="secondary" onClick={() => setOpen("times")} title="Draft a reply in their thread with your free times, in their time zone">
+        Offer times
+      </Button>
+      <Button size="sm" variant="secondary" onClick={() => setOpen("invite")} title="Create the calendar invite">
+        Send invite
+      </Button>
+      <Modal open={open === "times"} onClose={() => setOpen(null)} title={`Offer times to ${c.name}`} wide>
+        {open === "times" && <AvailabilityReply c={c} onClose={() => setOpen(null)} />}
+      </Modal>
+      <Modal open={open === "invite"} onClose={() => setOpen(null)} title={`Invite ${c.name}`} wide>
+        {open === "invite" && <CallInvite c={c} onClose={() => setOpen(null)} />}
+      </Modal>
+    </>
   );
 }
 
@@ -546,6 +583,7 @@ function TodoTab({ rows, resolved, now, empty, quiet }: { rows: TodoRow[]; resol
               Keep it on my list
             </Button>
           )}
+          {r.kind === "reply" && !r.hidden && <CallButtons c={r.c} />}
           {quiet && !r.hidden && (
             <Menu
               label="Snooze"

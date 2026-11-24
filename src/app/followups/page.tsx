@@ -6,18 +6,18 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/Link";
 import { CalendarClock, Check, ChevronDown, Clock, MailPlus, MessageSquare, RefreshCw, Send, Trash2, UserPlus, UserX, X } from "lucide-react";
 import { bankKey, useStore } from "@/lib/store";
+import { canonBank } from "@/lib/banks";
 import { isVpPlus } from "@/lib/seniority";
-import { STALE_AFTER_DAYS, nextAction, pendingFollowUpDraft, rollupBanks, sendLabel, type BankRollup, type NextAction } from "@/lib/followups";
+import { STALE_AFTER_DAYS, nextAction, pendingFollowUpDraft, sendLabel, type NextAction } from "@/lib/followups";
 import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
-import { deskKey, deskOf, liveByDesk, nextUpByDesk } from "@/lib/desks";
 import { connectGmail, deleteDraft, gmailConnected, upsertDraft } from "@/lib/gmail";
 import { notePixelDraft, pixelFor } from "@/lib/trackingActions";
 import { describeSync, syncAllWithGmail } from "@/lib/gmailSync";
 import { callApi } from "@/lib/api";
 import { fillPlaceholders, followUpTemplate, hasAiSlots, missingPlaceholders, AI_SLOT } from "@/lib/template";
-import { EMAIL_FONTS, type BankStatus, type Contact, type Region, REGIONS, regionInfo } from "@/lib/types";
+import { EMAIL_FONTS, type Contact } from "@/lib/types";
 import { addDays, cn, fmtDate, relDays } from "@/lib/util";
-import { Badge, Button, Card, CardHeader, Empty, Field, Input, Menu, Modal, Progress, Segmented, Select, StatusBadge, toast } from "@/components/ui";
+import { Badge, Button, Card, Empty, Menu, Modal, Progress, Segmented, toast } from "@/components/ui";
 import { PersonLinks } from "@/components/PersonLinks";
 import { scheduledRows } from "@/lib/scheduledRows";
 import { gmailSearchUrl } from "@/lib/gmailLinks";
@@ -27,29 +27,28 @@ const whenLabel = (iso: string) => new Date(iso).toLocaleString("en-US", { weekd
 import { ObjectHeader, Tabs } from "@/components/crm";
 import { IceCube } from "@/components/AppNav";
 import { ContactModal } from "@/components/ContactModal";
-import { FilterBar, useContactFilter, type Filters } from "@/components/ContactsTable";
 import { aiReady, googleClientId } from "@/lib/keys";
 import { bodyToPlain, withSignature } from "@/lib/emailFormat";
 import { FOLLOW_UP_SPREAD } from "@/lib/sendWindow";
 import { cancelSend, earlySends, fixEarlySends, gmailScheduledOverlap, lateSends, moveLateSends, queueSends, sendableDraft, syncServer } from "@/lib/serverSync";
-import { repliedToSchedule, ScheduleCallsTable } from "@/components/Scheduling";
 import { SeniorGmailCheck } from "@/components/SeniorGmailCheck";
 import { replacementLists, ReplacementsTable } from "@/components/Replacements";
-import { referralCount, ReferralsTable } from "@/components/Referrals";
-import { OffSheetTable, useOffSheet } from "@/components/OffSheet";
+import { OffSheetTable } from "@/components/OffSheet";
 import { DuplicatesNotice, OffSheetNotice } from "@/components/TrackerHygiene";
 import { ScheduledRow } from "@/components/ScheduledRow";
 import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
 import { OpenBadge } from "@/components/OpenBadge";
+import { ColdOverview } from "@/components/ColdOverview";
 
-type Tab = "due" | "bankers" | "banks";
+type Tab = "overview" | "queue";
 
 export default function FollowupsPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>(() => {
-    const t = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("tab");
-    return t === "bankers" || t === "banks" ? t : "due";
+    // Overview first (owner, 2026-11-23); a link with ?view= / ?bank= (from the overview's counts) opens the queue.
+    const q = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+    return q?.get("tab") === "queue" || q?.get("view") || q?.get("bank") ? "queue" : "overview";
   });
   // Reminders moved to its own page (owner, 2026-11-23); old links and Google's return (?server=…) land there.
   useEffect(() => {
@@ -60,6 +59,12 @@ export default function FollowupsPage() {
     }
   }, [router]);
   const toReminders = () => router.push("/reminders");
+  // Which list + bank the queue opens on (the overview's counts, or ?view= / ?bank= links). `n` remounts it.
+  const [queue, setQueue] = useState<{ view: View; bank?: string; n: number }>(() => {
+    const q = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+    const v = q?.get("view");
+    return { view: v === "drafted" || v === "scheduled" ? v : "due", bank: q?.get("bank") ?? undefined, n: 0 };
+  });
   const [open, setOpen] = useState<Contact | null>(null);
   const [sync, setSync] = useState<{ done: number; total: number } | null>(null);
   const s = useStore();
@@ -105,15 +110,22 @@ export default function FollowupsPage() {
         value={tab}
         onChange={setTab}
         tabs={[
-          { id: "due", label: "Queue" },
-          { id: "bankers", label: "By banker" },
-          { id: "banks", label: "By bank" },
+          { id: "overview", label: "Overview" },
+          { id: "queue", label: "Queue" },
         ]}
       />
 
-      {tab === "due" && <DueList onOpen={setOpen} onSync={runSync} syncing={!!sync} onAuto={toReminders} />}
-      {tab === "bankers" && <BankerTable onOpen={setOpen} />}
-      {tab === "banks" && <BankBoard onOpen={setOpen} />}
+      {tab === "overview" && (
+        <ColdOverview
+          onOpen={(view, bank) => {
+            setQueue({ view, bank, n: queue.n + 1 });
+            setTab("queue");
+          }}
+        />
+      )}
+      {tab === "queue" && (
+        <DueList key={queue.n} initialView={queue.view} bank={queue.bank} onClearBank={() => setQueue({ view: queue.view, n: queue.n + 1 })} onOpen={setOpen} onSync={runSync} syncing={!!sync} onAuto={toReminders} />
+      )}
 
       <ContactModal contact={open} onClose={() => setOpen(null)} />
     </>
@@ -254,10 +266,14 @@ function useActions() {
 }
 
 /** The lists inside the Queue card. */
-type View = "due" | "drafted" | "scheduled" | "replied" | "referrals" | "offsheet" | "replace";
+type View = "due" | "drafted" | "scheduled";
+/** Side lists opened from their one-line notices (not tabs: owner, 2026-11-23 "a lot of sections that don't make sense"). */
+type Side = "offsheet" | "replace" | null;
 
-function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => void; onSync: () => void; syncing: boolean; onAuto: () => void }) {
-  const { contacts, banks, settings } = useStore();
+function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, onClearBank }: { onOpen: (c: Contact) => void; onSync: () => void; syncing: boolean; onAuto: () => void; initialView?: View; bank?: string; onClearBank?: () => void }) {
+  const { contacts: everyone, banks, settings } = useStore();
+  // From the overview's counts: just that bank (canonBank key).
+  const contacts = useMemo(() => (bank ? everyone.filter((c) => canonBank(c.bank || "Unknown") === bank) : everyone), [everyone, bank]);
   const act = useActions();
   const [busy, setBusy] = useState<string | null>(null);
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
@@ -430,17 +446,15 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   };
 
   // Which list the card shows. "replace" (Needs a new contact) only appears when someone's outreach failed.
-  const [view, setView] = useState<View>("due");
+  const [view, setView] = useState<View>(initialView);
+  const [side, setSide] = useState<Side>(null);
   const [showCold, setShowCold] = useState(false);
-  const replied = useMemo(() => repliedToSchedule(contacts).length, [contacts]);
   const fails = useMemo(() => replacementLists(contacts), [contacts]);
   const replaceCount = fails.suspected.length + fails.failed.length;
-  const referrals = useMemo(() => referralCount(contacts), [contacts]);
-  const offSheet = useOffSheet().filter((p) => p.bankDomain).length;
   // Every scheduled EMAIL (Gmail's Scheduled folder + Coverage's queue), not one row per person (lib/scheduledRows.ts).
   const gmailScheduled = useStore((s) => s.offSheet.scheduled);
   const sRows = useMemo(() => scheduledRows(gmailScheduled, contacts), [gmailScheduled, contacts]);
-  const shownView: View = view === "replace" && !replaceCount ? "due" : view;
+  const shownView: View = view;
 
   /** "Select all" for one list (the table header checkbox). */
   const selectAll = (list: { c: Contact }[]) => {
@@ -577,20 +591,16 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
     ["due", "Due", behind.length],
     ["drafted", "Drafted", drafted.length],
     ["scheduled", "Scheduled", sRows.length],
-    ["replied", "Replied", replied],
-    ["referrals", "Referrals", referrals],
-    ["offsheet", "Not in tracker", offSheet],
   ];
-  if (replaceCount) views.push(["replace", "Needs new contact", replaceCount]);
 
   const caption: Record<View, string> = {
     due: `Emailed ${settings.followUp.firstAfterDays}+ days ago with no reply. Overdue first.`,
     drafted: auto ? "First emails written but not sent. Schedule sends each one at the person's slot." : "First emails written but not sent or scheduled. Send or schedule them in Gmail, then sync.",
     scheduled: "Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out.",
-    replied: "Offer your free times in their time zone, then send the calendar invite.",
-    referrals: "Intros and referrals found in bankers' replies (confirm them), and what's next with each person you were referred to.",
-    offsheet: "Bankers you emailed at their work address who have no row in your tracker (e.g. a thank-you sent right after an info session). Add them so follow-ups are timed.",
-    replace: "Bounced emails, people who left, and clear no's: no follow-ups go to them, and their desk gets someone new.",
+  };
+  const sideTitle: Record<NonNullable<Side>, [string, string]> = {
+    offsheet: ["Emailed, not in your tracker", "Bankers you emailed at their work address who have no row in your tracker (e.g. a thank-you sent right after an info session). Add them so follow-ups are timed."],
+    replace: ["Needs a new contact", "Bounced emails, people who left, and clear no's: no follow-ups go to them, and their desk gets someone new."],
   };
 
   // One primary action per list (the rest are per row or in the selection bar).
@@ -668,7 +678,12 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
           </Notice>
         )}
         <DuplicatesNotice />
-        {view !== "offsheet" && <OffSheetNotice onView={() => setView("offsheet")} />}
+        {bank && (
+          <Notice tone="neutral" icon={<Check />} action={<Button size="sm" variant="ghost" onClick={onClearBank}>Show all banks</Button>}>
+            Showing <b>{contacts[0]?.bank ?? bank}</b> only.
+          </Notice>
+        )}
+        <OffSheetNotice onView={() => setSide("offsheet")} />
         <EarlySendsBanner />
         <DoubleSendsBanner />
         <LateSendsBanner />
@@ -677,7 +692,7 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
             tone={fails.suspected.length ? "amber" : "neutral"}
             icon={<UserPlus />}
             action={
-              <Button size="sm" variant="ghost" onClick={() => setView("replace")}>
+              <Button size="sm" variant="ghost" onClick={() => setSide("replace")}>
                 Review
               </Button>
             }
@@ -842,11 +857,16 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
             </ListTable>
           ))}
 
-        {shownView === "replied" && <ScheduleCallsTable onOpen={onOpen} />}
-        {shownView === "referrals" && <ReferralsTable onOpen={onOpen} />}
-        {shownView === "offsheet" && <OffSheetTable />}
-        {shownView === "replace" && <ReplacementsTable onOpen={onOpen} />}
       </Card>
+
+      <Modal open={!!side} onClose={() => setSide(null)} title={side ? sideTitle[side][0] : ""} wide>
+        {side && (
+          <>
+            <p className="mb-3 text-[12.5px] text-muted">{sideTitle[side][1]}</p>
+            {side === "offsheet" ? <OffSheetTable /> : <ReplacementsTable onOpen={onOpen} />}
+          </>
+        )}
+      </Modal>
 
       <Modal open={!!batch} onClose={() => setBatch(null)} title={`Schedule ${batch?.length ?? 0} email${batch?.length === 1 ? "" : "s"}`} wide>
         {batch && <BatchSchedule contacts={batch} onClose={() => setBatch(null)} />}
@@ -855,192 +875,6 @@ function DueList({ onOpen, onSync, syncing, onAuto }: { onOpen: (c: Contact) => 
   );
 }
 
-function BankerTable({ onOpen }: { onOpen: (c: Contact) => void }) {
-  const { contacts, banks, settings } = useStore();
-  const [f, setF] = useState<Filters>({ q: "", bank: "", region: "", status: "", email: "" });
-  const rows = useContactFilter(
-    contacts.filter((c) => c.status !== "new"),
-    f,
-  );
-  return (
-    <Card className="overflow-hidden">
-      <FilterBar f={f} setF={setF} contacts={contacts} extra={<span className="text-[12px] text-muted">{rows.length} people contacted</span>} />
-      {rows.length === 0 ? (
-        <Empty title="Nobody contacted yet">Draft emails, then mark them sent or sync with Gmail.</Empty>
-      ) : (
-        <div className="max-h-[68vh] overflow-auto">
-          <table className="w-full min-w-[720px] text-[13px]">
-            <thead className="sticky top-0 bg-subtle text-left text-[11px] tracking-wide text-muted uppercase">
-              <tr className="border-b border-line">
-                <th className="px-4 py-2 font-medium">Banker</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 text-right font-medium">First email</th>
-                <th className="px-3 py-2 text-right font-medium">Last touch</th>
-                <th className="px-3 py-2 text-right font-medium">F/U</th>
-                <th className="px-4 py-2 font-medium">Next</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map((c) => {
-                const a = nextAction(c, settings.followUp, banks[bankKey(c.bank, c.region)]);
-                return (
-                  <tr key={c.id} onClick={() => onOpen(c)} className="h-11 cursor-pointer hover:bg-subtle">
-                    <td className="px-4 py-2">
-                      <div className="font-medium">{c.name}</div>
-                      <div className="text-[12px] text-muted">
-                        {c.bank} · {c.region}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusBadge status={c.status} />
-                    </td>
-                    <td className="num px-3 py-2 text-right text-[12px]">{c.sentAt ? fmtDate(c.sentAt) : c.scheduledAt ? <span className="text-muted">sched. {fmtDate(c.scheduledAt)}</span> : "—"}</td>
-                    <td className="num px-3 py-2 text-right text-[12px]">{fmtDate(c.lastTouchAt)}</td>
-                    <td className="num px-3 py-2 text-right text-[12px]">{c.followUps}</td>
-                    <td className="px-4 py-2 text-[12px]">
-                      {a.kind !== "none" && a.label ? (
-                        <span className={cn(a.isDue && "font-medium text-red")}>
-                          {a.label}
-                          {a.due && !a.unknownDate && <span className="text-muted"> · {relDays(a.due)}</span>}
-                        </span>
-                      ) : (
-                        <span className="text-muted">{a.label || "—"}</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-const BANK_STATUS: Record<BankStatus, string> = {
-  active: "Active",
-  applied: "Applied",
-  paused: "Paused",
-  offer: "Offer / Superday",
-  moved_on: "Moved on",
-};
-
-function BankBoard({ onOpen }: { onOpen: (c: Contact) => void }) {
-  const { contacts, banks, settings, upsertBank, setStatus } = useStore();
-  const rollups = useMemo(() => rollupBanks(contacts, banks, settings.followUp), [contacts, banks, settings.followUp]);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const live = useMemo(() => liveByDesk(contacts), [contacts]);
-  const cap = settings.followUp.livePerBank;
-  const regions: Region[] = REGIONS.map((x) => x.id).filter((id) => id === "SF" || id === "NY" || rollups.some((r) => r.meta.region === id));
-
-  const row = (r: BankRollup) => {
-    const isOpen = expanded === r.meta.key;
-    // The live cap is per team here (SF Tech and SF Generalist each get their own slots).
-    const desks = [...new Map(r.contacts.map((c) => [deskKey(c), deskOf(c).team])).entries()]
-      .map(([key, team]) => ({ key, team, live: live.get(key)?.live ?? 0 }))
-      .filter((d) => d.live > 0);
-    const upNext = r.meta.status === "active" ? nextUpByDesk(r.contacts, contacts, cap) : undefined;
-    return (
-      <li key={r.meta.key} className={cn(r.meta.status === "moved_on" && "opacity-60")}>
-        <div className="flex items-center gap-3 px-4 py-2.5">
-          <button onClick={() => setExpanded(isOpen ? null : r.meta.key)} className="min-w-0 flex-1 text-left">
-            <div className="font-medium">{r.meta.name}</div>
-            <div className="num text-[11.5px] text-muted">
-              {r.reached}/{r.total} reached · {r.replied} replied · {Math.round(r.responseRate * 100)}%
-              {r.nextDue && ` · next ${relDays(r.nextDue)}`}
-            </div>
-            {upNext && (
-              <div className="mt-0.5 text-[11.5px] text-green">
-                Open slot → next up: {upNext.name}
-                {upNext.team && ` (${upNext.team})`}
-                {!upNext.email && " (needs email)"}
-              </div>
-            )}
-          </button>
-{desks.length === 0 ? (
-            <Badge tone="neutral">
-              <span className="num">0 live</span>
-            </Badge>
-          ) : (
-            desks.map((d) => (
-              <Badge key={d.key} tone={d.live >= cap ? "amber" : "neutral"}>
-                <span className="num">
-                  {d.team || "no team"} {d.live}/{cap}
-                </span>
-              </Badge>
-            ))
-          )}
-          {r.due > 0 && <Badge tone="red">{r.due} due</Badge>}
-          <Select
-            className="h-7 text-[12px]"
-            value={r.meta.status}
-            aria-label={`${r.meta.name} status`}
-            onChange={(e) => {
-              const status = e.target.value as BankStatus;
-              upsertBank({ ...r.meta, status });
-              if (status === "moved_on") {
-                const ids = r.contacts.filter((c) => ["sent", "followed_up", "new", "drafted"].includes(c.status)).map((c) => c.id);
-                if (ids.length && confirmMoveOn(r.meta.name, ids.length)) setStatus(ids, "ignored", "Bank moved on");
-              }
-            }}
-          >
-            {Object.entries(BANK_STATUS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </Select>
-        </div>
-        {isOpen && (
-          <div className="border-t border-dashed border-line bg-subtle px-4 py-3">
-            <div className="mb-3 grid grid-cols-2 gap-3">
-              <Field label="Application deadline">
-                <Input type="date" className="h-8" value={r.meta.deadline ?? ""} onChange={(e) => upsertBank({ ...r.meta, deadline: e.target.value })} />
-              </Field>
-              <Field label="Email domain (for enrichment)">
-                <Input className="h-8" placeholder="e.g. gs.com" value={r.meta.domain ?? ""} onChange={(e) => upsertBank({ ...r.meta, domain: e.target.value.trim() })} />
-              </Field>
-            </div>
-            <ul className="space-y-1">
-              {r.contacts.map((c) => (
-                <li key={c.id} className="flex items-center gap-2 text-[12.5px]">
-                  <button onClick={() => onOpen(c)} className="flex-1 truncate text-left hover:underline">
-                    {c.name} <span className="text-muted">· {c.position}</span>
-                  </button>
-                  <StatusBadge status={c.status} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </li>
-    );
-  };
-
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
-      {regions.map((region) => {
-        const list = rollups.filter((r) => r.meta.region === region).sort((a, b) => b.due - a.due || a.meta.name.localeCompare(b.meta.name));
-        const totals = list.reduce((t, r) => ({ reached: t.reached + r.reached, replied: t.replied + r.replied }), { reached: 0, replied: 0 });
-        return (
-          <Card key={region}>
-            <CardHeader
-              title={regionInfo(region).label}
-              sub={`${list.length} banks · ${totals.reached} reached · ${totals.replied} replies`}
-            />
-            {list.length ? <ul className="divide-y divide-line">{list.map(row)}</ul> : <div className="p-6 text-center text-[13px] text-muted">No banks here yet.</div>}
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
-function confirmMoveOn(bank: string, n: number) {
-  // Inline confirm is acceptable here: it's a deliberate bulk status change.
-  return window.confirm(`Also mark ${n} un-replied contact${n > 1 ? "s" : ""} at ${bank} as "Moved on"?`);
-}
 
 /** "3 not on the first open day: Tara Goel (window full on Tue …)…" */
 function movedNote(why: Map<string, string>) {
