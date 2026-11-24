@@ -24,6 +24,7 @@
     "check:selectors": "tsx scripts/check-selectors.mts",
     "check:night": "tsx scripts/check-night.mts",
     "check:accuracy": "tsx scripts/check-accuracy.mts",
+    "check:followups": "tsx scripts/check-followups.mts",
     "check:grid": "tsx scripts/check-grid.mts",
     "check:conversations": "tsx scripts/check-conversations.mts",
     "build:plugin": "node scripts/build-plugin.mjs",
