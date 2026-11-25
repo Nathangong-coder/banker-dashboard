@@ -1,6 +1,8 @@
 import { canonBank } from "./banks";
 import { nextAction } from "./followups";
-import { isEngaged, lastFromYou, todoFor, type TodoKind } from "./thinkAbout";
+import { isEngaged, lastFromYou, queuedFor, todoFor, type TodoKind } from "./thinkAbout";
+import { chatRecords } from "./chatEvidence";
+import { teamOf } from "./locationTeam";
 import type { ScheduledRow } from "./scheduledRows";
 import type { BankMeta, Contact, Settings } from "./types";
 
@@ -84,8 +86,14 @@ function yourEmailDays(c: Contact): string[] {
   return at.filter((x): x is string => !!x);
 }
 
-/** The calendar for the month that `monthStart` falls in (and a week either side, for the grid's edge days). */
-export function calendarDays(contacts: Contact[], monthStart: Date, now = Date.now()): Map<string, CalDay> {
+/**
+ * The calendar for the month that `monthStart` falls in (and a week either side, for the grid's edge days).
+ * - cold (owner, 2026-11-24: "each date only has the most recent email sent to them / unaddressed email in that
+ *   chain"): green = your LATEST email to someone who hasn't written since; red = their latest email you haven't answered.
+ * - warm: green = days you had a chat (logged, a call, a confirmed meeting); red = a chat you haven't followed up on
+ *   (thank-you owed) or a conversation that needs a check-in, on that chat's day (else your last email's).
+ */
+export function calendarDays(contacts: Contact[], monthStart: Date, now = Date.now(), mode: "cold" | "warm" = "cold"): Map<string, CalDay> {
   const from = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1 - 7).getTime();
   const to = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 8).getTime();
   const out = new Map<string, CalDay>();
@@ -99,16 +107,78 @@ export function calendarDays(contacts: Contact[], monthStart: Date, now = Date.n
     return t >= from && t < to && t <= now;
   };
   for (const c of contacts) {
-    if (!outOfPlay(c)) {
-      const heard = [c.lastHeardAt, c.repliedAt].filter((x): x is string => !!x).sort().pop();
-      const days = new Set<string>();
-      for (const at of yourEmailDays(c)) if (inRange(at) && !(heard && heard > at)) days.add(dayKey(at));
-      for (const k of days) cell(k).green.push(c);
-    }
     const t = todoFor(c, now);
-    if (t?.kind === "reply" && !t.hidden && inRange(t.at)) cell(dayKey(t.at)).red.push(c);
+    if (mode === "cold") {
+      if (!outOfPlay(c)) {
+        const heard = [c.lastHeardAt, c.repliedAt].filter((x): x is string => !!x).sort().pop();
+        const last = yourEmailDays(c).filter((x) => Date.parse(x) <= now).sort().pop();
+        if (last && inRange(last) && !(heard && heard > last)) cell(dayKey(last)).green.push(c);
+      }
+      if (t?.kind === "reply" && !t.hidden && inRange(t.at)) cell(dayKey(t.at)).red.push(c);
+      continue;
+    }
+    const chats = chatRecords(c, now).filter((r) => r.state !== "rejected" && r.state !== "check");
+    const days = new Set(chats.map((r) => dayKey(r.at)).filter((k) => chats.some((r) => dayKey(r.at) === k && inRange(r.at))));
+    for (const k of days) cell(k).green.push(c);
+    if (t && !t.hidden && (t.kind === "thank" || t.kind === "check_in" || t.kind === "quiet") && Date.parse(t.due) <= now) {
+      const anchor = chats.map((r) => r.at).sort().pop() ?? t.at;
+      if (inRange(anchor)) cell(dayKey(anchor)).red.push(c);
+    }
   }
   return out;
+}
+
+/* ---- Cold by bank: office · team → who you emailed and where each stands ---- */
+
+export interface ColdPerson {
+  c: Contact;
+  /** "Follow-up #2 sent 11/24", "Replied 11/20", "Scheduled Tue 11/25", "Emailed 11/17". */
+  state: string;
+  /** The date that state is from (sorting). */
+  at: string;
+  tone: "waiting" | "replied" | "scheduled" | "done";
+}
+export interface ColdBank {
+  key: string;
+  bank: string;
+  emailed: number;
+  waiting: number;
+  replied: number;
+  lastAt: string;
+  teams: { label: string; people: ColdPerson[] }[];
+}
+
+/** Everyone you've emailed, by bank → office · team (like Bank coverage's expanded rows). */
+export function coldBankPeople(contacts: Contact[], now = Date.now()): ColdBank[] {
+  const by = new Map<string, ColdBank & { byTeam: Map<string, ColdPerson[]> }>();
+  for (const c of contacts) {
+    const last = yourEmailDays(c).filter((x) => Date.parse(x) <= now).sort().pop();
+    const queued = queuedFor(c, now);
+    if (!last && !queued) continue;
+    const heard = [c.lastHeardAt, c.repliedAt].filter((x): x is string => !!x).sort().pop();
+    let p: ColdPerson;
+    if (queued) p = { c, state: `Scheduled ${md(queued)}`, at: queued, tone: "scheduled" };
+    else if (heard && (!last || heard > last)) p = { c, state: `Replied ${md(heard)}`, at: heard, tone: "replied" };
+    else if (outOfPlay(c)) p = { c, state: `Moved on · last email ${md(last!)}`, at: last!, tone: "done" };
+    else if (c.followUps > 0) p = { c, state: `Follow-up #${c.followUps} sent ${md(last!)}`, at: last!, tone: "waiting" };
+    else p = { c, state: `Emailed ${md(last!)}`, at: last!, tone: heard ? "replied" : "waiting" };
+    const key = canonBank(c.bank || "Unknown") || "unknown";
+    let b = by.get(key);
+    if (!b) by.set(key, (b = { key, bank: c.bank || "Unknown", emailed: 0, waiting: 0, replied: 0, lastAt: "", teams: [], byTeam: new Map() }));
+    b.emailed++;
+    if (p.tone === "waiting") b.waiting++;
+    if (heard) b.replied++;
+    if (p.at > b.lastAt) b.lastAt = p.at;
+    const team = teamOf(c);
+    const label = [c.region !== "Other" ? c.region : c.location || "", team || "Team unknown"].filter(Boolean).join(" · ");
+    b.byTeam.set(label, [...(b.byTeam.get(label) ?? []), p]);
+  }
+  return [...by.values()]
+    .map(({ byTeam, ...b }) => ({
+      ...b,
+      teams: [...byTeam.entries()].map(([label, people]) => ({ label, people: people.sort((x, y) => y.at.localeCompare(x.at)) })).sort((x, y) => x.label.localeCompare(y.label)),
+    }))
+    .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 }
 
 /* ---- Warm overview ---- */

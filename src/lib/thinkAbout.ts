@@ -293,7 +293,13 @@ function theirText(c: Contact, heard: string | undefined) {
  * conversation (lib/mailLedger.ts) when we have it. Resolved (until they write again), referrers (for nudges), and
  * the AI / rule filter decide `hidden`; the caller decides whether hidden rows show.
  */
+/** What you owe this person now, unless you dismissed that exact nudge (a new email either way = a new key). */
 export function todoFor(c: Contact, now: number, isReferrer: (c: Contact) => boolean = () => false): TodoRow | null {
+  const row = todoForRaw(c, now, isReferrer);
+  return row && c.dismissed?.includes(row.key) ? null : row;
+}
+
+function todoForRaw(c: Contact, now: number, isReferrer: (c: Contact) => boolean): TodoRow | null {
   if (closed(c) || c.mail?.otherPerson) return null;
   const ex = lastExchange(c);
   const heard = ex.heard && Date.parse(ex.heard) <= now ? ex.heard : undefined;

@@ -5,7 +5,9 @@
  */
 import { dayLinks, gmailDraftUrl, gmailSearchUrl, gmailThreadUrl, personQuery } from "../src/lib/gmailLinks";
 import { scheduledRows } from "../src/lib/scheduledRows";
-import { calendarDays, coldByBank, coldDueCount, dayKey, warmByBank } from "../src/lib/followupsOverview";
+import { calendarDays, coldBankPeople, coldByBank, coldDueCount, dayKey, warmByBank } from "../src/lib/followupsOverview";
+import { followUpKey, todoGroup, todoItems } from "../src/lib/todoList";
+import { todoFor } from "../src/lib/thinkAbout";
 import { DEFAULT_SETTINGS } from "../src/lib/defaults";
 import { nextAction } from "../src/lib/followups";
 import { confirmHandoff, handoffItems } from "../src/lib/handoff";
@@ -124,6 +126,43 @@ const dueWaiting: Contact = { ...mix[0], gmailSchedule: { draftId: "r", messageI
 check("a follow-up waiting on the Gmail list isn't in Due or the nav count", coldDueCount([dueWaiting], {}, fu) === 0, nextAction(dueWaiting, fu));
 check("…and it shows as scheduled", nextAction(dueWaiting, fu).kind === "scheduled");
 check("a failed one is due again", coldDueCount([{ ...dueWaiting, gmailSchedule: { ...dueWaiting.gmailSchedule!, state: "failed" } }], {}, fu) === 1);
+
+/* ---- Round 2 (owner, 2026-11-24) ---- */
+// Cold calendar: only each person's most recent email.
+const twoEmails: Contact = { ...base, id: "t2", status: "followed_up", followUps: 1, sentAt: ago(9), lastTouchAt: ago(2), lastEmailedAt: ago(2) };
+const m2 = new Date(Date.now() - 2 * DAY);
+const calCold = calendarDays([twoEmails], new Date(m2.getFullYear(), m2.getMonth(), 1), Date.now(), "cold");
+const calColdPrev = calendarDays([twoEmails], new Date(new Date(Date.now() - 9 * DAY).getFullYear(), new Date(Date.now() - 9 * DAY).getMonth(), 1), Date.now(), "cold");
+check("cold calendar: only the most recent email is green", calCold.get(dayKey(m2))?.green.length === 1 && !calColdPrev.get(dayKey(new Date(Date.now() - 9 * DAY)))?.green.length, [...calCold.keys()]);
+// Warm calendar: chat days green; a chat with no follow-up red.
+const chatDay = new Date(Date.now() - 3 * DAY);
+const chatted: Contact = { ...base, id: "ch", status: "call_scheduled", repliedAt: ago(10), lastHeardAt: ago(10), lastEmailedAt: ago(11), chats: [{ id: "k1", at: chatDay.toISOString(), kind: "coffee_chat", notes: "" } as never] };
+const warmCal = calendarDays([chatted], new Date(chatDay.getFullYear(), chatDay.getMonth(), 1), Date.now(), "warm");
+check("warm calendar: a chat day is green", warmCal.get(dayKey(chatDay))?.green.some((c) => c.id === "ch") === true, [...warmCal.entries()].map(([k, v]) => [k, v.green.length, v.red.length]));
+check("warm calendar: no thank-you since → red on the chat day", warmCal.get(dayKey(chatDay))?.red.some((c) => c.id === "ch") === true);
+const thanked = calendarDays([{ ...chatted, lastEmailedAt: ago(2) }], new Date(chatDay.getFullYear(), chatDay.getMonth(), 1), Date.now(), "warm");
+check("warm calendar: thanked → green only", thanked.get(dayKey(chatDay))?.green.length === 1 && !thanked.get(dayKey(chatDay))?.red.length);
+
+// Dismissing a nudge.
+const dueOne = mix[0];
+const key = followUpKey(dueOne)!;
+check("a follow-up nudge has a key", !!key && key.startsWith("fu:1:"), key);
+check("dismissed follow-up → not due, not counted", coldDueCount([{ ...dueOne, dismissed: [key] }], {}, fu) === 0 && nextAction({ ...dueOne, dismissed: [key] }, fu).isDue === false);
+const ownRow = todoFor(owe, Date.now());
+check("dismissed reply nudge → gone from the warm list", !!ownRow && todoFor({ ...owe, dismissed: [ownRow.key] }, Date.now()) === null);
+check("…until they write again (a new email = a new key)", !!todoFor({ ...owe, dismissed: [ownRow!.key], lastHeardAt: ago(0), repliedAt: ago(0) }, Date.now()));
+
+// The master to-do list.
+const tItems = todoItems([owe, dueOne, mix[3]], {}, fu, undefined);
+check("to-do: a reply owed and a follow-up due, nothing for someone just emailed", tItems.some((i) => i.kind === "reply" && i.c?.id === "o") && tItems.some((i) => i.kind === "follow_up" && i.c?.id === "a") && !tItems.some((i) => i.c?.id === "d"), tItems.map((i) => `${i.kind}:${i.c?.id}`));
+check("to-do: a dismissed follow-up is left out", !todoItems([{ ...dueOne, dismissed: [key] }], {}, fu, undefined).length);
+check("to-do groups: yesterday → overdue, today → today, in 3 days → this week", todoGroup(ago(1)) === "overdue" && todoGroup(new Date().toISOString()) === "today" && todoGroup(ago(-3)) === "week");
+
+// Cold by bank: teams and who you emailed.
+const cb = coldBankPeople([{ ...mix[0], team: "Tech" }, { ...mix[1], team: "Tech", region: "NY" }, mix[2], owe]);
+const gsb = cb.find((b) => /goldman/i.test(b.bank));
+check("cold by bank: grouped by office · team, only people you emailed", !!gsb && gsb.teams.length === 2 && gsb.emailed === 2 && !cb.some((b) => b.teams.some((t) => t.people.some((p) => p.c.id === "c"))), gsb?.teams.map((t) => t.label));
+check("cold by bank: each person says where it stands", gsb?.teams.flatMap((t) => t.people).every((p) => /Emailed|Follow-up|Replied|Scheduled/.test(p.state)) === true, gsb?.teams.flatMap((t) => t.people.map((p) => p.state)));
 
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");
 if (failed) process.exit(1);

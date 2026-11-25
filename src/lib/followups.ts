@@ -49,6 +49,8 @@ export function nextAction(c: Contact, s: Settings["followUp"], bank?: BankMeta)
     const due = moveOnDate(c, s)!;
     return { kind: "move_on", due, isDue: false, label: `Moves on ${dayLabel(due)} unless they reply` };
   }
+  // You dismissed this follow-up as wrong (it comes back only after another email either way).
+  if (c.dismissed?.includes(followUpKeyAt(c, last))) return { kind: "follow_up", isDue: false, label: "Dismissed" };
   let due = addDays(last, c.followUps === 0 ? s.firstAfterDays : s.nextAfterDays);
   if (c.snoozeUntil && new Date(c.snoozeUntil) > due) due = new Date(c.snoozeUntil);
   const stale = !c.snoozeUntil && now.getTime() - due.getTime() > STALE_AFTER_DAYS * 86_400_000;
@@ -100,6 +102,16 @@ export function earliestSend(c: Pick<Contact, "lastEmailedAt" | "lastTouchAt" | 
  * When the next email to this person goes out by itself: Gmail Schedule send, a send queued on the server, or a draft
  * on the "to schedule in Gmail" list (lib/handoff.ts; a failed one isn't).
  */
+/** The key a follow-up nudge is dismissed by: which follow-up, after which email (local day of your last email). */
+const followUpKeyAt = (c: Pick<Contact, "followUps">, lastIso: string) => {
+  const last = new Date(lastIso);
+  return `fu:${c.followUps + 1}:${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+};
+export function followUpKey(c: Contact, now = new Date()): string | undefined {
+  const last = lastEmailOf(c, now);
+  return last ? followUpKeyAt(c, last) : undefined;
+}
+
 export function queuedAt(c: Pick<Contact, "scheduledAt" | "serverSend" | "gmailSchedule">) {
   const t = [c.scheduledAt, c.serverSend?.sendAt, c.gmailSchedule && c.gmailSchedule.state !== "failed" ? c.gmailSchedule.at : undefined].filter((x): x is string => !!x).sort();
   return t[0];

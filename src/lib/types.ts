@@ -125,6 +125,11 @@ export interface Contact {
    * puts in Gmail's own Schedule send at `at`. `scheduled` only once Gmail's Scheduled folder shows it (lib/handoff.ts).
    */
   gmailSchedule?: GmailSchedule;
+  /**
+   * Nudges you dismissed as wrong (owner, 2026-11-24): their keys (`fu:<step>:<last email day>` for a follow-up,
+   * `todoFor`'s key for a reply / thank-you / check-in). A new email either way makes a new key, so it comes back then.
+   */
+  dismissed?: string[];
   sentAt?: string;
   lastTouchAt?: string;
   /** A send queued in Gmail ("Schedule send") that hasn't gone out yet. Follow-ups are timed from the real send. */
