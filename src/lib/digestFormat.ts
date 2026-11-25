@@ -1,3 +1,4 @@
+import { BLOCK_PRESETS, pickBanks, type Block, type TextLayout, type WarmLine } from "./textLayout";
 /**
  * The WhatsApp text, shared by the browser (reminders.ts) and the server (api/server/tick), so both send the same
  * thing: sections by action ("*Thank-you (call today)* (2)", "*Follow-up #2* (5)"), one "• Name: email" line per
@@ -154,6 +155,11 @@ export interface ProgressBank {
   /** Application: "applied" (in, not closed), "open" (a posting is tracked), "closed", or none known. */
   app?: "applied" | "open" | "closed";
   next?: string;
+  /** For the text builder's filters (lib/textLayout.ts): tier (0 = bulge bracket), urgency 0–100, starred, last activity. */
+  tier?: number;
+  urgency?: number;
+  starred?: boolean;
+  lastAt?: string;
 }
 
 export interface NightProgress {
@@ -163,6 +169,10 @@ export interface NightProgress {
   /** Up to three "do better" lines. */
   tips: string[];
   week: { emails: number; replies: number; chats: number };
+  /** Every bank (not just the big ones), for a custom text's Banks blocks. */
+  all?: ProgressBank[];
+  /** Everyone you're in touch with, for a custom text's Warm block. */
+  warm?: WarmLine[];
 }
 
 /** One emoji for a text message: ⚪ nothing, 🔴 bad, 🟡 emailed / early, 🟢 chats or a referral. */
@@ -208,7 +218,10 @@ export function nightMessages(o: {
   app: string;
   perSection?: number;
   maxLen?: number;
+  /** Your own text (lib/textLayout.ts). Undefined = the Standard text below, unchanged. */
+  layout?: TextLayout | null;
 }): string[] {
+  if (o.layout) return layoutMessages(o, o.layout);
   const per = o.perSection ?? 8;
   const maxLen = o.maxLen ?? 1500;
   const out: string[] = [];
@@ -236,6 +249,79 @@ export function nightMessages(o: {
   };
   group("✅ *To-do*", isTodoLabel, () => `${o.app}/followups`, o.todoExtra);
   group("📬 *Outreach*", (l) => !isTodoLabel(l), (l) => (l === LABELS.fillOffices ? `${o.app}/coverage` : `${o.app}/followups`), o.outreachExtra);
+  return out;
+}
+
+/* ---------------- your own text (owner, 2026-11-24; lib/textLayout.ts) ---------------- */
+
+/** Must-do = what can't wait: thank-yous, replies owed, tomorrow's calls. */
+const MUST_DO = new Set<string>([LABELS.thankToday, LABELS.infoSession, LABELS.thankOwed, LABELS.replyOwed, LABELS.prepTomorrow]);
+
+function layoutMessages(o: Parameters<typeof nightMessages>[0], layout: TextLayout): string[] {
+  const maxLen = o.maxLen ?? 1500;
+  const p = o.progress;
+  const sections = (list: DigestItem[], per: number, emails: boolean, link: (label: string) => string) => {
+    const by = new Map<string, DigestItem[]>();
+    for (const it of list) by.set(it.label, [...(by.get(it.label) ?? []), it]);
+    return [...by.entries()]
+      .sort((a, b) => sectionRank(a[0]) - sectionRank(b[0]))
+      .map(([label, l]) => {
+        const shown = l.slice(0, per).map((it) => (emails && it.email ? `• ${it.name}: ${it.email}` : `• ${it.name}`));
+        if (l.length > per) shown.push(`  +${l.length - per} more: ${link(label)}`);
+        return [`*${label}* (${l.length})`, ...shown].join("\n");
+      });
+  };
+  const block = (b: Block): string => {
+    if (b.type === "banks") {
+      if (!p) return "";
+      const list = pickBanks(p.all ?? p.banks, b);
+      if (!list.length) return "";
+      const fields = new Set(b.fields?.length ? b.fields : ["step", "chats", "app", "next"]);
+      const title = BLOCK_PRESETS.banks.find((x) => x.id === b.preset)?.label ?? "Banks";
+      const lines = list.map((x) => {
+        const facts = [
+          fields.has("chats") ? (x.chats ? `${x.chats} chat${x.chats > 1 ? "s" : ""}` : x.emailed ? `${x.emailed} emailed${x.live ? `, ${x.live} waiting` : ""}` : "nobody emailed") : "",
+          fields.has("app") ? (x.app === "applied" ? "applied" : x.app === "open" ? "app open" : x.app === "closed" ? "app closed" : "") : "",
+        ].filter(Boolean);
+        return `${healthEmoji(x.score)} ${x.bank}${fields.has("step") && x.column ? ` (${x.column})` : ""}${facts.length ? `: ${facts.join(" · ")}` : ""}${fields.has("next") && x.next ? ` → ${x.next}` : ""}`.slice(0, 200);
+      });
+      return [`📊 *${title}*${o.progressNote ? ` ${o.progressNote}` : ""}`, ...lines].join("\n");
+    }
+    if (b.type === "week") return p && (p.week.emails || p.week.replies || p.week.chats) ? `This week: ${p.week.emails} emailed · ${p.week.replies} replied · ${p.week.chats} chat${p.week.chats === 1 ? "" : "s"}` : "";
+    if (b.type === "tips") return p?.tips.length ? ["*Do better*", ...p.tips.slice(0, b.max ?? 3).map((t) => `• ${t}`)].join("\n") : "";
+    if (b.type === "todo") {
+      const list = o.items.filter((it) => isTodoLabel(it.label) && (b.preset !== "must_do" || MUST_DO.has(it.label)));
+      const extra = o.todoExtra ?? [];
+      if (!list.length && !extra.length) return "";
+      return ["✅ *To-do*", ...sections(list, b.perKind ?? 8, b.preset !== "names_only", () => `${o.app}/todo`), ...extra].join("\n\n");
+    }
+    if (b.type === "cold") {
+      const list = o.items.filter((it) => !isTodoLabel(it.label) && (b.preset === "followups_offices" || it.label !== LABELS.fillOffices));
+      const extra = b.scheduledLine === false ? [] : (o.outreachExtra ?? []);
+      if (!list.length && !extra.length) return "";
+      return ["📬 *Outreach*", ...sections(list, b.perKind ?? 8, true, (l) => (l === LABELS.fillOffices ? `${o.app}/coverage` : `${o.app}/followups`)), ...extra].join("\n\n");
+    }
+    if (b.type === "warm") {
+      const now = Date.now();
+      const days = (b.days ?? 21) * 86_400_000;
+      const people = (p?.warm ?? []).filter((w) =>
+        b.preset === "check_in" ? w.owed === "check_in" || w.owed === "quiet" : b.preset === "not_heard" ? !w.lastAt || now - Date.parse(w.lastAt) >= days : true,
+      );
+      if (!people.length) return "";
+      const max = b.max ?? 25;
+      const byBank = new Map<string, string[]>();
+      for (const w of people.slice(0, max)) byBank.set(w.bank, [...(byBank.get(w.bank) ?? []), w.name]);
+      const title = b.preset === "check_in" ? "Check in" : b.preset === "not_heard" ? `Not heard from in ${b.days ?? 21}+ days` : "Everyone you're in touch with";
+      return [`🤝 *${title}* (${people.length})`, ...[...byBank.entries()].map(([bank, names]) => `• *${bank}*: ${names.join(", ")}`), people.length > max ? `  +${people.length - max} more: ${o.app}/think` : ""].filter(Boolean).join("\n");
+    }
+    if (b.type === "links") return `Process tracker: ${o.app}/process\nTo-do: ${o.app}/todo`;
+    return "";
+  };
+  const out: string[] = [];
+  for (const m of layout.messages) {
+    const parts = m.blocks.map(block).filter(Boolean);
+    if (parts.length) out.push(...split(parts.join("\n\n"), maxLen));
+  }
   return out;
 }
 

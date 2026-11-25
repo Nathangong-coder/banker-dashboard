@@ -1,3 +1,4 @@
+import type { TextLayout } from "@/lib/textLayout";
 import type { HandoffItem } from "@/lib/handoff";
 import "server-only";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -46,6 +47,8 @@ export interface Account {
   planAt?: string;
   /** The text's "Big banks" message, computed by the dashboard (lib/nightProgress.ts). */
   progress?: NightProgress;
+  /** Your own 9 PM text (lib/textLayout.ts); absent = Standard. */
+  textLayout?: TextLayout;
   /** When you last searched for jobs + how often the 9 PM text reminds you (unset = no reminder). */
   jobRun?: { lastAt?: string; everyDays: number };
   /** People today's calendar events are matched against (name + email only). */

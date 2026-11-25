@@ -1,3 +1,4 @@
+import { cleanLayout } from "@/lib/textLayout";
 import { errorResponse } from "@/lib/server/http";
 import { DIGEST_DAY, DIGEST_ERR, accountIds, appUrl, captureUrl, db, getSends, loadAccount, localNow, type Account } from "@/lib/server/accounts";
 import { accessToken, infoSessionsBetween, listEvents } from "@/lib/server/google";
@@ -127,6 +128,7 @@ async function nightText(a: Account, app: string) {
     outreachExtra,
     app,
     maxLen: 1400,
+    layout: cleanLayout(a.textLayout),
   });
   if (!messages.length) return false;
   try {

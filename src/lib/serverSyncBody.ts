@@ -42,11 +42,38 @@ export const SyncBody = z.object({
           }),
         )
         .max(15),
+      /** Every bank, for your own text's Banks blocks (lib/textLayout.ts). */
+      all: z
+        .array(
+          z.object({
+            bank: z.string().max(200),
+            score: z.number().min(0).max(100).nullable(),
+            column: z.string().max(60).optional(),
+            chats: z.number().int().min(0).max(9999),
+            emailed: z.number().int().min(0).max(9999),
+            live: z.number().int().min(0).max(9999),
+            app: z.enum(["applied", "open", "closed"]).optional(),
+            next: z.string().max(200).optional(),
+            tier: z.number().int().min(0).max(99).optional(),
+            urgency: z.number().min(0).max(200).optional(),
+            starred: z.boolean().optional(),
+            lastAt: z.string().max(40).optional(),
+          }),
+        )
+        .max(150)
+        .optional(),
+      /** Everyone you're in touch with, for your own text's Warm block. */
+      warm: z
+        .array(z.object({ name: z.string().max(200), bank: z.string().max(200), lastAt: z.string().max(40).optional(), owed: z.string().max(20).optional() }))
+        .max(300)
+        .optional(),
       tips: z.array(z.string().max(300)).max(5),
       week: z.object({ emails: z.number().int().min(0), replies: z.number().int().min(0), chats: z.number().int().min(0) }),
     })
     .nullable()
     .optional(),
+  /** Your own 9 PM text (lib/textLayout.ts); null = Standard. Checked with cleanLayout on the server. */
+  textLayout: z.unknown().optional(),
   /** People whose replies / thank-yous / intros the server watches in Gmail (needs read access). */
   track: z
     .array(

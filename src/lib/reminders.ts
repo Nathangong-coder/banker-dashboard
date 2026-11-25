@@ -1,5 +1,6 @@
 "use client";
 
+import type { TextLayout } from "./textLayout";
 import type { BankMeta, Contact, Settings } from "./types";
 import { nextAction } from "./followups";
 import { LABELS, TEXT_HOUR, afterCallLines, isTextDay, isTodoLabel, nextTextDay, nightMessages, type DigestItem, type NightProgress } from "./digestFormat";
@@ -54,7 +55,7 @@ const QUIET_STATUSES = ["replied", "call_scheduled", "done", "ignored"];
  * The evening WhatsApp text for today as the server sends it (lib/digestFormat.ts#nightMessages): big banks, to-do,
  * outreach. Without the server, calendar calls aren't in it. Null when there's nothing to say.
  */
-export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], opts: { progress?: NightProgress; extraItems?: DigestItem[]; maxLen?: number } = {}) {
+export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMeta>, s: Settings["followUp"], opts: { progress?: NightProgress; extraItems?: DigestItem[]; maxLen?: number; layout?: TextLayout | null } = {}) {
   const today = localDay(new Date());
   const plan = nightPlan(contacts, banks, s, 1)[today] ?? { items: [], queued: 0 };
   const items = [...plan.items, ...(opts.extraItems ?? [])];
@@ -67,6 +68,7 @@ export function whatsappDigest(contacts: Contact[], banks: Record<string, BankMe
     outreachExtra: extras.filter((l) => l.startsWith("Already scheduled")),
     app,
     maxLen: opts.maxLen ?? 1400,
+    layout: opts.layout,
   });
   return messages.length ? { day: today, count: items.length, todo: items.filter((i) => isTodoLabel(i.label)).length, messages } : null;
 }

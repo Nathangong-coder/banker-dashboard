@@ -1,4 +1,5 @@
 import { SyncBody as Body } from "@/lib/serverSyncBody";
+import { cleanLayout } from "@/lib/textLayout";
 import { HttpError, errorResponse } from "@/lib/server/http";
 import { DIGEST_DAY, DIGEST_ERR, authAccount, db, dropSends, getSends, putSend, saveAccount, seal, type QueuedSend } from "@/lib/server/accounts";
 import { ensureTick, queueSendJob } from "@/lib/server/jobs";
@@ -34,6 +35,11 @@ export async function POST(req: Request) {
       ...(b.track ? { track: b.track } : {}),
       ...(b.handoff ? { handoff: b.handoff, handoffAt: new Date().toISOString() } : {}),
     };
+    if (b.textLayout !== undefined) {
+      const layout = cleanLayout(b.textLayout);
+      if (layout) next.textLayout = layout;
+      else delete next.textLayout;
+    }
     if (b.progress === null) delete next.progress;
     else if (b.progress) next.progress = b.progress;
     if (b.jobRun === null) delete next.jobRun;

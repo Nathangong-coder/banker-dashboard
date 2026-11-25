@@ -3,7 +3,7 @@ import type { CoverageRow } from "./coverage";
 import type { JobApplication } from "./apply";
 import { canonBank } from "./banks";
 import { TIER_ORDER, tierRank } from "./coverage";
-import { bankWork, gotReply, isLive, wasEmailed } from "./bankWork";
+import { bankUrgency, bankWork, gotReply, isLive, wasEmailed } from "./bankWork";
 import { bankHealth } from "./bankHealth";
 import type { NightProgress, ProgressBank } from "./digestFormat";
 import { DAY } from "./util";
@@ -60,13 +60,15 @@ export function nightProgress(args: {
   columnOf?: (key: string) => string | undefined;
   max?: number;
   now?: number;
+  /** Also every bank with tier / urgency / starred (your own 9 PM text needs them). */
+  all?: boolean;
 }): NightProgress {
   const now = args.now ?? Date.now();
   const big = bigBanks(args.rows, args.starred);
-  const banks: ProgressBank[] = big.slice(0, args.max ?? 10).map((r) => {
+  const line = (r: CoverageRow, extra: boolean): ProgressBank => {
     const h = bankHealth(r.allContacts);
     const w = bankWork({ name: r.name, contacts: r.allContacts, allContacts: args.contacts, banks: args.banks, followUp: args.followUp, now });
-    return {
+    const base: ProgressBank = {
       bank: r.name,
       score: h.score,
       column: args.columnOf?.(r.key),
@@ -76,7 +78,14 @@ export function nightProgress(args: {
       app: appState(r, args.jobs, args.target ? { cycle: args.target, target: args.target } : undefined),
       next: w.next?.label,
     };
-  });
+    if (!extra) return base;
+    // For your own text's Banks blocks (lib/textLayout.ts): tier, urgency, starred, last activity.
+    const last = r.allContacts.map((c) => [c.lastEmailedAt, c.lastTouchAt, c.sentAt, c.lastHeardAt].filter(Boolean).sort().pop() ?? "").sort().pop();
+    return { ...base, tier: tierRank(r.tier), urgency: Math.round(bankUrgency(r, w, { now }).score), starred: !!args.starred?.[r.key], lastAt: last || undefined };
+  };
+  const banks: ProgressBank[] = big.slice(0, args.max ?? 10).map((r) => line(r, false));
+  // Every bank, only when you have your own text (it costs a bank work-up each).
+  const all = args.all ? args.rows.filter((r) => r.bucket !== "hidden" && !r.notOffered).slice(0, 150).map((r) => line(r, true)) : undefined;
 
   // What to do better, most important first.
   const tips: string[] = [];
@@ -100,7 +109,7 @@ export function nightProgress(args: {
     replies: args.contacts.filter((c) => inWeek(c.repliedAt) || inWeek(c.lastHeardAt)).length,
     chats: args.contacts.reduce((n, c) => n + (c.chats ?? []).filter((x) => inWeek(x.at)).length + (c.call && inWeek(c.call.at) && !(c.chats ?? []).some((x) => inWeek(x.at)) ? 1 : 0), 0),
   };
-  return { at: new Date(now).toISOString(), banks, tips: tips.slice(0, 3), week };
+  return { at: new Date(now).toISOString(), banks, tips: tips.slice(0, 3), week, ...(all ? { all } : {}) };
 }
 
 const names = (rows: Pick<CoverageRow, "name">[], n = 3) => rows.slice(0, n).map((r) => r.name).join(", ") + (rows.length > n ? ` +${rows.length - n}` : "");

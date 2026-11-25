@@ -1,6 +1,7 @@
 "use client";
 
 import { handoffItems } from "./handoff";
+import { warmByBank } from "./followupsOverview";
 import { create } from "zustand";
 import { useStore } from "./store";
 import { requireAccount, useSession } from "./session";
@@ -199,13 +200,16 @@ function withOfficeGaps(plan: ReturnType<typeof nightPlan>, st: ReturnType<typeo
 }
 
 /** The text's "Big banks" message (lib/nightProgress.ts). Never fails the sync: no message 1 tonight instead. */
-export function progressFor(st: ReturnType<typeof useStore.getState>) {
+/** `all`: include every bank + the warm list even before a layout is saved (the text builder's preview). */
+export function progressFor(st: ReturnType<typeof useStore.getState>, opts: { all?: boolean } = {}) {
   try {
     // Banks only (RCLCO isn't one), on your target summer's board.
     const rows = buildCoverage({ contacts: st.contacts, tables: st.tables, targets: st.targets, coverage: { ...st.coverage, plan: undefined }, banks: st.banks, followUp: st.settings.followUp }).filter((r) => isBankFirm(r, st.coverage));
     const target = targetSummer([st.apply.profile.gradDate, st.settings.profile.year]);
     const cols = columnsOf(st.coverage);
-    return nightProgress({
+    const custom = opts.all || !!st.settings.textLayout;
+    const p = nightProgress({
+      all: custom,
       rows,
       contacts: st.contacts,
       banks: st.banks,
@@ -219,6 +223,9 @@ export function progressFor(st: ReturnType<typeof useStore.getState>) {
         return cols.find((c) => c.id === id)?.label;
       },
     });
+    // Your own text's Warm block: everyone you're in touch with (name, bank, last email, what you owe them).
+    if (custom) p.warm = warmByBank(st.contacts).flatMap((g) => g.people.map((w) => ({ name: w.c.name, bank: g.bank, lastAt: w.lastAt, owed: w.owed }))).slice(0, 300);
+    return p;
   } catch {
     return undefined;
   }
@@ -242,6 +249,8 @@ export function syncServer(): Promise<ServerStatus | null> {
       whatsapp: whatsappOn ? { phone: k.whatsappPhone, apiKey: k.whatsappApiKey } : null,
       digests: whatsappOn ? withOfficeGaps(nightPlan(st.contacts, st.banks, st.settings.followUp, 14, reminderRows(st.contacts, st.coverage.reminders)), st) : {},
       progress: whatsappOn ? progressFor(st) : undefined,
+      // Your own text's layout (null = Standard); the server renders tonight's text with it.
+      textLayout: st.settings.textLayout ?? null,
       // People you're talking to, so the server can match today's Google Calendar events to them for thank-you reminders.
       people: whatsappOn ? calendarPeople(st.contacts) : [],
       // Everyone the server should watch in Gmail for replies, thank-yous and intros (used only with read access).

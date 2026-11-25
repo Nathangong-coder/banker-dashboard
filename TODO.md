@@ -2,8 +2,8 @@
 
 ## 0000. Next (owner, 2026-11-23)
 
-- **9 PM text builder** (spec `docs/superpowers/specs/2026-11-23-text-builder-design.md`, approved): messages of blocks,
-  presets per block (Banks by color / prestige / urgency, To-do, Cold, Warm), split into texts, live preview.
+- ✅ 2026-11-24 **9 PM text builder** (Reminders → Your text).
+- **Live check:** a custom text actually arriving at 9 PM; the To-do / Cold / Warm pages on your real data.
 - **Live checks for the 2026-11-23 Follow-ups work:** extension 1.20.0 "Schedule in Gmail" on one real draft (Gmail
   selectors unverified); Claude in Chrome via the `schedule-in-gmail` skill; the overviews at 390 px.
 - **Landing page by product** (after the above; owner will add a demo video later): sign-up pitch, product categories.

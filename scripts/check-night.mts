@@ -22,6 +22,7 @@ import { DEFAULT_SEND_WINDOW, planBatch, planSends, zonedDate } from "../src/lib
 import { matchEvent, looksLikeChat } from "../src/lib/calendarMatch";
 import { latestIso } from "../src/lib/util";
 import { DEFAULT_SETTINGS } from "../src/lib/defaults";
+import { TEXT_PRESETS, pickBanks, type TextLayout } from "../src/lib/textLayout";
 import type { Contact } from "../src/lib/types";
 
 let failed = 0;
@@ -371,6 +372,42 @@ function addDaysIso(iso: string, n: number) {
   const d = new Date(iso);
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+/* ---- 9 PM text builder (owner, 2026-11-24): your own messages, blocks, presets ---- */
+{
+  const pb = (bank: string, score: number | null, tier: number, extra: Record<string, unknown> = {}) => ({ bank, score, chats: score && score >= 44 ? 2 : 0, emailed: 3, live: 1, tier, urgency: 50 - tier * 5, ...extra });
+  const all = [pb("Goldman Sachs", 60, 0, { starred: true }), pb("Evercore", 25, 1), pb("Lazard", 35, 1), pb("Houlihan Lokey", null, 2), pb("Moelis", 70, 1, { app: "applied" })];
+  const progress = { at: new Date().toISOString(), banks: all.slice(0, 2), all, tips: ["Reply within a day."], week: { emails: 5, replies: 2, chats: 1 } };
+  const items: DigestItem[] = [
+    { contactId: "a", name: "Jane Park", email: "jane@gs.com", label: LABELS.replyOwed },
+    { contactId: "b", name: "Tom Li", email: "tom@ms.com", label: LABELS.checkIn },
+    { contactId: "c", name: "Ann Wu", email: "ann@jef.com", label: "Follow-up #1" },
+    { contactId: "d", name: "Evercore", label: LABELS.fillOffices },
+  ];
+  const base = { items, progress, app: "https://x.test", maxLen: 1400 };
+  const std = nightMessages(base);
+  check("no layout → today's text, unchanged", JSON.stringify(nightMessages({ ...base, layout: undefined })) === JSON.stringify(std));
+  check("red banks only", pickBanks(all, { type: "banks", preset: "needs_help", colors: ["red"] }).map((b) => b.bank).join() === "Evercore", pickBanks(all, { type: "banks", preset: "needs_help", colors: ["red"] }).map((b) => b.bank));
+  check("top tier by prestige, max 2", pickBanks(all, { type: "banks", preset: "top_tier", max: 2 }).map((b) => b.bank).join() === "Goldman Sachs,Evercore", pickBanks(all, { type: "banks", preset: "top_tier", max: 2 }).map((b) => b.bank));
+  check("most urgent first", pickBanks(all, { type: "banks", preset: "urgent" })[0].bank === "Goldman Sachs");
+  check("starred only", pickBanks(all, { type: "banks", preset: "starred" }).map((b) => b.bank).join() === "Goldman Sachs");
+  check("going well = green", pickBanks(all, { type: "banks", preset: "going_well" }).every((b) => (b.score ?? 0) >= 44));
+  for (const [id, p] of Object.entries(TEXT_PRESETS)) {
+    if (!p.layout) continue;
+    const m = nightMessages({ ...base, layout: p.layout });
+    check(`preset "${p.label}" renders, no empty message`, m.length >= 1 && m.every((x) => x.trim().length > 0), { id, m });
+  }
+  const mustDo: TextLayout = { messages: [{ blocks: [{ type: "todo", preset: "must_do" }] }] };
+  const md = nightMessages({ ...base, layout: mustDo }).join("\n");
+  check("must-do: replies yes, check-ins no", md.includes("Jane Park") && !md.includes("Tom Li"), md);
+  const namesOnly = nightMessages({ ...base, layout: { messages: [{ blocks: [{ type: "todo", preset: "names_only" }] }] } }).join("\n");
+  check("names only: no emails", namesOnly.includes("Jane Park") && !namesOnly.includes("jane@gs.com"), namesOnly);
+  const split = nightMessages({ ...base, layout: { messages: [{ blocks: [{ type: "banks", preset: "urgent" }] }, { blocks: [{ type: "cold", preset: "followups" }] }] } });
+  check("two messages → two texts; cold follow-ups without offices", split.length === 2 && split[1].includes("Ann Wu") && !split[1].includes("Offices to fill"), split);
+  check("an empty block is skipped, an empty message isn't sent", nightMessages({ ...base, items: [], layout: { messages: [{ blocks: [{ type: "todo", preset: "everything" }] }, { blocks: [{ type: "banks", preset: "starred" }] }] } }).length === 1);
+  const warm = nightMessages({ ...base, progress: { ...progress, warm: [{ name: "Maya Okafor", bank: "Goldman Sachs", lastAt: new Date(Date.now() - 40 * 86_400_000).toISOString() }, { name: "Raj", bank: "Lazard", lastAt: new Date().toISOString() }] }, layout: { messages: [{ blocks: [{ type: "warm", preset: "not_heard", days: 30 }] }] } }).join("\n");
+  check("warm: haven't heard from in 30+ days, by bank", warm.includes("Maya Okafor") && warm.includes("Goldman Sachs") && !warm.includes("Raj"), warm);
 }
 
 console.log(failed ? `\n${failed} failed` : "\nall night-text checks passed");

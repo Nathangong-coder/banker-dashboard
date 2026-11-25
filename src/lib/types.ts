@@ -561,6 +561,8 @@ export interface Settings {
    * schedule (or manual if they press it)"). undefined = every 6 hours. lib/backgroundJobs.ts.
    */
   syncEvery?: "manual" | "2h" | "6h" | "24h";
+  /** Your own 9 PM text (lib/textLayout.ts). Undefined = the Standard text. */
+  textLayout?: import("./textLayout").TextLayout;
   /** Gmail labels Coverage keeps in step with your tracker (lib/gmailLabels.ts; /labels). undefined = off. */
   labels?: GmailLabelSettings;
 }

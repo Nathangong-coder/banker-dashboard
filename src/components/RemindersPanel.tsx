@@ -65,7 +65,7 @@ export function Reminders() {
   const test = async (channel: "ntfy" | "twilio" | "whatsapp") => {
     setBusy(`test-${channel}`);
     try {
-      const wa = channel === "whatsapp" ? whatsappDigest(contacts, banks, settings.followUp) : null;
+      const wa = channel === "whatsapp" ? whatsappDigest(contacts, banks, settings.followUp, { progress: progressFor(useStore.getState()), layout: settings.textLayout }) : null;
       if (wa) {
         const n = await sendWhatsAppDigest(wa, (title, message) => send("whatsapp", message, undefined, title));
         toast.ok(`Sent${n > 1 ? ` as ${n} messages` : ""}. Check your phone.`);
@@ -271,7 +271,7 @@ function NightTextPreview() {
     } catch {
       /* coverage couldn't be built */
     }
-    const d = whatsappDigest(contacts, banks, followUp, { progress: progressFor(st), extraItems: office, maxLen: 4000 });
+    const d = whatsappDigest(contacts, banks, followUp, { progress: progressFor(st), extraItems: office, maxLen: 4000, layout: st.settings.textLayout });
     return d ? { day: day ?? d.day, messages: d.messages } : null;
   }, [contacts, banks, followUp, coverage]);
   return (

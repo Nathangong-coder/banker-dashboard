@@ -96,7 +96,7 @@ function useDailyWhatsApp(ready: boolean) {
         timer = setTimeout(run, Math.min(at.getTime() - now.getTime() + 1000, 2 ** 31 - 1));
         return;
       }
-      const digest = whatsappDigest(s.contacts, s.banks, s.settings.followUp);
+      const digest = whatsappDigest(s.contacts, s.banks, s.settings.followUp, { layout: s.settings.textLayout });
       const key = `whatsapp:${digest?.day ?? now.toLocaleDateString("en-CA")}`;
       if (!digest || s.scheduled[key]) return;
       // Other open tabs: only one sends.

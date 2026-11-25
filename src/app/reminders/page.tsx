@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import { markServerConnected, syncServer, useServerStatus } from "@/lib/serverSync";
 import { Button, Card, CardHeader, PageHeader, toast } from "@/components/ui";
 import { Reminders } from "@/components/RemindersPanel";
+import { TextBuilder } from "@/components/TextBuilder";
 
 const ago = (iso?: string | null) => {
   if (!iso) return "never";
@@ -100,6 +101,7 @@ export default function RemindersPage() {
           </li>
         </ol>
       </Card>
+      <TextBuilder />
       <Reminders />
     </>
   );

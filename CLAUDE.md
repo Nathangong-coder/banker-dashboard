@@ -519,6 +519,32 @@ never be committed** (`*.xlsx`, `*.pdf`, `.env*` are ignored). The same goes for
 - **9 PM text:** Reminders page syncs on open (its "Last sent / Last text" only exist after a sync in that tab, so they
   read "never"); header Sync ▾ → "Update tonight's text". The plan still only reaches the server from an open tab.
 
+## Follow-ups round 2 + the 9 PM text builder (owner, 2026-11-24; `check:followups`, `check:night`, `check:moveon`)
+
+- **Scheduled emails count once their time passes** (`contactUpkeep.ts#sentFromSchedule`): Justin Lutsch's Gmail
+  Schedule-send follow-up #2 went at 9:30 AM and still showed as due (non-replied people's conversations are re-read
+  only every 2 days). First email → sent; follow-up → +1; others → dates. The new `lastEmailedAt` triggers a re-read.
+- **Dismissable nudges:** `contact.dismissed` = keys (`followups.ts#followUpKey` `fu:<step>:<last email day>`;
+  `todoFor`'s key, `todoFor` wraps `todoForRaw`). A new email either way = a new key. `lib/nudgeActions.ts`
+  (`dismissNudge` returns an undo, `reminderDone`, `chatVerdict`).
+- **To-do** (`/todo`, first under Follow-ups, nav badge = due now): `lib/todoList.ts#todoItems` = warm todos due,
+  cold follow-ups due (not went cold), chats to confirm, reminders ≤ a week, referral steps; `todoGroup` Overdue /
+  Today / This week. "Add reminder" (`components/AddReminder.tsx`; "+ New → Reminder" opens `/todo?new=reminder`).
+- **Cold outreach** = one page: `ColdOverview` (`followupsOverview.ts#coldBankPeople`: bank → office · team → each
+  person's latest state) → `FollowupCalendar mode="cold"` (each person only on their LATEST email day / latest
+  unanswered reply) → the queue (Due / Drafted / Scheduled; row ⋯ → Dismiss). No eyebrow / meta / page tabs.
+- **Warm follow-ups** = one page: "Suggested" (all `todoRows`, Last day / This week / Longer, "Not needed" = dismiss)
+  → `WarmOverview` (banks folded: bank + # people; Draft check-ins) → `FollowupCalendar mode="warm"` (green = chat
+  days from `chatRecords`, red = thank-you / check-in owed on that chat's day). Chats to confirm, reminders, referrals
+  live on To-do; the Everyone tab is gone.
+- **9 PM text builder** (Reminders → "Your text", `components/TextBuilder.tsx`; `lib/textLayout.ts`): messages of blocks
+  (banks / week / tips / todo / cold / warm / links), each with a preset + options (bank colors, rank by prestige /
+  urgency / health / activity, how many, fields; names per part; warm days). Whole-text presets Standard (= no layout,
+  today's text byte for byte) / One short text / Bank focus / Holiday. `settings.textLayout` → sync body `textLayout`
+  (`cleanLayout` on the server) → `account.textLayout` → tick's `nightMessages({ layout })`. With a layout the browser
+  also sends `progress.all` (every bank: tier, urgency, starred, lastAt) and `progress.warm`. Preview = the same
+  render (`whatsappDigest(…, { layout })`); "Send me a test" goes through api/notify.
+
 ## Navigation v2, light/dark, editable firms, invites from the phone (owner, 2026-11-22)
 
 - **Nav:** `components/navData.tsx` (NAV, PROFILE_PAGES, `categoryOf`, `IceCube`) is the one list. (Header: see "two-row header" above.) Categories
