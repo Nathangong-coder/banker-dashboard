@@ -130,6 +130,17 @@ const hits = trackerHits([sent("rbaronia@tidalpartners.com", ""), sent("rhorlick
 check("Tidal thank-yous to people added with no email: all three recorded", hits.length === 3 && hits.find((h) => h.contactId === "td0")?.email === "rbaronia@tidalpartners.com", hits);
 check("…and not listed as 'not in tracker'", !offSheetPeople([sent("rbaronia@tidalpartners.com", "")], tidal, { me: [], banks: ["Tidal Partners"] }).length);
 
+// A Gmail Schedule-send email whose time has passed went out (owner, 2026-11-24: Justin Lutsch's follow-up #2 went at
+// 9:30 AM and still showed as due, because the conversation is only re-read every 2 days for people who haven't replied).
+const nowSched = new Date(2026, 10, 24, 15);
+const went = upkeepPatches([person({ status: "followed_up", followUps: 1, sentAt: local(2026, 11, 4), lastTouchAt: local(2026, 11, 17), lastEmailedAt: local(2026, 11, 17), scheduledAt: local(2026, 11, 24, 9) })], fu, {}, nowSched)[0]?.patch;
+check("scheduled follow-up whose time passed → counted (#2, dates moved, schedule cleared)", went?.followUps === 2 && went?.lastTouchAt === local(2026, 11, 24, 9) && went?.lastEmailedAt === local(2026, 11, 24, 9) && went?.scheduledAt === undefined && "scheduledAt" in (went ?? {}), went);
+const first = upkeepPatches([person({ status: "drafted", followUps: 0, sentAt: undefined, lastTouchAt: undefined, scheduledAt: local(2026, 11, 24, 9) })], fu, {}, nowSched)[0]?.patch;
+check("scheduled first email whose time passed → sent that day", first?.status === "sent" && first?.sentAt === local(2026, 11, 24, 9) && first?.followUps === undefined, first);
+check("still in the future → nothing", !upkeepPatches([person({ status: "drafted", followUps: 0, scheduledAt: local(2026, 11, 25, 9) })], fu, {}, nowSched).length);
+const repliedSched = upkeepPatches([person({ status: "replied", followUps: 1, lastTouchAt: local(2026, 11, 17), lastHeardAt: local(2026, 11, 20), scheduledAt: local(2026, 11, 24, 9) })], fu, {}, nowSched)[0]?.patch;
+check("a check-in to someone who replied → dates move, status and count stay", repliedSched?.lastEmailedAt === local(2026, 11, 24, 9) && repliedSched?.status === undefined && repliedSched?.followUps === undefined, repliedSched);
+
 if (failed) {
   console.log(`\n${failed} check(s) failed`);
   process.exit(1);

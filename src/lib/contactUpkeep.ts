@@ -30,7 +30,13 @@ export function upkeepPatches(contacts: Contact[], s: Settings["followUp"], bank
       Object.assign(patch, office);
       if (office.region !== c.region) event = { at: now.toISOString(), type: "note", note: `Office ${c.region} → ${office.region} (from ${office.regionSource})` };
     }
-    const due = shouldMoveOn(c, s, banks[`${c.bank}|${c.region}`], now);
+    // A Gmail Schedule-send email whose time passed went out: count it now, not at the next Gmail re-read.
+    const went = sentFromSchedule(c, now);
+    if (went) {
+      Object.assign(patch, went);
+      if (went.lastEmailedAt) event = { at: now.toISOString(), type: "note", note: `Scheduled email went out ${dayLabel(new Date(went.lastEmailedAt))}` };
+    }
+    const due = shouldMoveOn({ ...c, ...patch }, s, banks[`${c.bank}|${c.region}`], now);
     if (due) {
       const last = lastEmailOf(c, now)!;
       const note = `No reply after follow-up #${c.followUps} (last email ${dayLabel(last)}): moved on ${dayLabel(due)}`;
@@ -43,6 +49,23 @@ export function upkeepPatches(contacts: Contact[], s: Settings["followUp"], bank
 }
 
 /** The move-on date when it has passed and nothing else is going on (a reply, a call, a referral, a queued email). */
+/**
+ * Gmail's Schedule send went out (owner, 2026-11-24: Justin Lutsch's follow-up #2 went at 9:30 AM and still showed as
+ * due; the conversation of someone who hasn't replied is re-read only every 2 days). Once `scheduledAt` has passed:
+ * a first email → sent that day; a follow-up → one more follow-up; anyone else (a check-in) → only the dates. The
+ * new `lastEmailedAt` also makes the next sync re-read their conversation (mailLedger.ts#ledgerDue), which corrects
+ * it if the email was cancelled.
+ */
+export function sentFromSchedule(c: Contact, now = new Date()): Partial<Contact> | null {
+  if (!c.scheduledAt || Date.parse(c.scheduledAt) > now.getTime()) return null;
+  const at = c.scheduledAt;
+  const last = [c.lastEmailedAt, c.lastTouchAt, c.sentAt].filter((x): x is string => !!x).sort().pop();
+  if (last && last >= at) return { scheduledAt: undefined };
+  if ((c.status === "new" || c.status === "drafted") && !c.sentAt) return { scheduledAt: undefined, status: "sent", sentAt: at, lastTouchAt: at, lastEmailedAt: at };
+  if (c.status === "sent" || c.status === "followed_up") return { scheduledAt: undefined, status: "followed_up", followUps: c.followUps + 1, lastTouchAt: at, lastEmailedAt: at };
+  return { scheduledAt: undefined, lastEmailedAt: at };
+}
+
 export function shouldMoveOn(c: Contact, s: Settings["followUp"], bank?: BankMeta, now = new Date()) {
   if (c.status !== "sent" && c.status !== "followed_up") return undefined;
   if (c.repliedAt || c.call || c.referral || c.outcome) return undefined;
