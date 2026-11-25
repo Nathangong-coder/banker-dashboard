@@ -17,7 +17,8 @@ export function ObjectHeader({
   controls,
 }: {
   icon: ReactNode;
-  eyebrow: ReactNode;
+  /** Optional: Follow-ups pages leave it out (owner, 2026-11-24: "only that word on the top"). */
+  eyebrow?: ReactNode;
   title: ReactNode;
   actions?: ReactNode;
   meta?: ReactNode;
@@ -31,7 +32,7 @@ export function ObjectHeader({
             {icon}
           </span>
           <div className="min-w-0">
-            <div className="text-[12px] leading-tight text-muted">{eyebrow}</div>
+            {eyebrow && <div className="text-[12px] leading-tight text-muted">{eyebrow}</div>}
             <div className="text-[18px] leading-tight font-bold text-ink">{title}</div>
           </div>
         </div>

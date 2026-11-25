@@ -2,12 +2,13 @@
 
 import Link from "@/components/Link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { KeyRound, Loader2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useExtensionBridge } from "@/lib/applyBridge";
 import { useSaveShortcut } from "./useSaveShortcut";
 import { coldDueCount } from "@/lib/followupsOverview";
+import { todoGroup, todoItems } from "@/lib/todoList";
 import { upkeepPatches } from "@/lib/contactUpkeep";
 import { Toaster, toast } from "./ui";
 import { GmailSyncWidget } from "./GmailSyncWidget";
@@ -273,7 +274,19 @@ export function Shell({ children }: { children: ReactNode }) {
   ].filter(Boolean).length;
 
   const toReview = useStore((s) => s.infoSessions.reduce((n, x) => n + (x.pending?.length ?? 0), 0));
-  const badge = (href: string) => (href === "/followups" ? due : href === "/info-sessions" ? toReview : 0);
+  // To-do: what's due now (overdue + today), the same list the page shows (lib/todoList.ts).
+  const reminders = useStore((s) => s.coverage.reminders);
+  // A clock that moves every 10 minutes, so things that come due while the tab is open are counted.
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const i = setInterval(() => setClock(Date.now()), 10 * 60_000);
+    return () => clearInterval(i);
+  }, []);
+  const todoDue = useMemo(
+    () => todoItems(contacts, banks, fu, reminders, clock).filter((i) => todoGroup(i.due, clock) === "overdue" || todoGroup(i.due, clock) === "today").length,
+    [contacts, banks, fu, reminders, clock],
+  );
+  const badge = (href: string) => (href === "/todo" ? todoDue : href === "/followups" ? due : href === "/info-sessions" ? toReview : 0);
 
   if (BARE_PATHS.includes(path))
     return (

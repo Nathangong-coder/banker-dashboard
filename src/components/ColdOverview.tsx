@@ -1,98 +1,101 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import Link from "@/components/Link";
 import { Card, Empty } from "@/components/ui";
-import { FollowupCalendar } from "@/components/FollowupCalendar";
+import { PersonLinks } from "@/components/PersonLinks";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/util";
-import { coldByBank, type ColdBankRow } from "@/lib/followupsOverview";
-import { scheduledRows } from "@/lib/scheduledRows";
+import { coldBankPeople, type ColdPerson } from "@/lib/followupsOverview";
 
 /**
- * Cold outreach → Overview (owner, 2026-11-23: "list each bank and how many people I need to follow up with so I know
- * what is contributing to the outstanding number"). docs/DESIGN.md L-3 + D-1: one table, totals in its last row, no
- * tiles. "Follow-ups due" adds up to the Cold outreach number in the nav. Every count opens that list for that bank.
+ * Cold outreach → by bank (owner, 2026-11-24: "should look more like the dropdown list in Bank coverage, with each
+ * team and who I've messaged"; "follow-ups due is misleading"). One row per bank: how many you emailed, still
+ * waiting, replied. Open it for office · team and each person's latest email (or reply / scheduled send).
  */
-type Col = { k: keyof Omit<ColdBankRow, "key" | "bank" | "total">; label: string; view: "due" | "drafted" | "scheduled"; hint: string };
-const COLS: Col[] = [
-  { k: "due", label: "Follow-ups due", view: "due", hint: "Emailed, no reply, follow-up due now" },
-  { k: "drafted", label: "Drafted", view: "drafted", hint: "First emails written, not sent or scheduled" },
-  { k: "scheduled", label: "Scheduled", view: "scheduled", hint: "In Gmail's Scheduled folder or Coverage's queue" },
-  { k: "cold", label: "Went cold", view: "due", hint: "Follow-up more than a week overdue; move them on or follow up anyway" },
-];
+const md = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+const TONE: Record<ColdPerson["tone"], string> = { waiting: "text-ink-2", replied: "text-green", scheduled: "text-blue", done: "text-muted" };
 
-export function ColdOverview({ onOpen }: { onOpen: (view: "due" | "drafted" | "scheduled", bank?: string) => void }) {
+export function ColdOverview() {
   const contacts = useStore((s) => s.contacts);
-  const banks = useStore((s) => s.banks);
-  const fu = useStore((s) => s.settings.followUp);
-  const gmailScheduled = useStore((s) => s.offSheet.scheduled);
-  const { rows, totals } = useMemo(() => coldByBank(contacts, banks, fu, scheduledRows(gmailScheduled, contacts)), [contacts, banks, fu, gmailScheduled]);
-  const shown = rows.filter((r) => r.total > 0);
-  const num = (n: number, view: Col["view"], bank?: string, tone?: "red") =>
-    n ? (
-      <button type="button" onClick={() => onOpen(view, bank)} className={cn("num font-medium hover:underline", tone === "red" ? "text-red" : "text-brass-ink")} title="Open this list">
-        {n}
-      </button>
-    ) : (
-      <span className="num text-line-2">0</span>
-    );
+  const [now] = useState(() => Date.now());
+  const banks = useMemo(() => coldBankPeople(contacts, now), [contacts, now]);
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (k: string) =>
+    setOpen((x) => {
+      const n = new Set(x);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
 
+  if (!banks.length) return <Empty title="Nobody emailed yet">Banks show up here once you&apos;ve emailed someone there.</Empty>;
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-      <Card className="overflow-hidden">
-        <div className="border-b border-line px-4 py-2.5">
-          <h3 className="text-[14px] font-semibold text-ink">By bank</h3>
-          <p className="text-[12px] text-muted">
-            {totals.due} follow-up{totals.due === 1 ? "" : "s"} due across {shown.filter((r) => r.due).length} bank{shown.filter((r) => r.due).length === 1 ? "" : "s"} · {totals.scheduled} scheduled · {totals.cold} went cold
-          </p>
-        </div>
-        {!shown.length ? (
-          <Empty title="Nothing waiting on you">Banks show up here once you&apos;ve emailed someone there.</Empty>
-        ) : (
-          <div className="max-h-[70vh] overflow-auto">
-            <table className="w-full min-w-[560px] text-[13px]">
-              <thead className="sticky top-0 z-10 bg-subtle text-left text-[12px] text-muted">
-                <tr className="border-b border-line">
-                  <th className="px-4 py-2 font-semibold">Bank</th>
-                  {COLS.map((c) => (
-                    <th key={c.k} className="px-3 py-2 text-right font-semibold" title={c.hint}>
-                      {c.label}
-                    </th>
+    <Card className="overflow-hidden">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line bg-subtle px-4 py-1.5 text-[12px] font-semibold text-muted sm:grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)_6rem]">
+        <span>Bank</span>
+        <span className="hidden text-right sm:block">Emailed</span>
+        <span className="hidden text-right sm:block">Waiting</span>
+        <span className="hidden text-right sm:block">Replied</span>
+        <span className="text-right">Last email</span>
+      </div>
+      <ul className="max-h-[70vh] divide-y divide-line overflow-auto">
+        {banks.map((b) => {
+          const isOpen = open.has(b.key);
+          return (
+            <li key={b.key}>
+              <button
+                type="button"
+                onClick={() => toggle(b.key)}
+                aria-expanded={isOpen}
+                className="grid h-9 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 text-left text-[13px] hover:bg-subtle sm:grid-cols-[minmax(0,1fr)_repeat(3,5.5rem)_6rem]"
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {isOpen ? <ChevronDown className="size-4 shrink-0 text-muted" /> : <ChevronRight className="size-4 shrink-0 text-muted" />}
+                  <span className="truncate font-semibold text-ink">{b.bank}</span>
+                  <span className="text-[12px] text-muted sm:hidden">
+                    · {b.emailed} emailed{b.replied ? ` · ${b.replied} replied` : ""}
+                  </span>
+                </span>
+                <span className="num hidden text-right sm:block">{b.emailed}</span>
+                <span className="num hidden text-right text-ink-2 sm:block">{b.waiting || <span className="text-line-2">0</span>}</span>
+                <span className="num hidden text-right sm:block">{b.replied ? <span className="text-green">{b.replied}</span> : <span className="text-line-2">0</span>}</span>
+                <span className="num text-right text-[12px] text-muted">{md(b.lastAt)}</span>
+              </button>
+              {isOpen && (
+                <div className="border-t border-line bg-subtle/60 pb-2">
+                  <div className="flex items-center gap-2 px-10 pt-2 text-[12px]">
+                    <Link href={`/bank?key=${encodeURIComponent(b.key)}`} className="font-medium text-brass-ink hover:underline">
+                      Open {b.bank}
+                    </Link>
+                  </div>
+                  {b.teams.map((t) => (
+                    <div key={t.label} className="px-10 pt-2">
+                      <div className="text-[12px] font-semibold text-muted">{t.label}</div>
+                      <ul>
+                        {t.people.map((p) => (
+                          <li key={p.c.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1 text-[13px]">
+                            <Link href={`/person?id=${encodeURIComponent(p.c.id)}`} className="min-w-[140px] font-medium text-ink hover:text-brass-ink hover:underline">
+                              {p.c.name}
+                            </Link>
+                            <span className="min-w-[90px] text-[12px] text-muted">{p.c.position || ""}</span>
+                            <span className={cn("min-w-[150px] text-[12px]", TONE[p.tone])}>{p.state}</span>
+                            <PersonLinks c={p.c} />
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {shown.map((r) => (
-                  <tr key={r.key} className="h-9 hover:bg-subtle">
-                    <td className="max-w-[240px] truncate px-4">
-                      <Link href={`/bank?key=${encodeURIComponent(r.key)}`} className="font-semibold text-ink hover:text-brass-ink hover:underline">
-                        {r.bank}
-                      </Link>
-                    </td>
-                    {COLS.map((c) => (
-                      <td key={c.k} className="px-3 text-right">
-                        {num(r[c.k], c.view, r.key, c.k === "due" ? "red" : undefined)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="sticky bottom-0 bg-subtle text-[13px]">
-                <tr className="h-9 border-t border-line-2">
-                  <td className="px-4 font-semibold text-ink">Total</td>
-                  {COLS.map((c) => (
-                    <td key={c.k} className="px-3 text-right">
-                      {num(totals[c.k], c.view, undefined, c.k === "due" ? "red" : undefined)}
-                    </td>
-                  ))}
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </Card>
-      <FollowupCalendar contacts={contacts} />
-    </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }

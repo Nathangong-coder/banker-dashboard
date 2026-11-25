@@ -130,7 +130,7 @@ export function bankWork(args: {
   if (list.confirm.length) add("confirm", `Confirm an intro from ${firstNames(list.confirm)}`, list.confirm, "/followups");
   if (list.follow_up.length) add("follow_up", `Follow up with ${firstNames(list.follow_up)}`, list.follow_up, "/followups");
   if (list.send.length) add("send", `Send ${list.send.length} draft${list.send.length > 1 ? "s" : ""} (${firstNames(list.send)})`, list.send, `/drafts?bank=${enc(name)}&status=drafted`);
-  if (list.check_in.length) add("check_in", `Nudge / check in with ${firstNames(list.check_in)}`, list.check_in, "/think?tab=quiet");
+  if (list.check_in.length) add("check_in", `Nudge / check in with ${firstNames(list.check_in)}`, list.check_in, "/think");
   if (list.move_on.length) add("move_on", `Move on from ${firstNames(list.move_on)}?`, list.move_on, "/followups");
 
   // Suggestions: the next person with an open slot on their desk (cap per desk), else emails to find, else people.

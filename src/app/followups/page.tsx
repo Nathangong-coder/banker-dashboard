@@ -8,7 +8,8 @@ import { CalendarClock, Check, ChevronDown, Clock, MailPlus, MessageSquare, Refr
 import { bankKey, useStore } from "@/lib/store";
 import { canonBank } from "@/lib/banks";
 import { isVpPlus } from "@/lib/seniority";
-import { STALE_AFTER_DAYS, nextAction, pendingFollowUpDraft, sendLabel, type NextAction } from "@/lib/followups";
+import { STALE_AFTER_DAYS, followUpKey, nextAction, pendingFollowUpDraft, sendLabel, type NextAction } from "@/lib/followups";
+import { dismissNudge } from "@/lib/nudgeActions";
 import { nextSendSlot, windowLabel, windowOf } from "@/lib/sendWindow";
 import { connectGmail, deleteDraft, gmailConnected, upsertDraft } from "@/lib/gmail";
 import { notePixelDraft, pixelFor } from "@/lib/trackingActions";
@@ -24,7 +25,7 @@ import { gmailSearchUrl } from "@/lib/gmailLinks";
 
 /** "Tue 11/24, 9:07 AM" (your time). */
 const whenLabel = (iso: string) => new Date(iso).toLocaleString("en-US", { weekday: "short", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
-import { ObjectHeader, Tabs } from "@/components/crm";
+import { ObjectHeader } from "@/components/crm";
 import { IceCube } from "@/components/AppNav";
 import { ContactModal } from "@/components/ContactModal";
 import { aiReady, googleClientId } from "@/lib/keys";
@@ -40,18 +41,13 @@ import { BatchSchedule } from "@/components/BatchSchedule";
 import { Cell, ListTable, NameCell, Notice, Row, RowActions, RowCheckbox } from "@/components/FollowupsUi";
 import { OpenBadge } from "@/components/OpenBadge";
 import { ColdOverview } from "@/components/ColdOverview";
+import { FollowupCalendar } from "@/components/FollowupCalendar";
 import { HandoffPanel } from "@/components/HandoffPanel";
 import { addToHandoff } from "@/lib/handoffActions";
 
-type Tab = "overview" | "queue";
 
 export default function FollowupsPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>(() => {
-    // Overview first (owner, 2026-11-23); a link with ?view= / ?bank= (from the overview's counts) opens the queue.
-    const q = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
-    return q?.get("tab") === "queue" || q?.get("view") || q?.get("bank") ? "queue" : "overview";
-  });
   // Reminders moved to its own page (owner, 2026-11-23); old links and Google's return (?server=…) land there.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -88,9 +84,7 @@ export default function FollowupsPage() {
     <>
       <ObjectHeader
         icon={<IceCube className="size-5" />}
-        eyebrow="Follow-ups · people who haven't replied yet"
         title="Cold outreach"
-        meta={`Follow up ${s.settings.followUp.firstAfterDays} days after the first email, up to ${s.settings.followUp.maxFollowUps} times, then move on.`}
         actions={
           <>
             <SendModeMenu onAuto={toReminders} />
@@ -107,27 +101,12 @@ export default function FollowupsPage() {
         }
       />
 
-      <Tabs
-        className="my-3"
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          { id: "overview", label: "Overview" },
-          { id: "queue", label: "Queue" },
-        ]}
-      />
-
-      {tab === "overview" && (
-        <ColdOverview
-          onOpen={(view, bank) => {
-            setQueue({ view, bank, n: queue.n + 1 });
-            setTab("queue");
-          }}
-        />
-      )}
-      {tab === "queue" && (
+      {/* One page, no tabs (owner, 2026-11-24): who you emailed by bank, the calendar, then what to send. */}
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-3">
+        <ColdOverview />
+        <FollowupCalendar contacts={s.contacts} mode="cold" />
         <DueList key={queue.n} initialView={queue.view} bank={queue.bank} onClearBank={() => setQueue({ view: queue.view, n: queue.n + 1 })} onOpen={setOpen} onSync={runSync} syncing={!!sync} onAuto={toReminders} />
-      )}
+      </div>
 
       <ContactModal contact={open} onClose={() => setOpen(null)} />
     </>
@@ -493,6 +472,11 @@ function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, o
     };
     const repliedItem = { label: "Replied", hint: "They wrote back: no more follow-ups", icon: <MessageSquare />, onClick: () => act.replied(c) };
     const snooze = { label: "Snooze 3 days", icon: <Clock />, onClick: () => act.snooze(c, 3) };
+    // "This nudge is wrong" (owner, 2026-11-24): off Due, To-do and the 9 PM text until the next email either way.
+    const fuKey = followUpKey(c);
+    const dismiss = fuKey
+      ? { label: "Dismiss (not needed)", hint: "Off this list, To-do and the 9 PM text until the next email either way", icon: <X />, onClick: () => (dismissNudge(c, fuKey), toast.ok(`${c.name}: dismissed.`)) }
+      : null;
     return (
       <Row key={c.id} selected={sel.has(c.id)}>
         <Cell shrink>
@@ -597,7 +581,7 @@ function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, o
                 <Button size="sm" onClick={() => act.moveOn(c)} icon={<UserX className="size-3.5" />}>
                   Move on
                 </Button>
-                <Menu label={`More for ${c.name}`} items={[repliedItem, snooze]} />
+                <Menu label={`More for ${c.name}`} items={[repliedItem, snooze, dismiss]} />
               </>
             )}
           </RowActions>
@@ -612,11 +596,6 @@ function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, o
     ["scheduled", "Scheduled", sRows.length],
   ];
 
-  const caption: Record<View, string> = {
-    due: `Emailed ${settings.followUp.firstAfterDays}+ days ago with no reply. Overdue first.`,
-    drafted: auto ? "First emails written but not sent. Schedule sends each one at the person's slot." : "First emails written but not sent or scheduled. Send or schedule them in Gmail, then sync.",
-    scheduled: "Going out by themselves (Gmail Schedule send, or sent by Coverage). Follow-ups are timed from when each one actually goes out.",
-  };
   const sideTitle: Record<NonNullable<Side>, [string, string]> = {
     offsheet: ["Emailed, not in your tracker", "Bankers you emailed at their work address who have no row in your tracker (e.g. a thank-you sent right after an info session). Add them so follow-ups are timed."],
     replace: ["Needs a new contact", "Bounced emails, people who left, and clear no's: no follow-ups go to them, and their desk gets someone new."],
@@ -794,7 +773,7 @@ function DueList({ onOpen, onSync, syncing, onAuto, initialView = "due", bank, o
           <div className="flex-1" />
           <div className="flex flex-wrap items-center gap-1.5">{toolbarAction}</div>
         </div>
-        <p className="border-b border-line px-4 py-2 text-[12px] text-muted">{caption[shownView]}</p>
+
 
         {shownView === "due" &&
           (behind.length === 0 && !upcoming.length && !cold.length ? (

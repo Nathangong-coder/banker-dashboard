@@ -5,9 +5,10 @@ import { ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, ExternalLink, U
 import Link from "@/components/Link";
 import { Button, Card } from "@/components/ui";
 import { PersonLinks } from "@/components/PersonLinks";
-import { useStore } from "@/lib/store";
 import { cn } from "@/lib/util";
 import { calendarDays, dayKey } from "@/lib/followupsOverview";
+import { todoFor } from "@/lib/thinkAbout";
+import { dismissNudge } from "@/lib/nudgeActions";
 import { dayLinks } from "@/lib/gmailLinks";
 import type { Contact } from "@/lib/types";
 
@@ -18,13 +19,13 @@ import type { Contact } from "@/lib/types";
  */
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function FollowupCalendar({ contacts }: { contacts: Contact[] }) {
+export function FollowupCalendar({ contacts, mode = "cold" }: { contacts: Contact[]; mode?: "cold" | "warm" }) {
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
   const [picked, setPicked] = useState<string | null>(null);
-  const days = useMemo(() => calendarDays(contacts, month), [contacts, month]);
+  const days = useMemo(() => calendarDays(contacts, month, undefined, mode), [contacts, month, mode]);
   const today = dayKey(new Date());
 
   // The grid: from the Sunday on or before the 1st to the Saturday on or after the last day.
@@ -57,10 +58,10 @@ export function FollowupCalendar({ contacts }: { contacts: Contact[] }) {
         </div>
         <div className="flex basis-full flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted">
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2.5 rounded-sm bg-green-soft ring-1 ring-green/40" aria-hidden="true" /> You emailed, no reply yet
+            <span className="size-2.5 rounded-sm bg-green-soft ring-1 ring-green/40" aria-hidden="true" /> {mode === "warm" ? "You had a chat" : "Your latest email, no reply yet"}
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2.5 rounded-sm bg-red-soft ring-1 ring-red/40" aria-hidden="true" /> They wrote, you haven&apos;t answered
+            <span className="size-2.5 rounded-sm bg-red-soft ring-1 ring-red/40" aria-hidden="true" /> {mode === "warm" ? "No follow-up yet / needs a check-in" : "They wrote, you haven't answered"}
           </span>
         </div>
       </div>
@@ -86,7 +87,7 @@ export function FollowupCalendar({ contacts }: { contacts: Contact[] }) {
               onClick={() => setPicked(picked === k ? null : k)}
               disabled={!g && !r}
               className={cn(
-                "flex min-h-14 flex-col items-start gap-0.5 px-1.5 py-1 text-left transition-colors",
+                "flex min-h-11 flex-col items-start gap-0.5 px-1.5 py-1 text-left transition-colors",
                 r ? "bg-red-soft" : g ? "bg-green-soft" : "bg-panel",
                 (g || r) && "hover:brightness-95",
                 picked === k && "outline-2 -outline-offset-2 outline-brass-strong",
@@ -94,26 +95,27 @@ export function FollowupCalendar({ contacts }: { contacts: Contact[] }) {
               )}
             >
               <span className={cn("num text-[12px]", k === today ? "rounded-sm bg-ink px-1 font-semibold text-panel" : "text-ink-2")}>{d.getDate()}</span>
-              {g > 0 && <span className="num text-[11px] font-medium text-green">{g} sent</span>}
-              {r > 0 && <span className="num text-[11px] font-medium text-red">{r} to answer</span>}
+              {g > 0 && <span className="num text-[11px] font-medium text-green">{g} {mode === "warm" ? (g === 1 ? "chat" : "chats") : "sent"}</span>}
+              {r > 0 && <span className="num text-[11px] font-medium text-red">{r} {mode === "warm" ? "to follow up" : "to answer"}</span>}
             </button>
           );
         })}
       </div>
-      {picked && sel && <DayPanel day={picked} v={sel} />}
+      {picked && sel && <DayPanel day={picked} v={sel} mode={mode} />}
     </Card>
   );
 }
 
-function DayPanel({ day, v }: { day: string; v: { green: Contact[]; red: Contact[] } }) {
-  const updateContact = useStore((s) => s.updateContact);
-  // The last "No reply needed" here, so it can be undone in place.
-  const [undo, setUndo] = useState<{ id: string; name: string; prev?: string } | null>(null);
+function DayPanel({ day, v, mode }: { day: string; v: { green: Contact[]; red: Contact[] }; mode: "cold" | "warm" }) {
+  // The last "Not needed" here, so it can be undone in place.
+  const [undo, setUndo] = useState<{ name: string; run: () => void } | null>(null);
   const date = new Date(`${day}T12:00:00`);
   const links = dayLinks(date, { to: v.green.map((c) => c.email).filter(Boolean), from: v.red.map((c) => c.email).filter(Boolean) });
+  // Same as everywhere: dismisses this exact nudge (lib/nudgeActions.ts); it comes back after the next email either way.
   const noReply = (c: Contact) => {
-    setUndo({ id: c.id, name: c.name, prev: c.handledAt });
-    updateContact(c.id, { handledAt: new Date().toISOString() }, { at: new Date().toISOString(), type: "note", note: "No reply needed (calendar)" });
+    const t = todoFor(c, Date.now());
+    if (!t) return;
+    setUndo({ name: c.name, run: dismissNudge(c, t.key) });
   };
   const person = (c: Contact, red: boolean) => (
     <li key={`${red ? "r" : "g"}${c.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
@@ -125,12 +127,14 @@ function DayPanel({ day, v }: { day: string; v: { green: Contact[]; red: Contact
           {c.name}
         </Link>
         <span className="text-muted"> · {c.bank}</span>
-        <span className="block text-[12px] text-muted">{red ? "Wrote you; you haven't answered" : "You emailed; no reply yet"}</span>
+        <span className="block text-[12px] text-muted">
+          {mode === "warm" ? (red ? "Talked; no follow-up yet, or time to check in" : "You talked") : red ? "Wrote you; you haven't answered" : "Your latest email; no reply yet"}
+        </span>
       </span>
       <PersonLinks c={c} />
       {red && (
-        <Button size="sm" variant="secondary" onClick={() => noReply(c)} title="Off the red days, Warm follow-ups and the 9 PM text until they write again">
-          No reply needed
+        <Button size="sm" variant="secondary" onClick={() => noReply(c)} title="Off the red days, the lists and the 9 PM text until the next email either way">
+          Not needed
         </Button>
       )}
     </li>
@@ -150,12 +154,12 @@ function DayPanel({ day, v }: { day: string; v: { green: Contact[]; red: Contact
       </div>
       {undo && (
         <div className="mx-4 mb-2 flex items-center gap-2 rounded bg-subtle px-3 py-1.5 text-[12px] text-ink-2">
-          {undo.name}: marked no reply needed.
+          {undo.name}: dismissed.
           <button
             type="button"
             className="ml-auto inline-flex items-center gap-1 font-medium text-brass-ink hover:underline"
             onClick={() => {
-              updateContact(undo.id, { handledAt: undo.prev });
+              undo.run();
               setUndo(null);
             }}
           >

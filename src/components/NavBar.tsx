@@ -128,7 +128,7 @@ function NewMenu() {
           { label: "Person", hint: "Add a banker to your tracker", icon: <UserPlus />, onClick: () => setAdding(true) },
           { label: "Calendar invite", hint: "Put a chat on your calendar and invite them", icon: <CalendarPlus />, onClick: () => setInviting(true) },
           { label: "Chat log", hint: "Notes from a call or coffee chat", icon: <NotebookPen />, onClick: () => router.push("/log?new=1") },
-          { label: "Reminder", hint: "\"Reach out in January\"", icon: <BellPlus />, onClick: () => router.push("/think?tab=reminders") },
+          { label: "Reminder", hint: "\"Reach out in January\"", icon: <BellPlus />, onClick: () => router.push("/todo?new=reminder") },
           "divider",
           { label: "Find people", hint: "Search for bankers at a firm", icon: <Search />, onClick: () => router.push("/find") },
         ]}

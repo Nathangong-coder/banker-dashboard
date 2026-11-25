@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { BellRing, MessagesSquare, Tags, BriefcaseBusiness, Building2, CalendarDays, Coffee, FileText, Flame, FlaskConical, Home, LayoutGrid, Mail, MailCheck, NotebookPen, Presentation, Search, Settings2, Sheet, Workflow, Wrench } from "lucide-react";
+import { BellRing, ListTodo, MessagesSquare, Tags, BriefcaseBusiness, Building2, CalendarDays, Coffee, FileText, Flame, FlaskConical, Home, LayoutGrid, Mail, MailCheck, NotebookPen, Presentation, Search, Settings2, Sheet, Workflow, Wrench } from "lucide-react";
 
 /** An ice cube (owner, 2026-11-22: "cold outreach" with an ice-cube logo); lucide has none. Same API as a lucide icon. */
 export function IceCube({ className }: { className?: string }) {
@@ -27,6 +27,7 @@ export const NAV: NavCategory[] = [
     label: "Follow-ups",
     icon: IceCube,
     pages: [
+      { href: "/todo", label: "To-do", icon: ListTodo, hint: "Everything that needs you, cold and warm, by when it's due" },
       { href: "/followups", label: "Cold outreach", icon: IceCube, hint: "Follow up on emails with no reply yet" },
       { href: "/think", label: "Warm follow-ups", icon: Flame, hint: "Replies, thank-yous and check-ins with people you've talked to" },
       { href: "/ongoing", label: "Ongoing threads", icon: MessagesSquare, hint: "Every live conversation, and what's already scheduled to go out" },

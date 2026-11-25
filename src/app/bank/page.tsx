@@ -214,7 +214,7 @@ function Bank() {
             <p className="mt-2 text-[12px] text-muted">Counted when your calendar and a thank-you email agree, or you logged / confirmed it.</p>
           </RelatedCard>
           {checks.length > 0 && (
-            <RelatedCard title="Chats to confirm" icon={<MessageSquareText />} count={checks.length} footer={<Link href="/think?tab=chats" className="text-brass-ink hover:underline">Confirm them</Link>}>
+            <RelatedCard title="Chats to confirm" icon={<MessageSquareText />} count={checks.length} footer={<Link href="/todo" className="text-brass-ink hover:underline">Confirm them</Link>}>
               <ul className="grid gap-1.5 text-[13px]">
                 {checks.map(({ c, r }) => (
                   <li key={`${c.id}|${r.day}`}>
